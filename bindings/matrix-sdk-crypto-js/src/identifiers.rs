@@ -88,6 +88,109 @@ impl DeviceId {
     }
 }
 
+/// A Matrix device key ID.
+///
+/// A key algorithm and a device ID, combined with a ‘:’.
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct DeviceKeyId {
+    pub(crate) inner: ruma::OwnedDeviceKeyId,
+}
+
+impl From<ruma::OwnedDeviceKeyId> for DeviceKeyId {
+    fn from(inner: ruma::OwnedDeviceKeyId) -> Self {
+        Self { inner }
+    }
+}
+
+#[wasm_bindgen]
+impl DeviceKeyId {
+    /// Parse/validate and create a new `DeviceKeyId`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: String) -> Result<DeviceKeyId, JsError> {
+        Ok(Self::from(ruma::DeviceKeyId::parse(id.as_str())?))
+    }
+
+    /// Returns key algorithm of the device key ID.
+    #[wasm_bindgen(getter)]
+    pub fn algorithm(&self) -> DeviceKeyAlgorithm {
+        self.inner.algorithm().into()
+    }
+
+    /// Returns device ID of the device key ID.
+    #[wasm_bindgen(getter, js_name = "deviceId")]
+    pub fn device_id(&self) -> DeviceId {
+        self.inner.device_id().to_owned().into()
+    }
+
+    /// Return the device key ID as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+/// The basic key algorithms in the specification.
+#[wasm_bindgen]
+pub struct DeviceKeyAlgorithm {
+    inner: ruma::DeviceKeyAlgorithm,
+}
+
+impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithm {
+    fn from(inner: ruma::DeviceKeyAlgorithm) -> Self {
+        Self { inner }
+    }
+}
+
+#[wasm_bindgen]
+impl DeviceKeyAlgorithm {
+    /// Read the device key algorithm's name. If the name is
+    /// `Unknown`, one may be interested by the `to_string` method to
+    /// read the original name.
+    #[wasm_bindgen(getter)]
+    pub fn name(&self) -> DeviceKeyAlgorithmName {
+        self.inner.clone().into()
+    }
+
+    /// Return the device key algorithm as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+/// The basic key algorithm names in the specification.
+#[wasm_bindgen]
+pub enum DeviceKeyAlgorithmName {
+    /// The Ed25519 signature algorithm.
+    Ed25519,
+
+    /// The Curve25519 ECDH algorithm.
+    Curve25519,
+
+    /// The Curve25519 ECDH algorithm, but the key also contains
+    /// signatures.
+    SignedCurve25519,
+
+    /// An unknown device key algorithm.
+    Unknown,
+}
+
+impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithmName {
+    fn from(value: ruma::DeviceKeyAlgorithm) -> Self {
+        use ruma::DeviceKeyAlgorithm::*;
+
+        match value {
+            Ed25519 => Self::Ed25519,
+            Curve25519 => Self::Curve25519,
+            SignedCurve25519 => Self::SignedCurve25519,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// A Matrix [room ID].
 ///
 /// [room ID]: https://spec.matrix.org/v1.2/appendices/#room-ids-and-event-ids
