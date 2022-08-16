@@ -10,7 +10,7 @@ edition = "2021"
 file-logging = ["dep:log4rs"]
 
 [dependencies]
-tuirealm = "1.6"
+tuirealm = "~1.7.1"
 matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"] }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 structopt = "0.3"
@@ -21,7 +21,7 @@ tracing-flame = "0.2"
 tracing-subscriber = "0.3.15" 
 eyre = "0.6"
 
-tui-logger = { git = " https://github.com/gnunicorn/tui-logger", branch = "ben-update-deps" }
+tui-logger = "0.8.0"
 log = "0.4"
 
 # file-logging specials
