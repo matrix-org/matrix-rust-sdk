@@ -147,6 +147,7 @@ const VERSION_KEY: &str = "state-store-version";
 const ACCOUNT_DATA: &str = "account-data";
 const CUSTOM: &str = "custom";
 const SYNC_TOKEN: &str = "sync_token";
+const TXN_ID_KEY: &str = "appservice.txn_id";
 const DISPLAY_NAME: &str = "display-name";
 const INVITED_USER_ID: &str = "invited-user-id";
 const JOINED_USER_ID: &str = "joined-user-id";
@@ -572,6 +573,10 @@ impl SledStateStore {
         self.session.get(SYNC_TOKEN.encode())?.map(|t| self.deserialize_value(&t)).transpose()
     }
 
+    pub async fn get_transaction_id(&self) -> Result<Option<String>> {
+        self.session.get(TXN_ID_KEY.encode())?.map(|t| self.deserialize_value(&t)).transpose()
+    }
+
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
 
@@ -836,6 +841,13 @@ impl SledStateStore {
                 if let Some(s) = &changes.sync_token {
                     session.insert(
                         SYNC_TOKEN.encode(),
+                        self.serialize_value(s).map_err(ConflictableTransactionError::Abort)?,
+                    )?;
+                }
+
+                if let Some(s) = &changes.transaction_id {
+                    session.insert(
+                        TXN_ID_KEY.encode(),
                         self.serialize_value(s).map_err(ConflictableTransactionError::Abort)?,
                     )?;
                 }
@@ -1597,6 +1609,10 @@ impl StateStore for SledStateStore {
 
     async fn get_sync_token(&self) -> StoreResult<Option<String>> {
         self.get_sync_token().await.map_err(Into::into)
+    }
+
+    async fn get_transaction_id(&self) -> StoreResult<Option<String>> {
+        self.get_transaction_id().await.map_err(Into::into)
     }
 
     async fn get_presence_event(

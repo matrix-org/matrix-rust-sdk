@@ -751,10 +751,16 @@ impl BaseClient {
             device_unused_fallback_key_types,
             ..
         } = response;
-
-        // TODO: We could move handling the transaction token here instead of doing it
-        // earlier. This would bring the code into one place
-        if !transaction {
+        if transaction {
+            // The server might send multiple times the same transaction id, in
+            // that case we already received this transaction and there's nothing to
+            // do.
+            //
+            // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
+            if self.store.transaction_id.read().await.as_ref() == Some(next_batch) {
+                return Ok(SyncResponse::new(None));
+            }
+        } else {
             // The server might respond multiple times with the same sync token, in
             // that case we already received this response and there's nothing to
             // do.

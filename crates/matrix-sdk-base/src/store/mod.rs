@@ -158,6 +158,9 @@ pub trait StateStore: AsyncTraitDeps {
     /// Get the last stored sync token.
     async fn get_sync_token(&self) -> Result<Option<String>>;
 
+    /// Get the last stored transaction id.
+    async fn get_transaction_id(&self) -> Result<Option<String>>;
+
     /// Get the stored presence event for the given user.
     ///
     /// # Arguments
@@ -512,6 +515,8 @@ pub(crate) struct Store {
     pub(super) session_tokens: Mutable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
+    /// The current transaction token.
+    pub(super) transaction_id: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
 }
@@ -533,6 +538,7 @@ impl Store {
             session_meta: Default::default(),
             session_tokens: Default::default(),
             sync_token: Default::default(),
+            transaction_id: Default::default(),
             rooms: Default::default(),
             stripped_rooms: Default::default(),
         }
@@ -660,6 +666,8 @@ impl Deref for Store {
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
+    /// The transaction id that relates to this update.
+    pub transaction_id: Option<String>,
     /// A user session, containing an access token and information about the
     /// associated user account.
     pub session: Option<Session>,

@@ -65,6 +65,7 @@ use crate::{deserialized_responses::SyncTimelineEvent, StoreError};
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
+    transaction_id: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, SyncRoomMemberEvent>>>,
@@ -108,6 +109,7 @@ impl MemoryStore {
     pub fn new() -> Self {
         Self {
             sync_token: Default::default(),
+            transaction_id: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
             members: Default::default(),
@@ -149,11 +151,19 @@ impl MemoryStore {
         Ok(self.sync_token.read().unwrap().clone())
     }
 
+    async fn get_transaction_id(&self) -> Result<Option<String>> {
+        Ok(self.transaction_id.read().unwrap().clone())
+    }
+
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
 
         if let Some(s) = &changes.sync_token {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
+        }
+
+        if let Some(s) = &changes.transaction_id {
+            *self.transaction_id.write().unwrap() = Some(s.to_owned());
         }
 
         for (room, events) in &changes.members {
@@ -718,6 +728,10 @@ impl StateStore for MemoryStore {
 
     async fn get_sync_token(&self) -> Result<Option<String>> {
         self.get_sync_token().await
+    }
+
+    async fn get_transaction_id(&self) -> Result<Option<String>> {
+        self.get_transaction_id().await
     }
 
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {

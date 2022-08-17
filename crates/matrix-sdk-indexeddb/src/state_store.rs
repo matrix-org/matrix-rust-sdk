@@ -171,6 +171,7 @@ mod KEYS {
     pub const CUSTOM: &str = "custom";
 
     pub const SYNC_TOKEN: &str = "sync_token";
+    pub const TXN_ID_KEY: &str = "appservice.txn_id";
 
     /// All names of the state stores for convenience.
     pub const ALL_STORES: &[&str] = &[
@@ -562,9 +563,20 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
+    pub async fn get_transaction_id(&self) -> Result<Option<String>> {
+        self.inner
+            .transaction_on_one_with_mode(KEYS::TXN_ID_KEY, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::TXN_ID_KEY)?
+            .get(&JsValue::from_str(KEYS::TXN_ID_KEY))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()
+    }
+
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let mut stores: HashSet<&'static str> = [
             (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
+            (changes.transaction_id.is_some(), KEYS::TXN_ID_KEY),
             (changes.session.is_some(), KEYS::SESSION),
             (!changes.ambiguity_maps.is_empty(), KEYS::DISPLAY_NAMES),
             (!changes.account_data.is_empty(), KEYS::ACCOUNT_DATA),
@@ -632,6 +644,11 @@ impl IndexeddbStateStore {
         if let Some(s) = &changes.sync_token {
             tx.object_store(KEYS::SYNC_TOKEN)?
                 .put_key_val(&JsValue::from_str(KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
+        }
+
+        if let Some(s) = &changes.transaction_id {
+            tx.object_store(KEYS::TXN_ID_KEY)?
+                .put_key_val(&JsValue::from_str(KEYS::TXN_ID_KEY), &self.serialize_event(s)?)?;
         }
 
         if !changes.ambiguity_maps.is_empty() {
@@ -1521,6 +1538,10 @@ impl StateStore for IndexeddbStateStore {
 
     async fn get_sync_token(&self) -> StoreResult<Option<String>> {
         self.get_sync_token().await.map_err(|e| e.into())
+    }
+
+    async fn get_transaction_id(&self) -> StoreResult<Option<String>> {
+        self.get_transaction_id().await.map_err(|e| e.into())
     }
 
     async fn get_presence_event(
