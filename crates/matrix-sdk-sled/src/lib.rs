@@ -45,19 +45,19 @@ pub enum OpenStoreError {
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
-pub fn make_store_config(
+pub async fn make_store_config(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, OpenStoreError> {
     #[cfg(all(feature = "crypto-store", feature = "state-store"))]
     {
-        let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
+        let (state_store, crypto_store) = open_stores_with_path(path, passphrase).await?;
         Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
     }
 
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
-        let crypto_store = SledCryptoStore::open_with_passphrase(path, passphrase)?;
+        let crypto_store = SledCryptoStore::open_with_passphrase(path, passphrase).await?;
         Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 
@@ -78,7 +78,7 @@ pub fn make_store_config(
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same database and
 /// passphrase.
 #[cfg(all(feature = "state-store", feature = "crypto-store"))]
-fn open_stores_with_path(
+async fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
 ) -> Result<(SledStateStore, SledCryptoStore), OpenStoreError> {
@@ -90,6 +90,6 @@ fn open_stores_with_path(
     }
 
     let state_store = store_builder.build().map_err(StoreError::backend)?;
-    let crypto_store = state_store.open_crypto_store()?;
+    let crypto_store = state_store.open_crypto_store().await?;
     Ok((state_store, crypto_store))
 }

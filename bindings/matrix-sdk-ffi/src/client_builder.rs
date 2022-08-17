@@ -74,7 +74,7 @@ impl ClientBuilder {
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
 
-            inner_builder = inner_builder.sled_store(data_path, None)?;
+            inner_builder = RUNTIME.block_on(inner_builder.sled_store(data_path, None))?;
         }
 
         // Determine server either from URL, server name or user ID.

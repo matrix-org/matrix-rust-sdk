@@ -241,15 +241,6 @@ pub(crate) enum SupportedEventEncryptionSchemes<'a> {
 }
 
 impl SupportedEventEncryptionSchemes<'_> {
-    /// The Curve25519 key of the sender.
-    pub fn sender_key(&self) -> Curve25519PublicKey {
-        match self {
-            SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => c.sender_key,
-            #[cfg(feature = "experimental-algorithms")]
-            SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => c.sender_key,
-        }
-    }
-
     /// The ID of the session used to encrypt the message.
     pub fn session_id(&self) -> &str {
         match self {

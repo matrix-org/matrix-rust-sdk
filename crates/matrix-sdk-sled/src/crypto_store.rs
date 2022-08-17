@@ -47,7 +47,7 @@ use tracing::debug;
 use super::OpenStoreError;
 use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 // Table names that are used to derive a separate key for each tree. This ensure
 // that user ids encoded for different trees won't end up as the same byte
@@ -62,12 +62,11 @@ const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
 
 impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
-        (self.room_id(), self.sender_key().to_base64(), self.session_id()).encode()
+        (self.room_id(), self.session_id()).encode()
     }
 
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        (self.room_id(), self.sender_key().to_base64(), self.session_id())
-            .encode_secure(table_name, store_cipher)
+        (self.room_id(), self.session_id()).encode_secure(table_name, store_cipher)
     }
 }
 
@@ -209,7 +208,7 @@ impl std::fmt::Debug for SledCryptoStore {
 impl SledCryptoStore {
     /// Open the sled-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
-    pub fn open_with_passphrase(
+    pub async fn open_with_passphrase(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
@@ -222,18 +221,21 @@ impl SledCryptoStore {
             .transpose()?
             .map(Into::into);
 
-        SledCryptoStore::open_helper(db, Some(path), store_cipher)
+        SledCryptoStore::open_helper(db, Some(path), store_cipher).await
     }
 
     /// Create a sled-based crypto store using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_database(
+        db: Db,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
         let store_cipher = passphrase
             .map(|p| Self::get_or_create_store_cipher(p, &db))
             .transpose()?
             .map(Into::into);
 
-        SledCryptoStore::open_helper(db, None, store_cipher)
+        SledCryptoStore::open_helper(db, None, store_cipher).await
     }
 
     fn get_account_info(&self) -> Option<AccountInfo> {
@@ -298,7 +300,7 @@ impl SledCryptoStore {
         Ok(())
     }
 
-    fn upgrade(&self) -> Result<()> {
+    async fn upgrade(&self) -> Result<()> {
         let version = self
             .inner
             .get("store_version")
@@ -329,6 +331,23 @@ impl SledCryptoStore {
             self.secret_requests_by_info.clear().map_err(CryptoStoreError::backend)?;
         }
 
+        if version <= 5 {
+            // We changed how we store inbound group sessions, the key used to
+            // be a trippled of `(room_id, sender_key, session_id)` now it's a
+            // tuple of `(room_id, session_id)`
+            //
+            // This method gets all the sessions and doesn't touch the key.
+            let inbound_group_sessions = self.get_inbound_group_sessions().await?;
+
+            // Clear the tree that stores the inbound group sessions.
+            self.inbound_group_sessions.clear().map_err(CryptoStoreError::backend)?;
+
+            // Save all the sessions now, this will store them using the new
+            // tuple as the key.
+            let changes = Changes { inbound_group_sessions, ..Default::default() };
+            self.save_changes(changes).await?;
+        }
+
         self.inner
             .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
             .map_err(CryptoStoreError::backend)?;
@@ -357,7 +376,7 @@ impl SledCryptoStore {
         Ok(cipher)
     }
 
-    pub(crate) fn open_helper(
+    pub(crate) async fn open_helper(
         db: Db,
         path: Option<PathBuf>,
         store_cipher: Option<Arc<StoreCipher>>,
@@ -404,7 +423,7 @@ impl SledCryptoStore {
             identities,
         };
 
-        database.upgrade()?;
+        database.upgrade().await?;
 
         Ok(database)
     }
@@ -768,10 +787,9 @@ impl CryptoStore for SledCryptoStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, (room_id, sender_key, session_id));
+        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, (room_id, session_id));
         let pickle = self
             .inbound_group_sessions
             .get(&key)
@@ -1043,11 +1061,9 @@ mod tests {
     async fn get_store(name: &str, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        let store =
-            SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
-                .expect("Can't create a passphrase protected store");
-
-        store
+        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
+            .await
+            .expect("Can't create a passphrase protected store")
     }
 
     cryptostore_integration_tests!();
@@ -1067,11 +1083,9 @@ mod encrypted_tests {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
 
-        let store =
-            SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
-                .expect("Can't create a passphrase protected store");
-
-        store
+        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
+            .await
+            .expect("Can't create a passphrase protected store")
     }
     cryptostore_integration_tests!();
 }

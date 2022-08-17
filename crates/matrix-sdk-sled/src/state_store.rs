@@ -445,10 +445,10 @@ impl SledStateStore {
     ///
     /// The given passphrase will be used to encrypt private data.
     #[cfg(feature = "crypto-store")]
-    pub fn open_crypto_store(&self) -> Result<SledCryptoStore, OpenStoreError> {
+    pub async fn open_crypto_store(&self) -> Result<SledCryptoStore, OpenStoreError> {
         let db = self.inner.clone();
         let store_cipher = self.store_cipher.clone();
-        SledCryptoStore::open_helper(db, None, store_cipher)
+        SledCryptoStore::open_helper(db, None, store_cipher).await
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {

@@ -129,12 +129,12 @@ impl ClientBuilder {
     /// This is a shorthand for
     /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
     #[cfg(feature = "sled")]
-    pub fn sled_store(
+    pub async fn sled_store(
         self,
         path: impl AsRef<std::path::Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, matrix_sdk_sled::OpenStoreError> {
-        let config = matrix_sdk_sled::make_store_config(path, passphrase)?;
+        let config = matrix_sdk_sled::make_store_config(path, passphrase).await?;
         Ok(self.store_config(config))
     }
 
