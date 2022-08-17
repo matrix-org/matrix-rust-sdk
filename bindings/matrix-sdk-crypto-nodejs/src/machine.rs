@@ -63,16 +63,19 @@ impl OlmMachine {
         let user_id = user_id.clone();
         let device_id = device_id.clone();
 
-        let store = store_path
-            .map(|store_path| {
+        let store = if let Some(store_path) = store_path {
+            Some(
                 matrix_sdk_sled::SledCryptoStore::open_with_passphrase(
                     store_path,
                     store_passphrase.as_deref(),
                 )
+                .await
                 .map(Arc::new)
-                .map_err(into_err)
-            })
-            .transpose()?;
+                .map_err(into_err)?,
+            )
+        } else {
+            None
+        };
 
         store_passphrase.zeroize();
 

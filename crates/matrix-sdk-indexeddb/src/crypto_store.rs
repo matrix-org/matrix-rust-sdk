@@ -143,9 +143,11 @@ impl IndexeddbCryptoStore {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            if evt.old_version() < 1.0 {
+            let old_version = evt.old_version();
+
+            if old_version < 1.0 {
                 // migrating to version 1
                 let db = evt.db();
 
@@ -164,7 +166,19 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(KEYS::SECRET_REQUESTS_BY_INFO)?;
 
                 db.create_object_store(KEYS::BACKUP_KEYS)?;
+            } else if old_version < 1.1 {
+                // We changed how we store inbound group sessions, the key used to
+                // be a trippled of `(room_id, sender_key, session_id)` now it's a
+                // tuple of `(room_id, session_id)`
+                //
+                // Let's just drop the whole object store.
+
+                let db = evt.db();
+
+                db.delete_object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
+                db.create_object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
             }
+
             Ok(())
         }));
 
@@ -403,10 +417,8 @@ impl IndexeddbCryptoStore {
 
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
-                let sender_key = session.sender_key().to_base64();
                 let session_id = session.session_id();
-                let key = self
-                    .encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, sender_key, session_id));
+                let key = self.encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, session_id));
                 let pickle = session.pickle().await;
 
                 sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
@@ -664,10 +676,9 @@ impl IndexeddbCryptoStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, sender_key, session_id));
+        let key = self.encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, session_id));
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
@@ -962,10 +973,9 @@ impl CryptoStore for IndexeddbCryptoStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        self.get_inbound_group_session(room_id, sender_key, session_id).await.map_err(|e| e.into())
+        self.get_inbound_group_session(room_id, session_id).await.map_err(|e| e.into())
     }
 
     async fn get_inbound_group_sessions(

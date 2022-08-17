@@ -114,7 +114,11 @@ impl OlmMachine {
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = Arc::new(
-            matrix_sdk_sled::SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())
+            runtime
+                .block_on(matrix_sdk_sled::SledCryptoStore::open_with_passphrase(
+                    path,
+                    passphrase.as_deref(),
+                ))
                 .map_err(|e| {
                     match e {
                         // This is a bit of an error in the sled store, the

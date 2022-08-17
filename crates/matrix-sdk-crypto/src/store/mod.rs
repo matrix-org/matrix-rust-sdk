@@ -677,7 +677,6 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>>;
 

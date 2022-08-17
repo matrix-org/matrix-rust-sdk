@@ -185,8 +185,9 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let store = SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())?;
     let runtime = Runtime::new()?;
+    let store =
+        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);

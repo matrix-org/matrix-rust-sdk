@@ -1079,14 +1079,8 @@ impl OlmMachine {
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
-        if let Some(session) = self
-            .store
-            .get_inbound_group_session(
-                room_id,
-                &content.sender_key().to_base64(),
-                content.session_id(),
-            )
-            .await?
+        if let Some(session) =
+            self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
             // TODO check the message index.
             let (decrypted_event, _) = session.decrypt(event).await?;
@@ -1168,7 +1162,6 @@ impl OlmMachine {
                 debug!(
                     sender = event.sender.as_str(),
                     room_id = room_id.as_str(),
-                    sender_key = content.sender_key().to_base64(),
                     session_id = content.session_id(),
                     algorithm = %content.algorithm(),
                     "Failed to decrypt a room event, the room key is missing"
@@ -1177,7 +1170,6 @@ impl OlmMachine {
                 warn!(
                     sender = event.sender.as_str(),
                     room_id = room_id.as_str(),
-                    sender_key = content.sender_key().to_base64(),
                     session_id = content.session_id(),
                     algorithm = %content.algorithm(),
                     error = ?e,
@@ -1368,11 +1360,7 @@ impl OlmMachine {
                 Ok(session) => {
                     let old_session = self
                         .store
-                        .get_inbound_group_session(
-                            session.room_id(),
-                            &session.sender_key.to_base64(),
-                            session.session_id(),
-                        )
+                        .get_inbound_group_session(session.room_id(), session.session_id())
                         .await?;
 
                     // Only import the session if we didn't have this session or
@@ -2009,14 +1997,8 @@ pub(crate) mod tests {
             panic!("expected RoomKeyEvent found {:?}", event);
         }
 
-        let session = bob
-            .store
-            .get_inbound_group_session(
-                room_id,
-                &alice.account.identity_keys().curve25519.to_base64(),
-                alice_session.session_id(),
-            )
-            .await;
+        let session =
+            bob.store.get_inbound_group_session(room_id, alice_session.session_id()).await;
 
         assert!(session.unwrap().is_some());
     }
@@ -2376,14 +2358,7 @@ pub(crate) mod tests {
 
         bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
 
-        let session = bob
-            .store
-            .get_inbound_group_session(
-                room_id,
-                &alice.account.identity_keys().curve25519.to_base64(),
-                &session_id,
-            )
-            .await;
+        let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 
         assert!(session.unwrap().is_none());
     }

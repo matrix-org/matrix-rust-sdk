@@ -110,7 +110,7 @@ async fn login_and_sync(
     #[allow(unused_mut)]
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
     let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-    client_builder = client_builder.sled_store(home, None)?;
+    client_builder = client_builder.sled_store(home, None).await?;
     let client = client_builder.build().await?;
     client
         .login_username(username, password)

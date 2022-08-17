@@ -18,6 +18,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
     let client = Client::builder()
         .homeserver_url(homeserver_url)
         .sled_store("./", Some("some password"))
+        .await
         .unwrap()
         .build()
         .await
