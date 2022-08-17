@@ -2365,6 +2365,7 @@ dependencies = [
  "assign",
  "async-stream",
  "async-trait",
+ "cfg-if",
  "dashmap",
  "env_logger",
  "futures",

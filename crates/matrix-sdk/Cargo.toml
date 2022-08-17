@@ -38,7 +38,7 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso-login = ["warp", "dep:rand", "dep:tokio-stream"]
-appservice = ["ruma/appservice-api-s"]
+appservice = ["ruma/appservice-api-s", "matrix-sdk-base/appservice"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
