@@ -2455,6 +2455,8 @@ dependencies = [
  "once_cell",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
