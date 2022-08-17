@@ -336,10 +336,14 @@ impl IdentityManager {
 
         for device_id in deleted_devices_set {
             if user_id == *own_user_id && *device_id == &own_device_id {
+                let identity_keys = store.account().identity_keys();
+
                 warn!(
                     user_id = own_user_id.as_str(),
                     device_id = own_device_id.as_str(),
-                    "Our own device has been deleted"
+                    curve25519_key = %identity_keys.curve25519,
+                    ed25519_key = %identity_keys.ed25519,
+                    "Our own device might have been deleted"
                 );
             } else if let Some(device) = stored_devices.get(*device_id) {
                 device.mark_as_deleted();
