@@ -347,11 +347,9 @@ impl SlidingSync {
         for (view, updates) in views.iter().zip(resp.lists.iter()) {
             let count: u32 =
                 updates.count.try_into().expect("the list total count convertible into u32");
-            tracing::trace!("view {:?}  update: {:?}", view.name, updates.ops.is_some());
-            if let Some(ops) = &updates.ops {
-                if view.handle_response(count, ops)? {
-                    updated_views.push(view.name.clone());
-                }
+            tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
+            if !updates.ops.is_empty() && view.handle_response(count, &updates.ops)? {
+                updated_views.push(view.name.clone());
             }
         }
 
@@ -417,29 +415,21 @@ impl SlidingSync {
                     return
                 }
                 let pos = self.pos.get_cloned();
-                let mut req = assign!(v4::Request::new(), {
-                    pos: pos.as_deref(),
-                });
-                req.body.lists = requests;
-                req.body.room_subscriptions = {
-                    let subs = self.subscriptions.lock_ref().clone();
-                    if subs.is_empty() {
-                        None
-                    } else {
-                        Some(subs)
-                    }
-                };
-                req.body.unsubscribe_rooms = {
+                let room_subscriptions = self.subscriptions.lock_ref().clone();
+                let unsubscribe_rooms = {
                     let unsubs = self.unsubscribe.lock_ref().to_vec();
-                    if unsubs.is_empty() {
-                        None
-                    } else {
-                        // ToDo: we are clearing the list here pre-maturely
-                        // what if the following request fails?
+                    if !unsubs.is_empty() {
                         self.unsubscribe.lock_mut().clear();
-                        Some(unsubs)
                     }
+                    unsubs
                 };
+                let req = assign!(v4::Request::new(), {
+                    lists: requests,
+                    pos: pos.as_deref(),
+                    room_subscriptions,
+                    unsubscribe_rooms,
+                });
+
                 if cancel.get() {
                     return
                 }
@@ -474,10 +464,7 @@ impl SlidingSync {
 /// # block_on(async {
 /// # let homeserver = Url::parse("http://example.com")?;
 /// let client = Client::new(homeserver).await?;
-/// let sliding_sync = client
-///     .sliding_sync()
-///     .default_with_fullsync()
-///     .build()?;
+/// let sliding_sync = client.sliding_sync().default_with_fullsync().build()?;
 ///
 /// # }
 /// ```
@@ -502,7 +489,7 @@ pub struct SlidingSyncView {
 
     /// Any filters to apply to the query
     #[builder(default)]
-    filters: Option<Raw<v4::SyncRequestListFilters>>,
+    filters: Option<v4::SyncRequestListFilters>,
 
     /// The macimum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
@@ -640,15 +627,15 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         SlidingSyncViewRequestGenerator { view, inner: InnerSlidingSyncViewRequestGenerator::Live }
     }
 
-    fn prefetch_request(&self, start: u32, batch_size: u32) -> (u32, Raw<v4::SyncRequestList>) {
+    fn prefetch_request(&self, start: u32, batch_size: u32) -> (u32, v4::SyncRequestList) {
         let end = start + batch_size;
         let ranges = vec![(start.into(), end.into())];
         (end, self.make_request_for_ranges(ranges))
     }
 
-    fn make_request_for_ranges(&self, ranges: Vec<(UInt, UInt)>) -> Raw<v4::SyncRequestList> {
-        let sort = Some(self.view.sort.clone());
-        let required_state = Some(self.view.required_state.clone());
+    fn make_request_for_ranges(&self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
+        let sort = self.view.sort.clone();
+        let required_state = self.view.required_state.clone();
         let timeline_limit = self
             .view
             .timeline_limit
@@ -656,25 +643,24 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
             .map(|v| v.try_into().expect("u32 always fits into UInt"));
         let filters = self.view.filters.clone();
 
-        Raw::new(&assign!(v4::SyncRequestList::default(), {
+        assign!(v4::SyncRequestList::default(), {
             ranges,
             required_state,
             sort,
             timeline_limit,
             filters,
-        }))
-        .expect("Generting request data doesn't fail")
+        })
     }
 
     // generate the next live request
-    fn live_request(&self) -> Raw<v4::SyncRequestList> {
+    fn live_request(&self) -> v4::SyncRequestList {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
 }
 
 impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = Raw<v4::SyncRequestList>;
+    type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let InnerSlidingSyncViewRequestGenerator::FullSync(cur_pos, _) = self.inner {
@@ -801,10 +787,7 @@ impl SlidingSyncView {
                         .context("`range` must be present for Sync and Update operation")?
                         .0
                         .try_into()?;
-                    let room_ids = op
-                        .room_ids
-                        .clone()
-                        .context("`room_ids` must be present for Sync and Update Operation")?;
+                    let room_ids = op.room_ids.clone();
                     room_ids
                         .into_iter()
                         .enumerate()
