@@ -38,6 +38,7 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
+use mime::{self, Mime};
 use ruma::{
     api::{
         client::{
@@ -255,9 +256,6 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `transaction_id` - The id of the transaction, used to guard against
-    ///   the same transaction being sent twice. This guarding currently isn't
-    ///   implemented.
     /// * `sync_response` - The sync response converted from a transaction
     ///   received from the homeserver.
     ///
@@ -265,7 +263,6 @@ impl Client {
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        transaction_id: &TransactionId,
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
         self.process_sync(sync_response, true).await?;

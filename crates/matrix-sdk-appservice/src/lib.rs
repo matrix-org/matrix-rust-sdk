@@ -488,7 +488,7 @@ impl AppService {
                         None => debug!("Assuming {virtual_user_localpart} is not in {room_id}"),
                     }
                 }
-                virtual_user_client.receive_transaction(&transaction.txn_id, response).await?;
+                virtual_user_client.receive_transaction(response).await?;
                 Ok::<_, Error>(())
             });
 
