@@ -723,6 +723,11 @@ impl StateChanges {
         Self { sync_token, ..Default::default() }
     }
 
+    /// Create a new `StateChanges` struct with the given transaction_id.
+    pub fn new_transaction(transaction_id: Option<String>) -> Self {
+        Self { transaction_id, ..Default::default() }
+    }
+
     /// Update the `StateChanges` struct with the given `PresenceEvent`.
     pub fn add_presence_event(&mut self, event: PresenceEvent, raw_event: Raw<PresenceEvent>) {
         self.presence.insert(event.sender, raw_event);

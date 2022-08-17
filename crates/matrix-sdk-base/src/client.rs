@@ -793,7 +793,7 @@ impl BaseClient {
         let mut changes = if !transaction {
             StateChanges::new(Some(next_batch.clone()))
         } else {
-            StateChanges::new(None)
+            StateChanges::new_transaction(Some(next_batch.clone()))
         };
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
@@ -842,7 +842,9 @@ impl BaseClient {
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         self.store.save_changes(&changes).await?;
-        if !transaction {
+        if transaction {
+            *self.store.transaction_id.write().await = Some(next_batch.clone());
+        } else {
             *self.store.sync_token.write().await = Some(next_batch.clone());
         }
         self.apply_changes(&changes).await;
