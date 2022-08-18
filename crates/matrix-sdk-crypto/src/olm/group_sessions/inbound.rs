@@ -272,7 +272,7 @@ impl InboundGroupSession {
             self.inner.lock().await.export_at(message_index).expect("Can't export session");
 
         ExportedRoomKey {
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm: self.algorithm().to_owned(),
             room_id: (*self.room_id).to_owned(),
             sender_key: self.sender_key,
             session_id: self.session_id().to_owned(),
