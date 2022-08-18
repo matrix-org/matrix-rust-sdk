@@ -20,13 +20,14 @@ use dashmap::{DashMap, DashSet};
 pub(crate) use machine::GossipMachine;
 use ruma::{
     events::{
-        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEventContent},
+        room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
         secret::request::{
             RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
             ToDeviceSecretRequestEventContent as SecretRequestEventContent,
         },
-        AnyToDeviceEventContent,
+        AnyToDeviceEventContent, ToDeviceEventType,
     },
+    serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
@@ -36,7 +37,9 @@ use tracing::error;
 
 use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
-    types::events::room_key_request::{RoomKeyRequestEvent, SupportedKeyInfo},
+    types::events::room_key_request::{
+        RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo,
+    },
     Device,
 };
 
@@ -132,44 +135,41 @@ impl GossipRequest {
     }
 
     fn to_request(&self, own_device_id: &DeviceId) -> OutgoingRequest {
-        let content = match &self.info {
+        let request = match &self.info {
             SecretInfo::KeyRequest(r) => {
-                let info = match r {
-                    SupportedKeyInfo::MegolmV1AesSha2(c) => RequestedKeyInfo::new(
-                        ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
-                        c.room_id.to_owned(),
-                        c.sender_key.to_base64(),
-                        c.session_id.to_owned(),
-                    ),
-                    #[cfg(feature = "experimental-algorithms")]
-                    #[allow(clippy::todo)]
-                    SupportedKeyInfo::MegolmV2AesSha2(_) => {
-                        todo!("Requesting megolm.v2 room keys is not supported yet")
-                    }
-                };
-
-                AnyToDeviceEventContent::RoomKeyRequest(ToDeviceRoomKeyRequestEventContent::new(
-                    Action::Request,
-                    Some(info),
+                let content = RoomKeyRequestContent::new_request(
+                    r.clone().into(),
                     own_device_id.to_owned(),
+                    self.request_id.to_owned(),
+                );
+                let content = Raw::new(&content)
+                    .expect("We can always serialize a room key request info")
+                    .cast();
+
+                ToDeviceRequest::with_id_raw(
+                    &self.request_recipient,
+                    DeviceIdOrAllDevices::AllDevices,
+                    content,
+                    ToDeviceEventType::RoomKeyRequest,
                     self.request_id.clone(),
-                ))
+                )
             }
             SecretInfo::SecretRequest(s) => {
-                AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
-                    RequestAction::Request(s.clone()),
-                    own_device_id.to_owned(),
+                let content =
+                    AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
+                        RequestAction::Request(s.clone()),
+                        own_device_id.to_owned(),
+                        self.request_id.clone(),
+                    ));
+
+                ToDeviceRequest::with_id(
+                    &self.request_recipient,
+                    DeviceIdOrAllDevices::AllDevices,
+                    content,
                     self.request_id.clone(),
-                ))
+                )
             }
         };
-
-        let request = ToDeviceRequest::with_id(
-            &self.request_recipient,
-            DeviceIdOrAllDevices::AllDevices,
-            content,
-            self.request_id.clone(),
-        );
 
         OutgoingRequest { request_id: request.txn_id.clone(), request: Arc::new(request.into()) }
     }
