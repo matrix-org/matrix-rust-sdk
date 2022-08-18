@@ -3,9 +3,12 @@ use std::{borrow::Borrow, collections::BTreeMap};
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
-        sync::sync_events::v3::{
-            DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
-            State, ToDevice, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        sync::sync_events::{
+            v3::{
+                DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
+                State, ToDevice,
+            },
+            UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
     events::{
