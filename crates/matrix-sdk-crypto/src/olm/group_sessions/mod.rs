@@ -27,6 +27,8 @@ use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
 
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::forwarded_room_key::ForwardedMegolmV2AesSha2Content;
 use crate::types::{
     deserialize_curve_key, deserialize_curve_key_vec,
     events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
@@ -128,35 +130,50 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
     /// This will fail if the exported room key doesn't contain an Ed25519
     /// claimed sender key.
     fn try_from(room_key: ExportedRoomKey) -> Result<ForwardedRoomKeyContent, Self::Error> {
-        // The forwarded room key content only supports a single claimed sender
-        // key and it requires it to be a Ed25519 key. This here will be lossy
-        // conversion since we're dropping all other key types.
-        //
-        // This isn't yet a problem since no other key types exist, but still
-        // something that will need to be addressed sooner or later.
-        if let Some(SigningKey::Ed25519(claimed_ed25519_key)) =
-            room_key.sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519)
-        {
-            if room_key.algorithm == EventEncryptionAlgorithm::MegolmV1AesSha2 {
-                Ok(ForwardedRoomKeyContent::MegolmV1AesSha2(
-                    ForwardedMegolmV1AesSha2Content {
+        match room_key.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
+                // The forwarded room key content only supports a single claimed sender
+                // key and it requires it to be a Ed25519 key. This here will be lossy
+                // conversion since we're dropping all other key types.
+                //
+                // This was fixed by the megolm v2 content. Hopefully we'll deprecate megolm v1
+                // before we have multiple signing keys.
+                if let Some(SigningKey::Ed25519(claimed_ed25519_key)) =
+                    room_key.sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519)
+                {
+                    Ok(ForwardedRoomKeyContent::MegolmV1AesSha2(
+                        ForwardedMegolmV1AesSha2Content {
+                            room_id: room_key.room_id,
+                            session_id: room_key.session_id,
+                            session_key: room_key.session_key,
+                            claimed_sender_key: room_key.sender_key,
+                            claimed_ed25519_key: *claimed_ed25519_key,
+                            forwarding_curve25519_key_chain: room_key
+                                .forwarding_curve25519_key_chain
+                                .clone(),
+                            other: Default::default(),
+                        }
+                        .into(),
+                    ))
+                } else {
+                    Err(SessionExportError::MissingEd25519Key)
+                }
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                Ok(ForwardedRoomKeyContent::MegolmV2AesSha2(
+                    ForwardedMegolmV2AesSha2Content {
                         room_id: room_key.room_id,
                         session_id: room_key.session_id,
                         session_key: room_key.session_key,
                         claimed_sender_key: room_key.sender_key,
-                        claimed_ed25519_key: *claimed_ed25519_key,
-                        forwarding_curve25519_key_chain: room_key
-                            .forwarding_curve25519_key_chain
-                            .clone(),
+                        claimed_signing_keys: room_key.sender_claimed_keys,
                         other: Default::default(),
                     }
                     .into(),
                 ))
-            } else {
-                Err(SessionExportError::MissingEd25519Key)
             }
-        } else {
-            Err(SessionExportError::Algorithm(room_key.algorithm))
+            _ => Err(SessionExportError::Algorithm(room_key.algorithm)),
         }
     }
 }
@@ -180,26 +197,32 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
     fn try_from(forwarded_key: ForwardedRoomKeyContent) -> Result<Self, Self::Error> {
         let algorithm = forwarded_key.algorithm();
 
-        let handle_key = |content: Box<ForwardedMegolmV1AesSha2Content>| {
-            let mut sender_claimed_keys = SigningKeys::new();
-            sender_claimed_keys
-                .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
+        match forwarded_key {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
+                let mut sender_claimed_keys = SigningKeys::new();
+                sender_claimed_keys
+                    .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
 
-            Ok(Self {
+                Ok(Self {
+                    algorithm,
+                    room_id: content.room_id,
+                    session_id: content.session_id,
+                    forwarding_curve25519_key_chain: content.forwarding_curve25519_key_chain,
+                    sender_claimed_keys,
+                    sender_key: content.claimed_sender_key,
+                    session_key: content.session_key,
+                })
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(content) => Ok(Self {
                 algorithm,
                 room_id: content.room_id,
                 session_id: content.session_id,
-                forwarding_curve25519_key_chain: content.forwarding_curve25519_key_chain,
-                sender_claimed_keys,
+                forwarding_curve25519_key_chain: Default::default(),
+                sender_claimed_keys: content.claimed_signing_keys,
                 sender_key: content.claimed_sender_key,
                 session_key: content.session_key,
-            })
-        };
-
-        match forwarded_key {
-            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => handle_key(content),
-            #[cfg(feature = "experimental-algorithms")]
-            ForwardedRoomKeyContent::MegolmV2AesSha2(content) => handle_key(content),
+            }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }
     }

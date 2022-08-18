@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::OwnedRoomId;
+use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey, Ed25519PublicKey};
@@ -24,7 +24,7 @@ use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey, Ed25519PublicKe
 use super::{EventType, ToDeviceEvent};
 use crate::types::{
     deserialize_curve_key, deserialize_curve_key_vec, deserialize_ed25519_key, serialize_curve_key,
-    serialize_curve_key_vec, serialize_ed25519_key, EventEncryptionAlgorithm,
+    serialize_curve_key_vec, serialize_ed25519_key, EventEncryptionAlgorithm, SigningKeys,
 };
 
 /// The `m.forwarded_room_key` to-device event.
@@ -53,7 +53,7 @@ pub enum ForwardedRoomKeyContent {
     /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key`
     /// content.
     #[cfg(feature = "experimental-algorithms")]
-    MegolmV2AesSha2(Box<ForwardedMegolmV1AesSha2Content>),
+    MegolmV2AesSha2(Box<ForwardedMegolmV2AesSha2Content>),
     /// An unknown and unsupported variant of the `m.forwarded_room_key`
     /// content.
     Unknown(UnknownRoomKeyContent),
@@ -79,7 +79,7 @@ impl EventType for ForwardedRoomKeyContent {
     const EVENT_TYPE: &'static str = "m.forwarded_room_key";
 }
 
-/// The `m.megolm.v1.aes-sha2` variant of the `m.room_key` content.
+/// The `m.megolm.v1.aes-sha2` variant of the `m.forwarded_room_key` content.
 #[derive(Deserialize, Serialize)]
 pub struct ForwardedMegolmV1AesSha2Content {
     /// The room where the key is used.
@@ -131,7 +131,42 @@ pub struct ForwardedMegolmV1AesSha2Content {
     pub(crate) other: BTreeMap<String, Value>,
 }
 
-/// An unknown and unsupported `m.room_key` algorithm.
+/// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key` content.
+#[derive(Deserialize, Serialize)]
+pub struct ForwardedMegolmV2AesSha2Content {
+    /// The room where the key is used.
+    pub room_id: OwnedRoomId,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+
+    /// The key to be exchanged. Can be used to create a [`InboundGroupSession`]
+    /// that can be used to decrypt room events.
+    ///
+    /// [`InboundGroupSession`]: vodozemac::megolm::InboundGroupSession
+    pub session_key: ExportedSessionKey,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    ///
+    /// It is ‘claimed’ because the receiving device has no way to tell that
+    /// the original room_key actually came from a device which owns the private
+    /// part of this key.
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub claimed_sender_key: Curve25519PublicKey,
+
+    /// The Ed25519 key of the device which initiated the session originally.
+    ///
+    /// It is ‘claimed’ because the receiving device has no way to tell that
+    /// the original room_key actually came from a device which owns the private
+    /// part of this key.
+    #[serde(default)]
+    pub claimed_signing_keys: SigningKeys<DeviceKeyAlgorithm>,
+
+    #[serde(flatten)]
+    pub(crate) other: BTreeMap<String, Value>,
+}
+
+/// An unknown and unsupported `m.forwarded_room_key` algorithm.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UnknownRoomKeyContent {
     /// The algorithm of the unknown room key.
@@ -149,6 +184,17 @@ impl std::fmt::Debug for ForwardedMegolmV1AesSha2Content {
             .field("forwarding_curve25519_key_chain", &self.forwarding_curve25519_key_chain)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("claimed_ed25519_key", &self.claimed_ed25519_key)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for ForwardedMegolmV2AesSha2Content {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ForwardedMegolmV2AesSha2Content")
+            .field("room_id", &self.room_id)
+            .field("session_id", &self.session_id)
+            .field("claimed_sender_key", &self.claimed_sender_key)
+            .field("sender_claimed_keys", &self.claimed_signing_keys)
             .finish_non_exhaustive()
     }
 }
@@ -171,7 +217,7 @@ impl TryFrom<RoomKeyHelper> for ForwardedRoomKeyContent {
             }
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => {
-                let content: ForwardedMegolmV1AesSha2Content = serde_json::from_value(value.other)?;
+                let content: ForwardedMegolmV2AesSha2Content = serde_json::from_value(value.other)?;
                 Self::MegolmV2AesSha2(content.into())
             }
             _ => Self::Unknown(UnknownRoomKeyContent {
