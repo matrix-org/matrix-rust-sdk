@@ -116,6 +116,19 @@ impl ToDeviceRequest {
         }
     }
 
+    pub(crate) fn with_id_raw(
+        recipient: &UserId,
+        recipient_device: impl Into<DeviceIdOrAllDevices>,
+        content: Raw<AnyToDeviceEventContent>,
+        event_type: ToDeviceEventType,
+        txn_id: OwnedTransactionId,
+    ) -> Self {
+        let user_messages = iter::once((recipient_device.into(), content)).collect();
+        let messages = iter::once((recipient.to_owned(), user_messages)).collect();
+
+        ToDeviceRequest { event_type, txn_id, messages }
+    }
+
     pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
