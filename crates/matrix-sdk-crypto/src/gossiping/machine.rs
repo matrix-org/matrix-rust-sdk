@@ -46,9 +46,7 @@ use crate::{
             forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
             olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
             room::encrypted::EncryptedEvent,
-            room_key_request::{
-                Action, MegolmV1AesSha2Content, RequestedKeyInfo, RoomKeyRequestEvent,
-            },
+            room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEvent},
             secret_send::SecretSendContent,
             EventType,
         },
@@ -310,27 +308,13 @@ impl GossipMachine {
         })
     }
 
-    async fn handle_megolm_v1_request(
+    /// Answer a room key request after we found the matching
+    /// `InboundGroupSession`.
+    async fn answer_room_key_request(
         &self,
         event: &RoomKeyRequestEvent,
-        key_info: &MegolmV1AesSha2Content,
+        session: InboundGroupSession,
     ) -> OlmResult<Option<Session>> {
-        let session =
-            self.store.get_inbound_group_session(&key_info.room_id, &key_info.session_id).await?;
-
-        let session = if let Some(s) = session {
-            s
-        } else {
-            debug!(
-                user_id = event.sender.as_str(),
-                device_id = event.content.requesting_device_id.as_str(),
-                session_id = key_info.session_id.as_str(),
-                room_id = key_info.room_id.as_str(),
-                "Received a room key request for an unknown inbound group session",
-            );
-            return Ok(None);
-        };
-
         let device =
             self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
@@ -342,7 +326,7 @@ impl GossipMachine {
                             user_id = device.user_id().as_str(),
                             device_id = device.device_id().as_str(),
                             "Received a key request from a device that changed \
-                            their curve25519 sender key"
+                            their Curve25519 sender key"
                         );
                     } else {
                         debug!(
@@ -357,21 +341,21 @@ impl GossipMachine {
                 }
                 Ok(message_index) => {
                     info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        session_id = key_info.session_id.as_str(),
-                        room_id = key_info.room_id.as_str(),
+                        user_id = %device.user_id(),
+                        device_id = %device.device_id(),
+                        session_id = session.session_id(),
+                        room_id = %session.room_id,
                         ?message_index,
                         "Serving a room key request",
                     );
 
-                    match self.share_session(&session, &device, message_index).await {
+                    match self.forward_room_key(&session, &device, message_index).await {
                         Ok(s) => Ok(Some(s)),
                         Err(OlmError::MissingSession) => {
                             info!(
-                                user_id = device.user_id().as_str(),
-                                device_id = device.device_id().as_str(),
-                                session_id = key_info.session_id.as_str(),
+                                user_id = %device.user_id(),
+                                device_id = %device.device_id(),
+                                session_id = session.session_id(),
                                 "Key request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
@@ -381,9 +365,9 @@ impl GossipMachine {
                         }
                         Err(OlmError::SessionExport(e)) => {
                             warn!(
-                                user_id = device.user_id().as_str(),
-                                device_id = device.device_id().as_str(),
-                                session_id = key_info.session_id.as_str(),
+                                user_id = %device.user_id(),
+                                device_id = %device.device_id(),
+                                session_id = session.session_id(),
                                 "Can't serve a room key request, the session \
                                 can't be exported into a forwarded room key: \
                                 {:?}",
@@ -397,11 +381,34 @@ impl GossipMachine {
             }
         } else {
             warn!(
-                user_id = event.sender.as_str(),
-                device_id = event.content.requesting_device_id.as_str(),
+                user_id = %event.sender,
+                device_id = %event.content.requesting_device_id,
                 "Received a key request from an unknown device",
             );
             self.store.update_tracked_user(&event.sender, true).await?;
+
+            Ok(None)
+        }
+    }
+
+    async fn handle_supported_key_request(
+        &self,
+        event: &RoomKeyRequestEvent,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> OlmResult<Option<Session>> {
+        let session = self.store.get_inbound_group_session(room_id, session_id).await?;
+
+        if let Some(s) = session {
+            self.answer_room_key_request(event, s).await
+        } else {
+            debug!(
+                user_id = %event.sender,
+                device_id = %event.content.requesting_device_id,
+                session_id,
+                %room_id,
+                "Received a room key request for an unknown inbound group session",
+            );
 
             Ok(None)
         }
@@ -412,13 +419,12 @@ impl GossipMachine {
         match &event.content.action {
             Action::Request(info) => match info {
                 RequestedKeyInfo::MegolmV1AesSha2(i) => {
-                    self.handle_megolm_v1_request(event, i).await
+                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
                 }
-                // V2 room key requests don't have a sender_key field, we
-                // currently can't fetch an inbound group session without a
-                // sender key, so ignore the request.
                 #[cfg(feature = "experimental-algorithms")]
-                RequestedKeyInfo::MegolmV2AesSha2(_) => Ok(None),
+                RequestedKeyInfo::MegolmV2AesSha2(i) => {
+                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                }
                 RequestedKeyInfo::Unknown(i) => {
                     debug!(
                         sender = %event.sender,
@@ -458,7 +464,7 @@ impl GossipMachine {
         Ok(used_session)
     }
 
-    async fn share_session(
+    async fn forward_room_key(
         &self,
         session: &InboundGroupSession,
         device: &Device,
