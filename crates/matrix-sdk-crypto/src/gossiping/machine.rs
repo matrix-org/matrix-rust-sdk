@@ -41,16 +41,13 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
-    types::{
-        events::{
-            forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-            olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
-            room::encrypted::EncryptedEvent,
-            room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEvent},
-            secret_send::SecretSendContent,
-            EventType,
-        },
-        EventEncryptionAlgorithm,
+    types::events::{
+        forwarded_room_key::ForwardedRoomKeyContent,
+        olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+        room::encrypted::EncryptedEvent,
+        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEvent},
+        secret_send::SecretSendContent,
+        EventType,
     },
     Device, MegolmError,
 };
@@ -695,18 +692,6 @@ impl GossipMachine {
         Ok(())
     }
 
-    /// Get an outgoing key info that matches the forwarded room key content.
-    async fn get_key_info(
-        &self,
-        event: &DecryptedForwardedRoomKeyEvent,
-    ) -> Result<Option<GossipRequest>, CryptoStoreError> {
-        if let Some(info) = event.room_key_info().map(|i| i.into()) {
-            self.store.get_secret_request_by_info(&info).await
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Delete the given outgoing key info.
     async fn delete_key_info(&self, info: &GossipRequest) -> Result<(), CryptoStoreError> {
         self.store.delete_outgoing_secret_requests(&info.request_id).await
@@ -874,18 +859,16 @@ impl GossipMachine {
     async fn accept_forwarded_room_key(
         &self,
         info: &GossipRequest,
-        sender: &UserId,
         sender_key: Curve25519PublicKey,
-        algorithm: EventEncryptionAlgorithm,
-        content: &ForwardedMegolmV1AesSha2Content,
+        event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match InboundGroupSession::from_forwarded_key(&algorithm, content) {
+        match InboundGroupSession::try_from(event) {
             Ok(session) => {
                 if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
                     self.mark_as_done(info).await?;
 
                     info!(
-                        %sender,
+                        sender = %event.sender,
                         %sender_key,
                         claimed_sender_key = %session.sender_key(),
                         room_id = session.room_id().as_str(),
@@ -897,7 +880,7 @@ impl GossipMachine {
                     Ok(Some(session))
                 } else {
                     info!(
-                        %sender,
+                        sender = %event.sender,
                         %sender_key,
                         claimed_sender_key = %session.sender_key(),
                         room_id = %session.room_id,
@@ -911,11 +894,8 @@ impl GossipMachine {
             }
             Err(e) => {
                 warn!(
-                    %sender,
-                    sender_key = sender_key.to_base64(),
-                    claimed_sender_key = content.claimed_sender_key.to_base64(),
-                    room_id = content.room_id.as_str(),
-                    %algorithm,
+                    sender = %event.sender,
+                    %sender_key,
                     "Couldn't create a group session from a received room key"
                 );
                 Err(e.into())
@@ -944,36 +924,44 @@ impl GossipMachine {
         &self,
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
-        content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        let algorithm = event.content.algorithm();
+        if let Some(info) = event.room_key_info() {
+            if let Some(request) =
+                self.store.get_secret_request_by_info(&info.clone().into()).await?
+            {
+                if self.should_accept_forward(&request, sender_key).await? {
+                    self.accept_forwarded_room_key(&request, sender_key, event).await
+                } else {
+                    warn!(
+                         sender = %event.sender,
+                         %sender_key,
+                         room_id = %info.room_id(),
+                         session_id = info.session_id(),
+                         "Received a forwarded room key from an unknown device, or \
+                          from a device that the key request recipient doesn't own",
+                    );
 
-        if let Some(info) = self.get_key_info(event).await? {
-            if self.should_accept_forward(&info, sender_key).await? {
-                self.accept_forwarded_room_key(&info, &event.sender, sender_key, algorithm, content)
-                    .await
+                    Ok(None)
+                }
             } else {
                 warn!(
                     sender = %event.sender,
-                    %sender_key,
-                    room_id = %content.room_id,
-                    session_id = content.session_id.as_str(),
-                    claimed_sender_key = %content.claimed_sender_key,
-                    "Received a forwarded room key from an unknown device, or \
-                     from a device that the key request recipient doesn't own",
+                    sender_key = %sender_key,
+                    room_id = %info.room_id(),
+                    session_id = info.session_id(),
+                    sender_key = %sender_key,
+                    algorithm = %info.algorithm(),
+                    "Received a forwarded room key that we didn't request",
                 );
 
                 Ok(None)
             }
         } else {
             warn!(
-                sender = %event.sender,
-                sender_key = %sender_key,
-                room_id = %content.room_id,
-                session_id = content.session_id.as_str(),
-                claimed_sender_key = %content.claimed_sender_key,
-                algorithm = %algorithm,
-                "Received a forwarded room key that we didn't request",
+                sender = event.sender.as_str(),
+                sender_key = sender_key.to_base64(),
+                algorithm = %event.content.algorithm(),
+                "Received a forwarded room key with an unsupported algorithm",
             );
 
             Ok(None)
@@ -986,13 +974,13 @@ impl GossipMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match &event.content {
-            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
-                self.receive_supported_keys(sender_key, event, content).await
+        match event.content {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(_) => {
+                self.receive_supported_keys(sender_key, event).await
             }
             #[cfg(feature = "experimental-algorithms")]
-            ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
-                self.receive_supported_keys(sender_key, event, content).await
+            ForwardedRoomKeyContent::MegolmV2AesSha2(_) => {
+                self.receive_supported_keys(sender_key, event).await
             }
             ForwardedRoomKeyContent::Unknown(_) => {
                 warn!(

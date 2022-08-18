@@ -14,6 +14,7 @@
 
 use std::{
     fmt,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
@@ -44,7 +45,11 @@ use crate::{
     types::{
         deserialize_curve_key,
         events::{
-            forwarded_room_key::ForwardedMegolmV1AesSha2Content,
+            forwarded_room_key::{
+                ForwardedMegolmV1AesSha2Content, ForwardedMegolmV2AesSha2Content,
+                ForwardedRoomKeyContent,
+            },
+            olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
@@ -154,42 +159,6 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
-        })
-    }
-
-    /// Create a new inbound group session from a forwarded room key content.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender_key` - The public curve25519 key of the account that
-    /// sent us the session
-    ///
-    /// * `content` - A forwarded room key content that contains the session key
-    /// to create the `InboundGroupSession`.
-    pub fn from_forwarded_key(
-        algorithm: &EventEncryptionAlgorithm,
-        content: &ForwardedMegolmV1AesSha2Content,
-    ) -> Result<Self, SessionCreationError> {
-        let config = OutboundGroupSession::session_config(algorithm)?;
-
-        let session = InnerSession::import(&content.session_key, config);
-
-        let first_known_index = session.first_known_index();
-
-        let mut sender_claimed_key = SigningKeys::new();
-        sender_claimed_key.insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
-
-        Ok(InboundGroupSession {
-            inner: Mutex::new(session).into(),
-            session_id: content.session_id.as_str().into(),
-            sender_key: content.claimed_sender_key,
-            first_known_index,
-            history_visibility: None.into(),
-            signing_keys: sender_claimed_key.into(),
-            room_id: (*content.room_id).into(),
-            imported: true,
-            backed_up: AtomicBool::new(false).into(),
-            algorithm: algorithm.to_owned().into(),
         })
     }
 
@@ -495,6 +464,67 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
         })
+    }
+}
+
+impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
+    fn from(value: &ForwardedMegolmV1AesSha2Content) -> Self {
+        let session = InnerSession::import(&value.session_key, SessionConfig::version_1());
+        let session_id = session.session_id().into();
+        let first_known_index = session.first_known_index();
+
+        InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id,
+            sender_key: value.claimed_sender_key,
+            history_visibility: None.into(),
+            first_known_index,
+            signing_keys: SigningKeys::from([(
+                DeviceKeyAlgorithm::Ed25519,
+                value.claimed_ed25519_key.into(),
+            )])
+            .into(),
+            room_id: value.room_id.to_owned().into(),
+            imported: true,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+            backed_up: AtomicBool::from(false).into(),
+        }
+    }
+}
+
+impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
+    fn from(value: &ForwardedMegolmV2AesSha2Content) -> Self {
+        let session = InnerSession::import(&value.session_key, SessionConfig::version_2());
+        let session_id = session.session_id().into();
+        let first_known_index = session.first_known_index();
+
+        InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id,
+            sender_key: value.claimed_sender_key,
+            history_visibility: None.into(),
+            first_known_index,
+            signing_keys: value.claimed_signing_keys.to_owned().into(),
+            room_id: value.room_id.to_owned().into(),
+            imported: true,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+            backed_up: AtomicBool::from(false).into(),
+        }
+    }
+}
+
+impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
+    type Error = SessionCreationError;
+
+    fn try_from(value: &DecryptedForwardedRoomKeyEvent) -> Result<Self, Self::Error> {
+        match &value.content {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(c) => Ok(Self::from(c.deref())),
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(c) => Ok(Self::from(c.deref())),
+            ForwardedRoomKeyContent::Unknown(c) => {
+                Err(SessionCreationError::Algorithm(c.algorithm.to_owned()))
+            }
+        }
     }
 }
 
