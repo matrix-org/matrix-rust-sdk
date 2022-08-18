@@ -1023,14 +1023,19 @@ mod tests {
         olm::{Account, OutboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
-        types::events::{
-            forwarded_room_key::ForwardedRoomKeyContent,
-            olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
-            room::encrypted::{EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent},
-            EventType, ToDeviceEvent,
+        types::{
+            events::{
+                forwarded_room_key::ForwardedRoomKeyContent,
+                olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
+                room::encrypted::{
+                    EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
+                },
+                EventType, ToDeviceEvent,
+            },
+            EventEncryptionAlgorithm,
         },
         verification::VerificationMachine,
-        OutgoingRequest, OutgoingRequests,
+        EncryptionSettings, OutgoingRequest, OutgoingRequests,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1116,6 +1121,7 @@ mod tests {
     async fn machines_for_key_share(
         other_machine_owner: &UserId,
         create_sessions: bool,
+        algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
         let alice_account = Account {
@@ -1145,8 +1151,13 @@ mod tests {
             bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
         }
 
-        let (group_session, inbound_group_session) =
-            bob_machine.store.account().create_group_session_pair_with_defaults(room_id()).await;
+        let settings = EncryptionSettings { algorithm, ..Default::default() };
+        let (group_session, inbound_group_session) = bob_machine
+            .store
+            .account()
+            .create_group_session_pair(room_id(), settings)
+            .await
+            .unwrap();
 
         let content = group_session.encrypt(json!({}), "m.dummy").await;
         let event = wrap_encrypted_content(bob_machine.user_id(), content);
@@ -1497,10 +1508,9 @@ mod tests {
         assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(None));
     }
 
-    #[async_test]
-    async fn key_share_cycle() {
+    async fn key_share_cycle(algorithm: EventEncryptionAlgorithm) {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), true).await;
+            machines_for_key_share(alice_id(), true, algorithm).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1559,7 +1569,7 @@ mod tests {
     #[async_test]
     async fn reject_forward_from_another_user() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(bob_id(), true).await;
+            machines_for_key_share(bob_id(), true, EventEncryptionAlgorithm::MegolmV1AesSha2).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1603,6 +1613,17 @@ mod tests {
         } else {
             panic!("Invalid decrypted event type");
         }
+    }
+
+    #[async_test]
+    async fn key_share_cycle_megolm_v1() {
+        key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
+    }
+
+    #[cfg(feature = "experimental-algorithms")]
+    #[async_test]
+    async fn key_share_cycle_megolm_v2() {
+        key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
     }
 
     #[async_test]
@@ -1678,7 +1699,8 @@ mod tests {
     #[async_test]
     async fn key_share_cycle_without_session() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), false).await;
+            machines_for_key_share(alice_id(), false, EventEncryptionAlgorithm::MegolmV1AesSha2)
+                .await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
