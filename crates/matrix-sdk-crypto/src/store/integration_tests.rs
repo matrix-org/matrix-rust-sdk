@@ -8,14 +8,15 @@ macro_rules! cryptostore_integration_tests {
 
             use matrix_sdk_test::async_test;
             use ruma::{
-                encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
-                serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
+                encryption::SignedKey,
+                serde::Base64, user_id, TransactionId, DeviceId, UserId,
                 room_id, device_id,
             };
 
             use $crate::{
                 SecretInfo,
                 testing::{get_device, get_other_identity, get_own_identity},
+                types::events::room_key_request::MegolmV1AesSha2Content,
                 ReadOnlyDevice,
                 olm::{
                     Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
@@ -530,14 +531,14 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn key_request_saving() {
                 let (account, store) = get_loaded_store("key_request_saving").await;
+                let sender_key = Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw").unwrap();
 
                 let id = TransactionId::new();
-                let info: SecretInfo = RequestedKeyInfo::new(
-                    EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    room_id!("!test:localhost").to_owned(),
-                    "test_sender_key".to_owned(),
-                    "test_session_id".to_owned(),
-                )
+                let info: SecretInfo = MegolmV1AesSha2Content {
+                    room_id: room_id!("!test:localhost").to_owned(),
+                    sender_key,
+                    session_id: "test_session_id".to_owned(),
+                }
                 .into();
 
                 let request = GossipRequest {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -30,13 +31,11 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
         RoomKeyCounts,
     },
+    types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{
-    events::room_key_request::RequestedKeyInfo, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,
-    TransactionId, UserId,
-};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
@@ -48,7 +47,7 @@ use tracing::debug;
 use super::OpenStoreError;
 use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 5;
 
 // Table names that are used to derive a separate key for each tree. This ensure
 // that user ids encoded for different trees won't end up as the same byte
@@ -115,22 +114,25 @@ impl EncodeKey for SecretInfo {
     }
 }
 
-impl EncodeKey for RequestedKeyInfo {
+impl EncodeKey for EventEncryptionAlgorithm {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        let s: &str = self.as_ref();
+        s.as_bytes().into()
+    }
+}
+
+impl EncodeKey for SupportedKeyInfo {
     fn encode(&self) -> Vec<u8> {
         #[allow(deprecated)]
-        (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
+        (self.room_id(), &self.algorithm(), self.session_id()).encode()
     }
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let room_id = store_cipher.hash_key(table_name, self.room_id.as_bytes());
-        #[allow(deprecated)]
-        let sender_key = store_cipher.hash_key(table_name, self.sender_key.as_bytes());
-        let algorithm = store_cipher.hash_key(table_name, self.algorithm.as_ref().as_bytes());
-        let session_id = store_cipher.hash_key(table_name, self.session_id.as_bytes());
+        let room_id = store_cipher.hash_key(table_name, self.room_id().as_bytes());
+        let algorithm = store_cipher.hash_key(table_name, self.algorithm().as_ref().as_bytes());
+        let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
 
         [
             room_id.as_slice(),
-            &[ENCODE_SEPARATOR],
-            sender_key.as_slice(),
             &[ENCODE_SEPARATOR],
             algorithm.as_slice(),
             &[ENCODE_SEPARATOR],
@@ -317,6 +319,15 @@ impl SledCryptoStore {
                 version.into(),
                 DATABASE_VERSION.into(),
             ));
+        }
+
+        if version <= 4 {
+            // Room key requests are not that important, if they are needed they
+            // will be sent out again. So let's drop all of them since we
+            // removed the `sender_key` from the hash key.
+            self.outgoing_secret_requests.clear().map_err(CryptoStoreError::backend)?;
+            self.unsent_secret_requests.clear().map_err(CryptoStoreError::backend)?;
+            self.secret_requests_by_info.clear().map_err(CryptoStoreError::backend)?;
         }
 
         self.inner
