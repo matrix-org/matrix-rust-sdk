@@ -25,11 +25,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
-    events::{
-        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent},
-        secret::request::{
-            RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
-        },
+    events::secret::request::{
+        RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
     },
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
@@ -39,7 +36,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
 use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
-    error::{OlmError, OlmResult},
+    error::{EventError, OlmError, OlmResult},
     olm::{InboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
@@ -48,12 +45,16 @@ use crate::{
         events::{
             forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
             olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+            room::encrypted::EncryptedEvent,
+            room_key_request::{
+                Action, MegolmV1AesSha2Content, RequestedKeyInfo, RoomKeyRequestEvent,
+            },
             secret_send::SecretSendContent,
             EventType,
         },
         EventEncryptionAlgorithm,
     },
-    Device,
+    Device, MegolmError,
 };
 
 #[derive(Debug, Clone)]
@@ -144,7 +145,7 @@ impl GossipMachine {
     }
 
     /// Receive a room key request event.
-    pub fn receive_incoming_key_request(&self, event: &ToDeviceRoomKeyRequestEvent) {
+    pub fn receive_incoming_key_request(&self, event: &RoomKeyRequestEvent) {
         self.receive_event(event.clone().into())
     }
 
@@ -309,44 +310,16 @@ impl GossipMachine {
         })
     }
 
-    /// Handle a single incoming key request.
-    async fn handle_key_request(
+    async fn handle_megolm_v1_request(
         &self,
-        event: &ToDeviceRoomKeyRequestEvent,
+        event: &RoomKeyRequestEvent,
+        key_info: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<Session>> {
-        let key_info = match &event.content.action {
-            Action::Request => {
-                if let Some(info) = &event.content.body {
-                    info
-                } else {
-                    warn!(
-                        sender = event.sender.as_str(),
-                        requesting_device_id = event.content.requesting_device_id.as_str(),
-                        "Received a key request with a request of action, but
-                        no key info was found",
-                    );
-                    return Ok(None);
-                }
-            }
-            // We ignore cancellations here since there's nothing to serve.
-            Action::CancelRequest => return Ok(None),
-            action => {
-                warn!(
-                    sender = event.sender.as_str(),
-                    requesting_device_id = event.content.requesting_device_id.as_str(),
-                    action = action.as_ref(),
-                    "Received a room key request with an unknown action",
-                );
-                return Ok(None);
-            }
-        };
-
         let session = self
             .store
             .get_inbound_group_session(
                 &key_info.room_id,
-                #[allow(deprecated)]
-                &key_info.sender_key,
+                &key_info.sender_key.to_base64(),
                 &key_info.session_id,
             )
             .await?;
@@ -437,6 +410,32 @@ impl GossipMachine {
             self.store.update_tracked_user(&event.sender, true).await?;
 
             Ok(None)
+        }
+    }
+
+    /// Handle a single incoming key request.
+    async fn handle_key_request(&self, event: &RoomKeyRequestEvent) -> OlmResult<Option<Session>> {
+        match &event.content.action {
+            Action::Request(info) => match info {
+                RequestedKeyInfo::MegolmV1AesSha2(i) => {
+                    self.handle_megolm_v1_request(event, i).await
+                }
+                // V2 room key requests don't have a sender_key field, we
+                // currently can't fetch an inbound group session without a
+                // sender key, so ignore the request.
+                #[cfg(feature = "experimental-algorithms")]
+                RequestedKeyInfo::MegolmV2AesSha2(_) => Ok(None),
+                RequestedKeyInfo::Unknown(i) => {
+                    debug!(
+                        sender = %event.sender,
+                        algorithm = %i.algorithm,
+                        "Received a room key request for a unsupported algorithm"
+                    );
+                    Ok(None)
+                }
+            },
+            // We ignore cancellations here since there's nothing to serve.
+            Action::Cancellation => Ok(None),
         }
     }
 
@@ -600,25 +599,16 @@ impl GossipMachine {
     ///
     /// * `room_id` - The id of the room where the key is used in.
     ///
-    /// * `sender_key` - The curve25519 key of the sender that owns the key.
-    ///
-    /// * `session_id` - The id that uniquely identifies the session.
+    /// * `event` - The event for which we would like to request the room key.
     pub async fn request_key(
         &self,
         room_id: &RoomId,
-        sender_key: Curve25519PublicKey,
-        session_id: &str,
-        algorithm: &EventEncryptionAlgorithm,
-    ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
-        let key_info = RequestedKeyInfo::new(
-            ruma::EventEncryptionAlgorithm::from(algorithm.as_str()),
-            room_id.to_owned(),
-            sender_key.to_base64(),
-            session_id.to_owned(),
-        )
-        .into();
+        event: &EncryptedEvent,
+    ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), MegolmError> {
+        let secret_info =
+            event.room_key_info(room_id).ok_or(EventError::UnsupportedAlgorithm)?.into();
 
-        let request = self.store.get_secret_request_by_info(&key_info).await?;
+        let request = self.store.get_secret_request_by_info(&secret_info).await?;
 
         if let Some(request) = request {
             let cancel = request.to_cancellation(self.device_id());
@@ -626,7 +616,7 @@ impl GossipMachine {
 
             Ok((Some(cancel), request))
         } else {
-            let request = self.request_key_helper(key_info).await?;
+            let request = self.request_key_helper(secret_info).await?;
 
             Ok((None, request))
         }
@@ -678,27 +668,19 @@ impl GossipMachine {
     /// # Arguments
     /// * `room_id` - The id of the room where the key is used in.
     ///
-    /// * `sender_key` - The curve25519 key of the sender that owns the key.
-    ///
-    /// * `session_id` - The id that uniquely identifies the session.
+    /// * `event` - The event for which we would like to request the room key.
     pub async fn create_outgoing_key_request(
         &self,
         room_id: &RoomId,
-        sender_key: Curve25519PublicKey,
-        session_id: &str,
-        algorithm: &EventEncryptionAlgorithm,
+        event: &EncryptedEvent,
     ) -> Result<bool, CryptoStoreError> {
-        let key_info = RequestedKeyInfo::new(
-            ruma::EventEncryptionAlgorithm::from(algorithm.as_str()),
-            room_id.to_owned(),
-            sender_key.to_base64(),
-            session_id.to_owned(),
-        )
-        .into();
-
-        Ok(if self.should_request_key(&key_info).await? {
-            self.request_key_helper(key_info).await?;
-            true
+        Ok(if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
+            if self.should_request_key(&info).await? {
+                self.request_key_helper(info).await?;
+                true
+            } else {
+                false
+            }
         } else {
             false
         })
@@ -716,17 +698,13 @@ impl GossipMachine {
     /// Get an outgoing key info that matches the forwarded room key content.
     async fn get_key_info(
         &self,
-        content: &ForwardedMegolmV1AesSha2Content,
+        event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<GossipRequest>, CryptoStoreError> {
-        let info = RequestedKeyInfo::new(
-            ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
-            content.room_id.clone(),
-            content.claimed_sender_key.to_base64(),
-            content.session_id.clone(),
-        )
-        .into();
-
-        self.store.get_secret_request_by_info(&info).await
+        if let Some(info) = event.room_key_info().map(|i| i.into()) {
+            self.store.get_secret_request_by_info(&info).await
+        } else {
+            Ok(None)
+        }
     }
 
     /// Delete the given outgoing key info.
@@ -971,16 +949,18 @@ impl GossipMachine {
     /// supported content types.
     async fn receive_supported_keys(
         &self,
-        sender: &UserId,
         sender_key: Curve25519PublicKey,
+        event: &DecryptedForwardedRoomKeyEvent,
         content: &ForwardedMegolmV1AesSha2Content,
-        algorithm: EventEncryptionAlgorithm,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        if let Some(info) = self.get_key_info(content).await? {
-            self.accept_forwarded_room_key(&info, sender, sender_key, algorithm, content).await
+        let algorithm = event.content.algorithm();
+
+        if let Some(info) = self.get_key_info(event).await? {
+            self.accept_forwarded_room_key(&info, &event.sender, sender_key, algorithm, content)
+                .await
         } else {
             warn!(
-                sender = %sender,
+                sender = %event.sender,
                 sender_key = %sender_key,
                 room_id = %content.room_id,
                 session_id = content.session_id.as_str(),
@@ -999,15 +979,13 @@ impl GossipMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        let algorithm = event.content.algorithm();
-
         match &event.content {
             ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
-                self.receive_supported_keys(&event.sender, sender_key, content, algorithm).await
+                self.receive_supported_keys(sender_key, event, content).await
             }
             #[cfg(feature = "experimental-algorithms")]
             ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
-                self.receive_supported_keys(&event.sender, sender_key, content, algorithm).await
+                self.receive_supported_keys(sender_key, event, content).await
             }
             ForwardedRoomKeyContent::Unknown(_) => {
                 warn!(
@@ -1032,16 +1010,17 @@ mod tests {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
+        device_id, event_id,
         events::{
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
-            AnyToDeviceEventContent, ToDeviceEvent as RumaToDeviceEvent, ToDeviceEventContent,
+            AnyToDeviceEventContent, ToDeviceEvent as RumaToDeviceEvent,
         },
         room_id,
         serde::Raw,
         user_id, DeviceId, RoomId, UserId,
     };
     use serde::{de::DeserializeOwned, Serialize};
+    use serde_json::json;
 
     use super::{GossipMachine, KeyForwardDecision};
     use crate::{
@@ -1052,7 +1031,7 @@ mod tests {
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
-            room::encrypted::EncryptedToDeviceEvent,
+            room::encrypted::{EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent},
             EventType, ToDeviceEvent,
         },
         verification::VerificationMachine,
@@ -1171,19 +1150,13 @@ mod tests {
         let (group_session, inbound_group_session) =
             bob_machine.store.account().create_group_session_pair_with_defaults(room_id()).await;
 
+        let content = group_session.encrypt(json!({}), "m.dummy").await;
+        let event = wrap_encrypted_content(bob_machine.user_id(), content);
         bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
         // Alice wants to request the outbound group session from bob.
         assert!(
-            alice_machine
-                .create_outgoing_key_request(
-                    room_id(),
-                    bob_machine.store.account().identity_keys().curve25519,
-                    group_session.session_id(),
-                    &group_session.settings().algorithm,
-                )
-                .await
-                .unwrap(),
+            alice_machine.create_outgoing_key_request(room_id(), &event,).await.unwrap(),
             "We should request a room key"
         );
 
@@ -1217,6 +1190,22 @@ mod tests {
             .unwrap()
     }
 
+    fn wrap_encrypted_content(
+        sender: &UserId,
+        content: Raw<RoomEncryptedEventContent>,
+    ) -> EncryptedEvent {
+        let content = content.deserialize().unwrap();
+
+        EncryptedEvent {
+            sender: sender.to_owned(),
+            event_id: event_id!("$143273582443PhrSn:example.org").to_owned(),
+            content,
+            origin_server_ts: ruma::MilliSecondsSinceUnixEpoch::now(),
+            unsigned: Default::default(),
+            other: Default::default(),
+        }
+    }
+
     fn request_to_event<C>(
         recipient: &UserId,
         sender: &UserId,
@@ -1233,22 +1222,6 @@ mod tests {
         ToDeviceEvent { sender: sender.to_owned(), content, other: Default::default() }
     }
 
-    fn request_to_ruma_event<C>(
-        recipient: &UserId,
-        sender: &UserId,
-        request: &OutgoingRequest,
-    ) -> RumaToDeviceEvent<C>
-    where
-        C: ToDeviceEventContent + DeserializeOwned,
-    {
-        let content = extract_content(recipient, request);
-        let content: C = content
-            .deserialize_as()
-            .expect("We can always deserialize the to-device event content");
-
-        RumaToDeviceEvent { sender: sender.to_owned(), content }
-    }
-
     #[async_test]
     async fn create_machine() {
         let machine = get_machine().await;
@@ -1261,32 +1234,19 @@ mod tests {
         let machine = get_machine().await;
         let account = account();
 
-        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+
+        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
-        let (cancel, request) = machine
-            .request_key(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        let (cancel, request) = machine.request_key(session.room_id(), &event).await.unwrap();
 
         assert!(cancel.is_none());
 
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
-        let (cancel, _) = machine
-            .request_key(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        let (cancel, _) = machine.request_key(session.room_id(), &event).await.unwrap();
 
         assert!(cancel.is_some());
     }
@@ -1302,30 +1262,16 @@ mod tests {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let event = wrap_encrypted_content(machine.user_id(), content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
-        machine
-            .create_outgoing_key_request(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        machine.create_outgoing_key_request(session.room_id(), &event).await.unwrap();
         assert!(!machine.outgoing_to_device_requests().await.unwrap().is_empty());
         assert_eq!(machine.outgoing_to_device_requests().await.unwrap().len(), 1);
 
-        machine
-            .create_outgoing_key_request(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        machine.create_outgoing_key_request(session.room_id(), &event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
@@ -1348,16 +1294,11 @@ mod tests {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
-        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        machine
-            .create_outgoing_key_request(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let content = outbound.encrypt(json!({}), "m.dummy").await;
+        let room_event = wrap_encrypted_content(machine.user_id(), content);
+
+        machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         let request = requests.get(0).unwrap();
@@ -1403,15 +1344,7 @@ mod tests {
         drop(request);
         machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
-        machine
-            .create_outgoing_key_request(
-                session.room_id(),
-                session.sender_key,
-                session.session_id(),
-                session.algorithm(),
-            )
-            .await
-            .unwrap();
+        machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
@@ -1578,7 +1511,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_ruma_event(alice_id(), alice_id(), request);
+        let event = request_to_event(alice_id(), alice_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -1715,7 +1648,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_ruma_event(alice_id(), alice_id(), request);
+        let event = request_to_event(alice_id(), alice_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 

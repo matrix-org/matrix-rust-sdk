@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{DeviceId, OwnedDeviceId};
+use ruma::{DeviceId, OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
@@ -24,12 +24,46 @@ use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 use super::Event;
 use crate::types::{
     deserialize_curve_key,
-    events::{EventType, ToDeviceEvent},
+    events::{
+        room_key_request::{self, SupportedKeyInfo},
+        EventType, ToDeviceEvent,
+    },
     serialize_curve_key, EventEncryptionAlgorithm,
 };
 
 /// An m.room.encrypted room event.
 pub type EncryptedEvent = Event<RoomEncryptedEventContent>;
+
+impl EncryptedEvent {
+    /// Get the unique info about the room key that was used to encrypt this
+    /// event.
+    ///
+    /// Returns `None` if we do not understand the algorithm that was used to
+    /// encrypt the event.
+    pub fn room_key_info(&self, room_id: &RoomId) -> Option<SupportedKeyInfo> {
+        let room_id = room_id.to_owned();
+
+        match &self.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => Some(
+                room_key_request::MegolmV1AesSha2Content {
+                    room_id,
+                    sender_key: c.sender_key,
+                    session_id: c.session_id.clone(),
+                }
+                .into(),
+            ),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => Some(
+                room_key_request::MegolmV2AesSha2Content {
+                    room_id,
+                    session_id: c.session_id.clone(),
+                }
+                .into(),
+            ),
+            RoomEventEncryptionScheme::Unknown(_) => None,
+        }
+    }
+}
 
 /// An m.room.encrypted to-device event.
 pub type EncryptedToDeviceEvent = ToDeviceEvent<ToDeviceEncryptedEventContent>;

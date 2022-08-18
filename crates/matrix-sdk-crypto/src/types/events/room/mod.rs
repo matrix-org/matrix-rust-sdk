@@ -49,7 +49,7 @@ where
 
     /// Any other unknown data of the room event.
     #[serde(flatten)]
-    other: BTreeMap<String, Value>,
+    pub(crate) other: BTreeMap<String, Value>,
 }
 
 impl<C> Serialize for Event<C>
