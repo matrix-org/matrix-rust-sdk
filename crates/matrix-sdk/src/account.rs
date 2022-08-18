@@ -24,18 +24,23 @@ use ruma::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
         },
+        config::set_global_account_data,
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
         },
         uiaa::AuthData,
     },
     assign,
-    events::room::MediaSource,
+    events::{
+        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType,
+    },
+    serde::Raw,
     thirdparty::Medium,
     ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt,
 };
 
-use crate::{config::RequestConfig, Client, Error, Result};
+use crate::{config::RequestConfig, Client, Error, HttpError, Result};
 
 /// A high-level API to manage the client owner's account.
 ///
@@ -621,6 +626,36 @@ impl Account {
         let request = assign!(delete_3pid::v3::Request::new(medium, address), {
             id_server: id_server,
         });
+        Ok(self.client.send(request, None).await?)
+    }
+
+    /// Set the given account data event.
+    pub async fn set_account_data<T>(
+        &self,
+        content: T,
+    ) -> Result<set_global_account_data::v3::Response>
+    where
+        T: GlobalAccountDataEventContent,
+    {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = set_global_account_data::v3::Request::new(own_user, &content)?;
+
+        Ok(self.client.send(request, None).await?)
+    }
+
+    /// Set the given raw account data event.
+    pub async fn set_account_data_raw(
+        &self,
+        event_type: GlobalAccountDataEventType,
+        content: Raw<AnyGlobalAccountDataEventContent>,
+    ) -> Result<set_global_account_data::v3::Response> {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = set_global_account_data::v3::Request::new_raw(event_type, own_user, content);
+
         Ok(self.client.send(request, None).await?)
     }
 }

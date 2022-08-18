@@ -33,10 +33,7 @@ use matrix_sdk_base::crypto::{
 pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
 use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
-use ruma::{
-    api::client::config::set_global_account_data, events::GlobalAccountDataEventContent,
-    OwnedDeviceId,
-};
+use ruma::OwnedDeviceId;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -61,7 +58,7 @@ use crate::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
     },
-    error::{HttpError, HttpResult, RoomKeyImportError},
+    error::{HttpResult, RoomKeyImportError},
     room, Client, Error, Result,
 };
 
@@ -215,22 +212,6 @@ impl Client {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn send_account_data<T>(
-        &self,
-        content: T,
-    ) -> Result<set_global_account_data::v3::Response>
-    where
-        T: GlobalAccountDataEventContent,
-    {
-        let own_user =
-            self.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
-
-        let request = set_global_account_data::v3::Request::new(own_user, &content)?;
-
-        Ok(self.send(request, None).await?)
-    }
-
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn create_dm_room(
         &self,
         user_id: OwnedUserId,
@@ -268,7 +249,7 @@ impl Client {
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
-        self.send_account_data(content).await?;
+        self.account().set_account_data(content).await?;
 
         // If the room is already in our store, fetch it, otherwise wait for a
         // sync to be done which should put the room into our store.
