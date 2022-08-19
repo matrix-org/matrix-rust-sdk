@@ -325,13 +325,10 @@ impl OutboundGroupSession {
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]
-            EventEncryptionAlgorithm::MegolmV2AesSha2 => MegolmV2AesSha2Content {
-                ciphertext,
-                session_id: self.session_id().to_owned(),
-                sender_key: self.account_identity_keys.curve25519,
-                device_id: (*self.device_id).to_owned(),
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                MegolmV2AesSha2Content { ciphertext, session_id: self.session_id().to_owned() }
+                    .into()
             }
-            .into(),
             _ => unreachable!(
                 "An outbound group session is always using one of the supported algorithms"
             ),

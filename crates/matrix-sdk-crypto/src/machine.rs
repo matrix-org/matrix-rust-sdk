@@ -38,8 +38,8 @@ use ruma::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
+    RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
@@ -1037,16 +1037,16 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-        device_id: &DeviceId,
-    ) -> StoreResult<VerificationState> {
+    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
         Ok(
             // First find the device corresponding to the Curve25519 identity
             // key that sent us the session (recorded upon successful
             // decryption of the `m.room_key` to-device message).
             if let Some(device) = self
-                .get_device(sender, device_id, None)
+                .get_user_devices(sender, None)
                 .await?
-                .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
+                .devices()
+                .find(|d| d.curve25519_key() == Some(session.sender_key()))
             {
                 // If the `Device` is confirmed to be the owner of the
                 // `InboundGroupSession` we will consider the session (i.e.
@@ -1058,14 +1058,14 @@ impl OlmMachine {
                 if device.is_owner_of_session(session)
                     && (device.is_our_own_device() || device.is_verified())
                 {
-                    VerificationState::Trusted
+                    (VerificationState::Trusted, Some(device.device_id().to_owned()))
                 } else {
-                    VerificationState::Untrusted
+                    (VerificationState::Untrusted, Some(device.device_id().to_owned()))
                 }
             } else {
                 // We didn't find a device, no way to know if we should trust
                 // the `InboundGroupSession` or not.
-                VerificationState::UnknownDevice
+                (VerificationState::UnknownDevice, None)
             },
         )
     }
@@ -1079,12 +1079,10 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-        device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
-        let verification_state = self.get_verification_state(session, sender, device_id).await?;
+        let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
-        let device_id = device_id.to_owned();
 
         Ok(EncryptionInfo {
             sender,
@@ -1143,8 +1141,7 @@ impl OlmMachine {
                 }
             }
 
-            let encryption_info =
-                self.get_encryption_info(&session, &event.sender, content.device_id()).await?;
+            let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
