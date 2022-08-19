@@ -79,7 +79,7 @@ pub struct EncryptionInfo {
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is as well trusted.
-    pub sender_device: OwnedDeviceId,
+    pub sender_device: Option<OwnedDeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
