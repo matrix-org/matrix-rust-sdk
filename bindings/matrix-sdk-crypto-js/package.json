@@ -38,6 +38,8 @@
     "scripts": {
         "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
         "test": "jest --verbose",
-        "doc": "typedoc --tsconfig ."
+        "doc": "typedoc --tsconfig .",
+        "prepublish": "$npm_execpath run build && $npm_execpath run test",
+        "publish": "wasm-pack publish"
     }
 }
