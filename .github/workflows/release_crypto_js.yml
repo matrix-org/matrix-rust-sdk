@@ -54,3 +54,9 @@ jobs:
       - name: Publish the WebAssembly + JavaScript binding (imply building + testing)
         working-directory: ${{ env.PKG_PATH }}
         run: npm run publish
+
+      - name: Create the Github release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: ${{ env.PKG_PATH }}/pkg/matrix-org-matrix-sdk-crypto-js-*.tgz

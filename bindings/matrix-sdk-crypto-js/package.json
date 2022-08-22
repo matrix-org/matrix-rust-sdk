@@ -40,6 +40,6 @@
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
         "prepublish": "$npm_execpath run build && $npm_execpath run test",
-        "publish": "wasm-pack publish"
+        "publish": "wasm-pack pack && wasm-pack publish"
     }
 }
