@@ -77,10 +77,9 @@ impl Joined {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
-    pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
-        // TODO: Make this private
+    pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
         if room.room_type() == RoomType::Joined {
-            Some(Self { inner: Common::new(client, room) })
+            Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None
         }

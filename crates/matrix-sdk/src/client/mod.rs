@@ -850,7 +850,7 @@ impl Client {
         self.base_client()
             .get_rooms()
             .into_iter()
-            .filter_map(|room| room::Joined::new(self.clone(), room))
+            .filter_map(|room| room::Joined::new(self, room))
             .collect()
     }
 
@@ -859,7 +859,7 @@ impl Client {
         self.base_client()
             .get_stripped_rooms()
             .into_iter()
-            .filter_map(|room| room::Invited::new(self.clone(), room))
+            .filter_map(|room| room::Invited::new(self, room))
             .collect()
     }
 
@@ -868,7 +868,7 @@ impl Client {
         self.base_client()
             .get_rooms()
             .into_iter()
-            .filter_map(|room| room::Left::new(self.clone(), room))
+            .filter_map(|room| room::Left::new(self, room))
             .collect()
     }
 
@@ -889,7 +889,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<room::Joined> {
-        self.base_client().get_room(room_id).and_then(|room| room::Joined::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Joined::new(self, room))
     }
 
     /// Get an invited room with the given room id.
@@ -898,7 +898,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_invited_room(&self, room_id: &RoomId) -> Option<room::Invited> {
-        self.base_client().get_room(room_id).and_then(|room| room::Invited::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Invited::new(self, room))
     }
 
     /// Get a left room with the given room id.
@@ -907,7 +907,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<room::Left> {
-        self.base_client().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Left::new(self, room))
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

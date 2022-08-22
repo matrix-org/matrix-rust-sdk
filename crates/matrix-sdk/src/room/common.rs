@@ -100,8 +100,7 @@ impl Common {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
-    pub fn new(client: Client, room: BaseRoom) -> Self {
-        // TODO: Make this private
+    pub(crate) fn new(client: Client, room: BaseRoom) -> Self {
         Self { inner: room, client }
     }
 
