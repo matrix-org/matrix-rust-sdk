@@ -388,7 +388,7 @@ impl Client {
                 None => (HandlerKind::MessageLike, HandlerKind::message_like_redacted(redacted)),
             };
 
-            let raw_event = &item.event.json();
+            let raw_event = item.event.json();
             let encryption_info = item.encryption_info.as_ref();
 
             // Event handlers for possibly-redacted timeline events

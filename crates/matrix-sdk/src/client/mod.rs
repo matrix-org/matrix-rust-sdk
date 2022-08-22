@@ -152,8 +152,8 @@ pub(crate) struct ClientInner {
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
-    #[cfg(feature = "e2e-encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
@@ -256,8 +256,8 @@ impl Client {
     /// * `transaction_id` - The id of the transaction, used to guard against
     ///   the same transaction being sent twice. This guarding currently isn't
     ///   implemented.
-    /// * `incoming_transaction` - The sync response converted from a
-    ///   transaction received from the homeserver.
+    /// * `sync_response` - The sync response converted from a transaction
+    ///   received from the homeserver.
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
@@ -589,6 +589,12 @@ impl Client {
     /// client.add_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///     // You can omit any or all arguments after the first.
     /// });
+    ///
+    /// // Registering a temporary event handler:
+    /// let handle = client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
+    ///     /* Event handler */
+    /// });
+    /// client.remove_event_handler(handle);
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.

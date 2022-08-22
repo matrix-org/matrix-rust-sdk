@@ -258,31 +258,31 @@ impl MemoryStore {
                     MembershipState::Join => {
                         self.stripped_joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.stripped_invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     MembershipState::Invite => {
                         self.stripped_invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.stripped_joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     _ => {
                         self.stripped_joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                         self.stripped_invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                 }
