@@ -36,6 +36,14 @@ impl OlmMachine {
     /// `user_id` represents the unique ID of the user that owns this
     /// machine. `device_id` represents the unique ID of the device
     /// that owns this machine.
+    ///
+    /// `store_name` and `store_passphrase` are both optional, but
+    /// must be both set to have an effect. If they are both set, the
+    /// state of the machine will persist in a database named
+    /// `store_name` where its content is encrypted by the passphrase
+    /// given by `store_passphrase`. If they are not both set, the
+    /// created machine machine will keep the encryption keys only in
+    /// memory, and once the object is dropped, the keys will be lost.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
@@ -63,6 +71,10 @@ impl OlmMachine {
 
                     store
                 }
+
+                (Some(_), None) => return Err(anyhow::Error::msg("The `store_name` has been set, and so, it expects a `store_passphrase`, which is not set; please provide one")),
+
+                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, but it's not; please provide one")),
 
                 _ => None,
             };
