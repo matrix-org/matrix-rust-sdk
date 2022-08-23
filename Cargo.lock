@@ -1931,8 +1931,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexed_db_futures"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d26ac735f676c52305becf53264b91cea9866a8de61ccbf464405b377b9cbca9"
+source = "git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs#5dab67890cea0ab88b967031adc09179a537d77c"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -2365,6 +2364,7 @@ dependencies = [
  "js-sys",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
+ "matrix-sdk-indexeddb",
  "ruma",
  "serde_json",
  "tracing",
@@ -2372,6 +2372,7 @@ dependencies = [
  "vodozemac",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "zeroize",
 ]
 
 [[package]]

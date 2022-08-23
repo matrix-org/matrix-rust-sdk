@@ -1,8 +1,16 @@
 const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
+require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
         expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
+    });
+
+    test('can be instantiated with a store', async () => {
+        let store_name = 'hello';
+        let store_passphrase = 'world';
+
+        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
     });
 
     const user = new UserId('@alice:example.org');

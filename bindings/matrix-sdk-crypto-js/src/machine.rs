@@ -1,11 +1,13 @@
 //! The crypto specific Olm objects.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroize;
 
 use crate::{
     downcast, encryption,
@@ -36,14 +38,50 @@ impl OlmMachine {
     /// that owns this machine.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(user_id: &identifiers::UserId, device_id: &identifiers::DeviceId) -> Promise {
+    pub fn new(
+        user_id: &identifiers::UserId,
+        device_id: &identifiers::DeviceId,
+        store_name: Option<String>,
+        store_passphrase: Option<String>,
+    ) -> Promise {
         let user_id = user_id.inner.clone();
         let device_id = device_id.inner.clone();
 
         future_to_promise(async move {
+            let store = match (store_name, store_passphrase) {
+                (Some(store_name), Some(mut store_passphrase)) => {
+                    let store = Some(
+                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
+                            &store_name,
+                            &store_passphrase,
+                        )
+                        .await
+                        .map(Arc::new)?,
+                    );
+
+                    store_passphrase.zeroize();
+
+                    store
+                }
+
+                _ => None,
+            };
+
             Ok(OlmMachine {
-                inner: matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
-                    .await,
+                inner: match store {
+                    Some(store) => {
+                        matrix_sdk_crypto::OlmMachine::with_store(
+                            user_id.as_ref(),
+                            device_id.as_ref(),
+                            store,
+                        )
+                        .await?
+                    }
+                    None => {
+                        matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
+                            .await
+                    }
+                },
             })
         })
     }
