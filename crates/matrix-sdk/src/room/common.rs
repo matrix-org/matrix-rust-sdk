@@ -1015,7 +1015,7 @@ impl Common {
             content.retain(|_, list| !list.is_empty());
         }
 
-        let request = set_global_account_data::v3::Request::new(&content, user_id)?;
+        let request = set_global_account_data::v3::Request::new(user_id, &content)?;
 
         self.client.send(request, None).await?;
         Ok(())
