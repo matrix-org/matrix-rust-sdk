@@ -13,6 +13,38 @@ describe(OlmMachine.name, () => {
         expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
     });
 
+    describe('cannot be instantiated with a store', () => {
+        test('store name is missing', async () => {
+            let store_name = null;
+            let store_passphrase = 'world';
+
+            let err = null;
+
+            try {
+                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+            } catch (error) {
+                err = error;
+            }
+
+            expect(err).toBeDefined();
+        });
+
+        test('store passphrase is missing', async () => {
+            let store_name = 'hello';
+            let store_passphrase = null;
+
+            let err = null;
+
+            try {
+                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+            } catch (error) {
+                err = error;
+            }
+
+            expect(err).toBeDefined();
+        });
+    });
+
     const user = new UserId('@alice:example.org');
     const device = new DeviceId('foobar');
     const room = new RoomId('!baz:matrix.org');
