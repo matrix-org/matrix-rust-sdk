@@ -16,7 +16,10 @@
 
 use std::io::Read;
 
-use matrix_sdk_base::media::{MediaFormat, MediaRequest};
+use matrix_sdk_base::{
+    media::{MediaFormat, MediaRequest},
+    store::StateStoreExt,
+};
 use mime::Mime;
 use ruma::{
     api::client::{
@@ -32,8 +35,9 @@ use ruma::{
     },
     assign,
     events::{
-        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType,
+        room::MediaSource, AnyGlobalAccountDataEvent, AnyGlobalAccountDataEventContent,
+        GlobalAccountDataEvent, GlobalAccountDataEventContent, GlobalAccountDataEventType,
+        StaticEventContent,
     },
     serde::Raw,
     thirdparty::Medium,
@@ -627,6 +631,42 @@ impl Account {
             id_server: id_server,
         });
         Ok(self.client.send(request, None).await?)
+    }
+
+    /// Get an account data event of statically-known type.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::events::ignored_user_list::IgnoredUserListEventContent;
+    ///
+    /// let maybe_evt = account.account_data::<IgnoredUserListEventContent>().await?;
+    /// if let Some(raw_evt) = maybe_evt {
+    ///     let evt = raw_evt.deserialize()?;
+    ///     println!("Ignored users:");
+    ///     for user_id in evt.content.ignored_users {
+    ///         println!("- {user_id}");
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn account_data<C>(&self) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>>
+    where
+        C: GlobalAccountDataEventContent + StaticEventContent,
+    {
+        Ok(self.client.store().get_account_data_event_static().await?)
+    }
+
+    /// Get the account data event of the given type.
+    pub async fn account_data_raw(
+        &self,
+        event_type: GlobalAccountDataEventType,
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
+        Ok(self.client.store().get_account_data_event(event_type).await?)
     }
 
     /// Set the given account data event.
