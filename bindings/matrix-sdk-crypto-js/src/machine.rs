@@ -42,8 +42,8 @@ impl OlmMachine {
     /// state of the machine will persist in a database named
     /// `store_name` where its content is encrypted by the passphrase
     /// given by `store_passphrase`. If they are not both set, the
-    /// created machine machine will keep the encryption keys only in
-    /// memory, and once the object is dropped, the keys will be lost.
+    /// created machine will keep the encryption keys only in memory,
+    /// and once the object is dropped, the keys will be lost.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
