@@ -56,6 +56,13 @@ impl OlmMachine {
 
         future_to_promise(async move {
             let store = match (store_name, store_passphrase) {
+                // We need this `#[cfg]` because `IndexeddbCryptoStore`
+                // implements `CryptoStore` only on `target_arch =
+                // "wasm32"`. Without that, we could have a compilation
+                // error when checking the entire workspace. In
+                // practise, it doesn't impact this crate because it's
+                // always compiled for `wasm32`.
+                #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
                     let store = Some(
                         matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
