@@ -2402,7 +2402,6 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "once_cell",
- "parking_lot 0.12.1",
  "sanitize-filename-reader-friendly",
  "serde",
  "serde_json",

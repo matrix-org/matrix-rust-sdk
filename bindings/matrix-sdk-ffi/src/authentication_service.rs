@@ -1,11 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use futures_util::future::join3;
 use matrix_sdk::{
     ruma::{OwnedDeviceId, UserId},
     Session,
 };
-use parking_lot::RwLock;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 
@@ -66,7 +65,7 @@ impl AuthenticationService {
     }
 
     pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
-        self.homeserver_details.read().clone()
+        self.homeserver_details.read().unwrap().clone()
     }
 
     /// Updates the service to authenticate with the homeserver for the
@@ -85,8 +84,8 @@ impl AuthenticationService {
         RUNTIME.block_on(async move {
             let details = Arc::new(self.details_from_client(&client).await?);
 
-            *self.client.write() = Some(client);
-            *self.homeserver_details.write() = Some(details);
+            *self.client.write().unwrap() = Some(client);
+            *self.homeserver_details.write().unwrap() = Some(details);
 
             Ok(())
         })
@@ -98,7 +97,7 @@ impl AuthenticationService {
         username: String,
         password: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        match self.client.read().as_ref() {
+        match self.client.read().unwrap().as_ref() {
             Some(client) => {
                 // Login and ask the server for the full user ID as this could be different from
                 // the username that was entered.
@@ -137,7 +136,7 @@ impl AuthenticationService {
         token: String,
         device_id: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        match self.client.read().as_ref() {
+        match self.client.read().unwrap().as_ref() {
             Some(client) => {
                 // Restore the client and ask the server for the full user ID as this
                 // could be different from the username that was entered.

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{bail, Result};
 use futures_util::{pin_mut, StreamExt};
@@ -6,7 +6,6 @@ use matrix_sdk::{
     room::Room as MatrixRoom,
     ruma::{events::room::message::RoomMessageEventContent, UserId},
 };
-use parking_lot::RwLock;
 
 use super::{
     backward_stream::BackwardsStream,
@@ -40,7 +39,7 @@ impl Room {
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn RoomDelegate>>) {
-        *self.delegate.write() = delegate;
+        *self.delegate.write().unwrap() = delegate;
     }
 
     pub fn id(&self) -> String {
@@ -115,11 +114,11 @@ impl Room {
     }
 
     pub fn start_live_event_listener(&self) -> Option<Arc<BackwardsStream>> {
-        if *self.is_listening_to_live_events.read() {
+        if *self.is_listening_to_live_events.read().unwrap() {
             return None;
         }
 
-        *self.is_listening_to_live_events.write() = true;
+        *self.is_listening_to_live_events.write().unwrap() = true;
 
         let room = self.room.clone();
         let delegate = self.delegate.clone();
@@ -133,11 +132,11 @@ impl Room {
             pin_mut!(forward_stream);
 
             while let Some(sync_event) = forward_stream.next().await {
-                if !(*is_listening_to_live_events.read()) {
+                if !(*is_listening_to_live_events.read().unwrap()) {
                     return;
                 }
 
-                if let Some(delegate) = &*delegate.read() {
+                if let Some(delegate) = &*delegate.read().unwrap() {
                     if let Some(message) = sync_event_to_message(sync_event) {
                         delegate.did_receive_message(message)
                     }
@@ -148,7 +147,7 @@ impl Room {
     }
 
     pub fn stop_live_event_listener(&self) {
-        *self.is_listening_to_live_events.write() = false;
+        *self.is_listening_to_live_events.write().unwrap() = false;
     }
 
     pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {

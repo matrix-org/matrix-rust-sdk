@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use matrix_sdk::{
     encryption::{
@@ -10,7 +10,6 @@ use matrix_sdk::{
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
     },
 };
-use parking_lot::RwLock;
 
 use super::RUNTIME;
 
@@ -55,7 +54,7 @@ impl SessionVerificationController {
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
-        *self.delegate.write() = delegate;
+        *self.delegate.write().unwrap() = delegate;
     }
 
     pub fn is_verified(&self) -> bool {
@@ -67,7 +66,7 @@ impl SessionVerificationController {
             let methods = vec![VerificationMethod::SasV1];
             let verification_request =
                 self.user_identity.request_verification_with_methods(methods).await?;
-            *self.verification_request.write() = Some(verification_request);
+            *self.verification_request.write().unwrap() = Some(verification_request);
 
             Ok(())
         })
@@ -75,7 +74,7 @@ impl SessionVerificationController {
 
     pub fn approve_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let sas_verification = self.sas_verification.read().clone();
+            let sas_verification = self.sas_verification.read().unwrap().clone();
             if let Some(sas_verification) = sas_verification {
                 sas_verification.confirm().await?;
             }
@@ -86,7 +85,7 @@ impl SessionVerificationController {
 
     pub fn decline_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let sas_verification = self.sas_verification.read().clone();
+            let sas_verification = self.sas_verification.read().unwrap().clone();
             if let Some(sas_verification) = sas_verification {
                 sas_verification.mismatch().await?;
             }
@@ -97,7 +96,7 @@ impl SessionVerificationController {
 
     pub fn cancel_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let verification_request = self.verification_request.read().clone();
+            let verification_request = self.verification_request.read().unwrap().clone();
             if let Some(verification) = verification_request {
                 verification.cancel().await?;
             }
@@ -122,7 +121,7 @@ impl SessionVerificationController {
                         return;
                     }
 
-                    if let Some(delegate) = &*self.delegate.read() {
+                    if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_cancel()
                     }
                 }
@@ -131,9 +130,9 @@ impl SessionVerificationController {
                         return;
                     }
 
-                    if let Some(sas_verification) = &*sas_verification.read() {
+                    if let Some(sas_verification) = &*sas_verification.read().unwrap() {
                         if let Some(emojis) = sas_verification.emoji() {
-                            if let Some(delegate) = &*self.delegate.read() {
+                            if let Some(delegate) = &*self.delegate.read().unwrap() {
                                 let emojis = emojis
                                     .iter()
                                     .map(|e| {
@@ -146,10 +145,10 @@ impl SessionVerificationController {
 
                                 delegate.did_receive_verification_data(emojis);
                             }
-                        } else if let Some(delegate) = &*self.delegate.read() {
+                        } else if let Some(delegate) = &*self.delegate.read().unwrap() {
                             delegate.did_fail()
                         }
-                    } else if let Some(delegate) = &*self.delegate.read() {
+                    } else if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_fail()
                     }
                 }
@@ -158,7 +157,7 @@ impl SessionVerificationController {
                         return;
                     }
 
-                    if let Some(delegate) = &*self.delegate.read() {
+                    if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_finish()
                     }
                 }
@@ -168,7 +167,7 @@ impl SessionVerificationController {
     }
 
     fn is_transaction_id_valid(&self, transaction_id: String) -> bool {
-        if let Some(verification) = &*self.verification_request.read() {
+        if let Some(verification) = &*self.verification_request.read().unwrap() {
             return verification.flow_id() == transaction_id;
         }
 
@@ -176,14 +175,14 @@ impl SessionVerificationController {
     }
 
     async fn start_sas_verification(&self) {
-        let verification_request = self.verification_request.read().clone();
+        let verification_request = self.verification_request.read().unwrap().clone();
         if let Some(verification) = verification_request {
             match verification.start_sas().await {
                 Ok(verification) => {
-                    *self.sas_verification.write() = verification;
+                    *self.sas_verification.write().unwrap() = verification;
                 }
                 Err(_) => {
-                    if let Some(delegate) = &*self.delegate.read() {
+                    if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_fail()
                     }
                 }
