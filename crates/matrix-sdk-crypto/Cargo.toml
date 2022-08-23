@@ -52,12 +52,12 @@ tokio = { version = "1.18", default-features = false, features = ["time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "2b4ac409810b38dbbdd9893b6ec6ee52f5850d4a"
+rev = "173eb15147c904d7dc0ee894de6114743926e33e"
 features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "2b4ac409810b38dbbdd9893b6ec6ee52f5850d4a"
+rev = "173eb15147c904d7dc0ee894de6114743926e33e"
 features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
