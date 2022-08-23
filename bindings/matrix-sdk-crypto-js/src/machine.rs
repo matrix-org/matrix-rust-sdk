@@ -6,7 +6,6 @@ use js_sys::{Array, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
-use zeroize::Zeroize;
 
 use crate::{
     downcast, encryption,
@@ -65,6 +64,7 @@ impl OlmMachine {
                 #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
                     use std::sync::Arc;
+                    use zeroize::Zeroize;
 
                     let store = Some(
                         matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
