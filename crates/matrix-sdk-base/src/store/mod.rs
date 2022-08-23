@@ -557,6 +557,9 @@ impl Store {
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
+        let token = self.get_transaction_id().await?;
+        *self.transaction_id.write().await = token;
+
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
