@@ -74,7 +74,7 @@ impl OlmMachine {
 
                 (Some(_), None) => return Err(anyhow::Error::msg("The `store_name` has been set, and so, it expects a `store_passphrase`, which is not set; please provide one")),
 
-                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, but it's not; please provide one")),
+                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, which is not; please provide one")),
 
                 _ => None,
             };
