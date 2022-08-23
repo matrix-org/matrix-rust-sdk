@@ -7,10 +7,29 @@ describe(OlmMachine.name, () => {
     });
 
     test('can be instantiated with a store', async () => {
+        // No databases.
+        expect(await indexedDB.databases()).toHaveLength(0);
+
         let store_name = 'hello';
         let store_passphrase = 'world';
 
+        // Creating a new Olm machine.
         expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+
+        // Oh, there is 2 databases now, prefixed by `store_name`.
+        let databases = await indexedDB.databases();
+
+        expect(databases).toHaveLength(2);
+        expect(databases).toStrictEqual([
+            { name: `${store_name}::matrix-sdk-crypto-meta`, version: 1 },
+            { name: `${store_name}::matrix-sdk-crypto`, version: 1 },
+        ]);
+
+        // Creating a new Olm machine, with the stored state.
+        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+
+        // Same number of databases.
+        expect(await indexedDB.databases()).toHaveLength(2);
     });
 
     describe('cannot be instantiated with a store', () => {
