@@ -1,7 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
