@@ -1,6 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
@@ -64,6 +64,8 @@ impl OlmMachine {
                 // always compiled for `wasm32`.
                 #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
+                    use std::sync::Arc;
+
                     let store = Some(
                         matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
                             &store_name,
