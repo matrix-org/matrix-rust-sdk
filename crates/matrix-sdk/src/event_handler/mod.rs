@@ -39,7 +39,6 @@ use std::{
     fmt,
     future::Future,
     iter,
-    ops::Deref,
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
@@ -57,6 +56,10 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{error, warn};
 
+mod context;
+mod static_events;
+
+pub use self::context::{Ctx, EventHandlerContext, RawEvent};
 use crate::{room, Client};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -203,12 +206,6 @@ pub struct EventHandlerHandle {
     pub(crate) handler_id: u64,
 }
 
-impl EventHandlerContext for EventHandlerHandle {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.handle.clone())
-    }
-}
-
 /// Interface for event handlers.
 ///
 /// This trait is an abstraction for a certain kind of functions / closures,
@@ -265,82 +262,6 @@ pub struct EventHandlerData<'a> {
     raw: &'a RawJsonValue,
     encryption_info: Option<&'a EncryptionInfo>,
     handle: EventHandlerHandle,
-}
-
-/// Context for an event handler.
-///
-/// This trait defines the set of types that may be used as additional arguments
-/// in event handler functions after the event itself.
-pub trait EventHandlerContext: Sized {
-    #[doc(hidden)]
-    fn from_data(_: &EventHandlerData<'_>) -> Option<Self>;
-}
-
-impl EventHandlerContext for Client {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.client.clone())
-    }
-}
-
-/// This event handler context argument is only applicable to room-specific
-/// events.
-///
-/// Trying to use it in the event handler for another event, for example a
-/// global account data or presence event, will result in the event handler
-/// being skipped and an error getting logged.
-impl EventHandlerContext for room::Room {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        data.room.clone()
-    }
-}
-
-/// The raw JSON form of an event.
-///
-/// Used as a context argument for event handlers (see
-/// [`Client::add_event_handler`]).
-// FIXME: This could be made to not own the raw JSON value with some changes to
-//        the traits above, but only with GATs.
-#[derive(Clone, Debug)]
-pub struct RawEvent(Box<RawJsonValue>);
-
-impl Deref for RawEvent {
-    type Target = RawJsonValue;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl EventHandlerContext for RawEvent {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(Self(data.raw.to_owned()))
-    }
-}
-
-impl EventHandlerContext for Option<EncryptionInfo> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.encryption_info.cloned())
-    }
-}
-
-/// A custom value registered with
-/// [`.add_event_handler_context`][Client::add_event_handler_context].
-#[derive(Debug)]
-pub struct Ctx<T>(pub T);
-
-impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        let map = data.client.inner.event_handlers.context.read().unwrap();
-        map.get::<T>().cloned().map(Ctx)
-    }
-}
-
-impl<T> Deref for Ctx<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 /// Return types supported for event handlers implement this trait.
@@ -621,136 +542,6 @@ impl_event_handler!(A, B, C, D, E);
 impl_event_handler!(A, B, C, D, E, F);
 impl_event_handler!(A, B, C, D, E, F, G);
 impl_event_handler!(A, B, C, D, E, F, G, H);
-
-mod static_events {
-    use ruma::{
-        events::{
-            self,
-            presence::{PresenceEvent, PresenceEventContent},
-            EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
-            RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
-            StaticEventContent, ToDeviceEventContent,
-        },
-        serde::Raw,
-    };
-
-    use super::{EventKind, SyncEvent};
-
-    impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
-    where
-        C: StaticEventContent + GlobalAccountDataEventContent,
-    {
-        const KIND: EventKind = EventKind::GlobalAccountData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RoomAccountDataEvent<C>
-    where
-        C: StaticEventContent + RoomAccountDataEventContent,
-    {
-        const KIND: EventKind = EventKind::RoomAccountData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
-    where
-        C: StaticEventContent + EphemeralRoomEventContent,
-    {
-        const KIND: EventKind = EventKind::EphemeralRoomData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent + RedactContent,
-        C::Redacted: MessageLikeEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::MessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent,
-    {
-        const KIND: EventKind = EventKind::OriginalMessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::RedactedMessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::MessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::OriginalMessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::RedactedMessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::State;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const KIND: EventKind = EventKind::OriginalState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::RedactedState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::StrippedStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const KIND: EventKind = EventKind::StrippedState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::ToDeviceEvent<C>
-    where
-        C: StaticEventContent + ToDeviceEventContent,
-    {
-        const KIND: EventKind = EventKind::ToDevice;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl SyncEvent for PresenceEvent {
-        const KIND: EventKind = EventKind::Presence;
-        const TYPE: &'static str = PresenceEventContent::TYPE;
-    }
-
-    impl<T: SyncEvent> SyncEvent for Raw<T> {
-        const KIND: EventKind = T::KIND;
-        const TYPE: &'static str = T::TYPE;
-    }
-}
 
 #[cfg(test)]
 mod tests {
