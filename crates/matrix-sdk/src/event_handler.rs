@@ -35,14 +35,19 @@
 use std::any::TypeId;
 use std::{
     borrow::{Borrow, Cow},
+    collections::{btree_map, BTreeMap},
     fmt,
     future::Future,
     iter,
     ops::Deref,
     pin::Pin,
-    sync::atomic::Ordering::SeqCst,
+    sync::{
+        atomic::{AtomicU64, Ordering::SeqCst},
+        RwLock, RwLockReadGuard,
+    },
 };
 
+use anymap2::any::CloneAnySendSync;
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncRoomEvent},
     SendOutsideWasm, SyncOutsideWasm,
@@ -63,6 +68,56 @@ type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 #[cfg(target_arch = "wasm32")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
+
+type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
+type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+
+#[derive(Default)]
+pub(crate) struct EventHandlerStore {
+    handlers: RwLock<EventHandlerMap>,
+    context: RwLock<AnyMap>,
+    counter: AtomicU64,
+}
+
+impl EventHandlerStore {
+    pub fn add_handler(
+        &self,
+        key: EventHandlerKey,
+        handler_id: u64,
+        handler_fn: Box<EventHandlerFn>,
+    ) {
+        self.handlers
+            .write()
+            .unwrap()
+            .entry(key)
+            .or_default()
+            .push(EventHandlerWrapper { handler_id, handler_fn });
+    }
+
+    pub fn add_context<T>(&self, ctx: T)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.context.write().unwrap().insert(ctx);
+    }
+
+    pub fn remove(&self, handle: EventHandlerHandle) {
+        let mut map = self.handlers.write().unwrap();
+
+        if let btree_map::Entry::Occupied(mut entry) = map.entry(handle.key) {
+            let v = entry.get_mut();
+            v.retain(|e| e.handler_id != handle.handler_id);
+
+            if v.is_empty() {
+                entry.remove();
+            }
+        }
+    }
+
+    fn read(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
+        self.handlers.read().unwrap()
+    }
+}
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -275,7 +330,8 @@ pub struct Ctx<T>(pub T);
 
 impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        data.client.event_handler_context::<T>().map(Ctx)
+        let map = data.client.inner.event_handlers.context.read().unwrap();
+        map.get::<T>().cloned().map(Ctx)
     }
 }
 
@@ -361,16 +417,10 @@ impl Client {
             })
         });
 
-        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
+        let handler_id = self.inner.event_handlers.counter.fetch_add(1, SeqCst);
         let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
 
-        self.inner
-            .event_handlers
-            .write()
-            .unwrap()
-            .entry(key.clone())
-            .or_default()
-            .push(EventHandlerWrapper { handler_fn, handler_id });
+        self.inner.event_handlers.add_handler(key.clone(), handler_id, handler_fn);
 
         EventHandlerHandle { key, handler_id }
     }
@@ -496,7 +546,7 @@ impl Client {
                 EventHandlerKeyInner { ev_kind, ev_type, room_id }
             });
 
-            let handlers_lock = self.event_handlers();
+            let handlers_lock = self.inner.event_handlers.read();
 
             iter::once(non_room_handler_key)
                 .chain(room_handler_key)
@@ -950,15 +1000,15 @@ mod tests {
         let client = no_retry_test_client(None).await;
 
         let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
-        assert_eq!(client.event_handlers().len(), 1);
+        assert_eq!(client.inner.event_handlers.read().len(), 1);
 
         {
             let _guard = client.event_handler_drop_guard(handle);
-            assert_eq!(client.event_handlers().len(), 1);
+            assert_eq!(client.inner.event_handlers.read().len(), 1);
             // guard dropped here
         }
 
-        assert_eq!(client.event_handlers().len(), 0);
+        assert_eq!(client.inner.event_handlers.read().len(), 0);
     }
 
     #[async_test]

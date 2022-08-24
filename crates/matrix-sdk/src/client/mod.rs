@@ -15,15 +15,13 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     io::Read,
     pin::Pin,
-    sync::{atomic::AtomicU64, Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard},
+    sync::Arc,
 };
 
-use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
@@ -95,8 +93,7 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerHandle, EventHandlerKey, EventHandlerResult, EventHandlerWrapper,
-        SyncEvent,
+        EventHandler, EventHandlerHandle, EventHandlerResult, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
     room, Account, Error, RefreshTokenError, Result, RumaApiError,
@@ -117,8 +114,6 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
-type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
-
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 #[cfg(target_arch = "wasm32")]
@@ -130,8 +125,6 @@ type NotificationHandlerFn =
 #[cfg(target_arch = "wasm32")]
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut>;
-
-type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
@@ -176,12 +169,7 @@ pub(crate) struct ClientInner {
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
-    pub(crate) event_handlers: StdRwLock<EventHandlerMap>,
-    /// Custom event handler context. See `add_event_handler_context`.
-    pub(crate) event_handler_data: StdRwLock<AnyMap>,
-    /// When registering a event handler, the current value is used for the
-    /// handlers identification, then the counter is incremented.
-    pub(crate) event_handler_counter: AtomicU64,
+    pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
@@ -667,10 +655,6 @@ impl Client {
         self
     }
 
-    pub(crate) fn event_handlers(&self) -> StdRwLockReadGuard<'_, EventHandlerMap> {
-        self.inner.event_handlers.read().unwrap()
-    }
-
     /// Remove the event handler associated with the handle.
     ///
     /// Note that you **must not** call `remove_event_handler` from the
@@ -730,16 +714,7 @@ impl Client {
     /// # });
     /// ```
     pub fn remove_event_handler(&self, handle: EventHandlerHandle) {
-        let mut event_handlers = self.inner.event_handlers.write().unwrap();
-
-        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.key) {
-            let v = entry.get_mut();
-            v.retain(|e| e.handler_id != handle.handler_id);
-
-            if v.is_empty() {
-                entry.remove();
-            }
-        }
+        self.inner.event_handlers.remove(handle);
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -787,7 +762,7 @@ impl Client {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.inner.event_handler_data.write().unwrap().insert(ctx);
+        self.inner.event_handlers.add_context(ctx);
     }
 
     #[allow(missing_docs)]
@@ -798,14 +773,6 @@ impl Client {
     {
         self.add_event_handler_context(ctx);
         self
-    }
-
-    pub(crate) fn event_handler_context<T>(&self) -> Option<T>
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        let map = self.inner.event_handler_data.read().unwrap();
-        map.get::<T>().cloned()
     }
 
     /// Register a handler for a notification.
