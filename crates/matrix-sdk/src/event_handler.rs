@@ -573,12 +573,15 @@ impl_event_handler!(A, B, C, D, E, F, G);
 impl_event_handler!(A, B, C, D, E, F, G, H);
 
 mod static_events {
-    use ruma::events::{
-        self,
-        presence::{PresenceEvent, PresenceEventContent},
-        EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
-        RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
-        StaticEventContent, ToDeviceEventContent,
+    use ruma::{
+        events::{
+            self,
+            presence::{PresenceEvent, PresenceEventContent},
+            EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
+            RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
+            StaticEventContent, ToDeviceEventContent,
+        },
+        serde::Raw,
     };
 
     use super::{EventKind, SyncEvent};
@@ -692,6 +695,11 @@ mod static_events {
         const KIND: EventKind = EventKind::Presence;
         const TYPE: &'static str = PresenceEventContent::TYPE;
     }
+
+    impl<T: SyncEvent> SyncEvent for Raw<T> {
+        const KIND: EventKind = T::KIND;
+        const TYPE: &'static str = T::TYPE;
+    }
 }
 
 #[cfg(test)]
@@ -701,7 +709,13 @@ mod tests {
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-    use std::{future, sync::Arc};
+    use std::{
+        future,
+        sync::{
+            atomic::{AtomicU8, Ordering::SeqCst},
+            Arc,
+        },
+    };
 
     use matrix_sdk_test::{
         EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
@@ -716,10 +730,12 @@ mod tests {
             typing::SyncTypingEvent,
         },
         room_id,
+        serde::Raw,
     };
     use serde_json::json;
 
     use crate::{
+        event_handler::Ctx,
         room::Room,
         test_utils::{logged_in_client, no_retry_test_client},
         Client,
@@ -727,8 +743,6 @@ mod tests {
 
     #[async_test]
     async fn add_event_handler() -> crate::Result<()> {
-        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
-
         let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
@@ -823,8 +837,6 @@ mod tests {
 
     #[async_test]
     async fn add_room_event_handler() -> crate::Result<()> {
-        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
-
         let client = logged_in_client(None).await;
 
         let room_id_a = room_id!("!foo:example.org");
@@ -886,8 +898,6 @@ mod tests {
 
     #[async_test]
     async fn remove_event_handler() -> crate::Result<()> {
-        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
-
         let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
@@ -965,5 +975,27 @@ mod tests {
             let _caps = client.get_capabilities().await?;
             anyhow::Ok(())
         });
+    }
+
+    #[async_test]
+    async fn raw_event_handler() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+        let counter = Arc::new(AtomicU8::new(0));
+        client.add_event_handler_context(counter.clone());
+        client.add_event_handler(
+            |_ev: Raw<OriginalSyncRoomMemberEvent>, counter: Ctx<Arc<AtomicU8>>| async move {
+                counter.fetch_add(1, SeqCst);
+            },
+        );
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        assert_eq!(counter.load(SeqCst), 1);
+        Ok(())
     }
 }
