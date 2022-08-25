@@ -27,13 +27,13 @@ use ruma::{
     serde::Raw,
 };
 
-use super::{EventKind, SyncEvent};
+use super::{HandlerKind, SyncEvent};
 
 impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
 where
     C: StaticEventContent + GlobalAccountDataEventContent,
 {
-    const KIND: EventKind = EventKind::GlobalAccountData;
+    const KIND: HandlerKind = HandlerKind::GlobalAccountData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -41,7 +41,7 @@ impl<C> SyncEvent for events::RoomAccountDataEvent<C>
 where
     C: StaticEventContent + RoomAccountDataEventContent,
 {
-    const KIND: EventKind = EventKind::RoomAccountData;
+    const KIND: HandlerKind = HandlerKind::RoomAccountData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -49,7 +49,7 @@ impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
 where
     C: StaticEventContent + EphemeralRoomEventContent,
 {
-    const KIND: EventKind = EventKind::EphemeralRoomData;
+    const KIND: HandlerKind = HandlerKind::EphemeralRoomData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -58,7 +58,7 @@ where
     C: StaticEventContent + MessageLikeEventContent + RedactContent,
     C::Redacted: MessageLikeEventContent + RedactedEventContent,
 {
-    const KIND: EventKind = EventKind::MessageLike;
+    const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -66,7 +66,7 @@ impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
 where
     C: StaticEventContent + MessageLikeEventContent,
 {
-    const KIND: EventKind = EventKind::OriginalMessageLike;
+    const KIND: HandlerKind = HandlerKind::OriginalMessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -74,24 +74,24 @@ impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
 where
     C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
 {
-    const KIND: EventKind = EventKind::RedactedMessageLike;
+    const KIND: HandlerKind = HandlerKind::RedactedMessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
 impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-    const KIND: EventKind = EventKind::MessageLike;
+    const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
 }
 
 impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-    const KIND: EventKind = EventKind::OriginalMessageLike;
+    const KIND: HandlerKind = HandlerKind::OriginalMessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
 }
 
 impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-    const KIND: EventKind = EventKind::RedactedMessageLike;
+    const KIND: HandlerKind = HandlerKind::RedactedMessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
 }
@@ -101,7 +101,7 @@ where
     C: StaticEventContent + StateEventContent + RedactContent,
     C::Redacted: StateEventContent + RedactedEventContent,
 {
-    const KIND: EventKind = EventKind::State;
+    const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -109,7 +109,7 @@ impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
 where
     C: StaticEventContent + StateEventContent,
 {
-    const KIND: EventKind = EventKind::OriginalState;
+    const KIND: HandlerKind = HandlerKind::OriginalState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -117,7 +117,7 @@ impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
 where
     C: StaticEventContent + StateEventContent + RedactedEventContent,
 {
-    const KIND: EventKind = EventKind::RedactedState;
+    const KIND: HandlerKind = HandlerKind::RedactedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -125,7 +125,7 @@ impl<C> SyncEvent for events::StrippedStateEvent<C>
 where
     C: StaticEventContent + StateEventContent,
 {
-    const KIND: EventKind = EventKind::StrippedState;
+    const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
@@ -133,51 +133,51 @@ impl<C> SyncEvent for events::ToDeviceEvent<C>
 where
     C: StaticEventContent + ToDeviceEventContent,
 {
-    const KIND: EventKind = EventKind::ToDevice;
+    const KIND: HandlerKind = HandlerKind::ToDevice;
     const TYPE: Option<&'static str> = Some(C::TYPE);
 }
 
 impl SyncEvent for PresenceEvent {
-    const KIND: EventKind = EventKind::Presence;
+    const KIND: HandlerKind = HandlerKind::Presence;
     const TYPE: Option<&'static str> = Some(PresenceEventContent::TYPE);
 }
 
 impl SyncEvent for AnyGlobalAccountDataEvent {
-    const KIND: EventKind = EventKind::GlobalAccountData;
+    const KIND: HandlerKind = HandlerKind::GlobalAccountData;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnyRoomAccountDataEvent {
-    const KIND: EventKind = EventKind::RoomAccountData;
+    const KIND: HandlerKind = HandlerKind::RoomAccountData;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnySyncEphemeralRoomEvent {
-    const KIND: EventKind = EventKind::EphemeralRoomData;
+    const KIND: HandlerKind = HandlerKind::EphemeralRoomData;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnySyncMessageLikeEvent {
-    const KIND: EventKind = EventKind::MessageLike;
+    const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnySyncStateEvent {
-    const KIND: EventKind = EventKind::State;
+    const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnyStrippedStateEvent {
-    const KIND: EventKind = EventKind::StrippedState;
+    const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnyToDeviceEvent {
-    const KIND: EventKind = EventKind::ToDevice;
+    const KIND: HandlerKind = HandlerKind::ToDevice;
     const TYPE: Option<&'static str> = None;
 }
 
 impl<T: SyncEvent> SyncEvent for Raw<T> {
-    const KIND: EventKind = T::KIND;
+    const KIND: HandlerKind = T::KIND;
     const TYPE: Option<&'static str> = T::TYPE;
 }

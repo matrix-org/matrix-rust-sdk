@@ -107,7 +107,7 @@ impl EventHandlerStore {
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EventKind {
+pub enum HandlerKind {
     GlobalAccountData,
     RoomAccountData,
     EphemeralRoomData,
@@ -122,7 +122,7 @@ pub enum EventKind {
     Presence,
 }
 
-impl EventKind {
+impl HandlerKind {
     fn message_like_redacted(redacted: bool) -> Self {
         if redacted {
             Self::RedactedMessageLike
@@ -143,7 +143,7 @@ impl EventKind {
 /// A statically-known event kind/type that can be retrieved from an event sync.
 pub trait SyncEvent {
     #[doc(hidden)]
-    const KIND: EventKind;
+    const KIND: HandlerKind;
     #[doc(hidden)]
     const TYPE: Option<&'static str>;
 }
@@ -157,7 +157,7 @@ pub(crate) struct EventHandlerWrapper {
 /// [`Client::remove_event_handler`].
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
-    pub(crate) ev_kind: EventKind,
+    pub(crate) ev_kind: HandlerKind,
     pub(crate) ev_type: Option<&'static str>,
     pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
@@ -319,7 +319,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_events<T>(
         &self,
-        kind: EventKind,
+        kind: HandlerKind,
         room: &Option<room::Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
@@ -350,15 +350,15 @@ impl Client {
         }
 
         // Event handlers for possibly-redacted state events
-        self.handle_sync_events(EventKind::State, room, state_events).await?;
+        self.handle_sync_events(HandlerKind::State, room, state_events).await?;
 
         // Event handlers specifically for redacted OR unredacted state events
         for raw_event in state_events {
             let StateEventDetails { event_type, unsigned } = raw_event.deserialize_as()?;
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let event_kind = EventKind::state_redacted(redacted);
+            let handler_kind = HandlerKind::state_redacted(redacted);
 
-            self.call_event_handlers(room, raw_event.json(), event_kind, &event_type, None).await;
+            self.call_event_handlers(room, raw_event.json(), handler_kind, &event_type, None).await;
         }
 
         Ok(())
@@ -382,20 +382,20 @@ impl Client {
                 item.event.deserialize_as()?;
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let (event_kind_g, event_kind_r) = match state_key {
-                Some(_) => (EventKind::State, EventKind::state_redacted(redacted)),
-                None => (EventKind::MessageLike, EventKind::message_like_redacted(redacted)),
+            let (handler_kind_g, handler_kind_r) = match state_key {
+                Some(_) => (HandlerKind::State, HandlerKind::state_redacted(redacted)),
+                None => (HandlerKind::MessageLike, HandlerKind::message_like_redacted(redacted)),
             };
 
             let raw_event = &item.event.json();
             let encryption_info = item.encryption_info.as_ref();
 
             // Event handlers for possibly-redacted timeline events
-            self.call_event_handlers(room, raw_event, event_kind_g, &event_type, encryption_info)
+            self.call_event_handlers(room, raw_event, handler_kind_g, &event_type, encryption_info)
                 .await;
 
             // Event handlers specifically for redacted OR unredacted timeline events
-            self.call_event_handlers(room, raw_event, event_kind_r, &event_type, encryption_info)
+            self.call_event_handlers(room, raw_event, handler_kind_r, &event_type, encryption_info)
                 .await;
         }
 
@@ -406,7 +406,7 @@ impl Client {
         &self,
         room: &Option<room::Room>,
         raw: &RawJsonValue,
-        ev_kind: EventKind,
+        ev_kind: HandlerKind,
         ev_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
