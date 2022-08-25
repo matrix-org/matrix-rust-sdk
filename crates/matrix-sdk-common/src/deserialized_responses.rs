@@ -94,7 +94,7 @@ pub struct EncryptionInfo {
 /// A customized version of a room event coming from a sync that holds optional
 /// encryption info.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SyncRoomEvent {
+pub struct SyncTimelineEvent {
     /// The actual event.
     pub event: Raw<AnySyncTimelineEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
@@ -102,25 +102,26 @@ pub struct SyncRoomEvent {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
-impl SyncRoomEvent {
-    /// Get the event id of this `SyncRoomEvent` if the event has any valid id.
+impl SyncTimelineEvent {
+    /// Get the event id of this `SyncTimelineEvent` if the event has any valid
+    /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.event.get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 }
 
-impl From<Raw<AnySyncTimelineEvent>> for SyncRoomEvent {
+impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
     fn from(inner: Raw<AnySyncTimelineEvent>) -> Self {
         Self { encryption_info: None, event: inner }
     }
 }
 
-impl From<RoomEvent> for SyncRoomEvent {
-    fn from(o: RoomEvent) -> Self {
-        // This conversion is unproblematic since a SyncRoomEvent is just a
-        // RoomEvent without the room_id. By converting the raw value in this
-        // way, we simply cause the `room_id` field in the json to be ignored by
-        // a subsequent deserialization.
+impl From<TimelineEvent> for SyncTimelineEvent {
+    fn from(o: TimelineEvent) -> Self {
+        // This conversion is unproblematic since a SyncTimelineEvent is just a
+        // TimelineEvent without the room_id. By converting the raw value in
+        // this way, we simply cause the `room_id` field in the json to be
+        // ignored by a subsequent deserialization.
         Self { encryption_info: o.encryption_info, event: o.event.cast() }
     }
 }
@@ -158,7 +159,7 @@ impl SyncResponse {
 }
 
 #[derive(Clone, Debug)]
-pub struct RoomEvent {
+pub struct TimelineEvent {
     /// The actual event.
     pub event: Raw<AnyTimelineEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
@@ -258,7 +259,7 @@ pub struct Timeline {
     pub prev_batch: Option<String>,
 
     /// A list of events.
-    pub events: Vec<SyncRoomEvent>,
+    pub events: Vec<SyncTimelineEvent>,
 }
 
 impl Timeline {
@@ -282,7 +283,7 @@ pub struct TimelineSlice {
     pub limited: bool,
 
     /// A list of events.
-    pub events: Vec<SyncRoomEvent>,
+    pub events: Vec<SyncTimelineEvent>,
 
     /// Whether this is a timeline slice obtained from a `SyncResponse`
     pub sync: bool,
@@ -290,7 +291,7 @@ pub struct TimelineSlice {
 
 impl TimelineSlice {
     pub fn new(
-        events: Vec<SyncRoomEvent>,
+        events: Vec<SyncTimelineEvent>,
         start: String,
         end: Option<String>,
         limited: bool,
@@ -379,7 +380,7 @@ mod tests {
         user_id, MilliSecondsSinceUnixEpoch,
     };
 
-    use super::{RoomEvent, SyncRoomEvent};
+    use super::{SyncTimelineEvent, TimelineEvent};
 
     #[test]
     fn room_event_to_sync_room_event() {
@@ -395,9 +396,9 @@ mod tests {
         };
 
         let room_event =
-            RoomEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
+            TimelineEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
 
-        let converted_room_event: SyncRoomEvent = room_event.into();
+        let converted_room_event: SyncTimelineEvent = room_event.into();
 
         let converted_event: AnySyncTimelineEvent =
             converted_room_event.event.deserialize().unwrap();

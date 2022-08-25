@@ -80,7 +80,7 @@ macro_rules! statestore_integration_tests {
                 #[cfg(feature = "experimental-timeline")]
                 use $crate::{
                     http::Response,
-                    deserialized_responses::{ RoomEvent, SyncRoomEvent, TimelineSlice},
+                    deserialized_responses::{SyncTimelineEvent, TimelineEvent, TimelineSlice},
                 };
                 use $crate::{
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -642,7 +642,7 @@ macro_rules! statestore_integration_tests {
                         .unwrap();
 
                     let timeline = &sync.rooms.join[room_id].timeline;
-                    let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
+                    let events: Vec<SyncTimelineEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
                     stored_events.extend(events.iter().rev().cloned());
 
@@ -664,15 +664,15 @@ macro_rules! statestore_integration_tests {
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
                         .body(serde_json::to_vec(&*test_json::ROOM_MESSAGES_BATCH_1).expect("Parsing ROOM_MESSAGES_BATCH_1 failed"))
-                        .unwrap(),
+                            .unwrap(),
                         )
                         .unwrap();
 
-                    let events: Vec<SyncRoomEvent> = messages
+                    let events: Vec<SyncTimelineEvent> = messages
                         .chunk
                         .iter()
                         .cloned()
-                        .map(|event| RoomEvent { event, encryption_info: None }.into())
+                        .map(|event| TimelineEvent { event, encryption_info: None }.into())
                         .collect();
 
                     stored_events.append(&mut events.clone());
@@ -693,11 +693,11 @@ macro_rules! statestore_integration_tests {
                         )
                         .unwrap();
 
-                    let events: Vec<SyncRoomEvent> = messages
+                    let events: Vec<SyncTimelineEvent> = messages
                         .chunk
                         .iter()
                         .cloned()
-                        .map(|event| RoomEvent { event, encryption_info: None }.into())
+                        .map(|event| TimelineEvent { event, encryption_info: None }.into())
                         .collect();
 
                     stored_events.append(&mut events.clone());
@@ -719,7 +719,7 @@ macro_rules! statestore_integration_tests {
                         .unwrap();
 
                     let timeline = &sync.rooms.join[room_id].timeline;
-                    let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
+                    let events: Vec<SyncTimelineEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
                     let prev_stored_events = stored_events;
                     stored_events = events.iter().rev().cloned().collect();
@@ -758,14 +758,14 @@ macro_rules! statestore_integration_tests {
                 async fn check_timeline_events(
                     room_id: &RoomId,
                     store: &dyn StateStore,
-                    stored_events: &[SyncRoomEvent],
+                    stored_events: &[SyncTimelineEvent],
                     expected_end_token: Option<&str>,
                     ) {
                     let (timeline_iter, end_token) = store.room_timeline(room_id).await.unwrap().unwrap();
 
                     assert_eq!(end_token.as_deref(), expected_end_token);
 
-                    let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
+                    let timeline = timeline_iter.collect::<Vec<StoreResult<SyncTimelineEvent>>>().await;
 
                     let expected: Vec<OwnedEventId> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
                     let found: Vec<OwnedEventId> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();

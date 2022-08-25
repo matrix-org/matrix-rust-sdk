@@ -11,7 +11,7 @@ use thiserror::Error;
 use tracing::trace;
 
 use crate::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{SyncTimelineEvent, TimelineSlice},
     store::Result,
 };
 
@@ -35,8 +35,8 @@ pub enum TimelineStreamError {
 /// A `Stream` of timeline of a room
 pub struct TimelineStreamBackward<'a> {
     receiver: mpsc::Receiver<TimelineSlice>,
-    stored_events: Option<BoxStream<'a, Result<SyncRoomEvent>>>,
-    pending: Vec<SyncRoomEvent>,
+    stored_events: Option<BoxStream<'a, Result<SyncTimelineEvent>>>,
+    pending: Vec<SyncTimelineEvent>,
     event_ids: Arc<DashSet<OwnedEventId>>,
     token: Option<String>,
 }
@@ -74,7 +74,7 @@ impl<'a> TimelineStreamBackward<'a> {
     pub(crate) fn new(
         event_ids: Arc<DashSet<OwnedEventId>>,
         token: Option<String>,
-        stored_events: Option<BoxStream<'a, Result<SyncRoomEvent>>>,
+        stored_events: Option<BoxStream<'a, Result<SyncTimelineEvent>>>,
     ) -> (Self, mpsc::Sender<TimelineSlice>) {
         let (sender, receiver) = mpsc::channel(CHANNEL_LIMIT);
         let self_ = Self { event_ids, pending: Vec::new(), stored_events, token, receiver };
@@ -85,7 +85,7 @@ impl<'a> TimelineStreamBackward<'a> {
     fn handle_new_slice(
         &mut self,
         slice: TimelineSlice,
-    ) -> Poll<Option<Result<SyncRoomEvent, TimelineStreamError>>> {
+    ) -> Poll<Option<Result<SyncTimelineEvent, TimelineStreamError>>> {
         // Check if this is the batch we are expecting
         if self.token.is_some() && self.token != Some(slice.start) {
             trace!("Store received a timeline batch that wasn't expected");
@@ -123,7 +123,7 @@ impl<'a> TimelineStreamBackward<'a> {
 }
 
 impl<'a> Stream for TimelineStreamBackward<'a> {
-    type Item = Result<SyncRoomEvent, TimelineStreamError>;
+    type Item = Result<SyncTimelineEvent, TimelineStreamError>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         if let Some(stored_events) = &mut this.stored_events {
@@ -168,7 +168,7 @@ impl<'a> Stream for TimelineStreamBackward<'a> {
 /// A `Stream` of timeline of a room
 pub struct TimelineStreamForward {
     receiver: mpsc::Receiver<TimelineSlice>,
-    pending: Vec<SyncRoomEvent>,
+    pending: Vec<SyncTimelineEvent>,
     event_ids: Arc<DashSet<OwnedEventId>>,
 }
 
@@ -204,7 +204,7 @@ impl TimelineStreamForward {
         (self_, sender)
     }
 
-    fn handle_new_slice(&mut self, slice: TimelineSlice) -> Poll<Option<SyncRoomEvent>> {
+    fn handle_new_slice(&mut self, slice: TimelineSlice) -> Poll<Option<SyncTimelineEvent>> {
         // There is a gap in the timeline. Therefore, terminate the stream.
         if slice.limited {
             return Poll::Ready(None);
@@ -226,7 +226,7 @@ impl TimelineStreamForward {
 }
 
 impl Stream for TimelineStreamForward {
-    type Item = SyncRoomEvent;
+    type Item = SyncTimelineEvent;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 

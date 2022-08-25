@@ -20,7 +20,7 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, RoomEvent, VerificationState},
+    deserialized_responses::{AlgorithmInfo, EncryptionInfo, TimelineEvent, VerificationState},
     locks::Mutex,
 };
 use ruma::{
@@ -1052,7 +1052,7 @@ impl OlmMachine {
         room_id: &RoomId,
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
-    ) -> MegolmResult<RoomEvent> {
+    ) -> MegolmResult<TimelineEvent> {
         if let Some(session) = self
             .store
             .get_inbound_group_session(
@@ -1105,7 +1105,7 @@ impl OlmMachine {
                 )
                 .await?;
 
-            Ok(RoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+            Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
             self.key_request_machine
                 .create_outgoing_key_request(
@@ -1132,7 +1132,7 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
-    ) -> MegolmResult<RoomEvent> {
+    ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
         let content = match &event.content.scheme {

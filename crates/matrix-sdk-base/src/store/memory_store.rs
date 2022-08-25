@@ -56,7 +56,7 @@ use crate::{
     MinimalRoomMemberEvent,
 };
 #[cfg(feature = "experimental-timeline")]
-use crate::{deserialized_responses::SyncRoomEvent, StoreError};
+use crate::{deserialized_responses::SyncTimelineEvent, StoreError};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -671,7 +671,7 @@ impl MemoryStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncTimelineEvent>>, Option<String>)>> {
         let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
             (data.events.clone(), data.end.clone())
         } else {
@@ -852,7 +852,7 @@ impl StateStore for MemoryStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncTimelineEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await
     }
 }
@@ -864,7 +864,7 @@ struct TimelineData {
     pub start_position: isize,
     pub end: Option<String>,
     pub end_position: isize,
-    pub events: BTreeMap<isize, SyncRoomEvent>,
+    pub events: BTreeMap<isize, SyncTimelineEvent>,
     pub event_id_to_position: HashMap<OwnedEventId, isize>,
 }
 

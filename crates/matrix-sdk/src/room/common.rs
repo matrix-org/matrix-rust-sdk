@@ -5,12 +5,12 @@ use futures_channel::mpsc;
 use futures_core::stream::Stream;
 use futures_util::{SinkExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, RoomEvent},
+    deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
 };
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{SyncTimelineEvent, TimelineSlice},
     TimelineStreamError,
 };
 use matrix_sdk_common::locks::Mutex;
@@ -87,7 +87,7 @@ pub struct Messages {
     pub end: Option<String>,
 
     /// A list of room events.
-    pub chunk: Vec<RoomEvent>,
+    pub chunk: Vec<TimelineEvent>,
 
     /// A list of state events relevant to showing the `chunk`.
     pub state: Vec<Raw<AnyStateEvent>>,
@@ -245,7 +245,7 @@ impl Common {
             chunk: http_response
                 .chunk
                 .into_iter()
-                .map(|event| RoomEvent { event, encryption_info: None })
+                .map(|event| TimelineEvent { event, encryption_info: None })
                 .collect(),
             #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
@@ -262,10 +262,10 @@ impl Common {
                     if let Ok(event) = machine.decrypt_room_event(event.cast_ref(), room_id).await {
                         event
                     } else {
-                        RoomEvent { event, encryption_info: None }
+                        TimelineEvent { event, encryption_info: None }
                     }
                 } else {
-                    RoomEvent { event, encryption_info: None }
+                    TimelineEvent { event, encryption_info: None }
                 };
 
                 response.chunk.push(decrypted_event);
@@ -275,7 +275,7 @@ impl Common {
                 http_response
                     .chunk
                     .into_iter()
-                    .map(|event| RoomEvent { event, encryption_info: None }),
+                    .map(|event| TimelineEvent { event, encryption_info: None }),
             );
         }
 
@@ -369,8 +369,10 @@ impl Common {
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(
         &self,
-    ) -> Result<(impl Stream<Item = SyncRoomEvent>, impl Stream<Item = Result<SyncRoomEvent>>)>
-    {
+    ) -> Result<(
+        impl Stream<Item = SyncTimelineEvent>,
+        impl Stream<Item = Result<SyncTimelineEvent>>,
+    )> {
         let (forward_store, backward_store) = self.inner.timeline().await?;
 
         let room = self.to_owned();
@@ -438,7 +440,7 @@ impl Common {
     /// # });
     /// ```
     #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline_forward(&self) -> Result<impl Stream<Item = SyncRoomEvent>> {
+    pub async fn timeline_forward(&self) -> Result<impl Stream<Item = SyncTimelineEvent>> {
         Ok(self.inner.timeline_forward().await?)
     }
 
@@ -502,7 +504,7 @@ impl Common {
     /// # });
     /// ```
     #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline_backward(&self) -> Result<impl Stream<Item = Result<SyncRoomEvent>>> {
+    pub async fn timeline_backward(&self) -> Result<impl Stream<Item = Result<SyncTimelineEvent>>> {
         let backward_store = self.inner.timeline_backward().await?;
 
         let room = self.to_owned();
@@ -535,7 +537,7 @@ impl Common {
         });
         let messages = self.messages(options).await?;
         let timeline = TimelineSlice::new(
-            messages.chunk.into_iter().map(SyncRoomEvent::from).collect(),
+            messages.chunk.into_iter().map(SyncTimelineEvent::from).collect(),
             messages.start,
             messages.end,
             false,
@@ -549,7 +551,7 @@ impl Common {
     }
 
     /// Fetch the event with the given `EventId` in this room.
-    pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
+    pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
         let request = get_room_event::v3::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event;
 
@@ -563,11 +565,11 @@ impl Common {
                     return Ok(event);
                 }
             }
-            Ok(RoomEvent { event, encryption_info: None })
+            Ok(TimelineEvent { event, encryption_info: None })
         }
 
         #[cfg(not(feature = "e2e-encryption"))]
-        Ok(RoomEvent { event, encryption_info: None })
+        Ok(TimelineEvent { event, encryption_info: None })
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -1031,7 +1033,7 @@ impl Common {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
-    ) -> Result<RoomEvent> {
+    ) -> Result<TimelineEvent> {
         if let Some(machine) = self.client.olm_machine() {
             Ok(machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?)
         } else {

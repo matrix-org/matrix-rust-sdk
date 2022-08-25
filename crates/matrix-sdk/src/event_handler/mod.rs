@@ -46,7 +46,7 @@ use std::{
 
 use anymap2::any::CloneAnySendSync;
 use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncRoomEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
@@ -366,7 +366,7 @@ impl Client {
     pub(crate) async fn handle_sync_timeline_events(
         &self,
         room: &Option<room::Room>,
-        timeline_events: &[SyncRoomEvent],
+        timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
         struct TimelineEventDetails<'a> {

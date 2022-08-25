@@ -34,7 +34,7 @@ use matrix_sdk_base::{
     MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 #[cfg(feature = "experimental-timeline")]
 use ruma::{
@@ -976,7 +976,7 @@ impl IndexeddbStateStore {
                                     .get(&position_key)?
                                     .await?
                                     .map(|e| {
-                                        self.deserialize_event::<SyncRoomEvent>(e)
+                                        self.deserialize_event::<SyncTimelineEvent>(e)
                                             .map_err(StoreError::from)
                                     })
                                     .transpose()?
@@ -1440,7 +1440,7 @@ impl IndexeddbStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         let tx = self.inner.transaction_on_multi_with_mode(
             &[KEYS::ROOM_TIMELINE, KEYS::ROOM_TIMELINE_METADATA],
             IdbTransactionMode::Readonly,
@@ -1463,7 +1463,7 @@ impl IndexeddbStateStore {
 
         let end_token = tlm.end;
         #[allow(clippy::needless_collect)]
-        let timeline: Vec<StoreResult<SyncRoomEvent>> = timeline
+        let timeline: Vec<StoreResult<SyncTimelineEvent>> = timeline
             .get_all_with_key(&self.encode_to_range(KEYS::ROOM_TIMELINE, room_id)?)?
             .await?
             .iter()
@@ -1644,7 +1644,7 @@ impl StateStore for IndexeddbStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await.map_err(|e| e.into())
     }
 }

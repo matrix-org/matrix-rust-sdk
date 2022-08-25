@@ -179,7 +179,7 @@ async fn test_state_event_getting() {
 #[cfg(feature = "experimental-timeline")]
 async fn room_timeline_with_remove() {
     use futures_util::StreamExt;
-    use matrix_sdk::deserialized_responses::SyncRoomEvent;
+    use matrix_sdk::deserialized_responses::SyncTimelineEvent;
     use wiremock::matchers::query_param;
 
     let (client, server) = logged_in_client().await;
@@ -245,8 +245,10 @@ async fn room_timeline_with_remove() {
         "$098237280074GZeOm2:localhost",
     ];
 
-    let forward_events =
-        forward_stream.take(expected_forward_events.len()).collect::<Vec<SyncRoomEvent>>().await;
+    let forward_events = forward_stream
+        .take(expected_forward_events.len())
+        .collect::<Vec<SyncTimelineEvent>>()
+        .await;
 
     for (r, e) in forward_events.into_iter().zip(expected_forward_events.iter()) {
         assert_eq!(&r.event_id().unwrap().as_str(), e);
@@ -264,7 +266,7 @@ async fn room_timeline_with_remove() {
 
     let backward_events = backward_stream
         .take(expected_backwards_events.len())
-        .collect::<Vec<matrix_sdk::Result<SyncRoomEvent>>>()
+        .collect::<Vec<matrix_sdk::Result<SyncTimelineEvent>>>()
         .await;
 
     for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
@@ -276,7 +278,7 @@ async fn room_timeline_with_remove() {
 #[cfg(feature = "experimental-timeline")]
 async fn room_timeline() {
     use futures_util::StreamExt;
-    use matrix_sdk::deserialized_responses::SyncRoomEvent;
+    use matrix_sdk::deserialized_responses::SyncTimelineEvent;
     use wiremock::matchers::query_param;
 
     let (client, server) = logged_in_client().await;
@@ -325,8 +327,10 @@ async fn room_timeline() {
         "$098237280074GZeOm2:localhost",
     ];
 
-    let forward_events =
-        forward_stream.take(expected_forward_events.len()).collect::<Vec<SyncRoomEvent>>().await;
+    let forward_events = forward_stream
+        .take(expected_forward_events.len())
+        .collect::<Vec<SyncTimelineEvent>>()
+        .await;
 
     for (r, e) in forward_events.into_iter().zip(expected_forward_events.iter()) {
         assert_eq!(&r.event_id().unwrap().as_str(), e);
@@ -354,7 +358,7 @@ async fn room_timeline() {
 
     let backward_events = backward_stream
         .take(expected_backwards_events.len())
-        .collect::<Vec<matrix_sdk::Result<SyncRoomEvent>>>()
+        .collect::<Vec<matrix_sdk::Result<SyncTimelineEvent>>>()
         .await;
 
     for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
