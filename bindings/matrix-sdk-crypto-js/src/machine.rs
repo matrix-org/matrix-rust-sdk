@@ -10,10 +10,10 @@ use wasm_bindgen::prelude::*;
 use crate::{
     downcast, encryption,
     future::future_to_promise,
-    identifiers, requests,
+    identifiers, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events,
+    sync_events, types, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -120,7 +120,7 @@ impl OlmMachine {
 
     /// Get the public parts of our Olm identity keys.
     #[wasm_bindgen(getter, js_name = "identityKeys")]
-    pub fn identity_keys(&self) -> IdentityKeys {
+    pub fn identity_keys(&self) -> vodozemac::IdentityKeys {
         self.inner.identity_keys().into()
     }
 
@@ -340,6 +340,27 @@ impl OlmMachine {
         }))
     }
 
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we
+    /// have stored locally.
+    #[wasm_bindgen(js_name = "crossSigningStatus")]
+    pub fn cross_signing_status(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, olm::CrossSigningStatus>(async move {
+            Ok(me.cross_signing_status().await.into())
+        })
+    }
+
+    /// Sign the given message using our device key and if available
+    /// cross-signing master key.
+    pub fn sign(&self, message: String) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, types::Signatures>(async move { Ok(me.sign(&message).await.into()) })
+    }
+
     /// Invalidate the currently active outbound group session for the
     /// given room.
     ///
@@ -431,71 +452,5 @@ impl OlmMachine {
                 None => Ok(JsValue::NULL),
             }
         }))
-    }
-}
-
-/// An Ed25519 public key, used to verify digital signatures.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct Ed25519PublicKey {
-    inner: vodozemac::Ed25519PublicKey,
-}
-
-#[wasm_bindgen]
-impl Ed25519PublicKey {
-    /// The number of bytes an Ed25519 public key has.
-    #[wasm_bindgen(getter)]
-    pub fn length(&self) -> usize {
-        vodozemac::Ed25519PublicKey::LENGTH
-    }
-
-    /// Serialize an Ed25519 public key to an unpadded base64
-    /// representation.
-    #[wasm_bindgen(js_name = "toBase64")]
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
-    }
-}
-
-/// A Curve25519 public key.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct Curve25519PublicKey {
-    inner: vodozemac::Curve25519PublicKey,
-}
-
-#[wasm_bindgen]
-impl Curve25519PublicKey {
-    /// The number of bytes a Curve25519 public key has.
-    #[wasm_bindgen(getter)]
-    pub fn length(&self) -> usize {
-        vodozemac::Curve25519PublicKey::LENGTH
-    }
-
-    /// Serialize an Curve25519 public key to an unpadded base64
-    /// representation.
-    #[wasm_bindgen(js_name = "toBase64")]
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
-    }
-}
-
-/// Struct holding the two public identity keys of an account.
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Debug)]
-pub struct IdentityKeys {
-    /// The Ed25519 public key, used for signing.
-    pub ed25519: Ed25519PublicKey,
-
-    /// The Curve25519 public key, used for establish shared secrets.
-    pub curve25519: Curve25519PublicKey,
-}
-
-impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
-    fn from(value: matrix_sdk_crypto::olm::IdentityKeys) -> Self {
-        Self {
-            ed25519: Ed25519PublicKey { inner: value.ed25519 },
-            curve25519: Curve25519PublicKey { inner: value.curve25519 },
-        }
     }
 }

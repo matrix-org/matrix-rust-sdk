@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
 use matrix_sdk::{
@@ -16,7 +16,6 @@ use matrix_sdk::{
     },
     Client as MatrixClient, LoopCtrl, Session,
 };
-use parking_lot::RwLock;
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
@@ -78,7 +77,7 @@ impl Client {
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
-        *self.delegate.write() = delegate;
+        *self.delegate.write().unwrap() = delegate;
     }
 
     /// The homeserver this client is configured to use.
@@ -137,18 +136,18 @@ impl Client {
 
             client
                 .sync_with_callback(sync_settings, |sync_response| async {
-                    if !state.read().has_first_synced {
-                        state.write().has_first_synced = true
+                    if !state.read().unwrap().has_first_synced {
+                        state.write().unwrap().has_first_synced = true;
                     }
 
-                    if state.read().should_stop_syncing {
-                        state.write().is_syncing = false;
+                    if state.read().unwrap().should_stop_syncing {
+                        state.write().unwrap().is_syncing = false;
                         return LoopCtrl::Break;
-                    } else if !state.read().is_syncing {
-                        state.write().is_syncing = true;
+                    } else if !state.read().unwrap().is_syncing {
+                        state.write().unwrap().is_syncing = true;
                     }
 
-                    if let Some(delegate) = &*delegate.read() {
+                    if let Some(delegate) = &*delegate.read().unwrap() {
                         delegate.did_receive_sync_update()
                     }
 
@@ -169,17 +168,17 @@ impl Client {
     /// Indication whether we've received a first sync response since
     /// establishing the client (in memory)
     pub fn has_first_synced(&self) -> bool {
-        self.state.read().has_first_synced
+        self.state.read().unwrap().has_first_synced
     }
 
     /// Indication whether we are currently syncing
     pub fn is_syncing(&self) -> bool {
-        self.state.read().has_first_synced
+        self.state.read().unwrap().has_first_synced
     }
 
     /// Is this a guest account?
     pub fn is_guest(&self) -> bool {
-        self.state.read().is_guest
+        self.state.read().unwrap().is_guest
     }
 
     pub fn restore_token(&self) -> anyhow::Result<String> {
@@ -189,7 +188,7 @@ impl Client {
             Ok(serde_json::to_string(&RestoreToken {
                 session,
                 homeurl,
-                is_guest: self.state.read().is_guest,
+                is_guest: self.state.read().unwrap().is_guest,
             })?)
         })
     }
@@ -262,6 +261,7 @@ impl Client {
     }
 }
 
-pub fn gen_transaction_id() -> String {
+#[uniffi::export]
+fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
 }
