@@ -118,8 +118,8 @@ impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
 
 impl From<TimelineEvent> for SyncTimelineEvent {
     fn from(o: TimelineEvent) -> Self {
-        // This conversion is unproblematic since a SyncTimelineEvent is just a
-        // TimelineEvent without the room_id. By converting the raw value in
+        // This conversion is unproblematic since a `SyncTimelineEvent` is just a
+        // `TimelineEvent` without the `room_id`. By converting the raw value in
         // this way, we simply cause the `room_id` field in the json to be
         // ignored by a subsequent deserialization.
         Self { encryption_info: o.encryption_info, event: o.event.cast() }
@@ -407,7 +407,7 @@ mod tests {
             SyncMessageLikeEvent::Original(event.into()),
         ));
 
-        // There is no PartialEq implementation for AnySyncTimelineEvent, so we
+        // There is no `PartialEq` implementation for `AnySyncTimelineEvent`, so we
         // just compare a couple of fields here. The important thing is that
         // the deserialization above worked.
         assert_eq!(converted_event.event_id(), sync_event.event_id());
