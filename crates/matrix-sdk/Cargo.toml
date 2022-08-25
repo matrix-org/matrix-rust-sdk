@@ -112,7 +112,7 @@ default_features = false
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "173eb15147c904d7dc0ee894de6114743926e33e"
+rev = "914e5c21e95c774af8e2883be33e7b6539303545"
 features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2965"]
 
 [dependencies.tokio-stream]

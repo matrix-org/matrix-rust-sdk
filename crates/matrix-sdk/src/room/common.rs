@@ -18,7 +18,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::api::client::filter::LazyLoadOptions;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     SyncMessageLikeEvent,
 };
 use ruma::{
@@ -255,9 +255,9 @@ impl Common {
         #[cfg(feature = "e2e-encryption")]
         if let Some(machine) = self.client.olm_machine() {
             for event in http_response.chunk {
-                let decrypted_event = if let Ok(AnySyncRoomEvent::MessageLike(
+                let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
                     AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
-                )) = event.deserialize_as::<AnySyncRoomEvent>()
+                )) = event.deserialize_as::<AnySyncTimelineEvent>()
                 {
                     if let Ok(event) = machine.decrypt_room_event(event.cast_ref(), room_id).await {
                         event
@@ -555,9 +555,9 @@ impl Common {
 
         #[cfg(feature = "e2e-encryption")]
         {
-            if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
                 SyncMessageLikeEvent::Original(_),
-            ))) = event.deserialize_as::<AnySyncRoomEvent>()
+            ))) = event.deserialize_as::<AnySyncTimelineEvent>()
             {
                 if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
                     return Ok(event);

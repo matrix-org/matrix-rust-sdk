@@ -7,7 +7,7 @@ use matrix_sdk::{
                 MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
                 TextMessageEventContent,
             },
-            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             SyncMessageLikeEvent,
         },
         RoomId,
@@ -61,9 +61,9 @@ impl WasmBot {
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
-                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-                    SyncMessageLikeEvent::Original(ev),
-                ))) = event.event.deserialize()
+                if let Ok(AnySyncTimelineEvent::MessageLike(
+                    AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(ev)),
+                )) = event.event.deserialize()
                 {
                     self.on_room_message(&room_id, &ev).await
                 }

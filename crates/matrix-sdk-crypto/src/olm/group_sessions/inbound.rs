@@ -22,7 +22,7 @@ use std::{
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::{room::history_visibility::HistoryVisibility, AnyRoomEvent},
+    events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId, RoomId,
 };
@@ -361,7 +361,10 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub async fn decrypt(&self, event: &EncryptedEvent) -> MegolmResult<(Raw<AnyRoomEvent>, u32)> {
+    pub async fn decrypt(
+        &self,
+        event: &EncryptedEvent,
+    ) -> MegolmResult<(Raw<AnyTimelineEvent>, u32)> {
         let decrypted = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
@@ -407,7 +410,10 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((serde_json::from_value::<Raw<AnyRoomEvent>>(decrypted_value)?, decrypted.message_index))
+        Ok((
+            serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_value)?,
+            decrypted.message_index,
+        ))
     }
 }
 

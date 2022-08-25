@@ -1,6 +1,6 @@
 use ruma::{
     api::client::sync::sync_events::v3::LeftRoom,
-    events::{AnyRoomAccountDataEvent, AnySyncRoomEvent, AnySyncStateEvent},
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedRoomId,
 };
@@ -31,7 +31,7 @@ impl LeftRoomBuilder {
     /// Add events in bulk to the timeline.
     pub fn add_timeline_bulk<I>(mut self, events: I) -> Self
     where
-        I: IntoIterator<Item = Raw<AnySyncRoomEvent>>,
+        I: IntoIterator<Item = Raw<AnySyncTimelineEvent>>,
     {
         self.inner.timeline.events.extend(events);
         self
@@ -40,7 +40,7 @@ impl LeftRoomBuilder {
     /// Add state events in bulk to the timeline.
     ///
     /// This is a convenience method that casts `Raw<AnySyncStateEvent>` to
-    /// `Raw<AnySyncRoomEvent>` and calls `LeftRoom::add_timeline_bulk()`.
+    /// `Raw<AnySyncTimelineEvent>` and calls `LeftRoom::add_timeline_bulk()`.
     pub fn add_timeline_state_bulk<I>(self, events: I) -> Self
     where
         I: IntoIterator<Item = Raw<AnySyncStateEvent>>,

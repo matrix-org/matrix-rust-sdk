@@ -1,4 +1,4 @@
-use ruma::{events::AnyRoomEvent, serde::Raw};
+use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde_json::Value;
 
 use crate::{event_builder::TimelineTestEvent, test_json};
@@ -19,7 +19,7 @@ pub fn value_with_room_id(value: &mut Value) {
 /// Usage is similar to [`super::EventBuilder`]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    events: Vec<Raw<AnyRoomEvent>>,
+    events: Vec<Raw<AnyTimelineEvent>>,
 }
 
 impl TransactionBuilder {

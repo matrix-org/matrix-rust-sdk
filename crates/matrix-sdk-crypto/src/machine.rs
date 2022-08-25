@@ -35,7 +35,7 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId,
@@ -1079,7 +1079,7 @@ impl OlmMachine {
                         "Successfully decrypted a room event"
                     );
 
-                    if let AnyRoomEvent::MessageLike(e) = e {
+                    if let AnyTimelineEvent::MessageLike(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
@@ -1573,7 +1573,7 @@ pub(crate) mod tests {
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 message::{MessageType, RoomMessageEventContent},
             },
-            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
+            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
             MessageLikeEvent, MessageLikeUnsigned, OriginalMessageLikeEvent,
         },
         room_id,
@@ -2046,7 +2046,7 @@ pub(crate) mod tests {
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+        if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
             MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
         )) = decrypted_event
         {

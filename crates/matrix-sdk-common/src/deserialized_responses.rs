@@ -16,7 +16,7 @@ use ruma::{
             MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
             SyncRoomMemberEvent,
         },
-        AnyRoomEvent, AnySyncRoomEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent,
     },
     serde::Raw,
     DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId,
@@ -96,7 +96,7 @@ pub struct EncryptionInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SyncRoomEvent {
     /// The actual event.
-    pub event: Raw<AnySyncRoomEvent>,
+    pub event: Raw<AnySyncTimelineEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
@@ -109,8 +109,8 @@ impl SyncRoomEvent {
     }
 }
 
-impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
-    fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
+impl From<Raw<AnySyncTimelineEvent>> for SyncRoomEvent {
+    fn from(inner: Raw<AnySyncTimelineEvent>) -> Self {
         Self { encryption_info: None, event: inner }
     }
 }
@@ -160,7 +160,7 @@ impl SyncResponse {
 #[derive(Clone, Debug)]
 pub struct RoomEvent {
     /// The actual event.
-    pub event: Raw<AnyRoomEvent>,
+    pub event: Raw<AnyTimelineEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
@@ -371,7 +371,7 @@ mod tests {
     use ruma::{
         event_id,
         events::{
-            room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             MessageLikeUnsigned, OriginalMessageLikeEvent, SyncMessageLikeEvent,
         },
         room_id,
@@ -399,13 +399,14 @@ mod tests {
 
         let converted_room_event: SyncRoomEvent = room_event.into();
 
-        let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
+        let converted_event: AnySyncTimelineEvent =
+            converted_room_event.event.deserialize().unwrap();
 
-        let sync_event = AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+        let sync_event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncMessageLikeEvent::Original(event.into()),
         ));
 
-        // There is no PartialEq implementation for AnySyncRoomEvent, so we
+        // There is no PartialEq implementation for AnySyncTimelineEvent, so we
         // just compare a couple of fields here. The important thing is that
         // the deserialization above worked.
         assert_eq!(converted_event.event_id(), sync_event.event_id());

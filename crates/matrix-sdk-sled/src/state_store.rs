@@ -37,7 +37,9 @@ use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 #[cfg(feature = "experimental-timeline")]
 use ruma::{
     canonical_json::redact_in_place,
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
     CanonicalJsonObject, RoomVersionId,
 };
 use ruma::{
@@ -1452,7 +1454,7 @@ impl SledStateStore {
             if timeline.sync {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::MessageLike(
+                    if let Ok(AnySyncTimelineEvent::MessageLike(
                         AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
                             redaction,
                         )),

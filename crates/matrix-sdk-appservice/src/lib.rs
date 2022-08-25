@@ -102,7 +102,7 @@ use ruma::{
         client::{account::register, sync::sync_events},
     },
     assign,
-    events::{room::member::MembershipState, AnyRoomEvent, AnyStateEvent},
+    events::{room::member::MembershipState, AnyStateEvent, AnyTimelineEvent},
     DeviceId, IdParseError, OwnedRoomId, OwnedServerName,
 };
 use serde::Deserialize;
@@ -403,7 +403,7 @@ impl AppService {
         // membership accordingly
         for event in transaction.events.iter() {
             let event = match event.deserialize() {
-                Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
+                Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) => event,
                 _ => continue,
             };
             if !self.user_id_is_in_namespace(event.state_key()) {
@@ -531,7 +531,7 @@ mod tests {
     use matrix_sdk_test::{appservice::TransactionBuilder, async_test, TimelineTestEvent};
     use ruma::{
         api::{appservice::event::push_events, MatrixVersion},
-        events::AnyRoomEvent,
+        events::AnyTimelineEvent,
         room_id,
         serde::Raw,
     };
@@ -911,7 +911,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -929,7 +929,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -947,7 +947,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -965,7 +965,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
         ];
         let appservice = appservice(None, None).await?;
 

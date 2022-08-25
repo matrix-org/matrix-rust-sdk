@@ -1,7 +1,7 @@
 use ruma::{
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
 };
@@ -67,7 +67,7 @@ impl TimelineTestEvent {
     }
 
     /// Get the typed JSON representation of this test event.
-    pub fn into_raw_event(self) -> Raw<AnySyncRoomEvent> {
+    pub fn into_raw_event(self) -> Raw<AnySyncTimelineEvent> {
         from_json_value(self.into_json_value()).unwrap()
     }
 }
