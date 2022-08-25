@@ -34,15 +34,13 @@
 #[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
 use std::{
-    borrow::{Borrow, Cow},
-    collections::{btree_map, BTreeMap},
+    borrow::Cow,
     fmt,
     future::Future,
-    iter,
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
-        RwLock, RwLockReadGuard,
+        RwLock,
     },
 };
 
@@ -56,11 +54,14 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{error, warn};
 
+use self::maps::EventHandlerMaps;
+use crate::{room, Client};
+
 mod context;
+mod maps;
 mod static_events;
 
 pub use self::context::{Ctx, EventHandlerContext, RawEvent};
-use crate::{room, Client};
 
 #[cfg(not(target_arch = "wasm32"))]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -72,29 +73,18 @@ type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + S
 #[cfg(target_arch = "wasm32")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
-type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct EventHandlerStore {
-    handlers: RwLock<EventHandlerMap>,
+    handlers: RwLock<EventHandlerMaps>,
     context: RwLock<AnyMap>,
     counter: AtomicU64,
 }
 
 impl EventHandlerStore {
-    pub fn add_handler(
-        &self,
-        key: EventHandlerKey,
-        handler_id: u64,
-        handler_fn: Box<EventHandlerFn>,
-    ) {
-        self.handlers
-            .write()
-            .unwrap()
-            .entry(key)
-            .or_default()
-            .push(EventHandlerWrapper { handler_id, handler_fn });
+    pub fn add_handler(&self, handle: EventHandlerHandle, handler_fn: Box<EventHandlerFn>) {
+        self.handlers.write().unwrap().add(handle, handler_fn);
     }
 
     pub fn add_context<T>(&self, ctx: T)
@@ -105,20 +95,12 @@ impl EventHandlerStore {
     }
 
     pub fn remove(&self, handle: EventHandlerHandle) {
-        let mut map = self.handlers.write().unwrap();
-
-        if let btree_map::Entry::Occupied(mut entry) = map.entry(handle.key) {
-            let v = entry.get_mut();
-            v.retain(|e| e.handler_id != handle.handler_id);
-
-            if v.is_empty() {
-                entry.remove();
-            }
-        }
+        self.handlers.write().unwrap().remove(handle);
     }
 
-    fn read(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
-        self.handlers.read().unwrap()
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.handlers.read().unwrap().len()
     }
 }
 
@@ -165,34 +147,6 @@ pub trait SyncEvent {
     const TYPE: &'static str;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EventHandlerKey(EventHandlerKeyInner<'static>);
-
-impl EventHandlerKey {
-    pub(crate) fn new(
-        ev_kind: EventKind,
-        ev_type: &'static str,
-        room_id: Option<OwnedRoomId>,
-    ) -> Self {
-        Self(EventHandlerKeyInner { ev_kind, ev_type, room_id })
-    }
-}
-
-// This lifetime-generic impl is what makes it possible to obtain a
-// &'static str event type from get_key_value in call_event_handlers.
-impl<'a> Borrow<EventHandlerKeyInner<'a>> for EventHandlerKey {
-    fn borrow(&self) -> &EventHandlerKeyInner<'a> {
-        &self.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct EventHandlerKeyInner<'a> {
-    ev_kind: EventKind,
-    ev_type: &'a str,
-    room_id: Option<OwnedRoomId>,
-}
-
 pub(crate) struct EventHandlerWrapper {
     handler_fn: Box<EventHandlerFn>,
     pub handler_id: u64,
@@ -202,7 +156,9 @@ pub(crate) struct EventHandlerWrapper {
 /// [`Client::remove_event_handler`].
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
-    pub(crate) key: EventHandlerKey,
+    pub(crate) ev_kind: EventKind,
+    pub(crate) ev_type: &'static str,
+    pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
 }
 
@@ -339,11 +295,12 @@ impl Client {
         });
 
         let handler_id = self.inner.event_handlers.counter.fetch_add(1, SeqCst);
-        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
+        let handle =
+            EventHandlerHandle { ev_kind: Ev::KIND, ev_type: Ev::TYPE, room_id, handler_id };
 
-        self.inner.event_handlers.add_handler(key.clone(), handler_id, handler_fn);
+        self.inner.event_handlers.add_handler(handle.clone(), handler_fn);
 
-        EventHandlerHandle { key, handler_id }
+        handle
     }
 
     #[allow(dead_code)]
@@ -459,43 +416,31 @@ impl Client {
         ev_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
+        let room_id = room.as_ref().map(|r| r.room_id());
+
         // Construct event handler futures
-        let futures: Vec<_> = {
-            let non_room_handler_key = EventHandlerKeyInner { ev_kind, ev_type, room_id: None };
-            let room_handler_key = room.as_ref().map(|r| {
-                let room_id = Some(r.room_id().to_owned());
-                EventHandlerKeyInner { ev_kind, ev_type, room_id }
-            });
+        let futures: Vec<_> = self
+            .inner
+            .event_handlers
+            .handlers
+            .read()
+            .unwrap()
+            .get_handlers(ev_kind, ev_type, room_id)
+            .map(|(handle, handler_fn)| {
+                let data = EventHandlerData {
+                    client: self.clone(),
+                    room: room.clone(),
+                    raw,
+                    encryption_info,
+                    handle,
+                };
 
-            let handlers_lock = self.inner.event_handlers.read();
+                (handler_fn)(data)
+            })
+            .collect();
 
-            iter::once(non_room_handler_key)
-                .chain(room_handler_key)
-                .flat_map(|b_key| {
-                    // Use get_key_value instead of just get to be able to access the event_type
-                    // from the BTreeMap key as &'static str, required for EventHandlerHandle.
-                    handlers_lock.get_key_value(&b_key).into_iter().flat_map(|(key, handlers)| {
-                        handlers.iter().map(|wrap| {
-                            let data = EventHandlerData {
-                                client: self.clone(),
-                                room: room.clone(),
-                                raw,
-                                encryption_info,
-                                handle: EventHandlerHandle {
-                                    key: key.clone(),
-                                    handler_id: wrap.handler_id,
-                                },
-                            };
-
-                            (wrap.handler_fn)(data)
-                        })
-                    })
-                })
-                .collect()
-        };
-
-        // Run the event handler futures with the `self.event_handlers` lock
-        // no longer being held, in order.
+        // Run the event handler futures with the `self.event_handlers.handlers`
+        // lock no longer being held, in order.
         for fut in futures {
             fut.await;
         }
@@ -791,15 +736,15 @@ mod tests {
         let client = no_retry_test_client(None).await;
 
         let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
-        assert_eq!(client.inner.event_handlers.read().len(), 1);
+        assert_eq!(client.inner.event_handlers.len(), 1);
 
         {
             let _guard = client.event_handler_drop_guard(handle);
-            assert_eq!(client.inner.event_handlers.read().len(), 1);
+            assert_eq!(client.inner.event_handlers.len(), 1);
             // guard dropped here
         }
 
-        assert_eq!(client.inner.event_handlers.read().len(), 0);
+        assert_eq!(client.inner.event_handlers.len(), 0);
     }
 
     #[async_test]
