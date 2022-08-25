@@ -144,7 +144,7 @@ pub trait SyncEvent {
     #[doc(hidden)]
     const KIND: EventKind;
     #[doc(hidden)]
-    const TYPE: &'static str;
+    const TYPE: Option<&'static str>;
 }
 
 pub(crate) struct EventHandlerWrapper {
@@ -157,7 +157,7 @@ pub(crate) struct EventHandlerWrapper {
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
     pub(crate) ev_kind: EventKind,
-    pub(crate) ev_type: &'static str,
+    pub(crate) ev_type: Option<&'static str>,
     pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
 }
@@ -225,26 +225,31 @@ pub struct EventHandlerData<'a> {
 /// It is not meant to be implemented outside of matrix-sdk.
 pub trait EventHandlerResult: Sized {
     #[doc(hidden)]
-    fn print_error(&self, event_type: &str);
+    fn print_error(&self, event_type: Option<&str>);
 }
 
 impl EventHandlerResult for () {
-    fn print_error(&self, _event_type: &str) {}
+    fn print_error(&self, _event_type: Option<&str>) {}
 }
 
 impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E> {
-    fn print_error(&self, event_type: &str) {
+    fn print_error(&self, event_type: Option<&str>) {
+        let msg_fragment = match event_type {
+            Some(event_type) => format!(" for `{event_type}`"),
+            None => "".to_owned(),
+        };
+
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
-                error!("Event handler for `{event_type}` failed: {e:?}");
+                error!("Event handler{msg_fragment} failed: {e:?}");
             }
             #[cfg(feature = "eyre")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
-                error!("Event handler for `{event_type}` failed: {e:?}");
+                error!("Event handler{msg_fragment} failed: {e:?}");
             }
             Err(e) => {
-                error!("Event handler for `{event_type}` failed: {e}");
+                error!("Event handler{msg_fragment} failed: {e}");
             }
             Ok(_) => {}
         }
@@ -514,6 +519,7 @@ mod tests {
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
             typing::SyncTypingEvent,
+            AnySyncStateEvent,
         },
         room_id,
         serde::Raw,
@@ -770,6 +776,28 @@ mod tests {
         client.add_event_handler_context(counter.clone());
         client.add_event_handler(
             |_ev: Raw<OriginalSyncRoomMemberEvent>, counter: Ctx<Arc<AtomicU8>>| async move {
+                counter.fetch_add(1, SeqCst);
+            },
+        );
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        assert_eq!(counter.load(SeqCst), 1);
+        Ok(())
+    }
+
+    #[async_test]
+    async fn enum_event_handler() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+        let counter = Arc::new(AtomicU8::new(0));
+        client.add_event_handler_context(counter.clone());
+        client.add_event_handler(
+            |_ev: AnySyncStateEvent, counter: Ctx<Arc<AtomicU8>>| async move {
                 counter.fetch_add(1, SeqCst);
             },
         );
