@@ -376,37 +376,25 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
-        // Event handlers for possibly-redacted timeline events
-        for item in timeline_events {
-            let TimelineEventDetails { event_type, state_key, .. } = item.event.deserialize_as()?;
-
-            let event_kind = match state_key {
-                Some(_) => EventKind::State,
-                None => EventKind::MessageLike,
-            };
-
-            let raw_event = &item.event.json();
-            let encryption_info = item.encryption_info.as_ref();
-
-            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
-                .await;
-        }
-
-        // Event handlers specifically for redacted OR unredacted timeline events
         for item in timeline_events {
             let TimelineEventDetails { event_type, state_key, unsigned } =
                 item.event.deserialize_as()?;
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let event_kind = match state_key {
-                Some(_) => EventKind::state_redacted(redacted),
-                None => EventKind::message_like_redacted(redacted),
+            let (event_kind_g, event_kind_r) = match state_key {
+                Some(_) => (EventKind::State, EventKind::state_redacted(redacted)),
+                None => (EventKind::MessageLike, EventKind::message_like_redacted(redacted)),
             };
 
             let raw_event = &item.event.json();
             let encryption_info = item.encryption_info.as_ref();
 
-            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
+            // Event handlers for possibly-redacted timeline events
+            self.call_event_handlers(room, raw_event, event_kind_g, &event_type, encryption_info)
+                .await;
+
+            // Event handlers specifically for redacted OR unredacted timeline events
+            self.call_event_handlers(room, raw_event, event_kind_r, &event_type, encryption_info)
                 .await;
         }
 
