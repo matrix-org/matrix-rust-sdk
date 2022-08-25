@@ -7,7 +7,7 @@ use matrix_sdk::{
     room::Room,
     ruma::{
         api::client::filter::{FilterDefinition, LazyLoadOptions},
-        events::{AnySyncMessageLikeEvent, AnySyncRoomEvent, SyncMessageLikeEvent},
+        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
     },
     store::make_store_config,
     Client, LoopCtrl,
@@ -35,8 +35,8 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
     client
 }
 
-fn event_content(event: AnySyncRoomEvent) -> Option<String> {
-    if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+fn event_content(event: AnySyncTimelineEvent) -> Option<String> {
+    if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
         SyncMessageLikeEvent::Original(event),
     )) = event
     {

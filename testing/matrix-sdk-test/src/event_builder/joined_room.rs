@@ -1,7 +1,7 @@
 use ruma::{
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
-        AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     OwnedRoomId,
@@ -34,7 +34,7 @@ impl JoinedRoomBuilder {
     /// Add events in bulk to the timeline.
     pub fn add_timeline_bulk<I>(mut self, events: I) -> Self
     where
-        I: IntoIterator<Item = Raw<AnySyncRoomEvent>>,
+        I: IntoIterator<Item = Raw<AnySyncTimelineEvent>>,
     {
         self.inner.timeline.events.extend(events);
         self
@@ -43,7 +43,7 @@ impl JoinedRoomBuilder {
     /// Add state events in bulk to the timeline.
     ///
     /// This is a convenience method that casts `Raw<AnySyncStateEvent>` to
-    /// `Raw<AnySyncRoomEvent>` and calls `JoinedRoom::add_timeline_bulk()`.
+    /// `Raw<AnySyncTimelineEvent>` and calls `JoinedRoom::add_timeline_bulk()`.
     pub fn add_timeline_state_bulk<I>(self, events: I) -> Self
     where
         I: IntoIterator<Item = Raw<AnySyncStateEvent>>,

@@ -44,7 +44,7 @@ pub(crate) mod tests {
         device_id, event_id,
         events::{
             room::message::{Relation, Replacement, RoomMessageEventContent},
-            AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent,
+            AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
@@ -232,7 +232,7 @@ pub(crate) mod tests {
         let event = json_convert(&event).unwrap();
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+        if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
             MessageLikeEvent::Original(e),
         )) = decrypted.deserialize().unwrap()
         {

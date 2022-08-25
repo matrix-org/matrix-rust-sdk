@@ -29,7 +29,9 @@ use matrix_sdk_common::{instant::Instant, locks::Mutex};
 #[cfg(feature = "experimental-timeline")]
 use ruma::{
     canonical_json::redact_in_place,
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
     CanonicalJsonObject, RoomVersionId,
 };
 use ruma::{
@@ -410,7 +412,7 @@ impl MemoryStore {
                 let mut room_version = None;
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::MessageLike(
+                    if let Ok(AnySyncTimelineEvent::MessageLike(
                         AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
                             redaction,
                         )),
