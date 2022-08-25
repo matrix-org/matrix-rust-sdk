@@ -30,7 +30,8 @@
         "jest": "^28.1.0",
         "typedoc": "^0.22.17",
         "cross-env": "^7.0.3",
-        "yargs-parser": "~21.0.1"
+        "yargs-parser": "~21.0.1",
+        "fake-indexeddb": "^4.0"
     },
     "engines": {
         "node": ">= 10"

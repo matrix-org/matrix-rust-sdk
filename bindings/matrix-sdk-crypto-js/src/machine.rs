@@ -34,16 +34,74 @@ impl OlmMachine {
     /// `user_id` represents the unique ID of the user that owns this
     /// machine. `device_id` represents the unique ID of the device
     /// that owns this machine.
+    ///
+    /// `store_name` and `store_passphrase` are both optional, but
+    /// must be both set to have an effect. If they are both set, the
+    /// state of the machine will persist in a database named
+    /// `store_name` where its content is encrypted by the passphrase
+    /// given by `store_passphrase`. If they are not both set, the
+    /// created machine will keep the encryption keys only in memory,
+    /// and once the object is dropped, the keys will be lost.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(user_id: &identifiers::UserId, device_id: &identifiers::DeviceId) -> Promise {
+    pub fn new(
+        user_id: &identifiers::UserId,
+        device_id: &identifiers::DeviceId,
+        store_name: Option<String>,
+        store_passphrase: Option<String>,
+    ) -> Promise {
         let user_id = user_id.inner.clone();
         let device_id = device_id.inner.clone();
 
         future_to_promise(async move {
+            let store = match (store_name, store_passphrase) {
+                // We need this `#[cfg]` because `IndexeddbCryptoStore`
+                // implements `CryptoStore` only on `target_arch =
+                // "wasm32"`. Without that, we could have a compilation
+                // error when checking the entire workspace. In
+                // practise, it doesn't impact this crate because it's
+                // always compiled for `wasm32`.
+                #[cfg(target_arch = "wasm32")]
+                (Some(store_name), Some(mut store_passphrase)) => {
+                    use std::sync::Arc;
+                    use zeroize::Zeroize;
+
+                    let store = Some(
+                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
+                            &store_name,
+                            &store_passphrase,
+                        )
+                        .await
+                        .map(Arc::new)?,
+                    );
+
+                    store_passphrase.zeroize();
+
+                    store
+                }
+
+                (Some(_), None) => return Err(anyhow::Error::msg("The `store_name` has been set, and so, it expects a `store_passphrase`, which is not set; please provide one")),
+
+                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, which is not; please provide one")),
+
+                _ => None,
+            };
+
             Ok(OlmMachine {
-                inner: matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
-                    .await,
+                inner: match store {
+                    Some(store) => {
+                        matrix_sdk_crypto::OlmMachine::with_store(
+                            user_id.as_ref(),
+                            device_id.as_ref(),
+                            store,
+                        )
+                        .await?
+                    }
+                    None => {
+                        matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
+                            .await
+                    }
+                },
             })
         })
     }
