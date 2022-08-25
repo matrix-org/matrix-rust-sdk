@@ -27,7 +27,7 @@ use matrix_sdk_common::deserialized_responses::TimelineSlice;
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncRoomEvent, Timeline,
+        SyncTimelineEvent, Timeline,
     },
     instant::Instant,
 };
@@ -272,7 +272,7 @@ impl BaseClient {
 
         for event in ruma_timeline.events {
             #[allow(unused_mut)]
-            let mut event: SyncRoomEvent = event.into();
+            let mut event: SyncTimelineEvent = event.into();
 
             match event.event.deserialize() {
                 Ok(e) => {

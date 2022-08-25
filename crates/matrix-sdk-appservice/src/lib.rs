@@ -609,7 +609,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -634,7 +634,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -740,8 +740,9 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=invalid_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        let transaction =
-            transaction_builder.add_room_event(TimelineTestEvent::Member).build_json_transaction();
+        let transaction = transaction_builder
+            .add_timeline_event(TimelineTestEvent::Member)
+            .build_json_transaction();
 
         let appservice = appservice(None, None).await?;
 
@@ -765,7 +766,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -804,7 +805,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         warp::test::request()
@@ -852,11 +853,11 @@ mod tests {
         let uri_2 = "/sub_path/_matrix/app/v1/transactions/2?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction_1 = transaction_builder.build_json_transaction();
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::MemberNameChange);
+        transaction_builder.add_timeline_event(TimelineTestEvent::MemberNameChange);
         let transaction_2 = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;

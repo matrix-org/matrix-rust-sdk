@@ -28,7 +28,7 @@ impl TransactionBuilder {
     }
 
     /// Add a room event.
-    pub fn add_room_event(&mut self, event: TimelineTestEvent) -> &mut Self {
+    pub fn add_timeline_event(&mut self, event: TimelineTestEvent) -> &mut Self {
         let mut val = event.into_json_value();
         value_with_room_id(&mut val);
 
