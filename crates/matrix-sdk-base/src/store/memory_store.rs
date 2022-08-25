@@ -870,12 +870,11 @@ struct TimelineData {
 
 #[cfg(test)]
 mod tests {
-
     use super::{MemoryStore, Result, StateStore};
 
     async fn get_store() -> Result<impl StateStore> {
         Ok(MemoryStore::new())
     }
 
-    statestore_integration_tests! { integration }
+    statestore_integration_tests!();
 }
