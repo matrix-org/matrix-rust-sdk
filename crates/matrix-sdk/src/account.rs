@@ -670,6 +670,28 @@ impl Account {
     }
 
     /// Set the given account data event.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::{
+    ///     events::ignored_user_list::IgnoredUserListEventContent, user_id,
+    /// };
+    ///
+    /// let mut content = account
+    ///     .account_data::<IgnoredUserListEventContent>()
+    ///     .await?
+    ///     .map(|c| c.deserialize())
+    ///     .transpose()?
+    ///     .unwrap_or_else(|| IgnoredUserListEventContent::new(Vec::new()));
+    /// content.ignored_users.push(user_id!("@foo:bar.com").to_owned());
+    /// account.set_account_data(content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
     pub async fn set_account_data<T>(
         &self,
         content: T,
@@ -694,7 +716,7 @@ impl Account {
         let own_user =
             self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let request = set_global_account_data::v3::Request::new_raw(event_type, own_user, content);
+        let request = set_global_account_data::v3::Request::new_raw(own_user, event_type, content);
 
         Ok(self.client.send(request, None).await?)
     }
