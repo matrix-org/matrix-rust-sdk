@@ -424,10 +424,10 @@ impl SlidingSync {
                     unsubs
                 };
                 let req = assign!(v4::Request::new(), {
-                    lists: requests,
+                    lists: &requests,
                     pos: pos.as_deref(),
                     room_subscriptions,
-                    unsubscribe_rooms,
+                    unsubscribe_rooms: &unsubscribe_rooms,
                 });
 
                 if cancel.get() {

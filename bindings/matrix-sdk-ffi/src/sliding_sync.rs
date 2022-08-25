@@ -144,7 +144,7 @@ impl TryInto<RumaRoomSubscription> for RoomSubscription {
         Ok(assign!(RumaRoomSubscription::default(), {
             required_state: self.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
-            ),
+            ).unwrap_or_default(),
             timeline_limit: self.timeline_limit.map(|u| u.into())
         }))
     }
