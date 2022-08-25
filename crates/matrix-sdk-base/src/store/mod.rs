@@ -21,6 +21,7 @@
 //! store.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
     pin::Pin,
@@ -47,7 +48,7 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent, ReceiptType},
         room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
+        AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, SyncStateEvent,
@@ -390,13 +391,31 @@ pub trait StateStoreExt: StateStore {
     async fn get_state_event_static<C>(
         &self,
         room_id: &RoomId,
-        state_key: &str,
+    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
+    }
+
+    /// Get a specific state event of statically-known type.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room the state event was received for.
+    async fn get_state_event_static_for_key<C, K>(
+        &self,
+        room_id: &RoomId,
+        state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent + RedactContent,
+        C::StateKey: Borrow<K>,
         C::Redacted: StateEventContent + RedactedEventContent,
+        K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key).await?.map(Raw::cast))
+        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key.as_ref()).await?.map(Raw::cast))
     }
 
     /// Get a list of state events of a statically-known type for a given room.

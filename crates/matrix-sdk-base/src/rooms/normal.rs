@@ -442,7 +442,7 @@ impl Room {
 
         let power = self
             .store
-            .get_state_event_static(self.room_id(), "")
+            .get_state_event_static(self.room_id())
             .await?
             .and_then(|e| e.deserialize().ok());
 

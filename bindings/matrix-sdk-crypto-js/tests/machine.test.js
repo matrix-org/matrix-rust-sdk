@@ -1,8 +1,67 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState, CrossSigningStatus, MaybeSignature } = require('../pkg/matrix_sdk_crypto_js');
+require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
         expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
+    });
+
+    test('can be instantiated with a store', async () => {
+        // No databases.
+        expect(await indexedDB.databases()).toHaveLength(0);
+
+        let store_name = 'hello';
+        let store_passphrase = 'world';
+
+        // Creating a new Olm machine.
+        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+
+        // Oh, there is 2 databases now, prefixed by `store_name`.
+        let databases = await indexedDB.databases();
+
+        expect(databases).toHaveLength(2);
+        expect(databases).toStrictEqual([
+            { name: `${store_name}::matrix-sdk-crypto-meta`, version: 1 },
+            { name: `${store_name}::matrix-sdk-crypto`, version: 1 },
+        ]);
+
+        // Creating a new Olm machine, with the stored state.
+        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+
+        // Same number of databases.
+        expect(await indexedDB.databases()).toHaveLength(2);
+    });
+
+    describe('cannot be instantiated with a store', () => {
+        test('store name is missing', async () => {
+            let store_name = null;
+            let store_passphrase = 'world';
+
+            let err = null;
+
+            try {
+                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+            } catch (error) {
+                err = error;
+            }
+
+            expect(err).toBeDefined();
+        });
+
+        test('store passphrase is missing', async () => {
+            let store_name = 'hello';
+            let store_passphrase = null;
+
+            let err = null;
+
+            try {
+                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+            } catch (error) {
+                err = error;
+            }
+
+            expect(err).toBeDefined();
+        });
     });
 
     const user = new UserId('@alice:example.org');
@@ -339,5 +398,57 @@ describe(OlmMachine.name, () => {
             expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
             expect(decrypted.verificationState).toStrictEqual(VerificationState.Trusted);
         });
+    });
+
+    test('can read cross-signing status', async () => {
+        const m = await machine();
+        const crossSigningStatus = await m.crossSigningStatus();
+
+        expect(crossSigningStatus).toBeInstanceOf(CrossSigningStatus);
+        expect(crossSigningStatus.hasMaster).toStrictEqual(false);
+        expect(crossSigningStatus.hasSelfSigning).toStrictEqual(false);
+        expect(crossSigningStatus.hasUserSigning).toStrictEqual(false);
+    });
+
+    test('can sign a message', async () => {
+        const m = await machine();
+        const signatures = await m.sign('foo');
+
+        expect(signatures.isEmpty).toStrictEqual(false);
+        expect(signatures.count).toStrictEqual(1);
+
+        let base64;
+
+        // `get`
+        {
+            const signature = signatures.get(user);
+
+            expect(signature.has('ed25519:foobar')).toStrictEqual(true);
+
+            const s = signature.get('ed25519:foobar');
+
+            expect(s).toBeInstanceOf(MaybeSignature);
+
+            expect(s.isValid).toStrictEqual(true);
+            expect(s.isInvalid).toStrictEqual(false);
+            expect(s.invalidSignatureSource).toBeUndefined();
+
+            base64 = s.signature.toBase64();
+
+            expect(base64).toMatch(/^[A-Za-z0-9\+/]+$/);
+            expect(s.signature.ed25519.toBase64()).toStrictEqual(base64);
+        }
+
+        // `getSignature`
+        {
+            const signature = signatures.getSignature(user, new DeviceKeyId('ed25519:foobar'));
+            expect(signature.toBase64()).toStrictEqual(base64);
+        }
+
+        // Unknown signatures.
+        {
+            expect(signatures.get(new UserId('@hello:example.org'))).toBeUndefined();
+            expect(signatures.getSignature(user, new DeviceKeyId('world:foobar'))).toBeUndefined();
+        }
     });
 });

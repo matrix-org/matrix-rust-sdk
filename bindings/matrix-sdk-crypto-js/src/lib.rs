@@ -17,15 +17,19 @@
 #![warn(missing_docs, missing_debug_implementations)]
 #![allow(clippy::drop_non_drop)] // triggered by wasm_bindgen code
 
+pub mod attachment;
 pub mod encryption;
 pub mod events;
 mod future;
 pub mod identifiers;
 pub mod machine;
+pub mod olm;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
 mod tracing;
+pub mod types;
+pub mod vodozemac;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};

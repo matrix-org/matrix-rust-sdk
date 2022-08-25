@@ -26,12 +26,12 @@ base64 = "0.13.0"
 dashmap = { version = "5.2.0", optional = true }
 derive_builder = "0.11.2"
 futures-util = { version = " 0.3.21", default-features = false, features = ["alloc"], optional = true }
-indexed_db_futures = "0.2.3"
+indexed_db_futures = { git = "https://github.com/Hywan/rust-indexed-db", branch = "feat-factory-nodejs" }
 js-sys = { version = "0.3.58" }
 matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", path = "../matrix-sdk-store-encryption" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "173eb15147c904d7dc0ee894de6114743926e33e" }
 serde = "1.0.136"
 serde_json = "1.0.79"
 thiserror = "1.0.30"

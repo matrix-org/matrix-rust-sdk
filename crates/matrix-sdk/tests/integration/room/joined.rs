@@ -249,7 +249,8 @@ async fn room_state_event_send() {
     let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
         avatar_url: Some(avatar_url.to_owned())
     });
-    let response = room.send_state_event(member_event, "").await.unwrap();
+    let response =
+        room.send_state_event_for_key(user_id!("@foo:bar.com"), member_event).await.unwrap();
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
 }
 

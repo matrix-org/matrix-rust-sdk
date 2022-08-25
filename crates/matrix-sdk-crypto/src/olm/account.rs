@@ -308,8 +308,8 @@ impl Account {
                     // return with an error if it isn't one.
                     OlmMessage::Normal(_) => {
                         warn!(
-                            sender = sender.as_str(),
-                            sender_key = sender_key.to_base64(),
+                            %sender,
+                            %sender_key,
                             "Failed to decrypt a non-pre-key message with all \
                             available sessions",
                         );
@@ -323,11 +323,11 @@ impl Account {
                             Ok(r) => r,
                             Err(e) => {
                                 warn!(
-                                    sender = sender.as_str(),
-                                    sender_key = sender_key.to_base64(),
-                                    error = ?e,
+                                    %sender,
+                                    %sender_key,
+                                    session_keys = ?m.session_keys(),
                                     "Failed to create a new Olm session from a \
-                                    prekey message",
+                                    pre-key message: {e:?}",
                                 );
                                 return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
                             }
@@ -350,8 +350,8 @@ impl Account {
             };
 
         trace!(
-            sender = sender.as_str(),
-            sender_key = sender_key.to_base64(),
+            %sender,
+            %sender_key,
             "Successfully decrypted an Olm message"
         );
 
@@ -1019,6 +1019,12 @@ impl ReadOnlyAccount {
         their_identity_key: Curve25519PublicKey,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
+        debug!(
+            sender_key = %their_identity_key,
+            session_keys = ?message.session_keys(),
+            "Creating a new Olm session from a pre-key message"
+        );
+
         let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();

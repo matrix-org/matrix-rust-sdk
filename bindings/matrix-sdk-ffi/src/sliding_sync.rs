@@ -1,5 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
+    RwLock,
     Arc,
 };
 
@@ -21,7 +22,6 @@ pub use matrix_sdk::{
     Client as MatrixClient, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
-use parking_lot::RwLock;
 use tokio::task::JoinHandle;
 
 use super::{Client, RUNTIME};
@@ -42,7 +42,7 @@ impl StoppableSpawn {
 
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.write().take() {
+        if let Some(handle) = self.handle.write().unwrap().take() {
             handle.abort();
         }
     }
@@ -450,7 +450,7 @@ impl SlidingSync {
     }
 
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
-        *self.delegate.write() = delegate;
+        *self.delegate.write().unwrap() = delegate;
     }
 
     pub fn subscribe(
@@ -523,7 +523,7 @@ impl SlidingSync {
                         break;
                     }
                 };
-                if let Some(ref delegate) = *delegate.read() {
+                if let Some(ref delegate) = *delegate.read().unwrap() {
                     delegate.did_receive_sync_update(update.into());
                 } else {
                     // when the delegate has been removed

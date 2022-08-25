@@ -62,6 +62,7 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
+#[uniffi::export]
 fn setup_tracing(configuration: String) {
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))

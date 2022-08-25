@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
 use futures_channel::mpsc;
 #[cfg(feature = "experimental-timeline")]
@@ -40,10 +40,10 @@ use ruma::{
             MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey,
+        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
@@ -100,8 +100,7 @@ impl Common {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
-    pub fn new(client: Client, room: BaseRoom) -> Self {
-        // TODO: Make this private
+    pub(crate) fn new(client: Client, room: BaseRoom) -> Self {
         Self { inner: room, client }
     }
 
@@ -809,7 +808,8 @@ impl Common {
             .map_err(Into::into)
     }
 
-    /// Get a specific state event of statically-known type in this room.
+    /// Get a specific state event of statically-known type with an empty state
+    /// key in this room.
     ///
     /// # Example
     ///
@@ -819,22 +819,49 @@ impl Common {
     /// use matrix_sdk::ruma::events::room::power_levels::SyncRoomPowerLevelsEvent;
     ///
     /// let power_levels: SyncRoomPowerLevelsEvent = room
-    ///     .get_state_event_static("")
+    ///     .get_state_event_static()
     ///     .await?
     ///     .expect("every room has a power_levels event")
     ///     .deserialize()?;
     /// # anyhow::Ok(())
     /// # };
     /// ```
-    pub async fn get_state_event_static<C>(
+    pub async fn get_state_event_static<C>(&self) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        self.get_state_event_static_for_key(&EmptyStateKey).await
+    }
+
+    /// Get a specific state event of statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::room::member::SyncRoomMemberEvent, serde::Raw, user_id,
+    /// };
+    ///
+    /// let member_event: Option<Raw<SyncRoomMemberEvent>> = room
+    ///     .get_state_event_static_for_key(user_id!("@alice:example.org"))
+    ///     .await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_event_static_for_key<C, K>(
         &self,
-        state_key: &str,
+        state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent + RedactContent,
+        C::StateKey: Borrow<K>,
         C::Redacted: StateEventContent + RedactedEventContent,
+        K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.client.store().get_state_event_static(self.room_id(), state_key).await?)
+        Ok(self.client.store().get_state_event_static_for_key(self.room_id(), state_key).await?)
     }
 
     /// Get account data in this room.
@@ -988,7 +1015,7 @@ impl Common {
             content.retain(|_, list| !list.is_empty());
         }
 
-        let request = set_global_account_data::v3::Request::new(&content, user_id)?;
+        let request = set_global_account_data::v3::Request::new(user_id, &content)?;
 
         self.client.send(request, None).await?;
         Ok(())
@@ -1022,7 +1049,7 @@ impl Common {
     /// [routing algorithm]: https://spec.matrix.org/v1.3/appendices/#routing
     pub async fn route(&self) -> Result<Vec<OwnedServerName>> {
         let acl_ev = self
-            .get_state_event_static::<RoomServerAclEventContent>("")
+            .get_state_event_static::<RoomServerAclEventContent>()
             .await?
             .and_then(|ev| ev.deserialize().ok());
         let acl = acl_ev.as_ref().and_then(|ev| ev.as_original()).map(|ev| &ev.content);
