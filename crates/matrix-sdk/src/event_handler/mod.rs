@@ -45,6 +45,7 @@ use std::{
 };
 
 use anymap2::any::CloneAnySendSync;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
@@ -412,7 +413,7 @@ impl Client {
         let room_id = room.as_ref().map(|r| r.room_id());
 
         // Construct event handler futures
-        let futures: Vec<_> = self
+        let mut futures: FuturesUnordered<_> = self
             .inner
             .event_handlers
             .handlers
@@ -433,10 +434,8 @@ impl Client {
             .collect();
 
         // Run the event handler futures with the `self.event_handlers.handlers`
-        // lock no longer being held, in order.
-        for fut in futures {
-            fut.await;
-        }
+        // lock no longer being held.
+        while let Some(()) = futures.next().await {}
     }
 }
 
