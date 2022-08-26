@@ -123,24 +123,30 @@ async fn on_stripped_state_member(
 
     // looks like the room is an invited room, let's attempt to join then
     if let Room::Invited(room) = room {
-        println!("Autojoining room {}", room.room_id());
-        let mut delay = 2;
+        // The event handlers are called before the next sync begins, but
+        // methods that change the state of a room (joining, leaving a room)
+        // wait for the sync to return the new room state so we need to spawn
+        // a new task for them.
+        tokio::spawn(async move {
+            println!("Autojoining room {}", room.room_id());
+            let mut delay = 2;
 
-        while let Err(err) = room.accept_invitation().await {
-            // retry autojoin due to synapse sending invites, before the
-            // invited user can join for more information see
-            // https://github.com/matrix-org/synapse/issues/4345
-            eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
+            while let Err(err) = room.accept_invitation().await {
+                // retry autojoin due to synapse sending invites, before the
+                // invited user can join for more information see
+                // https://github.com/matrix-org/synapse/issues/4345
+                eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
-            sleep(Duration::from_secs(delay)).await;
-            delay *= 2;
+                sleep(Duration::from_secs(delay)).await;
+                delay *= 2;
 
-            if delay > 3600 {
-                eprintln!("Can't join room {} ({err:?})", room.room_id());
-                break;
+                if delay > 3600 {
+                    eprintln!("Can't join room {} ({err:?})", room.room_id());
+                    break;
+                }
             }
-        }
-        println!("Successfully joined room {}", room.room_id());
+            println!("Successfully joined room {}", room.room_id());
+        });
     }
 }
 
