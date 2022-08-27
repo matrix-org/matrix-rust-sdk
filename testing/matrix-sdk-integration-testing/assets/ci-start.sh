@@ -8,6 +8,8 @@ echo " ====== Patching for CI  ====== "
 sed -i 's/^#enable_registration_without_verification:.*$/enable_registration_without_verification: true/g' /data/homeserver.yaml
 sed -i 's/^#enable_registration:.*$/enable_registration: true/g' /data/homeserver.yaml
 echo """
+enable_registration: true
+enable_registration_without_verification: true
 
 rc_message:
  per_second: 1000
@@ -16,6 +18,22 @@ rc_message:
 rc_registration:
  per_second: 1000
  burst_count: 1000
+ 
+rc_joins:
+ local:
+  per_second: 1000
+  burst_count: 1000
+
+rc_invites:
+ per_room:
+  per_second: 1000
+  burst_count: 1000
+ per_user:
+  per_second: 1000
+  burst_count: 1000
+ per_issuer:
+  per_second: 1000
+  burst_count: 1000
 
 rc_login:
  address:

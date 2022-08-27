@@ -6,12 +6,12 @@ use matrix_sdk::{
     room::Room, ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
 };
 
-use super::get_client_for_user;
+use super::{get_client_for_user, Store};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
-    let sebastian = get_client_for_user("sebastian".to_owned()).await?;
+    let tamatoa = get_client_for_user(Store::Sled, "tamatoa".to_owned()).await?;
+    let sebastian = get_client_for_user(Store::Sled, "sebastian".to_owned()).await?;
 
     let invites = [sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;
