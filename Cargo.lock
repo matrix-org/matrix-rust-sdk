@@ -2303,6 +2303,7 @@ dependencies = [
  "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-indexeddb",
+ "matrix-sdk-qrcode",
  "ruma",
  "serde_json",
  "tracing",

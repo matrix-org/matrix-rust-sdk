@@ -30,6 +30,7 @@ pub mod sync_events;
 mod tracing;
 pub mod types;
 pub mod vodozemac;
+pub mod verification;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};

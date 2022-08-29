@@ -13,7 +13,7 @@ use crate::{
     identifiers, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events, types, vodozemac,
+    sync_events, types, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -451,6 +451,67 @@ impl OlmMachine {
 
                 None => Ok(JsValue::NULL),
             }
+        }))
+    }
+    /// Get a verification object for the given user ID with the given
+    /// flow ID (a to-device request ID if the verification has been
+    /// requested by a to-device request, or a room event ID if the
+    /// verification has been requested by a room event).
+    ///
+    /// It returns a `Verification` object.
+    #[wasm_bindgen(js_name = "getVerification")]
+    pub fn get_verification(
+        &self,
+        user_id: &identifiers::UserId,
+        flow_id: &str,
+    ) -> Result<JsValue, JsError> {
+        self.inner
+            .get_verification(&user_id.inner, flow_id)
+            .map(verification::Verification)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+    }
+
+    /// Get a verification request object with the given flow ID.
+    #[wasm_bindgen(js_name = "getVerificationRequest")]
+    pub fn get_verification_request(
+        &self,
+        user_id: &identifiers::UserId,
+        flow_id: &str,
+    ) -> Option<verification::VerificationRequest> {
+        self.inner.get_verification_request(&user_id.inner, flow_id).map(Into::into)
+    }
+
+    /// Get all the verification requests of a given user.
+    #[wasm_bindgen(js_name = "getVerificationRequests")]
+    pub fn get_verification_requests(&self, user_id: &identifiers::UserId) -> Array {
+        self.inner
+            .get_verification_requests(&user_id.inner)
+            .into_iter()
+            .map(verification::VerificationRequest::from)
+            .map(JsValue::from)
+            .collect()
+    }
+
+    /// Receive an unencrypted verification event.
+    ///
+    /// This method can be used to pass verification events that are
+    /// happening in unencrypted rooms to the `OlmMachine`.
+    ///
+    /// Note: This does not need to be called for encrypted events
+    /// since those will get passed to the `OlmMachine` during
+    /// decryption.
+    #[wasm_bindgen(js_name = "receiveUnencryptedVerificationEvent")]
+    pub fn receive_unencrypted_verification_event(&self, event: &str) -> Result<Promise, JsError> {
+        let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            Ok(me
+                .receive_unencrypted_verification_event(&event)
+                .await
+                .map(|_| JsValue::UNDEFINED)?)
         }))
     }
 }
