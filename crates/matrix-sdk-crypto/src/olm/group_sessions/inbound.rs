@@ -327,8 +327,8 @@ impl InboundGroupSession {
         self.first_known_index
     }
 
-    /// Has the session been imported from a file, or backup, or has it been
-    /// directly received as an `m.room_key` event?
+    /// Has the session been imported from a file or server-side backup? As
+    /// opposed to being directly received as an `m.room_key` event.
     pub fn has_been_imported(&self) -> bool {
         self.imported
     }
