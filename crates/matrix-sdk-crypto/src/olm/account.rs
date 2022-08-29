@@ -392,11 +392,12 @@ impl Account {
     /// forwarded by a third party.
     ///
     /// These checks are mandated by the spec[1]:
-    ///     Other properties are included in order to prevent an attacker from
-    ///     publishing someone else’s Curve25519 keys as their own and
-    ///     subsequently claiming to have sent messages which they didn’t.
-    ///     sender must correspond to the user who sent the event, recipient to
-    ///     the local user, and recipient_keys to the local Ed25519 key.
+    ///
+    /// > Other properties are included in order to prevent an attacker from
+    /// > publishing someone else's Curve25519 keys as their own and
+    /// > subsequently claiming to have sent messages which they didn't.
+    /// > sender must correspond to the user who sent the event, recipient to
+    /// > the local user, and recipient_keys to the local Ed25519 key.
     async fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,

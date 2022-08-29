@@ -1009,19 +1009,21 @@ impl OlmMachine {
         device_id: &DeviceId,
     ) -> StoreResult<VerificationState> {
         Ok(
-            // First find the device from the Curve25519 key that was recorded
-            // when we decrypted the room_key.
+            // First find the device corresponding to the Curve25519 identity
+            // key that sent us the session (recorded upon successful
+            // decryption of the `m.room_key` to-device message).
             if let Some(device) = self
                 .get_device(sender, device_id, None)
                 .await?
                 .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
             {
                 // If the `Device` is confirmed to be the owner of the
-                // `InboundGroupSession` we will consider the room key, and by
-                // extension any events that are encrypted using this room key,
-                // to be trusted if:
-                //     a) This is our own device
-                //     b) The device itself is considered to be trusted
+                // `InboundGroupSession` we will consider the session (i.e.
+                // "room key"), and by extension any events that are encrypted
+                // using this session, trusted if either:
+                //
+                //     a) This is our own device, or
+                //     b) The device itself is considered to be trusted.
                 if device.is_owner_of_session(session)
                     && (device.is_our_own_device() || device.verified())
                 {
@@ -1037,10 +1039,11 @@ impl OlmMachine {
         )
     }
 
-    /// Get the `EncryptionInfo` of an `InboundGroupSession`.
+    /// Get some metadata pertaining to a given group session.
     ///
-    /// This determines if the events that a given `InboundGroupSession`
-    /// decrypts are considered to be trusted.
+    /// This includes the session owner's Matrix user ID, their device ID, info
+    /// regarding the cryptographic algorithm and whether the session, and by
+    /// extension the events decrypted by the session, are trusted.
     async fn get_encryption_info(
         &self,
         session: &InboundGroupSession,
