@@ -28,9 +28,10 @@ pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
 
 use crate::types::{
-    deserialize_curve_key,
+    deserialize_curve_key, deserialize_curve_key_vec,
     events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-    serialize_curve_key, EventEncryptionAlgorithm, SigningKey, SigningKeys,
+    serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, SigningKey,
+    SigningKeys,
 };
 
 /// An error type for the creation of group sessions.
@@ -86,7 +87,11 @@ pub struct ExportedRoomKey {
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_curve_key_vec",
+        serialize_with = "serialize_curve_key_vec"
+    )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 }
 
