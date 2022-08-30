@@ -463,8 +463,8 @@ pub struct PickledInboundGroupSession {
     pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
-    /// The list of claimed Curve25519 that forwarded us this key. Will be None
-    /// if we directly received this session.
+    /// The list of claimed Curve25519 keys that forwarded us this key. Will be
+    /// empty if we directly received this session.
     #[serde(
         default,
         deserialize_with = "deserialize_curve_key_vec",
@@ -519,7 +519,7 @@ mod test {
     use crate::olm::InboundGroupSession;
 
     #[async_test]
-    async fn inbound_group_session_seriailization() {
+    async fn inbound_group_session_serialization() {
         let pickle = r#"
         {
             "pickle": {
