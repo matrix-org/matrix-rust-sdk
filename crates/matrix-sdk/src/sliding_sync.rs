@@ -164,11 +164,41 @@ impl SlidingSyncRoom {
         self.inner.name.clone()
     }
 
-    fn update(&mut self, mut room_data: v4::SlidingSyncRoom) {
-        let v4::SlidingSyncRoom { timeline, .. } = room_data;
-        // we overwrite to only keep one copy
-        room_data.timeline = vec![];
-        self.inner = room_data;
+    fn update(&mut self, room_data: &v4::SlidingSyncRoom) {
+        let v4::SlidingSyncRoom {
+            name,
+            initial,
+            is_dm,
+            invite_state,
+            unread_notifications,
+            required_state,
+            prev_batch,
+            timeline,
+            ..
+        } = room_data;
+
+        self.inner.unread_notifications = unread_notifications.clone();
+
+        if name.is_some() {
+            self.inner.name = name.clone();
+        }
+        if initial.is_some() {
+            self.inner.initial = initial.clone();
+        }
+        if is_dm.is_some() {
+            self.inner.is_dm = is_dm.clone();
+        }
+        if !invite_state.is_empty() {
+            self.inner.invite_state = invite_state.clone();
+        }
+        if !required_state.is_empty() {
+            self.inner.required_state = required_state.clone();
+        }
+
+        if let Some(batch) = prev_batch {
+            self.prev_batch.lock_mut().replace(batch.clone());
+        }
+
         if !timeline.is_empty() {
             let mut ref_timeline = self.timeline.lock_mut();
             for e in timeline {
@@ -360,7 +390,7 @@ impl SlidingSync {
         let mut rooms_map = self.rooms.lock_mut();
         for (id, room_data) in resp.rooms.iter() {
             if let Some(mut r) = rooms_map.remove(id) {
-                r.update(room_data.clone());
+                r.update(room_data);
                 rooms_map.insert_cloned(id.clone(), r);
                 rooms.push(id.clone());
             } else {
