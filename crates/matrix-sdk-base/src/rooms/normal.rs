@@ -54,7 +54,7 @@ use crate::{
 };
 #[cfg(feature = "experimental-timeline")]
 use crate::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{SyncTimelineEvent, TimelineSlice},
     timeline_stream::{TimelineStreamBackward, TimelineStreamError, TimelineStreamForward},
 };
 
@@ -508,8 +508,8 @@ impl Room {
     pub async fn timeline(
         &self,
     ) -> StoreResult<(
-        impl Stream<Item = SyncRoomEvent>,
-        impl Stream<Item = Result<SyncRoomEvent, TimelineStreamError>>,
+        impl Stream<Item = SyncTimelineEvent>,
+        impl Stream<Item = Result<SyncTimelineEvent, TimelineStreamError>>,
     )> {
         // We need to hold the lock while we create the stream so that we don't lose new
         // sync responses
@@ -544,7 +544,7 @@ impl Room {
     /// If you need also a backward stream you should use
     /// [`timeline`][`crate::Room::timeline`]
     #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline_forward(&self) -> StoreResult<impl Stream<Item = SyncRoomEvent>> {
+    pub async fn timeline_forward(&self) -> StoreResult<impl Stream<Item = SyncTimelineEvent>> {
         let mut forward_timeline_streams = self.forward_timeline_streams.lock().await;
         let event_ids = Arc::new(DashSet::new());
 
@@ -562,7 +562,7 @@ impl Room {
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_backward(
         &self,
-    ) -> StoreResult<impl Stream<Item = Result<SyncRoomEvent, TimelineStreamError>>> {
+    ) -> StoreResult<impl Stream<Item = Result<SyncTimelineEvent, TimelineStreamError>>> {
         let mut backward_timeline_streams = self.backward_timeline_streams.lock().await;
         let sync_token = self.store.get_sync_token().await?;
         let event_ids = Arc::new(DashSet::new());

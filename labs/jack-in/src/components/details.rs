@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use log::warn;
 use matrix_sdk::ruma::{
-    events::{AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent},
+    events::{AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent},
     RoomId,
 };
 use tuirealm::{
@@ -27,7 +27,7 @@ pub struct Details {
     liststate: ListState,
     name: Option<String>,
     state_events_counts: Vec<(String, usize)>,
-    current_room_timeline: Vec<AnyRoomEvent>,
+    current_room_timeline: Vec<AnyTimelineEvent>,
 }
 
 impl Details {
@@ -79,7 +79,7 @@ impl Details {
             state_events.iter().map(|(k, l)| (k.clone(), l.len())).collect();
         state_events_counts.sort_by_key(|(_, count)| *count);
 
-        let mut timeline: Vec<AnyRoomEvent> = room_data
+        let mut timeline: Vec<AnyTimelineEvent> = room_data
             .timeline()
             .lock_ref()
             .iter()
@@ -184,14 +184,14 @@ impl MockComponent for Details {
         for e in self.current_room_timeline.iter() {
             let body = {
                 match e {
-                    AnyRoomEvent::MessageLike(m) => {
+                    AnyTimelineEvent::MessageLike(m) => {
                         if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) = m {
                             m.content.body().to_owned()
                         } else {
                             m.event_type().to_string()
                         }
                     }
-                    AnyRoomEvent::State(s) => s.event_type().to_string(),
+                    AnyTimelineEvent::State(s) => s.event_type().to_string(),
                 }
             };
             details.push(ListItem::new(format!(

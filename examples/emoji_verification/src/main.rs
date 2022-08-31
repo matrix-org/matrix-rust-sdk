@@ -13,7 +13,7 @@ use matrix_sdk::{
     encryption::verification::{SasVerification, Verification},
     ruma::{
         events::{
-            room::message::MessageType, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             AnyToDeviceEvent, SyncMessageLikeEvent,
         },
         UserId,
@@ -134,7 +134,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
                     for event in
                         room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                     {
-                        if let AnySyncRoomEvent::MessageLike(event) = event {
+                        if let AnySyncTimelineEvent::MessageLike(event) = event {
                             match event {
                                 AnySyncMessageLikeEvent::RoomMessage(
                                     SyncMessageLikeEvent::Original(m),

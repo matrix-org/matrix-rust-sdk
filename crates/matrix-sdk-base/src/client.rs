@@ -27,7 +27,7 @@ use matrix_sdk_common::deserialized_responses::TimelineSlice;
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncRoomEvent, Timeline,
+        SyncTimelineEvent, Timeline,
     },
     instant::Instant,
 };
@@ -52,8 +52,8 @@ use ruma::{
             power_levels::{RoomPowerLevelsEvent, RoomPowerLevelsEventContent},
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        StateEventType,
+        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -272,13 +272,13 @@ impl BaseClient {
 
         for event in ruma_timeline.events {
             #[allow(unused_mut)]
-            let mut event: SyncRoomEvent = event.into();
+            let mut event: SyncTimelineEvent = event.into();
 
             match event.event.deserialize() {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
-                        AnySyncRoomEvent::State(s) => match s {
+                        AnySyncTimelineEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(member) => {
                                 ambiguity_cache.handle_event(changes, room_id, member).await?;
 
@@ -317,13 +317,15 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "e2e-encryption")]
-                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-                            // Redacted redactions don't have the `redacts` key, so we can't know
-                            // what they were meant to redact. A future room version might move the
-                            // redacts key, replace the current redaction event altogether, or have
-                            // the redacts key survive redaction.
-                            SyncRoomRedactionEvent::Original(r),
-                        )) => {
+                        AnySyncTimelineEvent::MessageLike(
+                            AnySyncMessageLikeEvent::RoomRedaction(
+                                // Redacted redactions don't have the `redacts` key, so we can't
+                                // know what they were meant to redact. A future room version might
+                                // move the redacts key, replace the current redaction event
+                                // altogether, or have the redacts key survive redaction.
+                                SyncRoomRedactionEvent::Original(r),
+                            ),
+                        ) => {
                             room_info.handle_redaction(r);
                             // FIXME: Find the event in self.store (needs
                             // something like a get_event_by_id), redact it and
@@ -332,7 +334,7 @@ impl BaseClient {
                         }
 
                         #[cfg(feature = "e2e-encryption")]
-                        AnySyncRoomEvent::MessageLike(e) => match e {
+                        AnySyncTimelineEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {

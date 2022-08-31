@@ -20,7 +20,7 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, RoomEvent, VerificationState},
+    deserialized_responses::{AlgorithmInfo, EncryptionInfo, TimelineEvent, VerificationState},
     locks::Mutex,
 };
 use ruma::{
@@ -35,7 +35,7 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId,
@@ -69,7 +69,7 @@ use crate::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
-            room_key::RoomKeyContent,
+            room_key::{MegolmV1AesSha2Content, RoomKeyContent},
             ToDeviceEvents,
         },
         Signatures,
@@ -563,19 +563,37 @@ impl OlmMachine {
             );
         };
 
-        match &event.content {
-            RoomKeyContent::MegolmV1AesSha2(content) => {
-                let session = InboundGroupSession::new(
-                    sender_key,
-                    event.keys.ed25519,
-                    &content.room_id,
-                    &content.session_key,
-                    event.content.algorithm(),
-                    None,
+        let handle_key = |content: &MegolmV1AesSha2Content| {
+            let session = InboundGroupSession::new(
+                sender_key,
+                event.keys.ed25519,
+                &content.room_id,
+                &content.session_key,
+                event.content.algorithm(),
+                None,
+            );
+
+            if let Ok(session) = session {
+                info!(
+                    sender = %event.sender,
+                    sender_key = sender_key.to_base64(),
+                    room_id = %content.room_id,
+                    session_id = session.session_id(),
+                    algorithm = %event.content.algorithm(),
+                    "Received a new megolm room key",
                 );
 
                 Ok(Some(session))
+            } else {
+                unsupported_warning();
+                Ok(None)
             }
+        };
+
+        match &event.content {
+            RoomKeyContent::MegolmV1AesSha2(content) => handle_key(content),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyContent::MegolmV2AesSha2(content) => handle_key(content),
             RoomKeyContent::Unknown(_) => {
                 unsupported_warning();
                 Ok(None)
@@ -987,6 +1005,8 @@ impl OlmMachine {
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
@@ -1002,27 +1022,55 @@ impl OlmMachine {
             .await?)
     }
 
+    async fn get_verification_state(
+        &self,
+        session: &InboundGroupSession,
+        sender: &UserId,
+        device_id: &DeviceId,
+    ) -> StoreResult<VerificationState> {
+        Ok(
+            // First find the device corresponding to the Curve25519 identity
+            // key that sent us the session (recorded upon successful
+            // decryption of the `m.room_key` to-device message).
+            if let Some(device) = self
+                .get_device(sender, device_id, None)
+                .await?
+                .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
+            {
+                // If the `Device` is confirmed to be the owner of the
+                // `InboundGroupSession` we will consider the session (i.e.
+                // "room key"), and by extension any events that are encrypted
+                // using this session, trusted if either:
+                //
+                //     a) This is our own device, or
+                //     b) The device itself is considered to be trusted.
+                if device.is_owner_of_session(session)
+                    && (device.is_our_own_device() || device.verified())
+                {
+                    VerificationState::Trusted
+                } else {
+                    VerificationState::Untrusted
+                }
+            } else {
+                // We didn't find a device, no way to know if we should trust
+                // the `InboundGroupSession` or not.
+                VerificationState::UnknownDevice
+            },
+        )
+    }
+
+    /// Get some metadata pertaining to a given group session.
+    ///
+    /// This includes the session owner's Matrix user ID, their device ID, info
+    /// regarding the cryptographic algorithm and whether the session, and by
+    /// extension the events decrypted by the session, are trusted.
     async fn get_encryption_info(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
-        let verification_state = if let Some(device) = self
-            .get_device(sender, device_id, None)
-            .await?
-            .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
-        {
-            if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
-                || device.verified()
-            {
-                VerificationState::Trusted
-            } else {
-                VerificationState::Untrusted
-            }
-        } else {
-            VerificationState::UnknownDevice
-        };
+        let verification_state = self.get_verification_state(session, sender, device_id).await?;
 
         let sender = sender.to_owned();
         let device_id = device_id.to_owned();
@@ -1052,7 +1100,7 @@ impl OlmMachine {
         room_id: &RoomId,
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
-    ) -> MegolmResult<RoomEvent> {
+    ) -> MegolmResult<TimelineEvent> {
         if let Some(session) = self
             .store
             .get_inbound_group_session(
@@ -1079,7 +1127,7 @@ impl OlmMachine {
                         "Successfully decrypted a room event"
                     );
 
-                    if let AnyRoomEvent::MessageLike(e) = e {
+                    if let AnyTimelineEvent::MessageLike(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
@@ -1105,7 +1153,7 @@ impl OlmMachine {
                 )
                 .await?;
 
-            Ok(RoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+            Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
             self.key_request_machine
                 .create_outgoing_key_request(
@@ -1132,11 +1180,13 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
-    ) -> MegolmResult<RoomEvent> {
+    ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
         let content = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             RoomEventEncryptionScheme::Unknown(c) => {
                 warn!(
                     sender = event.sender.as_str(),
@@ -1573,7 +1623,7 @@ pub(crate) mod tests {
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 message::{MessageType, RoomMessageEventContent},
             },
-            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
+            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
             MessageLikeEvent, MessageLikeUnsigned, OriginalMessageLikeEvent,
         },
         room_id,
@@ -2046,7 +2096,7 @@ pub(crate) mod tests {
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+        if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
             MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
         )) = decrypted_event
         {

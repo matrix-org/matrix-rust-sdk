@@ -32,12 +32,14 @@ use matrix_sdk_base::{
     MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 #[cfg(feature = "experimental-timeline")]
 use ruma::{
     canonical_json::redact_in_place,
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
     CanonicalJsonObject, RoomVersionId,
 };
 use ruma::{
@@ -1294,7 +1296,7 @@ impl SledStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         let db = self.clone();
         let key = self.encode_key(TIMELINE_METADATA, room_id);
         let metadata: Option<TimelineMetadata> = db
@@ -1452,7 +1454,7 @@ impl SledStateStore {
             if timeline.sync {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::MessageLike(
+                    if let Ok(AnySyncTimelineEvent::MessageLike(
                         AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
                             redaction,
                         )),
@@ -1467,7 +1469,7 @@ impl SledStateStore {
                                 .room_timeline
                                 .get(position_key.as_ref())?
                                 .map(|e| {
-                                    self.deserialize_value::<SyncRoomEvent>(&e)
+                                    self.deserialize_value::<SyncTimelineEvent>(&e)
                                         .map_err(SledStoreError::from)
                                 })
                                 .transpose()?
@@ -1709,7 +1711,7 @@ impl StateStore for SledStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await.map_err(|e| e.into())
     }
 }

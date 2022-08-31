@@ -22,9 +22,9 @@ use std::{
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::{room::history_visibility::HistoryVisibility, AnyRoomEvent},
+    events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId, RoomId,
+    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,16 +36,18 @@ use vodozemac::{
     Curve25519PublicKey, Ed25519PublicKey, PickleError,
 };
 
-use super::{BackedUpRoomKey, ExportedRoomKey, SessionCreationError, SessionKey};
+use super::{
+    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SessionCreationError, SessionKey,
+};
 use crate::{
     error::{EventError, MegolmResult},
     types::{
-        deserialize_curve_key,
+        deserialize_curve_key, deserialize_curve_key_vec,
         events::{
             forwarded_room_key::ForwardedMegolmV1AesSha2Content,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
-        serialize_curve_key, SigningKeys,
+        serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, SigningKeys,
     },
 };
 
@@ -100,15 +102,17 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
-    ) -> Self {
-        let session = InnerSession::new(session_key, SessionConfig::version_1());
+    ) -> Result<Self, SessionCreationError> {
+        let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
+
+        let session = InnerSession::new(session_key, config);
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
         let mut keys = SigningKeys::new();
         keys.insert(DeviceKeyAlgorithm::Ed25519, signing_key.into());
 
-        InboundGroupSession {
+        Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             history_visibility: history_visibility.into(),
             session_id: session_id.into(),
@@ -120,7 +124,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
-        }
+        })
     }
 
     /// Create a InboundGroupSession from an exported version of the group
@@ -139,7 +143,9 @@ impl InboundGroupSession {
         room_id: &RoomId,
         backup: BackedUpRoomKey,
     ) -> Result<Self, SessionCreationError> {
-        let session = InnerSession::import(&backup.session_key, SessionConfig::version_1());
+        // We're using this session only to get the session id, the session
+        // config doesn't matter here.
+        let session = InnerSession::import(&backup.session_key, SessionConfig::default());
         let session_id = session.session_id();
 
         Self::from_export(&ExportedRoomKey {
@@ -164,11 +170,12 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
         sender_key: Curve25519PublicKey,
+        algorithm: &EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
-        let algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
+        let config = OutboundGroupSession::session_config(algorithm)?;
 
-        let session = InnerSession::import(&content.session_key, SessionConfig::version_1());
+        let session = InnerSession::import(&content.session_key, config);
 
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
@@ -188,7 +195,7 @@ impl InboundGroupSession {
             forwarding_chains: forwarding_chains.into(),
             imported: true,
             backed_up: AtomicBool::new(false).into(),
-            algorithm: algorithm.into(),
+            algorithm: algorithm.to_owned().into(),
         })
     }
 
@@ -327,6 +334,12 @@ impl InboundGroupSession {
         self.first_known_index
     }
 
+    /// Has the session been imported from a file or server-side backup? As
+    /// opposed to being directly received as an `m.room_key` event.
+    pub fn has_been_imported(&self) -> bool {
+        self.imported
+    }
+
     /// Check if the `InboundGroupSession` is better than the given other
     /// `InboundGroupSession`
     pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
@@ -361,9 +374,16 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub async fn decrypt(&self, event: &EncryptedEvent) -> MegolmResult<(Raw<AnyRoomEvent>, u32)> {
+    pub async fn decrypt(
+        &self,
+        event: &EncryptedEvent,
+    ) -> MegolmResult<(Raw<AnyTimelineEvent>, u32)> {
         let decrypted = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
+                self.decrypt_helper(&c.ciphertext).await?
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
             }
             RoomEventEncryptionScheme::Unknown(_) => {
@@ -407,7 +427,10 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((serde_json::from_value::<Raw<AnyRoomEvent>>(decrypted_value)?, decrypted.message_index))
+        Ok((
+            serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_value)?,
+            decrypted.message_index,
+        ))
     }
 }
 
@@ -440,9 +463,13 @@ pub struct PickledInboundGroupSession {
     pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
-    /// The list of claimed ed25519 that forwarded us this key. Will be None if
-    /// we directly received this session.
-    #[serde(default)]
+    /// The list of claimed Curve25519 keys that forwarded us this key. Will be
+    /// empty if we directly received this session.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_curve_key_vec",
+        serialize_with = "serialize_curve_key_vec"
+    )]
     pub forwarding_chains: Vec<Curve25519PublicKey>,
     /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
@@ -465,7 +492,8 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
-        let session = InnerSession::import(&key.session_key, SessionConfig::version_1());
+        let config = OutboundGroupSession::session_config(&key.algorithm)?;
+        let session = InnerSession::import(&key.session_key, config);
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
@@ -481,5 +509,57 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_test::async_test;
+
+    use crate::olm::InboundGroupSession;
+
+    #[async_test]
+    async fn inbound_group_session_serialization() {
+        let pickle = r#"
+        {
+            "pickle": {
+                "initial_ratchet": {
+                    "inner": [ 124, 251, 213, 204, 108, 247, 54, 7, 179, 162, 15, 107, 154, 215,
+                               220, 46, 123, 113, 120, 162, 225, 246, 237, 203, 125, 102, 190, 212,
+                               229, 195, 136, 185, 26, 31, 77, 140, 144, 181, 152, 177, 46, 105,
+                               202, 6, 53, 158, 157, 170, 31, 155, 130, 87, 214, 110, 143, 55, 68,
+                               138, 41, 35, 242, 230, 194, 15, 16, 145, 116, 94, 89, 35, 79, 145,
+                               245, 117, 204, 173, 166, 178, 49, 131, 143, 61, 61, 15, 211, 167, 17,
+                               2, 79, 110, 149, 200, 223, 23, 185, 200, 29, 64, 55, 39, 147, 167,
+                               205, 224, 159, 101, 218, 249, 203, 30, 175, 174, 48, 252, 40, 131,
+                               52, 135, 91, 57, 211, 96, 105, 58, 55, 68, 250, 24 ],
+                    "counter": 0
+                },
+                "signing_key": [ 93, 185, 171, 61, 173, 100, 51, 9, 157, 180, 214, 39, 131, 80, 118,
+                                 130, 199, 232, 163, 197, 45, 23, 227, 100, 151, 59, 19, 102, 38,
+                                 149, 43, 38 ],
+                "signing_key_verified": true,
+                "config": {
+                  "version": "V1"
+                }
+            },
+            "sender_key": "AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8",
+            "signing_key": {
+                "ed25519": "wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"
+            },
+            "room_id": "!test:localhost",
+            "forwarding_chains": ["tb6kQKjk+SJl2KnfQ0lKVOZl6gDFMcsb9HcUP9k/4hc"],
+            "imported": false,
+            "backed_up": false,
+            "history_visibility": "shared",
+            "algorithm": "m.megolm.v1.aes-sha2"
+        }
+        "#;
+
+        let deserialized = serde_json::from_str(pickle).unwrap();
+
+        let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
+
+        assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
     }
 }

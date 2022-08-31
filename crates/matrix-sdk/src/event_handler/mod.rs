@@ -34,17 +34,19 @@
 #[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     fmt,
     future::Future,
-    iter,
-    ops::Deref,
     pin::Pin,
-    sync::atomic::Ordering::SeqCst,
+    sync::{
+        atomic::{AtomicU64, Ordering::SeqCst},
+        RwLock,
+    },
 };
 
+use anymap2::any::CloneAnySendSync;
 use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncRoomEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
@@ -52,7 +54,14 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{error, warn};
 
+use self::maps::EventHandlerMaps;
 use crate::{room, Client};
+
+mod context;
+mod maps;
+mod static_events;
+
+pub use self::context::{Ctx, EventHandlerContext, RawEvent};
 
 #[cfg(not(target_arch = "wasm32"))]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -63,6 +72,37 @@ type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 #[cfg(target_arch = "wasm32")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
+
+type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+
+#[derive(Default)]
+pub(crate) struct EventHandlerStore {
+    handlers: RwLock<EventHandlerMaps>,
+    context: RwLock<AnyMap>,
+    counter: AtomicU64,
+}
+
+impl EventHandlerStore {
+    pub fn add_handler(&self, handle: EventHandlerHandle, handler_fn: Box<EventHandlerFn>) {
+        self.handlers.write().unwrap().add(handle, handler_fn);
+    }
+
+    pub fn add_context<T>(&self, ctx: T)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.context.write().unwrap().insert(ctx);
+    }
+
+    pub fn remove(&self, handle: EventHandlerHandle) {
+        self.handlers.write().unwrap().remove(handle);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.handlers.read().unwrap().len()
+    }
+}
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,35 +144,7 @@ pub trait SyncEvent {
     #[doc(hidden)]
     const KIND: EventKind;
     #[doc(hidden)]
-    const TYPE: &'static str;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EventHandlerKey(EventHandlerKeyInner<'static>);
-
-impl EventHandlerKey {
-    pub(crate) fn new(
-        ev_kind: EventKind,
-        ev_type: &'static str,
-        room_id: Option<OwnedRoomId>,
-    ) -> Self {
-        Self(EventHandlerKeyInner { ev_kind, ev_type, room_id })
-    }
-}
-
-// This lifetime-generic impl is what makes it possible to obtain a
-// &'static str event type from get_key_value in call_event_handlers.
-impl<'a> Borrow<EventHandlerKeyInner<'a>> for EventHandlerKey {
-    fn borrow(&self) -> &EventHandlerKeyInner<'a> {
-        &self.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct EventHandlerKeyInner<'a> {
-    ev_kind: EventKind,
-    ev_type: &'a str,
-    room_id: Option<OwnedRoomId>,
+    const TYPE: Option<&'static str>;
 }
 
 pub(crate) struct EventHandlerWrapper {
@@ -144,14 +156,10 @@ pub(crate) struct EventHandlerWrapper {
 /// [`Client::remove_event_handler`].
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
-    pub(crate) key: EventHandlerKey,
+    pub(crate) ev_kind: EventKind,
+    pub(crate) ev_type: Option<&'static str>,
+    pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
-}
-
-impl EventHandlerContext for EventHandlerHandle {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.handle.clone())
-    }
 }
 
 /// Interface for event handlers.
@@ -212,106 +220,36 @@ pub struct EventHandlerData<'a> {
     handle: EventHandlerHandle,
 }
 
-/// Context for an event handler.
-///
-/// This trait defines the set of types that may be used as additional arguments
-/// in event handler functions after the event itself.
-pub trait EventHandlerContext: Sized {
-    #[doc(hidden)]
-    fn from_data(_: &EventHandlerData<'_>) -> Option<Self>;
-}
-
-impl EventHandlerContext for Client {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.client.clone())
-    }
-}
-
-/// This event handler context argument is only applicable to room-specific
-/// events.
-///
-/// Trying to use it in the event handler for another event, for example a
-/// global account data or presence event, will result in the event handler
-/// being skipped and an error getting logged.
-impl EventHandlerContext for room::Room {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        data.room.clone()
-    }
-}
-
-/// The raw JSON form of an event.
-///
-/// Used as a context argument for event handlers (see
-/// [`Client::add_event_handler`]).
-// FIXME: This could be made to not own the raw JSON value with some changes to
-//        the traits above, but only with GATs.
-#[derive(Clone, Debug)]
-pub struct RawEvent(Box<RawJsonValue>);
-
-impl Deref for RawEvent {
-    type Target = RawJsonValue;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl EventHandlerContext for RawEvent {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(Self(data.raw.to_owned()))
-    }
-}
-
-impl EventHandlerContext for Option<EncryptionInfo> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.encryption_info.cloned())
-    }
-}
-
-/// A custom value registered with
-/// [`.add_event_handler_context`][Client::add_event_handler_context].
-#[derive(Debug)]
-pub struct Ctx<T>(pub T);
-
-impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        data.client.event_handler_context::<T>().map(Ctx)
-    }
-}
-
-impl<T> Deref for Ctx<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 /// Return types supported for event handlers implement this trait.
 ///
 /// It is not meant to be implemented outside of matrix-sdk.
 pub trait EventHandlerResult: Sized {
     #[doc(hidden)]
-    fn print_error(&self, event_type: &str);
+    fn print_error(&self, event_type: Option<&str>);
 }
 
 impl EventHandlerResult for () {
-    fn print_error(&self, _event_type: &str) {}
+    fn print_error(&self, _event_type: Option<&str>) {}
 }
 
 impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E> {
-    fn print_error(&self, event_type: &str) {
+    fn print_error(&self, event_type: Option<&str>) {
+        let msg_fragment = match event_type {
+            Some(event_type) => format!(" for `{event_type}`"),
+            None => "".to_owned(),
+        };
+
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
-                error!("Event handler for `{event_type}` failed: {e:?}");
+                error!("Event handler{msg_fragment} failed: {e:?}");
             }
             #[cfg(feature = "eyre")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
-                error!("Event handler for `{event_type}` failed: {e:?}");
+                error!("Event handler{msg_fragment} failed: {e:?}");
             }
             Err(e) => {
-                error!("Event handler for `{event_type}` failed: {e}");
+                error!("Event handler{msg_fragment} failed: {e}");
             }
             Ok(_) => {}
         }
@@ -361,18 +299,13 @@ impl Client {
             })
         });
 
-        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
-        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
+        let handler_id = self.inner.event_handlers.counter.fetch_add(1, SeqCst);
+        let handle =
+            EventHandlerHandle { ev_kind: Ev::KIND, ev_type: Ev::TYPE, room_id, handler_id };
 
-        self.inner
-            .event_handlers
-            .write()
-            .unwrap()
-            .entry(key.clone())
-            .or_default()
-            .push(EventHandlerWrapper { handler_fn, handler_id });
+        self.inner.event_handlers.add_handler(handle.clone(), handler_fn);
 
-        EventHandlerHandle { key, handler_id }
+        handle
     }
 
     #[allow(dead_code)]
@@ -433,7 +366,7 @@ impl Client {
     pub(crate) async fn handle_sync_timeline_events(
         &self,
         room: &Option<room::Room>,
-        timeline_events: &[SyncRoomEvent],
+        timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
         struct TimelineEventDetails<'a> {
@@ -488,43 +421,31 @@ impl Client {
         ev_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
+        let room_id = room.as_ref().map(|r| r.room_id());
+
         // Construct event handler futures
-        let futures: Vec<_> = {
-            let non_room_handler_key = EventHandlerKeyInner { ev_kind, ev_type, room_id: None };
-            let room_handler_key = room.as_ref().map(|r| {
-                let room_id = Some(r.room_id().to_owned());
-                EventHandlerKeyInner { ev_kind, ev_type, room_id }
-            });
+        let futures: Vec<_> = self
+            .inner
+            .event_handlers
+            .handlers
+            .read()
+            .unwrap()
+            .get_handlers(ev_kind, ev_type, room_id)
+            .map(|(handle, handler_fn)| {
+                let data = EventHandlerData {
+                    client: self.clone(),
+                    room: room.clone(),
+                    raw,
+                    encryption_info,
+                    handle,
+                };
 
-            let handlers_lock = self.event_handlers();
+                (handler_fn)(data)
+            })
+            .collect();
 
-            iter::once(non_room_handler_key)
-                .chain(room_handler_key)
-                .flat_map(|b_key| {
-                    // Use get_key_value instead of just get to be able to access the event_type
-                    // from the BTreeMap key as &'static str, required for EventHandlerHandle.
-                    handlers_lock.get_key_value(&b_key).into_iter().flat_map(|(key, handlers)| {
-                        handlers.iter().map(|wrap| {
-                            let data = EventHandlerData {
-                                client: self.clone(),
-                                room: room.clone(),
-                                raw,
-                                encryption_info,
-                                handle: EventHandlerHandle {
-                                    key: key.clone(),
-                                    handler_id: wrap.handler_id,
-                                },
-                            };
-
-                            (wrap.handler_fn)(data)
-                        })
-                    })
-                })
-                .collect()
-        };
-
-        // Run the event handler futures with the `self.event_handlers` lock
-        // no longer being held, in order.
+        // Run the event handler futures with the `self.event_handlers.handlers`
+        // lock no longer being held, in order.
         for fut in futures {
             fut.await;
         }
@@ -572,136 +493,6 @@ impl_event_handler!(A, B, C, D, E, F);
 impl_event_handler!(A, B, C, D, E, F, G);
 impl_event_handler!(A, B, C, D, E, F, G, H);
 
-mod static_events {
-    use ruma::{
-        events::{
-            self,
-            presence::{PresenceEvent, PresenceEventContent},
-            EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
-            RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
-            StaticEventContent, ToDeviceEventContent,
-        },
-        serde::Raw,
-    };
-
-    use super::{EventKind, SyncEvent};
-
-    impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
-    where
-        C: StaticEventContent + GlobalAccountDataEventContent,
-    {
-        const KIND: EventKind = EventKind::GlobalAccountData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RoomAccountDataEvent<C>
-    where
-        C: StaticEventContent + RoomAccountDataEventContent,
-    {
-        const KIND: EventKind = EventKind::RoomAccountData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
-    where
-        C: StaticEventContent + EphemeralRoomEventContent,
-    {
-        const KIND: EventKind = EventKind::EphemeralRoomData;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent + RedactContent,
-        C::Redacted: MessageLikeEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::MessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent,
-    {
-        const KIND: EventKind = EventKind::OriginalMessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::RedactedMessageLike;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::MessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::OriginalMessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const KIND: EventKind = EventKind::RedactedMessageLike;
-        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
-    }
-
-    impl<C> SyncEvent for events::SyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::State;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const KIND: EventKind = EventKind::OriginalState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent + RedactedEventContent,
-    {
-        const KIND: EventKind = EventKind::RedactedState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::StrippedStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const KIND: EventKind = EventKind::StrippedState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::ToDeviceEvent<C>
-    where
-        C: StaticEventContent + ToDeviceEventContent,
-    {
-        const KIND: EventKind = EventKind::ToDevice;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl SyncEvent for PresenceEvent {
-        const KIND: EventKind = EventKind::Presence;
-        const TYPE: &'static str = PresenceEventContent::TYPE;
-    }
-
-    impl<T: SyncEvent> SyncEvent for Raw<T> {
-        const KIND: EventKind = T::KIND;
-        const TYPE: &'static str = T::TYPE;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
@@ -728,6 +519,7 @@ mod tests {
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
             typing::SyncTypingEvent,
+            AnySyncStateEvent,
         },
         room_id,
         serde::Raw,
@@ -950,15 +742,15 @@ mod tests {
         let client = no_retry_test_client(None).await;
 
         let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
-        assert_eq!(client.event_handlers().len(), 1);
+        assert_eq!(client.inner.event_handlers.len(), 1);
 
         {
             let _guard = client.event_handler_drop_guard(handle);
-            assert_eq!(client.event_handlers().len(), 1);
+            assert_eq!(client.inner.event_handlers.len(), 1);
             // guard dropped here
         }
 
-        assert_eq!(client.event_handlers().len(), 0);
+        assert_eq!(client.inner.event_handlers.len(), 0);
     }
 
     #[async_test]
@@ -984,6 +776,28 @@ mod tests {
         client.add_event_handler_context(counter.clone());
         client.add_event_handler(
             |_ev: Raw<OriginalSyncRoomMemberEvent>, counter: Ctx<Arc<AtomicU8>>| async move {
+                counter.fetch_add(1, SeqCst);
+            },
+        );
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        assert_eq!(counter.load(SeqCst), 1);
+        Ok(())
+    }
+
+    #[async_test]
+    async fn enum_event_handler() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+        let counter = Arc::new(AtomicU8::new(0));
+        client.add_event_handler_context(counter.clone());
+        client.add_event_handler(
+            |_ev: AnySyncStateEvent, counter: Ctx<Arc<AtomicU8>>| async move {
                 counter.fetch_add(1, SeqCst);
             },
         );

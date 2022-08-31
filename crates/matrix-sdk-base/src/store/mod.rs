@@ -61,7 +61,7 @@ use ruma::{
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 #[cfg(feature = "experimental-timeline")]
-use crate::deserialized_responses::{SyncRoomEvent, TimelineSlice};
+use crate::deserialized_responses::{SyncTimelineEvent, TimelineSlice};
 use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
@@ -376,7 +376,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
+    ) -> Result<Option<(BoxStream<Result<SyncTimelineEvent>>, Option<String>)>>;
 }
 
 /// Convenience functionality for state stores.

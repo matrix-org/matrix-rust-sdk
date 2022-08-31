@@ -21,7 +21,7 @@ use matrix_sdk_base::deserialized_responses::SyncResponse;
 use ruma::{
     api::client::sync::sync_events::v4,
     assign,
-    events::{AnySyncRoomEvent, RoomEventType},
+    events::{AnySyncTimelineEvent, RoomEventType},
     serde::Raw,
     OwnedRoomId, UInt,
 };
@@ -107,7 +107,7 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncRoomEvent>>>;
+pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
 
 impl Default for RoomListEntry {
     fn default() -> Self {
@@ -166,7 +166,7 @@ impl SlidingSyncRoom {
 
     /// add newer timeline events to the `AliveRoomTimeline` received over
     /// `SlidingSync`
-    pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncRoomEvent>>) {
+    pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncTimelineEvent>>) {
         let mut timeline = self.timeline.lock_mut();
         for e in items {
             timeline.push_cloned(e.clone());
@@ -491,7 +491,7 @@ pub struct SlidingSyncView {
     #[builder(default)]
     filters: Option<v4::SyncRequestListFilters>,
 
-    /// The macimum number of timeline events to query for
+    /// The maximum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
     timeline_limit: Option<UInt>,
 

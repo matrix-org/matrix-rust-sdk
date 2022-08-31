@@ -354,7 +354,8 @@ mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-        );
+        )
+        .unwrap();
 
         let store = MemoryStore::new();
         store.save_inbound_group_sessions(vec![inbound.clone()]).await;

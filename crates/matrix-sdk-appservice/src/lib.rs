@@ -102,7 +102,7 @@ use ruma::{
         client::{account::register, sync::sync_events},
     },
     assign,
-    events::{room::member::MembershipState, AnyRoomEvent, AnyStateEvent},
+    events::{room::member::MembershipState, AnyStateEvent, AnyTimelineEvent},
     DeviceId, IdParseError, OwnedRoomId, OwnedServerName,
 };
 use serde::Deserialize;
@@ -403,7 +403,7 @@ impl AppService {
         // membership accordingly
         for event in transaction.events.iter() {
             let event = match event.deserialize() {
-                Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
+                Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) => event,
                 _ => continue,
             };
             if !self.user_id_is_in_namespace(event.state_key()) {
@@ -531,7 +531,7 @@ mod tests {
     use matrix_sdk_test::{appservice::TransactionBuilder, async_test, TimelineTestEvent};
     use ruma::{
         api::{appservice::event::push_events, MatrixVersion},
-        events::AnyRoomEvent,
+        events::AnyTimelineEvent,
         room_id,
         serde::Raw,
     };
@@ -609,7 +609,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -634,7 +634,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -740,8 +740,9 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=invalid_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        let transaction =
-            transaction_builder.add_room_event(TimelineTestEvent::Member).build_json_transaction();
+        let transaction = transaction_builder
+            .add_timeline_event(TimelineTestEvent::Member)
+            .build_json_transaction();
 
         let appservice = appservice(None, None).await?;
 
@@ -765,7 +766,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -804,7 +805,7 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction = transaction_builder.build_json_transaction();
 
         warp::test::request()
@@ -852,11 +853,11 @@ mod tests {
         let uri_2 = "/sub_path/_matrix/app/v1/transactions/2?access_token=hs_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::Member);
+        transaction_builder.add_timeline_event(TimelineTestEvent::Member);
         let transaction_1 = transaction_builder.build_json_transaction();
 
         let mut transaction_builder = TransactionBuilder::new();
-        transaction_builder.add_room_event(TimelineTestEvent::MemberNameChange);
+        transaction_builder.add_timeline_event(TimelineTestEvent::MemberNameChange);
         let transaction_2 = transaction_builder.build_json_transaction();
 
         let appservice = appservice(None, None).await?;
@@ -911,7 +912,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -929,7 +930,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -947,7 +948,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
             Raw::new(&json!({
                 "content": {
                     "avatar_url": null,
@@ -965,7 +966,7 @@ mod tests {
                     "age": 2970366
                 }
             }))?
-            .cast::<AnyRoomEvent>(),
+            .cast::<AnyTimelineEvent>(),
         ];
         let appservice = appservice(None, None).await?;
 

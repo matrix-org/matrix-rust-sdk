@@ -19,15 +19,18 @@ use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use vodozemac::{
-    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionPickle},
+    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
 };
 
 use super::IdentityKeys;
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult},
-    types::events::room::encrypted::{
-        OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent,
+    types::{
+        events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
+        EventEncryptionAlgorithm,
     },
     ReadOnlyDevice,
 };
@@ -87,6 +90,24 @@ impl Session {
         self.sender_key
     }
 
+    /// Get the `SessionConfig` that this session is using.
+    pub async fn session_config(&self) -> SessionConfig {
+        self.inner.lock().await.session_config()
+    }
+
+    /// Get the `EventEncryptionAlgorithm` of t his `Session`.
+    pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
+        #[cfg(feature = "experimental-algorithms")]
+        if self.session_config().await.version() == 2 {
+            EventEncryptionAlgorithm::OlmV2Curve25519AesSha2
+        } else {
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+        }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+    }
+
     /// Encrypt the given plaintext as a OlmMessage.
     ///
     /// Returns the encrypted Olm message.
@@ -138,12 +159,21 @@ impl Session {
         let plaintext = serde_json::to_string(&payload)?;
         let ciphertext = self.encrypt_helper(&plaintext).await;
 
-        let content = OlmV1Curve25519AesSha2Content {
-            ciphertext,
-            recipient_key: self.sender_key,
-            sender_key: self.our_identity_keys.curve25519,
-        }
-        .into();
+        let content = match self.algorithm().await {
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content {
+                ciphertext,
+                recipient_key: self.sender_key,
+                sender_key: self.our_identity_keys.curve25519,
+            }
+            .into(),
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
+                ciphertext,
+                sender_key: self.our_identity_keys.curve25519,
+            }
+            .into(),
+            _ => unreachable!(),
+        };
 
         let content = Raw::new(&content).expect("A encrypted can always be serialized");
 

@@ -633,11 +633,11 @@ mod tests {
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
-        room_id, user_id, DeviceId, EventEncryptionAlgorithm, TransactionId, UserId,
+        room_id, user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::{json, Value};
 
-    use crate::{EncryptionSettings, LocalTrust, OlmMachine};
+    use crate::{types::EventEncryptionAlgorithm, EncryptionSettings, LocalTrust, OlmMachine};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
