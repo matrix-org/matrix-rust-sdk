@@ -1,15 +1,7 @@
-//
-//  MatrixRustSDKTests.swift
-//  MatrixRustSDKTests
-//
-//  Created by Stefan Ceriu on 08.02.2022.
-//
-
 import XCTest
 @testable import MatrixRustSDK
 
-class MatrixRustSDKTests: XCTestCase {
-    
+final class ClientTests: XCTestCase {
     func testReadOnlyFileSystemError() {
         do {
             let client = try ClientBuilder()
