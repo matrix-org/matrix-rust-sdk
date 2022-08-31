@@ -170,7 +170,7 @@ impl Device {
         }
     }
 
-    /// Request an interacitve verification with this `Device`
+    /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that
     /// needs to be sent out.
@@ -178,7 +178,7 @@ impl Device {
         self.request_verification_helper(None).await
     }
 
-    /// Request an interacitve verification with this `Device`
+    /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that
     /// needs to be sent out.
