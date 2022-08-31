@@ -50,24 +50,29 @@ impl StoppableSpawn {
 }
 
 pub struct UnreadNotificationsCount {
-    inner: RumaUnreadNotificationsCount,
+    highlight_count: u32,
+    notification_count: u32,
+
 }
 
 impl UnreadNotificationsCount {
     pub fn highlight_count(&self) -> u32 {
-        self.inner.highlight_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
+        self.highlight_count
     }
     pub fn notification_count(&self) -> u32 {
-        self.inner.notification_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
+        self.notification_count
     }
     pub fn has_notifications(&self) -> bool {
-        !self.inner.is_empty()
+        self.notification_count != 0 || self.highlight_count != 0
     }
 }
 
 impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     fn from(inner: RumaUnreadNotificationsCount) -> Self {
-        UnreadNotificationsCount { inner }
+        UnreadNotificationsCount {
+            highlight_count: inner.highlight_count.and_then(|x| x.try_into().ok()).unwrap_or_default(),
+            notification_count: inner.notification_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
+        }
     }
 }
 
