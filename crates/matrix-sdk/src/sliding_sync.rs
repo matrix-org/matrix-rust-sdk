@@ -164,8 +164,8 @@ impl SlidingSyncRoom {
         self.inner.name.clone()
     }
 
-    /// add newer timeline events to the `AliveRoomTimeline` received over
-    /// `SlidingSync`
+    /// add newer timeline events received over `SlidingSync` to the
+    /// end of `AliveRoomTimeline`
     pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncTimelineEvent>>) {
         let mut timeline = self.timeline.lock_mut();
         for e in items {
