@@ -381,7 +381,7 @@ impl Device {
     ///
     /// [`UserIdentity::verify()`]:
     /// crate::encryption::identities::UserIdentity::verify
-    /// [is_verified]: crate::encryption::identities::UserIdentity::is_verified
+    /// [verified]: crate::encryption::identities::UserIdentity::is_verified
     pub fn is_verified(&self) -> bool {
         self.inner.is_verified()
     }
