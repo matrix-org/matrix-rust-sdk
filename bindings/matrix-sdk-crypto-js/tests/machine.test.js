@@ -414,7 +414,7 @@ describe(OlmMachine.name, () => {
         const m = await machine();
         const signatures = await m.sign('foo');
 
-        expect(signatures.isEmpty).toStrictEqual(false);
+        expect(signatures.isEmpty()).toStrictEqual(false);
         expect(signatures.count).toStrictEqual(1);
 
         let base64;
@@ -429,8 +429,8 @@ describe(OlmMachine.name, () => {
 
             expect(s).toBeInstanceOf(MaybeSignature);
 
-            expect(s.isValid).toStrictEqual(true);
-            expect(s.isInvalid).toStrictEqual(false);
+            expect(s.isValid()).toStrictEqual(true);
+            expect(s.isInvalid()).toStrictEqual(false);
             expect(s.invalidSignatureSource).toBeUndefined();
 
             base64 = s.signature.toBase64();

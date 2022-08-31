@@ -8,7 +8,7 @@ use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    downcast, encryption,
+    device, downcast, encryption,
     future::future_to_promise,
     identifiers, olm, requests,
     requests::OutgoingRequest,
@@ -453,6 +453,44 @@ impl OlmMachine {
             }
         }))
     }
+
+    /// Get a map holding all the devices of a user.
+    ///
+    /// `user_id` represents the unique ID of the user that the
+    /// devices belong to.
+    #[wasm_bindgen(js_name = "getUserDevices")]
+    pub fn get_user_devices(&self, user_id: &identifiers::UserId) -> Promise {
+        let user_id = user_id.inner.clone();
+
+        let me = self.inner.clone();
+
+        future_to_promise::<_, device::UserDevices>(async move {
+            Ok(me.get_user_devices(&user_id, None).await.map(Into::into)?)
+        })
+    }
+
+    /// Get a specific device of a user if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// `user_id` represents the unique ID of the user that the
+    /// identity belongs to. `device_id` represents the unique ID of
+    /// the device.
+    #[wasm_bindgen(js_name = "getDevice")]
+    pub fn get_device(
+        &self,
+        user_id: &identifiers::UserId,
+        device_id: &identifiers::DeviceId,
+    ) -> Promise {
+        let user_id = user_id.inner.clone();
+        let device_id = device_id.inner.clone();
+
+        let me = self.inner.clone();
+
+        future_to_promise::<_, Option<device::Device>>(async move {
+            Ok(me.get_device(&user_id, &device_id, None).await?.map(Into::into))
+        })
+    }
+
     /// Get a verification object for the given user ID with the given
     /// flow ID (a to-device request ID if the verification has been
     /// requested by a to-device request, or a room event ID if the
