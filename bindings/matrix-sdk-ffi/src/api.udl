@@ -1,4 +1,4 @@
-namespace sdk {
+namespace matrix_sdk_ffi {
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
 };
@@ -88,9 +88,9 @@ interface Room {
     string? name();
     string? topic();
     string? avatar_url();
-    
+
     Membership membership();
-    
+
     boolean is_direct();
     boolean is_public();
     boolean is_space();
