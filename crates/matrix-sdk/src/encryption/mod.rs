@@ -26,11 +26,19 @@ use std::{
 };
 
 use futures_util::stream::{self, StreamExt};
-use matrix_sdk_base::crypto::{
-    store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
-    ToDeviceRequest,
+pub use matrix_sdk_base::crypto::{
+    olm::{
+        SessionCreationError as MegolmSessionCreationError,
+        SessionExportError as OlmSessionExportError,
+    },
+    CryptoStoreError, DecodeError, DecryptorError, Ed25519SignatureError, EventError, KeyError,
+    KeyExportError, LocalTrust, MediaEncryptionInfo, MegolmDecryptionError, MegolmError,
+    OlmDecryptionError, OlmError, OlmSessionCreationError, PickleError, RoomKeyImportResult,
+    SecretImportError, SessionCreationError, SessionKeyDecodeError, SignatureError,
 };
-pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
+use matrix_sdk_base::crypto::{
+    CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+};
 use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::OwnedDeviceId;
@@ -50,13 +58,14 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
+pub use crate::error::RoomKeyImportError;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
     },
-    error::{HttpResult, RoomKeyImportError},
+    error::HttpResult,
     room, Client, Error, Result,
 };
 
