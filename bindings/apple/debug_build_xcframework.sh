@@ -47,7 +47,11 @@ lipo -create \
   -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
 
 # Generate uniffi files
-uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" --language swift --out-dir ${GENERATED_DIR}
+uniffi-bindgen generate \
+  --language swift \
+  --cdylib "${TARGET_DIR}/$TARGET/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+  --out-dir ${GENERATED_DIR} \
+  "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl"
 
 # Move them to the right place
 HEADERS_DIR=${GENERATED_DIR}/headers
