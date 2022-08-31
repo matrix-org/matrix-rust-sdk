@@ -28,27 +28,25 @@ use super::{Client, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
 
 pub struct StoppableSpawn {
-    cancelled: AtomicBool,
-    handle: RwLock<Option<JoinHandle<()>>>,
+    handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
 impl StoppableSpawn {
-    fn new() -> StoppableSpawn {
-        StoppableSpawn { cancelled: AtomicBool::new(false), handle: RwLock::new(None) }
-    }
     fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
-        StoppableSpawn { cancelled: AtomicBool::new(false), handle: RwLock::new(Some(handle)) }
+        StoppableSpawn { handle: Arc::new(RwLock::new(Some(handle))) }
+    }
+
+    fn with_handle_ref(handle: Arc<RwLock<Option<JoinHandle<()>>>>) -> StoppableSpawn {
+        StoppableSpawn { handle }
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.write().unwrap().take() {
             handle.abort();
         }
     }
-
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        self.handle.read().unwrap().is_none()
     }
 }
 
@@ -325,84 +323,56 @@ impl SlidingSyncView {
         &self,
         delegate: Box<dyn SlidingSyncViewStateDelegate>,
     ) -> Arc<StoppableSpawn> {
-        let outer_stopper = Arc::new(StoppableSpawn::new());
-        let stopper = outer_stopper.clone();
         let mut signal = self.inner.state.signal_cloned().to_stream();
-        RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                let update = signal.next().await;
-                if stopper.is_cancelled() {
-                    break;
-                }
-                if let Some(new_state) = update {
+                if let Some(new_state) = signal.next().await {
                     delegate.did_receive_update(new_state);
                 }
             }
-        });
-        outer_stopper
+        })))
     }
 
     pub fn on_rooms_update(
         &self,
         delegate: Box<dyn SlidingSyncViewRoomsListDelegate>,
     ) -> Arc<StoppableSpawn> {
-        let outer_stopper = Arc::new(StoppableSpawn::new());
-        let stopper = outer_stopper.clone();
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
-        RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                let list_diff = room_list.next().await;
-                if stopper.is_cancelled() {
-                    break;
-                }
-                if let Some(diff) = list_diff {
+                if let Some(diff) = room_list.next().await {
                     delegate.did_receive_update(diff.into());
                 }
             }
-        });
-        outer_stopper
+        })))
     }
 
     pub fn on_rooms_updated(
         &self,
         delegate: Box<dyn SlidingSyncViewUpdatedDelegate>,
     ) -> Arc<StoppableSpawn> {
-        let outer_stopper = Arc::new(StoppableSpawn::new());
-        let stopper = outer_stopper.clone();
         let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
-        RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                let updated = rooms_updated.next().await;
-                if stopper.is_cancelled() {
-                    break;
-                }
-                if updated.is_some() {
+                if rooms_updated.next().await.is_some() {
                     delegate.did_receive_update();
                 }
             }
-        });
-        outer_stopper
+        })))
     }
 
     pub fn on_rooms_count_update(
         &self,
         delegate: Box<dyn SlidingSyncViewRoomsCountDelegate>,
     ) -> Arc<StoppableSpawn> {
-        let outer_stopper = Arc::new(StoppableSpawn::new());
-        let stopper = outer_stopper.clone();
         let mut rooms_count = self.inner.rooms_count.signal_cloned().to_stream();
-        RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                let new_count = rooms_count.next().await;
-                if stopper.is_cancelled() {
-                    break;
-                }
-                if let Some(Some(new)) = new_count {
+                if let Some(Some(new)) = rooms_count.next().await {
                     delegate.did_receive_update(new);
                 }
             }
-        });
-        outer_stopper
+        })))
     }
 
     /// Reset the ranges to a particular set
@@ -442,11 +412,12 @@ pub struct SlidingSync {
     inner: matrix_sdk::SlidingSync,
     client: Client,
     delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
+    sync_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
 impl SlidingSync {
     fn new(inner: matrix_sdk::SlidingSync, client: Client) -> Self {
-        SlidingSync { inner, client, delegate: Arc::new(RwLock::new(None)) }
+        SlidingSync { inner, client, delegate: Default::default(), sync_handle: Default::default() }
     }
 
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
@@ -506,35 +477,45 @@ impl SlidingSync {
     pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
         let delegate = self.delegate.clone();
+        let spawn = Arc::new(StoppableSpawn::with_handle_ref(self.sync_handle.clone()));
+        let inner_spawn = spawn.clone();
+        {
+            let mut sync_handle = self.sync_handle.write().unwrap();
 
-        let handle = RUNTIME.spawn(async move {
-            let (cancel, stream) = inner.stream().await.expect("Doesn't fail.");
-            pin_mut!(stream);
-            loop {
-                let update = match stream.next().await {
-                    Some(Ok(u)) => u,
-                    Some(Err(e)) => {
-                        // FIXME: send this over the FFI
-                        tracing::warn!("Sliding Sync failure: {:?}", e);
-                        continue;
-                    }
-                    None => {
-                        tracing::debug!("No update from loop, cancelled");
+            if let Some(handle) = sync_handle.take() {
+                handle.abort();
+            }
+
+            *sync_handle = Some(RUNTIME.spawn(async move {
+                let stream = inner.stream().await.expect("Doesn't fail.");
+                pin_mut!(stream);
+                loop {
+                    let update = match stream.next().await {
+                        Some(Ok(u)) => u,
+                        Some(Err(e)) => {
+                            // FIXME: send this over the FFI
+                            tracing::warn!("Sliding Sync failure: {:?}", e);
+                            continue;
+                        }
+                        None => {
+                            tracing::debug!("No update from loop, cancelled");
+                            break;
+                        }
+                    };
+                    if let Some(ref delegate) = *delegate.read().unwrap() {
+                        delegate.did_receive_sync_update(update.into());
+                    } else {
+                        // when the delegate has been removed
+                        // we cancel the loop
+                        inner_spawn.cancel();
                         break;
                     }
-                };
-                if let Some(ref delegate) = *delegate.read().unwrap() {
-                    delegate.did_receive_sync_update(update.into());
-                } else {
-                    // when the delegate has been removed
-                    // we cancel the loop
-                    *cancel.lock_mut() = true;
-                    break;
                 }
-            }
-        });
+            }));
+        }
 
-        Arc::new(StoppableSpawn::with_handle(handle))
+        spawn
+
     }
 }
 

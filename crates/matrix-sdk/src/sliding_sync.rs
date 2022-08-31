@@ -192,7 +192,6 @@ type RoomsSubscriptions =
     Arc<futures_signals::signal_map::MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
 type RoomUnsubscribe = Arc<futures_signals::signal_vec::MutableVec<OwnedRoomId>>;
 type ViewsList = Arc<futures_signals::signal_vec::MutableVec<SlidingSyncView>>;
-pub type Cancel = futures_signals::signal::Mutable<bool>;
 
 use derive_builder::Builder;
 
@@ -379,10 +378,8 @@ impl SlidingSync {
     /// Run this stream to receive new updates from the server.
     pub async fn stream<'a>(
         &'a self,
-    ) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<UpdateSummary>> + 'a)> {
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<UpdateSummary>> + 'a> {
         let views = self.views.lock_ref().to_vec();
-        let cancel = Cancel::new(false);
-        let ret_cancel = cancel.clone();
         let _pos = self.pos.clone();
 
         // FIXME: hack for while the sliding sync server is on a proxy
@@ -390,7 +387,7 @@ impl SlidingSync {
         let req_config =
             self.homeserver.as_ref().map(|hs| RequestConfig::default().homeserver(hs.to_string()));
 
-        let final_stream = async_stream::try_stream! {
+        Ok(async_stream::try_stream! {
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
@@ -429,27 +426,18 @@ impl SlidingSync {
                     room_subscriptions,
                     unsubscribe_rooms: &unsubscribe_rooms,
                 });
-
-                if cancel.get() {
-                    return
-                }
                 tracing::debug!("requesting");
                 let resp = client
                     .send(req, req_config.clone())
                     .await
                     ?;
                 tracing::debug!("received");
-                if cancel.get() {
-                    return
-                }
 
                 let updates = self.handle_response(resp, &remaining_views).await?;
                 tracing::debug!("handled");
                 yield updates;
             }
-        };
-
-        Ok((ret_cancel, final_stream))
+        })
     }
 }
 
