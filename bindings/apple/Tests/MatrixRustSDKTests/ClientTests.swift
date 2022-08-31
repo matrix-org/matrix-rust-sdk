@@ -2,16 +2,35 @@ import XCTest
 @testable import MatrixRustSDK
 
 final class ClientTests: XCTestCase {
-    func testReadOnlyFileSystemError() {
+    func testBuildingWithHomeserverURL() {
         do {
-            let client = try ClientBuilder()
-                .basePath(path: "")
-                .username(username: "@test:domain")
+            _ = try ClientBuilder()
+                .homeserverUrl(url: "https://localhost:8008")
+                .build()
+        } catch {
+            XCTFail("The client should build successfully when given a homeserver.")
+        }
+    }
+    
+    func testBuildingWithUsername() {
+        do {
+            _ = try ClientBuilder()
+                .username(username: "@test:matrix.org")
+                .build()
+        } catch {
+            XCTFail("The client should build successfully when given a username.")
+        }
+    }
+    
+    func testBuildingWithInvalidUsername() {
+        do {
+            _ = try ClientBuilder()
+                .username(username: "@test:invalid")
                 .build()
             
-            try client.login(username: "@test:domain", password: "test")
+            XCTFail("The client should not build when given an invalid username.")
         } catch ClientError.Generic(let message) {
-            XCTAssertNotNil(message.range(of: "Read-only file system"))
+            XCTAssertTrue(message.contains(".well-known"), "The client should fail to do the well-known lookup.")
         } catch {
             XCTFail("Not expecting any other kind of exception")
         }
