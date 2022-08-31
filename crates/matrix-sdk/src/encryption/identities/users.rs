@@ -331,7 +331,7 @@ impl UserIdentity {
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     if user.verified() {
+    ///     if user.is_verified() {
     ///         println!("User {} is verified", user.user_id().as_str());
     ///     } else {
     ///         println!("User {} is not verified", user.user_id().as_str());

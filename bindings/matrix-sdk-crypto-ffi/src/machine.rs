@@ -173,7 +173,7 @@ impl OlmMachine {
             {
                 match identity {
                     UserIdentities::Own(i) => i.is_verified(),
-                    UserIdentities::Other(i) => i.verified(),
+                    UserIdentities::Other(i) => i.is_verified(),
                 }
             } else {
                 false

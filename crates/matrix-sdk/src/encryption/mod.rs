@@ -546,9 +546,9 @@ impl Encryption {
     /// if let Some(device) =
     ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?
     /// {
-    ///     println!("{:?}", device.verified());
+    ///     println!("{:?}", device.is_verified());
     ///
-    ///     if !device.verified() {
+    ///     if !device.is_verified() {
     ///         let verification = device.request_verification().await?;
     ///     }
     /// }
@@ -628,7 +628,7 @@ impl Encryption {
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     println!("{:?}", user.verified());
+    ///     println!("{:?}", user.is_verified());
     ///
     ///     let verification = user.request_verification().await?;
     /// }
