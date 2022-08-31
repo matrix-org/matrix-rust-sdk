@@ -34,20 +34,17 @@ REL_TYPE_DIR="debug"
 
 # iOS Simulator arm64
 if [ "$ACTIVE_ARCH" = "arm64" ]; then
-  cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
-
-  lipo -create \
-    "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-    -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
-
+  TARGET="aarch64-apple-ios-sim"
 # iOS Simulator intel
-else 
-  cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
-
-  lipo -create \
-    "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-    -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
+else
+  TARGET="x86_64-apple-ios"
 fi
+
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "$TARGET"
+
+lipo -create \
+  "${TARGET_DIR}/$TARGET/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+  -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
 
 # Generate uniffi files
 uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" --language swift --out-dir ${GENERATED_DIR}
