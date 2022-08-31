@@ -68,7 +68,7 @@ impl RoomKeyImportResult {
     }
 }
 
-pub use error::{MegolmError, OlmError, SignatureError};
+pub use error::{EventError, MegolmError, OlmError, SessionCreationError, SignatureError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
@@ -90,3 +90,8 @@ pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, Secr
 pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};
+pub use vodozemac::{
+    megolm::{DecryptionError as MegolmDecryptionError, SessionKeyDecodeError},
+    olm::{DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError},
+    DecodeError, KeyError, PickleError, SignatureError as Ed25519SignatureError,
+};
