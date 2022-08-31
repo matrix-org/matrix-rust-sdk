@@ -166,6 +166,13 @@ impl Common {
         self.client.join_room_by_id(self.room_id()).await
     }
 
+    /// Get the inner client saved in this room instance.
+    ///
+    /// Returns the client this room is part of.
+    pub fn client(&self) -> Client {
+        self.client.clone()
+    }
+
     /// Gets the avatar of this room, if set.
     ///
     /// Returns the avatar.
