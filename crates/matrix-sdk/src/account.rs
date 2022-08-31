@@ -35,14 +35,14 @@ use ruma::{
     },
     assign,
     events::{
-        room::MediaSource, AnyGlobalAccountDataEvent, AnyGlobalAccountDataEventContent,
-        GlobalAccountDataEvent, GlobalAccountDataEventContent, GlobalAccountDataEventType,
-        StaticEventContent,
+        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, StaticEventContent,
     },
     serde::Raw,
     thirdparty::Medium,
     ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt,
 };
+use serde::Deserialize;
 
 use crate::{config::RequestConfig, Client, Error, HttpError, Result};
 
@@ -633,7 +633,7 @@ impl Account {
         Ok(self.client.send(request, None).await?)
     }
 
-    /// Get an account data event of statically-known type.
+    /// Get the content of an account data event of statically-known type.
     ///
     /// # Example
     ///
@@ -644,29 +644,29 @@ impl Account {
     /// # let account = client.account();
     /// use matrix_sdk::ruma::events::ignored_user_list::IgnoredUserListEventContent;
     ///
-    /// let maybe_evt = account.account_data::<IgnoredUserListEventContent>().await?;
-    /// if let Some(raw_evt) = maybe_evt {
-    ///     let evt = raw_evt.deserialize()?;
+    /// let maybe_content = account.account_data::<IgnoredUserListEventContent>().await?;
+    /// if let Some(raw_content) = maybe_content {
+    ///     let content = raw_content.deserialize()?;
     ///     println!("Ignored users:");
-    ///     for user_id in evt.content.ignored_users {
+    ///     for user_id in content.ignored_users {
     ///         println!("- {user_id}");
     ///     }
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn account_data<C>(&self) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>>
+    pub async fn account_data<C>(&self) -> Result<Option<Raw<C>>>
     where
         C: GlobalAccountDataEventContent + StaticEventContent,
     {
-        Ok(self.client.store().get_account_data_event_static().await?)
+        get_raw_content(self.client.store().get_account_data_event_static::<C>().await?)
     }
 
-    /// Get the account data event of the given type.
+    /// Get the content of an account data event of a given type.
     pub async fn account_data_raw(
         &self,
         event_type: GlobalAccountDataEventType,
-    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self.client.store().get_account_data_event(event_type).await?)
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
+        get_raw_content(self.client.store().get_account_data_event(event_type).await?)
     }
 
     /// Set the given account data event.
@@ -720,4 +720,17 @@ impl Account {
 
         Ok(self.client.send(request, None).await?)
     }
+}
+
+fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
+    #[derive(Deserialize)]
+    #[serde(bound = "C: Sized")] // Replace default Deserialize bound
+    struct GetRawContent<C> {
+        content: Raw<C>,
+    }
+
+    Ok(raw
+        .map(|event| event.deserialize_as::<GetRawContent<C>>())
+        .transpose()?
+        .map(|get_raw| get_raw.content))
 }
