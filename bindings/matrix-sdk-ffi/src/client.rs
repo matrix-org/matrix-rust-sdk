@@ -12,6 +12,7 @@ use matrix_sdk::{
             sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
+        serde::Raw,
         TransactionId,
     },
     Client as MatrixClient, LoopCtrl, Session,
@@ -221,6 +222,28 @@ impl Client {
     pub fn device_id(&self) -> anyhow::Result<String> {
         let device_id = self.client.device_id().expect("No Device ID found");
         Ok(device_id.to_string())
+    }
+
+    /// Get the content of the event of the given type out of the account data
+    /// store.
+    ///
+    /// It will be returned as a JSON string.
+    pub fn account_data(&self, event_type: String) -> anyhow::Result<Option<String>> {
+        RUNTIME.block_on(async move {
+            let event = self.client.account().account_data_raw(event_type.into()).await?;
+            Ok(event.map(|e| e.json().get().to_owned()))
+        })
+    }
+
+    /// Set the given account data content for the given event type.
+    ///
+    /// It should be supplied as a JSON string.
+    pub fn set_account_data(&self, event_type: String, content: String) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            let raw_content = Raw::from_json_string(content)?;
+            self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
+            Ok(())
+        })
     }
 
     pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {

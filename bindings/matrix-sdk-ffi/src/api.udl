@@ -62,6 +62,12 @@ interface Client {
     [Throws=ClientError]
     string device_id();
 
+    [Throws=ClientError]
+    string? account_data(string event_type);
+
+    [Throws=ClientError]
+    void set_account_data(string event_type, string content);
+
     sequence<Room> rooms();
 
     [Throws=ClientError]
