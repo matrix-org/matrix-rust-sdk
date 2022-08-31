@@ -216,11 +216,11 @@ impl From<&MatrixRoomEntry> for RoomListEntry {
         }
     }
 }
-pub trait SlidingSyncViewUpdatedDelegate: Sync + Send {
+pub trait SlidingSyncViewRoomItemsDelegate: Sync + Send {
     fn did_receive_update(&self);
 }
 
-pub trait SlidingSyncViewRoomsListDelegate: Sync + Send {
+pub trait SlidingSyncViewRoomListDelegate: Sync + Send {
     fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
 }
 
@@ -336,9 +336,9 @@ impl SlidingSyncView {
         })))
     }
 
-    pub fn on_rooms_update(
+    pub fn on_room_list_update(
         &self,
-        delegate: Box<dyn SlidingSyncViewRoomsListDelegate>,
+        delegate: Box<dyn SlidingSyncViewRoomListDelegate>,
     ) -> Arc<StoppableSpawn> {
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
@@ -350,9 +350,9 @@ impl SlidingSyncView {
         })))
     }
 
-    pub fn on_rooms_updated(
+    pub fn on_room_items_update(
         &self,
-        delegate: Box<dyn SlidingSyncViewUpdatedDelegate>,
+        delegate: Box<dyn SlidingSyncViewRoomItemsDelegate>,
     ) -> Arc<StoppableSpawn> {
         let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {

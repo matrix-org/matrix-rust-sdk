@@ -511,7 +511,7 @@ pub struct SlidingSyncView {
 
     /// Get informed if anything in the room changed
     ///
-    /// If you only care to know about changes once all of them hav applied
+    /// If you only care to know about changes once all of them have applied
     /// (including the total) listen to a clone of this signal.
     #[builder(private)]
     pub rooms_updated_broadcaster:

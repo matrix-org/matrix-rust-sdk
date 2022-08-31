@@ -90,7 +90,7 @@ interface SlidingSyncViewRoomsListDiff {
 };
 
 
-callback interface SlidingSyncViewRoomsListDelegate {
+callback interface SlidingSyncViewRoomListDelegate {
     void did_receive_update(SlidingSyncViewRoomsListDiff diff);
 };
 
@@ -98,7 +98,7 @@ callback interface SlidingSyncViewRoomsCountDelegate {
     void did_receive_update(u32 count);
 };
 
-callback interface SlidingSyncViewUpdatedDelegate {
+callback interface SlidingSyncViewRoomItemsDelegate {
     void did_receive_update();
 };
 
@@ -132,10 +132,10 @@ interface SlidingSyncViewBuilder {
 };
 
 interface SlidingSyncView {
-    StoppableSpawn on_rooms_update(SlidingSyncViewRoomsListDelegate update);
+    StoppableSpawn on_room_list_update(SlidingSyncViewRoomListDelegate update);
     StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
     StoppableSpawn on_state_update(SlidingSyncViewStateDelegate update);
-    StoppableSpawn on_rooms_updated(SlidingSyncViewUpdatedDelegate update);
+    StoppableSpawn on_room_items_update(SlidingSyncViewRoomItemsDelegate update);
 
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
