@@ -339,10 +339,10 @@ impl UserIdentity {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn verified(&self) -> bool {
+    pub fn is_verified(&self) -> bool {
         match &self.inner {
             UserIdentities::Own(i) => i.inner.is_verified(),
-            UserIdentities::Other(i) => i.inner.verified(),
+            UserIdentities::Other(i) => i.inner.is_verified(),
         }
     }
 

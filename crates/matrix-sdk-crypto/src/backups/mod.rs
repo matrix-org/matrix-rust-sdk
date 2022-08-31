@@ -224,7 +224,7 @@ impl BackupMachine {
         auth_data: &str,
     ) -> SignatureState {
         if device.has_signed_raw(signatures, auth_data).is_ok() {
-            if device.verified() {
+            if device.is_verified() {
                 SignatureState::ValidAndTrusted
             } else {
                 SignatureState::ValidButNotTrusted

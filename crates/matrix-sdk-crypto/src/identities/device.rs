@@ -222,8 +222,8 @@ impl Device {
     ///
     /// [`is_locally_trusted()`]: #method.is_locally_trusted
     /// [`is_cross_signing_trusted()`]: #method.is_cross_signing_trusted
-    pub fn verified(&self) -> bool {
-        self.inner.verified(&self.own_identity, &self.device_owner_identity)
+    pub fn is_verified(&self) -> bool {
+        self.inner.is_verified(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Is this device considered to be verified using cross signing.
@@ -352,7 +352,7 @@ impl UserDevices {
             .filter(|d| {
                 !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
             })
-            .any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
+            .any(|d| d.is_verified(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -525,11 +525,11 @@ impl ReadOnlyDevice {
     }
 
     /// Is the device deleted.
-    pub fn deleted(&self) -> bool {
+    pub fn is_deleted(&self) -> bool {
         self.deleted.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn verified(
+    pub(crate) fn is_verified(
         &self,
         own_identity: &Option<ReadOnlyOwnUserIdentity>,
         device_owner: &Option<ReadOnlyUserIdentities>,
@@ -809,12 +809,12 @@ pub(crate) mod tests {
     #[test]
     fn delete_a_device() {
         let device = get_device();
-        assert!(!device.deleted());
+        assert!(!device.is_deleted());
 
         let device_clone = device.clone();
 
         device.mark_as_deleted();
-        assert!(device.deleted());
-        assert!(device_clone.deleted());
+        assert!(device.is_deleted());
+        assert!(device_clone.is_deleted());
     }
 }

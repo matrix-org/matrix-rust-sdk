@@ -1045,7 +1045,7 @@ impl OlmMachine {
                 //     a) This is our own device, or
                 //     b) The device itself is considered to be trusted.
                 if device.is_owner_of_session(session)
-                    && (device.is_our_own_device() || device.verified())
+                    && (device.is_our_own_device() || device.is_verified())
                 {
                     VerificationState::Trusted
                 } else {
@@ -2118,7 +2118,7 @@ pub(crate) mod tests {
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-        assert!(!bob_device.verified());
+        assert!(!bob_device.is_verified());
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
@@ -2173,15 +2173,15 @@ pub(crate) mod tests {
         let event = request_to_event(alice.user_id(), &contents[0]);
 
         assert!(alice_sas.is_done());
-        assert!(bob_device.verified());
+        assert!(bob_device.is_verified());
 
         let alice_device =
             bob.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
 
-        assert!(!alice_device.verified());
+        assert!(!alice_device.is_verified());
         bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
-        assert!(alice_device.verified());
+        assert!(alice_device.is_verified());
     }
 
     #[async_test]
@@ -2193,7 +2193,7 @@ pub(crate) mod tests {
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-        assert!(!bob_device.verified());
+        assert!(!bob_device.is_verified());
 
         // Alice sends a verification request with her desired methods to Bob
         let (alice_ver_req, request) =
@@ -2333,23 +2333,23 @@ pub(crate) mod tests {
             bob.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
 
         assert!(!bob_sas.is_done());
-        assert!(!alice_device.verified());
+        assert!(!alice_device.is_verified());
         // And Bob receives the Done message of alice.
         bob.handle_verification_event(&event_done).await;
 
         assert!(bob_sas.is_done());
-        assert!(alice_device.verified());
+        assert!(alice_device.is_verified());
 
         // ----------------------------------------------------------------------------
         // On Alice's device:
 
         assert!(!alice_sas.is_done());
-        assert!(!bob_device.verified());
+        assert!(!bob_device.is_verified());
         // Alices receives the done message
         eprintln!("{:?}", event);
         alice.handle_verification_event(&event).await;
 
         assert!(alice_sas.is_done());
-        assert!(bob_device.verified());
+        assert!(bob_device.is_verified());
     }
 }

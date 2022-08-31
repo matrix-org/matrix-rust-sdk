@@ -369,7 +369,7 @@ impl GroupSessionManager {
                 .devices()
                 .filter(|d| {
                     if settings.only_allow_trusted_devices {
-                        !d.is_blacklisted() && d.verified()
+                        !d.is_blacklisted() && d.is_verified()
                     } else {
                         !d.is_blacklisted()
                     }

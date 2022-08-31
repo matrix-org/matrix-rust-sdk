@@ -381,9 +381,9 @@ impl Device {
     ///
     /// [`UserIdentity::verify()`]:
     /// crate::encryption::identities::UserIdentity::verify
-    /// [verified]: crate::encryption::identities::UserIdentity::verified
-    pub fn verified(&self) -> bool {
-        self.inner.verified()
+    /// [is_verified]: crate::encryption::identities::UserIdentity::is_verified
+    pub fn is_verified(&self) -> bool {
+        self.inner.is_verified()
     }
 
     /// Set the local trust state of the device to the given state.

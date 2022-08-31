@@ -252,7 +252,7 @@ impl GossipMachine {
 
         Ok(if let Some(device) = device {
             if device.user_id() == self.user_id() {
-                if device.verified() {
+                if device.is_verified() {
                     info!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
@@ -536,7 +536,7 @@ impl GossipMachine {
 
         // If this is our own, verified device, we share the entire session from the
         // earliest known index.
-        if device.user_id() == self.user_id() && device.verified() {
+        if device.user_id() == self.user_id() && device.is_verified() {
             Ok(None)
         // Otherwise, if the records show we previously shared with this device,
         // we'll reshare the session from the index we previously shared
@@ -834,7 +834,7 @@ impl GossipMachine {
             self.store.get_device_from_curve_key(&event.sender, sender_key).await?
         {
             // Only accept secrets from one of our own trusted devices.
-            if device.user_id() == self.user_id() && device.verified() {
+            if device.user_id() == self.user_id() && device.is_verified() {
                 self.accept_secret(event, request, secret_name).await?;
             } else {
                 warn!(
