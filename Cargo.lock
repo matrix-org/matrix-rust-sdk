@@ -550,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.16"
+version = "3.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3dbbb6653e7c55cc8595ad3e1f7be8f32aba4eb7ff7f0fd1163d4f3d137c0a9"
+checksum = "68d43934757334b5c0519ff882e1ab9647ac0258b47c24c4f490d78e42697fd5"
 dependencies = [
  "atty",
  "bitflags",
@@ -567,9 +567,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "3.2.15"
+version = "3.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ba52acd3b0a5c33aeada5cdaa3267cdc7c594a98731d4268cdc1532f4264cb4"
+checksum = "ea0c8bce528c4be4da13ea6fead8965e95b6073585a2f05204bd8f4119f82a65"
 dependencies = [
  "heck",
  "proc-macro-error",
@@ -1204,6 +1204,18 @@ name = "example-command-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "matrix-sdk",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "example-create-rooms"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 3.2.19",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -4008,7 +4020,7 @@ name = "sled-state-inspector"
 version = "0.1.0"
 dependencies = [
  "atty",
- "clap 3.2.16",
+ "clap 3.2.19",
  "futures",
  "matrix-sdk-base",
  "matrix-sdk-sled",
@@ -4563,7 +4575,7 @@ dependencies = [
  "bincode",
  "camino",
  "cargo_metadata",
- "clap 3.2.16",
+ "clap 3.2.19",
  "fs-err",
  "goblin",
  "heck",
@@ -5090,7 +5102,7 @@ checksum = "4916a4a3cad759e499a3620523bf9545cc162d7a06163727dde97ce9aaa4cf39"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "clap 3.2.16",
+ "clap 3.2.19",
  "serde",
  "serde_json",
  "xshell",
