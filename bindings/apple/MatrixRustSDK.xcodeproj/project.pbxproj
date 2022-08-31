@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1814BEC928BF670C008CD7D1 /* matrix_sdk_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1814BEC828BF670C008CD7D1 /* matrix_sdk_ffi.swift */; };
 		181AA19B27B52AB40005F102 /* MatrixSDKFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 181AA19A27B52AB40005F102 /* MatrixSDKFFI.xcframework */; };
 		181AA19C27B52AB40005F102 /* MatrixSDKFFI.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 181AA19A27B52AB40005F102 /* MatrixSDKFFI.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		189A89BA27B40BBF0048B0A5 /* sdk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189A89B927B40BBF0048B0A5 /* sdk.swift */; };
 		18CE89D827B2939900CA89E1 /* MatrixRustSDKApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CE89D727B2939900CA89E1 /* MatrixRustSDKApp.swift */; };
 		18CE89DA27B2939900CA89E1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CE89D927B2939900CA89E1 /* ContentView.swift */; };
 		18CE89DC27B2939A00CA89E1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 18CE89DB27B2939A00CA89E1 /* Assets.xcassets */; };
@@ -41,9 +41,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1814BEC828BF670C008CD7D1 /* matrix_sdk_ffi.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = matrix_sdk_ffi.swift; path = ../../../generated/swift/matrix_sdk_ffi.swift; sourceTree = "<group>"; };
 		181AA19927B52AA60005F102 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		181AA19A27B52AB40005F102 /* MatrixSDKFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MatrixSDKFFI.xcframework; path = ../../generated/MatrixSDKFFI.xcframework; sourceTree = "<group>"; };
-		189A89B927B40BBF0048B0A5 /* sdk.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = sdk.swift; path = ../../../generated/swift/sdk.swift; sourceTree = "<group>"; };
 		18CE89D427B2939900CA89E1 /* MatrixRustSDK.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MatrixRustSDK.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		18CE89D727B2939900CA89E1 /* MatrixRustSDKApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixRustSDKApp.swift; sourceTree = "<group>"; };
 		18CE89D927B2939900CA89E1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -83,7 +83,7 @@
 		189A89B827B40BB10048B0A5 /* Generated */ = {
 			isa = PBXGroup;
 			children = (
-				189A89B927B40BBF0048B0A5 /* sdk.swift */,
+				1814BEC828BF670C008CD7D1 /* matrix_sdk_ffi.swift */,
 			);
 			name = Generated;
 			sourceTree = "<group>";
@@ -229,8 +229,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1814BEC928BF670C008CD7D1 /* matrix_sdk_ffi.swift in Sources */,
 				18CE89DA27B2939900CA89E1 /* ContentView.swift in Sources */,
-				189A89BA27B40BBF0048B0A5 /* sdk.swift in Sources */,
 				18CE89D827B2939900CA89E1 /* MatrixRustSDKApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
