@@ -16,7 +16,10 @@
 
 use std::io::Read;
 
-use matrix_sdk_base::media::{MediaFormat, MediaRequest};
+use matrix_sdk_base::{
+    media::{MediaFormat, MediaRequest},
+    store::StateStoreExt,
+};
 use mime::Mime;
 use ruma::{
     api::client::{
@@ -24,18 +27,24 @@ use ruma::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
         },
+        config::set_global_account_data,
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
         },
         uiaa::AuthData,
     },
     assign,
-    events::room::MediaSource,
+    events::{
+        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, StaticEventContent,
+    },
+    serde::Raw,
     thirdparty::Medium,
     ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt,
 };
+use serde::Deserialize;
 
-use crate::{config::RequestConfig, Client, Error, Result};
+use crate::{config::RequestConfig, Client, Error, HttpError, Result};
 
 /// A high-level API to manage the client owner's account.
 ///
@@ -623,4 +632,105 @@ impl Account {
         });
         Ok(self.client.send(request, None).await?)
     }
+
+    /// Get the content of an account data event of statically-known type.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::events::ignored_user_list::IgnoredUserListEventContent;
+    ///
+    /// let maybe_content = account.account_data::<IgnoredUserListEventContent>().await?;
+    /// if let Some(raw_content) = maybe_content {
+    ///     let content = raw_content.deserialize()?;
+    ///     println!("Ignored users:");
+    ///     for user_id in content.ignored_users {
+    ///         println!("- {user_id}");
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn account_data<C>(&self) -> Result<Option<Raw<C>>>
+    where
+        C: GlobalAccountDataEventContent + StaticEventContent,
+    {
+        get_raw_content(self.client.store().get_account_data_event_static::<C>().await?)
+    }
+
+    /// Get the content of an account data event of a given type.
+    pub async fn account_data_raw(
+        &self,
+        event_type: GlobalAccountDataEventType,
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
+        get_raw_content(self.client.store().get_account_data_event(event_type).await?)
+    }
+
+    /// Set the given account data event.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::{
+    ///     events::ignored_user_list::IgnoredUserListEventContent, user_id,
+    /// };
+    ///
+    /// let mut content = account
+    ///     .account_data::<IgnoredUserListEventContent>()
+    ///     .await?
+    ///     .map(|c| c.deserialize())
+    ///     .transpose()?
+    ///     .unwrap_or_else(|| IgnoredUserListEventContent::new(Vec::new()));
+    /// content.ignored_users.push(user_id!("@foo:bar.com").to_owned());
+    /// account.set_account_data(content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn set_account_data<T>(
+        &self,
+        content: T,
+    ) -> Result<set_global_account_data::v3::Response>
+    where
+        T: GlobalAccountDataEventContent,
+    {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = set_global_account_data::v3::Request::new(own_user, &content)?;
+
+        Ok(self.client.send(request, None).await?)
+    }
+
+    /// Set the given raw account data event.
+    pub async fn set_account_data_raw(
+        &self,
+        event_type: GlobalAccountDataEventType,
+        content: Raw<AnyGlobalAccountDataEventContent>,
+    ) -> Result<set_global_account_data::v3::Response> {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = set_global_account_data::v3::Request::new_raw(own_user, event_type, content);
+
+        Ok(self.client.send(request, None).await?)
+    }
+}
+
+fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
+    #[derive(Deserialize)]
+    #[serde(bound = "C: Sized")] // Replace default Deserialize bound
+    struct GetRawContent<C> {
+        content: Raw<C>,
+    }
+
+    Ok(raw
+        .map(|event| event.deserialize_as::<GetRawContent<C>>())
+        .transpose()?
+        .map(|get_raw| get_raw.content))
 }

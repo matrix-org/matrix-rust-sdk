@@ -1354,6 +1354,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-create-rooms"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 3.2.19",
+ "matrix-sdk",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "example-cross-signing-bootstrap"
 version = "0.1.0"
 dependencies = [

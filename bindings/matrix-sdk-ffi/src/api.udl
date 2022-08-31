@@ -1,4 +1,4 @@
-namespace sdk {
+namespace matrix_sdk_ffi {
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
 };
@@ -258,6 +258,12 @@ interface Client {
     [Throws=ClientError]
     string device_id();
 
+    [Throws=ClientError]
+    string? account_data(string event_type);
+
+    [Throws=ClientError]
+    void set_account_data(string event_type, string content);
+
     sequence<Room> rooms();
 
     [Throws=ClientError]
@@ -289,9 +295,9 @@ interface Room {
     string? name();
     string? topic();
     string? avatar_url();
-    
+
     Membership membership();
-    
+
     boolean is_direct();
     boolean is_public();
     boolean is_space();
