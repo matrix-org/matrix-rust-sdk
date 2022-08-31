@@ -525,7 +525,7 @@ impl Room {
         } else {
             TimelineStreamBackward::new(
                 event_ids.clone(),
-                Some(sync_token.clone().expect("Sync token exists")),
+                sync_token.clone(),
                 None,
             )
         };
