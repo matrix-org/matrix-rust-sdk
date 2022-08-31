@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures } = require('../pkg/matrix_sdk_crypto_js');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationRequest, ToDeviceRequest } = require('../pkg/matrix_sdk_crypto_js');
 
 describe('LocalTrust', () => {
     test('has the correct variant values', () => {
@@ -75,5 +75,25 @@ describe(OlmMachine.name, () => {
         expect(dev.signatures).toBeInstanceOf(Signatures);
         expect(dev.isBlacklisted()).toStrictEqual(false);
         expect(dev.isDeleted()).toStrictEqual(false);
+    });
+});
+
+describe(Device.name, () => {
+    const user = new UserId('@alice:example.org');
+    const device = new DeviceId('foobar');
+    const room = new RoomId('!baz:matrix.org');
+
+    function machine(new_user, new_device) {
+        return new OlmMachine(new_user || user, new_device || device);
+    }
+
+    test('can request verification', async () => {
+        const m = await machine();
+        const dev = await m.getDevice(user, device);
+
+        const [verificationRequest, outgoingVerificationRequest] = await dev.requestVerification();
+
+        expect(verificationRequest).toBeInstanceOf(VerificationRequest);
+        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
     });
 });

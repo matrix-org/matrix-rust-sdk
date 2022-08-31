@@ -876,7 +876,15 @@ impl VerificationRequest {
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hiding everything behind a
 // `JsValue`.
-struct OutgoingVerificationRequest(pub(crate) matrix_sdk_crypto::OutgoingVerificationRequest);
+pub(crate) struct OutgoingVerificationRequest(
+    pub(crate) matrix_sdk_crypto::OutgoingVerificationRequest,
+);
+
+impl From<matrix_sdk_crypto::OutgoingVerificationRequest> for OutgoingVerificationRequest {
+    fn from(inner: matrix_sdk_crypto::OutgoingVerificationRequest) -> Self {
+        Self(inner)
+    }
+}
 
 impl TryFrom<OutgoingVerificationRequest> for JsValue {
     type Error = serde_json::Error;

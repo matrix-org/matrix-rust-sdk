@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
-    types, vodozemac,
+    types, verification, vodozemac,
 };
 
 #[wasm_bindgen]
@@ -23,6 +23,39 @@ impl From<matrix_sdk_crypto::Device> for Device {
 
 #[wasm_bindgen]
 impl Device {
+    /// Request an interactive verification with this device.
+    #[wasm_bindgen(js_name = "requestVerification")]
+    pub fn request_verification(&self, methods: Option<Array>) -> Result<Promise, JsError> {
+        let methods = methods
+            .map(|array| {
+                array
+                    .iter()
+                    .map(|method| {
+                        verification::VerificationMethod::try_from(method).map(Into::into)
+                    })
+                    .collect::<Result<_, _>>()
+            })
+            .transpose()?;
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            let tuple = Array::new();
+            let (verification_request, outgoing_verification_request) = match methods {
+                Some(methods) => me.request_verification_with_methods(methods).await,
+                None => me.request_verification().await,
+            };
+
+            tuple.set(0, verification::VerificationRequest::from(verification_request).into());
+            tuple.set(
+                1,
+                verification::OutgoingVerificationRequest::from(outgoing_verification_request)
+                    .try_into()?,
+            );
+
+            Ok(tuple)
+        }))
+    }
+
     /// Is this device considered to be verified.
     ///
     /// This method returns true if either the `is_locally_trusted`
