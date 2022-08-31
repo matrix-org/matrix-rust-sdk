@@ -40,9 +40,9 @@
         "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
-        "prepack": "npm run build && npm run test",
+        "prepack": "yarn build && yarn test",
         "pack": "wasm-pack pack",
-        "prepublish": "npm run pack",
+        "prepublish": "yarn pack",
         "publish": "wasm-pack publish"
     }
 }
