@@ -1,10 +1,10 @@
 use tuirealm::{
     command::{Cmd, CmdResult},
-    props::{Alignment, Borders, Color, Style, TextModifiers},
+    props::{Alignment, Borders, Color, Style},
     tui::{
         layout::Rect,
-        text::{Span, Spans},
-        widgets::{Paragraph, Tabs},
+        text::Spans,
+        widgets::Tabs,
     },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
@@ -34,8 +34,6 @@ impl MockComponent for StatusBar {
             .props
             .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
             .unwrap_borders();
-
-        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
         let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 

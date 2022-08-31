@@ -1,9 +1,8 @@
 use log::warn;
-use matrix_sdk::ruma::{DeviceId, RoomId, UserId};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
-    props::{Alignment, Borders, Color, Style, TextModifiers},
+    props::{Alignment, Borders, Color, Style},
     tui::{
         layout::{Constraint, Rect},
         style::Modifier,
@@ -53,7 +52,7 @@ impl Rooms {
 }
 
 impl MockComponent for Rooms {
-    fn view(&mut self, frame: &mut Frame, area: Rect) {
+    fn view(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let title = ("Rooms".to_owned(), Alignment::Center);
 
         let borders = self

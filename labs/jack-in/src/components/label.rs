@@ -55,11 +55,6 @@ impl Label {
         self
     }
 
-    pub fn modifiers(mut self, m: TextModifiers) -> Self {
-        self.attr(Attribute::TextProps, AttrValue::TextModifiers(m));
-        self
-    }
-
     pub fn borders(mut self, b: Borders) -> Self {
         self.attr(Attribute::Borders, AttrValue::Borders(b));
         self
@@ -67,7 +62,7 @@ impl Label {
 }
 
 impl MockComponent for Label {
-    fn view(&mut self, frame: &mut Frame, area: Rect) {
+    fn view(&mut self, frame: &mut Frame<'_>, area: Rect) {
         // Check if visible
         if self.props.get_or(Attribute::Display, AttrValue::Flag(true)) == AttrValue::Flag(true) {
             // Get properties

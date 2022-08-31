@@ -3,8 +3,6 @@
 //! `Demo` shows how to use tui-realm in a real case
 
 use std::{
-    fs::File,
-    io::BufWriter,
     path::{Path, PathBuf},
 };
 
@@ -15,8 +13,8 @@ use matrix_sdk::{
     Client, Session,
 };
 use tracing_flame::FlameLayer;
-use tracing_subscriber::{fmt, prelude::*, registry::Registry};
-use tuirealm::{application::PollStrategy, AttrValue, Attribute, Event, Update};
+use tracing_subscriber::prelude::*;
+use tuirealm::{application::PollStrategy, Event, Update};
 
 // -- internal
 mod app;

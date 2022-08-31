@@ -1,8 +1,8 @@
 use tui_logger::TuiLoggerWidget;
 use tuirealm::{
     command::{Cmd, CmdResult},
-    props::{Alignment, Borders, Color, Style, TextModifiers},
-    tui::{layout::Rect, widgets::Paragraph},
+    props::{Alignment, Borders, Color, Style},
+    tui::layout::Rect,
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 
@@ -26,7 +26,7 @@ impl Default for Logger {
 }
 
 impl MockComponent for Logger {
-    fn view(&mut self, frame: &mut Frame, area: Rect) {
+    fn view(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let title = ("Logs".to_owned(), Alignment::Center);
 
         let borders = self

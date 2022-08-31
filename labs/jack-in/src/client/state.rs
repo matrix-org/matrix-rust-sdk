@@ -1,16 +1,12 @@
 use std::{
-    collections::btree_map::BTreeMap,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
-use futures_signals::{signal::Mutable, signal_vec::MutableVec};
-use log::warn;
+use futures_signals::signal::Mutable;
 use matrix_sdk::{
-    ruma::{events::AnyTimelineEvent, OwnedRoomId},
-    Client, SlidingSyncRoom, SlidingSyncView,
+    ruma:: OwnedRoomId,
+    SlidingSyncView,
 };
-use tuirealm::tui::widgets::TableState;
 
 #[derive(Clone, Default)]
 pub struct CurrentRoomSummary {
@@ -19,39 +15,37 @@ pub struct CurrentRoomSummary {
     //pub state_events: BTreeMap<String, Vec<SlidingSyncRoom>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
     /// the current list selector for the room
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
-    current_rooms_count: Option<u32>,
-    total_rooms_count: Option<u32>,
     pub selected_room: Mutable<Option<OwnedRoomId>>,
 }
 
-impl std::cmp::PartialOrd for SlidingSyncState {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+impl PartialOrd for SlidingSyncState {
+    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
         None
     }
 }
 
-impl std::cmp::Ord for SlidingSyncState {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+impl Ord for SlidingSyncState {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
         std::cmp::Ordering::Equal
     }
 }
 
-impl std::cmp::Eq for SlidingSyncState {}
+impl Eq for SlidingSyncState {}
 
-impl std::cmp::PartialEq for SlidingSyncState {
-    fn eq(&self, other: &SlidingSyncState) -> bool {
+impl PartialEq for SlidingSyncState {
+    fn eq(&self, _other: &SlidingSyncState) -> bool {
         false
     }
 
-    fn ne(&self, other: &SlidingSyncState) -> bool {
-        false
+    fn ne(&self, _other: &SlidingSyncState) -> bool {
+        true
     }
 }
 
@@ -63,8 +57,6 @@ impl SlidingSyncState {
             first_render: None,
             full_sync: None,
             selected_room: Default::default(),
-            current_rooms_count: None,
-            total_rooms_count: None,
         }
     }
 

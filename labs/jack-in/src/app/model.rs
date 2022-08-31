@@ -2,15 +2,12 @@
 //!
 //! app model
 
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::time::Duration;
 
 use log::warn;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tuirealm::{
-    props::{Alignment, Borders, Color, TextModifiers},
+    props::{Alignment, Borders, Color},
     terminal::TerminalBridge,
     tui::layout::{Constraint, Direction, Layout},
     Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
@@ -194,7 +191,6 @@ impl Update<Msg> for Model {
                     let _ = self.tx.try_send(self.sliding_sync.clone());
                     None
                 }
-                _ => None,
             }
         } else {
             None

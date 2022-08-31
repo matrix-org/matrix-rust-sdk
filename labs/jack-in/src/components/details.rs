@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
-use log::warn;
 use matrix_sdk::ruma::{
     events::{AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent},
-    RoomId,
 };
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
-    props::{Alignment, Borders, Color, Style, TextModifiers},
+    props::{Alignment, Borders, Color, Style},
     tui::{
         layout::{Constraint, Direction, Layout, Rect},
         style::Modifier,
@@ -116,7 +114,7 @@ impl Details {
 }
 
 impl MockComponent for Details {
-    fn view(&mut self, frame: &mut Frame, area: Rect) {
+    fn view(&mut self, frame: &mut Frame<'_>, area: Rect) {
         if self.name.is_none() {
             self.refresh_data();
         }
@@ -144,7 +142,7 @@ impl MockComponent for Details {
             return;
         };
 
-        let mut areas = vec![
+        let areas = vec![
             Constraint::Length(3), // Events
             Constraint::Min(10),   // Timeline
         ];

@@ -1,10 +1,8 @@
-use std::{io::stdout, sync::Arc, time::Duration};
 
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr};
 use futures::{pin_mut, StreamExt};
 use log::{error, warn};
-use tokio::sync::{mpsc, RwLock};
-use tuirealm::tui::{backend::CrosstermBackend, Terminal};
+use tokio::sync::mpsc;
 
 pub mod state;
 
@@ -27,7 +25,7 @@ pub async fn run_client(
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
-    tx.send(ssync_state.clone()).await;
+    tx.send(ssync_state.clone()).await?;
 
     pin_mut!(stream);
     let _first_poll = stream.next().await;
@@ -39,7 +37,7 @@ pub async fn run_client(
 
     {
         ssync_state.set_first_render_now();
-        tx.send(ssync_state.clone()).await;
+        tx.send(ssync_state.clone()).await?;
     }
     warn!("Done initial sliding sync");
 
@@ -67,7 +65,7 @@ pub async fn run_client(
 
     {
         ssync_state.set_full_sync_now();
-        tx.send(ssync_state.clone()).await;
+        tx.send(ssync_state.clone()).await?;
     }
 
     let mut err_counter = 0;
@@ -92,7 +90,7 @@ pub async fn run_client(
         match update {
             Ok(update) => {
                 warn!("Live update received: {:?}", update);
-                tx.send(ssync_state.clone()).await;
+                tx.send(ssync_state.clone()).await?;
                 err_counter = 0;
             }
             Err(e) => {
