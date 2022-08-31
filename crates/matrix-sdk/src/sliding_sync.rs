@@ -164,12 +164,16 @@ impl SlidingSyncRoom {
         self.inner.name.clone()
     }
 
-    /// add newer timeline events received over `SlidingSync` to the
-    /// end of `AliveRoomTimeline`
-    pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncTimelineEvent>>) {
-        let mut timeline = self.timeline.lock_mut();
-        for e in items {
-            timeline.push_cloned(e.clone());
+    fn update(&mut self, mut room_data: v4::SlidingSyncRoom) {
+        let v4::SlidingSyncRoom { timeline, .. } = room_data;
+        // we overwrite to only keep one copy
+        room_data.timeline = vec![];
+        self.inner = room_data;
+        if !timeline.is_empty() {
+            let mut ref_timeline = self.timeline.lock_mut();
+            for e in timeline {
+                ref_timeline.push_cloned(e.clone());
+            }
         }
     }
 }
@@ -355,12 +359,10 @@ impl SlidingSync {
         let mut rooms = Vec::new();
         let mut rooms_map = self.rooms.lock_mut();
         for (id, room_data) in resp.rooms.iter() {
-            if let Some(r) = rooms_map.get(id) {
-                // FIXME: other updates
-                if !room_data.timeline.is_empty() {
-                    r.received_newer_timeline(&room_data.timeline);
-                    rooms.push(id.clone())
-                }
+            if let Some(mut r) = rooms_map.remove(id) {
+                r.update(room_data.clone());
+                rooms_map.insert_cloned(id.clone(), r);
+                rooms.push(id.clone());
             } else {
                 rooms_map.insert_cloned(
                     id.clone(),
