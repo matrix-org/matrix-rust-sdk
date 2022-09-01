@@ -60,13 +60,13 @@ struct Opt {
     #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
     sliding_sync_proxy: String,
 
-    /// The address of the original homeserver behind the proxy
-    #[structopt(short, long, env = "JACKIN_USER")]
-    user: String,
-
     /// Your access token to connect via the
     #[structopt(short, long, env = "JACKIN_TOKEN")]
     token: String,
+
+    /// The userID associated with this access token
+    #[structopt(short, long, env = "JACKIN_USER")]
+    user: String,
 
     #[structopt(long)]
     /// Activate tracing and write the flamegraph to the specified file
