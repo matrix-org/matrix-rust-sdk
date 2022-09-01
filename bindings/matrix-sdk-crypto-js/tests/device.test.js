@@ -1,4 +1,5 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationRequest, ToDeviceRequest } = require('../pkg/matrix_sdk_crypto_js');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest } = require('../pkg/matrix_sdk_crypto_js');
+const { addMachineToMachine } = require('./helper');
 
 describe('LocalTrust', () => {
     test('has the correct variant values', () => {
@@ -79,21 +80,71 @@ describe(OlmMachine.name, () => {
 });
 
 describe(Device.name, () => {
-    const user = new UserId('@alice:example.org');
-    const device = new DeviceId('foobar');
-    const room = new RoomId('!baz:matrix.org');
+    const userId1 = new UserId('@alice:example.org');
+    const deviceId1 = new DeviceId('foobar');
+
+    const userId2 = new UserId('@bob:example.org');
+    const deviceId2 = new DeviceId('bazqux');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || user, new_device || device);
+        return new OlmMachine(new_user || userId1, new_device || deviceId1);
     }
 
     test('can request verification', async () => {
-        const m = await machine();
-        const dev = await m.getDevice(user, device);
+        // First Olm machine.
+        const m1 = await machine(userId1, deviceId1);
+        // Second Olm machine.
+        const m2 = await machine(userId2, deviceId2);
 
-        const [verificationRequest, outgoingVerificationRequest] = await dev.requestVerification();
+        // Make `m1` and `m2` be aware of each other.
+        {
+            await addMachineToMachine(m2, m1);
+            await addMachineToMachine(m1, m2);
+        }
 
-        expect(verificationRequest).toBeInstanceOf(VerificationRequest);
-        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+        // Pick the device we want to start the verification with.
+        const device2 = await m1.getDevice(userId2, deviceId2);
+
+        expect(device2).toBeInstanceOf(Device);
+
+        // Request a verification with `dev1`.
+        const [verificationRequest1, outgoingVerificationRequest1] = await device2.requestVerification();
+
+        {
+            expect(verificationRequest1).toBeInstanceOf(VerificationRequest);
+            expect(outgoingVerificationRequest1).toBeInstanceOf(ToDeviceRequest);
+
+            expect(verificationRequest1.ownUserId.toString()).toStrictEqual(userId1.toString());
+            expect(verificationRequest1.otherUserId.toString()).toStrictEqual(userId2.toString());
+            expect(verificationRequest1.otherDeviceId).toBeUndefined();
+            expect(verificationRequest1.roomId).toBeUndefined();
+            expect(verificationRequest1.cancelInfo).toBeUndefined();
+            expect(verificationRequest1.isPassive()).toStrictEqual(false);
+            expect(verificationRequest1.isReady()).toStrictEqual(false);
+            expect(verificationRequest1.timedOut()).toStrictEqual(false);
+            expect(verificationRequest1.theirSupportedMethods).toBeUndefined();
+            expect(verificationRequest1.ourSupportedMethods).toStrictEqual([VerificationMethod.SasV1, VerificationMethod.ReciprocateV1]);
+            expect(verificationRequest1.flowId).toMatch(/^[a-f0-9]+$/);
+            expect(verificationRequest1.isSelfVerification()).toStrictEqual(false);
+            expect(verificationRequest1.weStarted()).toStrictEqual(true);
+            expect(verificationRequest1.isDone()).toStrictEqual(false);
+            expect(verificationRequest1.isCancelled()).toStrictEqual(false);
+        }
+
+
+        // Send the outgoing verification request from `m1` to `m2`.
+        {
+            //const receiveSyncChanges = await JSON.parse(await m2.receiveSyncChanges(outgoingVerificationRequest1.body, new DeviceLists(), new Map(), new Set()));
+            //console.log(receiveSyncChanges);
+        }
+    });
+});
+
+describe('VerificationMethod', () => {
+    test('has the correct variant values', () => {
+        expect(VerificationMethod.SasV1).toStrictEqual(0);
+        expect(VerificationMethod.QrCodeScanV1).toStrictEqual(1);
+        expect(VerificationMethod.QrCodeShowV1).toStrictEqual(2);
+        expect(VerificationMethod.ReciprocateV1).toStrictEqual(3);
     });
 });

@@ -173,7 +173,7 @@ impl Device {
     /// Is the device deleted?
     #[wasm_bindgen(js_name = "isDeleted")]
     pub fn is_deleted(&self) -> bool {
-        self.inner.deleted()
+        self.inner.is_deleted()
     }
 }
 

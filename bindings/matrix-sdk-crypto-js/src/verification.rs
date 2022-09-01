@@ -661,6 +661,10 @@ impl From<matrix_sdk_crypto::VerificationRequest> for VerificationRequest {
 
 #[wasm_bindgen]
 impl VerificationRequest {
+    /// Create an event content that can be sent as a room event to
+    /// request verification from the other side. This should be used
+    /// only for verifications of other users and it should be sent to
+    /// a room we consider to be a DM with the other user.
     #[wasm_bindgen]
     pub fn request(
         own_user_id: &UserId,
@@ -686,35 +690,35 @@ impl VerificationRequest {
     }
 
     /// Our own user id.
-    #[wasm_bindgen(js_name = "ownUserId")]
+    #[wasm_bindgen(getter, js_name = "ownUserId")]
     pub fn own_user_id(&self) -> UserId {
         self.inner.own_user_id().to_owned().into()
     }
 
     /// The ID of the other user that is participating in this
     /// verification request.
-    #[wasm_bindgen(js_name = "otherUserId")]
+    #[wasm_bindgen(getter, js_name = "otherUserId")]
     pub fn other_user_id(&self) -> UserId {
         self.inner.other_user().to_owned().into()
     }
 
     /// The ID of the other device that is participating in this
     /// verification.
-    #[wasm_bindgen(js_name = "otherDeviceId")]
+    #[wasm_bindgen(getter, js_name = "otherDeviceId")]
     pub fn other_device_id(&self) -> Option<DeviceId> {
         self.inner.other_device_id().map(Into::into)
     }
 
     /// Get the room ID if the verification is happening inside a
     /// room.
-    #[wasm_bindgen(js_name = "roomId")]
+    #[wasm_bindgen(getter, js_name = "roomId")]
     pub fn room_id(&self) -> Option<RoomId> {
         self.inner.room_id().map(ToOwned::to_owned).map(Into::into)
     }
 
     /// Get info about the cancellation if the verification request
     /// has been cancelled.
-    #[wasm_bindgen(js_name = "cancelInfo")]
+    #[wasm_bindgen(getter, js_name = "cancelInfo")]
     pub fn cancel_info(&self) -> Option<CancelInfo> {
         self.inner.cancel_info().map(Into::into)
     }
@@ -743,7 +747,7 @@ impl VerificationRequest {
     /// verification or if we’re in the ready state.
     ///
     /// It return a `Option<Vec<VerificationMethod>>`.
-    #[wasm_bindgen(js_name = "theirSupportedMethods")]
+    #[wasm_bindgen(getter, js_name = "theirSupportedMethods")]
     pub fn their_supported_methods(&self) -> Result<Option<Array>, JsError> {
         self.inner
             .their_supported_methods()
@@ -760,7 +764,7 @@ impl VerificationRequest {
     ///
     /// Will be present only we requested the verification or if we’re
     /// in the ready state.
-    #[wasm_bindgen(js_name = "ourSupportedMethods")]
+    #[wasm_bindgen(getter, js_name = "ourSupportedMethods")]
     pub fn our_supported_methods(&self) -> Result<Option<Array>, JsError> {
         self.inner
             .our_supported_methods()
@@ -774,7 +778,7 @@ impl VerificationRequest {
     }
 
     /// Get the unique ID of this verification request
-    #[wasm_bindgen(js_name = "flowId")]
+    #[wasm_bindgen(getter, js_name = "flowId")]
     pub fn flow_id(&self) -> String {
         self.inner.flow_id().as_str().to_owned()
     }
