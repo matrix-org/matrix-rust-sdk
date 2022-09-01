@@ -108,10 +108,6 @@ pub enum MegolmError {
 /// Error that occurs when decrypting an event that is malformed.
 #[derive(Error, Debug)]
 pub enum EventError {
-    /// The Olm message has a unsupported type.
-    #[error("the Olm message has a unsupported type, got {0}, expected 0 or 1")]
-    UnsupportedOlmType(u64),
-
     /// The Encrypted message has been encrypted with a unsupported algorithm.
     #[error("the Encrypted message has been encrypted with a unsupported algorithm.")]
     UnsupportedAlgorithm,
@@ -131,10 +127,6 @@ pub enum EventError {
     /// The Encrypted message is missing the sender key.
     #[error("the Encrypted message is missing the sender key")]
     MissingSenderKey,
-
-    /// The Encrypted message is missing a field.
-    #[error("the Encrypted message is missing the field {0}")]
-    MissingField(String),
 
     /// The sender of the plaintext doesn't match the sender of the encrypted
     /// message.
