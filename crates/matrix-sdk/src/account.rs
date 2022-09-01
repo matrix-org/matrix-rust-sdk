@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::Read;
-
 use matrix_sdk_base::{
     media::{MediaFormat, MediaRequest},
     store::StateStoreExt,
@@ -198,25 +196,20 @@ impl Account {
     ///
     /// # Example
     /// ```no_run
-    /// # use std::{path::Path, fs::File, io::Read};
+    /// # use std::fs;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let path = Path::new("/home/example/selfie.jpg");
-    /// let mut image = File::open(&path)?;
+    /// let image = fs::read("/home/example/selfie.jpg")?;
     ///
-    /// client.account().upload_avatar(&mime::IMAGE_JPEG, &mut image).await?;
+    /// client.account().upload_avatar(&mime::IMAGE_JPEG, &image).await?;
     /// # anyhow::Ok(()) });
     /// ```
-    pub async fn upload_avatar<R: Read>(
-        &self,
-        content_type: &Mime,
-        reader: &mut R,
-    ) -> Result<OwnedMxcUri> {
-        let upload_response = self.client.upload(content_type, reader).await?;
+    pub async fn upload_avatar(&self, content_type: &Mime, data: &[u8]) -> Result<OwnedMxcUri> {
+        let upload_response = self.client.upload(content_type, data).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
     }

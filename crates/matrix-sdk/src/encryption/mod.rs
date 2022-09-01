@@ -106,21 +106,25 @@ impl Client {
     /// Encrypt and upload the file to be read from `reader` and construct an
     /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn prepare_encrypted_attachment_message<R: Read, T: Read>(
+    pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
         body: &str,
         content_type: &mime::Mime,
-        reader: &mut R,
+        data: &[u8],
         info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_, T>>,
+        thumbnail: Option<Thumbnail<'_>>,
     ) -> Result<ruma::events::room::message::MessageType> {
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
+            let mut cursor = Cursor::new(thumbnail.data);
+            let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
 
-            let response = self.upload(thumbnail.content_type, &mut reader).await?;
+            let mut buf = Vec::new();
+            encryptor.read_to_end(&mut buf)?;
+
+            let response = self.upload(thumbnail.content_type, &buf).await?;
 
             let file: ruma::events::room::EncryptedFile = {
-                let keys = reader.finish();
+                let keys = encryptor.finish();
                 ruma::events::room::EncryptedFileInit {
                     url: response.content_uri,
                     key: keys.key,
@@ -144,12 +148,15 @@ impl Client {
             (None, None)
         };
 
-        let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
+        let mut cursor = Cursor::new(data);
+        let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
+        let mut buf = Vec::new();
+        encryptor.read_to_end(&mut buf)?;
 
-        let response = self.upload(content_type, &mut reader).await?;
+        let response = self.upload(content_type, &buf).await?;
 
         let file: ruma::events::room::EncryptedFile = {
-            let keys = reader.finish();
+            let keys = encryptor.finish();
             ruma::events::room::EncryptedFileInit {
                 url: response.content_uri,
                 key: keys.key,
@@ -159,6 +166,8 @@ impl Client {
             }
             .into()
         };
+
+        use std::io::Cursor;
 
         use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {

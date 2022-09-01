@@ -14,7 +14,7 @@
 
 #[cfg(feature = "image-proc")]
 use std::io::{BufRead, Cursor, Seek};
-use std::{io::Read, time::Duration};
+use std::time::Duration;
 
 #[cfg(feature = "image-proc")]
 use image::GenericImageView;
@@ -162,33 +162,28 @@ impl From<BaseThumbnailInfo> for ThumbnailInfo {
 
 /// A thumbnail to upload and send for an attachment.
 #[derive(Debug)]
-pub struct Thumbnail<'a, R: Read> {
-    /// A `Reader` that will be used to fetch the raw bytes of the thumbnail.
-    pub reader: &'a mut R,
+pub struct Thumbnail<'a> {
+    /// The raw bytes of the thumbnail.
+    pub data: &'a [u8],
     /// The type of the thumbnail, this will be used as the content-type header.
     pub content_type: &'a mime::Mime,
     /// The metadata of the thumbnail.
     pub info: Option<BaseThumbnailInfo>,
 }
 
-impl Thumbnail<'static, &'static [u8]> {
-    /// Typed `None` for an `<Option<Thumbnail>>`.
-    pub const NONE: Option<Thumbnail<'static, &'static [u8]>> = None;
-}
-
 /// Configuration for sending an attachment.
 #[derive(Debug)]
-pub struct AttachmentConfig<'a, R: Read> {
+pub struct AttachmentConfig<'a> {
     pub(crate) txn_id: Option<&'a TransactionId>,
     pub(crate) info: Option<AttachmentInfo>,
-    pub(crate) thumbnail: Option<Thumbnail<'a, R>>,
+    pub(crate) thumbnail: Option<Thumbnail<'a>>,
     #[cfg(feature = "image-proc")]
     pub(crate) generate_thumbnail: bool,
     #[cfg(feature = "image-proc")]
     pub(crate) thumbnail_size: Option<(u32, u32)>,
 }
 
-impl AttachmentConfig<'static, &'static [u8]> {
+impl AttachmentConfig<'static> {
     /// Create a new default `AttachmentConfig` without providing a thumbnail.
     ///
     /// To provide a thumbnail use [`AttachmentConfig::with_thumbnail()`].
@@ -225,13 +220,13 @@ impl AttachmentConfig<'static, &'static [u8]> {
     }
 }
 
-impl Default for AttachmentConfig<'static, &'static [u8]> {
+impl Default for AttachmentConfig<'static> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, R: Read> AttachmentConfig<'a, R> {
+impl<'a> AttachmentConfig<'a> {
     /// Create a new default `AttachmentConfig` with a `thumbnail`.
     ///
     /// # Arguments
@@ -242,7 +237,7 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
     /// To generate automatically a thumbnail from an image, use
     /// [`AttachmentConfig::new()`] and
     /// [`AttachmentConfig::generate_thumbnail()`].
-    pub fn with_thumbnail(thumbnail: Thumbnail<'a, R>) -> Self {
+    pub fn with_thumbnail(thumbnail: Thumbnail<'a>) -> Self {
         Self {
             txn_id: Default::default(),
             info: Default::default(),
@@ -341,7 +336,7 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
 #[cfg(feature = "image-proc")]
 pub fn generate_image_thumbnail<R: BufRead + Seek>(
     content_type: &mime::Mime,
-    reader: &mut R,
+    reader: R,
     size: Option<(u32, u32)>,
 ) -> Result<(Vec<u8>, BaseThumbnailInfo), ImageError> {
     let image_format = image::ImageFormat::from_mime_type(content_type);
