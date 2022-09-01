@@ -1088,7 +1088,6 @@ impl OlmMachine {
             .store
             .get_inbound_group_session(
                 room_id,
-                #[allow(deprecated)]
                 &content.sender_key().to_base64(),
                 content.session_id(),
             )
@@ -1127,14 +1126,8 @@ impl OlmMachine {
                 }
             }
 
-            let encryption_info = self
-                .get_encryption_info(
-                    &session,
-                    &event.sender,
-                    #[allow(deprecated)]
-                    content.device_id(),
-                )
-                .await?;
+            let encryption_info =
+                self.get_encryption_info(&session, &event.sender, content.device_id()).await?;
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
