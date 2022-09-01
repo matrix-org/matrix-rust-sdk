@@ -150,8 +150,8 @@ module.
 
 To add interactive verification support to your client please see the
 [`verification`] module, also check out the documentation for the
-[`Device::verified()`] method, which explains in more detail what it means
-for a [`Device`] to be verified.
+[`Device::is_verified()`] method, which explains in more detail what
+it means for a [`Device`] to be verified.
 
 # Client setup
 

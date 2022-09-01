@@ -362,7 +362,7 @@ impl Device {
     ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
-    ///     if device.verified() {
+    ///     if device.is_verified() {
     ///         println!(
     ///             "Device {} of user {} is verified",
     ///             device.device_id().as_str(),
@@ -381,9 +381,9 @@ impl Device {
     ///
     /// [`UserIdentity::verify()`]:
     /// crate::encryption::identities::UserIdentity::verify
-    /// [verified]: crate::encryption::identities::UserIdentity::verified
-    pub fn verified(&self) -> bool {
-        self.inner.verified()
+    /// [verified]: crate::encryption::identities::UserIdentity::is_verified
+    pub fn is_verified(&self) -> bool {
+        self.inner.is_verified()
     }
 
     /// Set the local trust state of the device to the given state.
