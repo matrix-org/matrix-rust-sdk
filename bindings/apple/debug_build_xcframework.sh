@@ -26,7 +26,7 @@ SRC_ROOT=../..
 
 TARGET_DIR="${SRC_ROOT}/target"
 
-GENERATED_DIR="${SRC_ROOT}/generated"
+GENERATED_DIR="${SRC_ROOT}/bindings/apple/generated"
 mkdir -p ${GENERATED_DIR}
 
 REL_FLAG=""
