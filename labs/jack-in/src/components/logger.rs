@@ -15,14 +15,9 @@ use super::{get_block, JackInEvent, Msg};
 /// will directly implement Component for Logger. This is not ideal actually and
 /// in a real app you should differentiate Mock Components from Application
 /// Components.
+#[derive(Default)]
 pub struct Logger {
     props: Props,
-}
-
-impl Default for Logger {
-    fn default() -> Self {
-        Self { props: Props::default() }
-    }
 }
 
 impl MockComponent for Logger {

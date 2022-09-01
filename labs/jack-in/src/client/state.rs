@@ -38,10 +38,6 @@ impl PartialEq for SlidingSyncState {
     fn eq(&self, _other: &SlidingSyncState) -> bool {
         false
     }
-
-    fn ne(&self, _other: &SlidingSyncState) -> bool {
-        true
-    }
 }
 
 impl SlidingSyncState {

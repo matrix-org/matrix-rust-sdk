@@ -32,6 +32,7 @@ pub enum Msg {
     SelectRoom(Option<OwnedRoomId>),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Eq, PartialEq, PartialOrd, Clone)]
 pub enum JackInEvent {
     Any, // match all
