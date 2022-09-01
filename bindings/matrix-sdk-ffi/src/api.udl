@@ -19,13 +19,13 @@ callback interface ClientDelegate {
     void did_receive_sync_update();
 };
 
-dictionary RoomSubscriptionRequiredState {
+dictionary RequiredState {
     string key;
     string value;
 };
 
 dictionary RoomSubscription {
-    sequence<RoomSubscriptionRequiredState>? required_state;
+    sequence<RequiredState>? required_state;
     u32? timeline_limit;
 };
 
@@ -126,6 +126,9 @@ interface SlidingSyncViewBuilder {
 
     [Self=ByArc]
     SlidingSyncViewBuilder reset_ranges();
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder required_state(sequence<RequiredState> required_state);
 
     [Throws=ClientError, Self=ByArc]
     SlidingSyncView build();

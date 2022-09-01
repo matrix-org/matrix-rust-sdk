@@ -11,7 +11,6 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    events::RoomEventType,
     IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
@@ -135,13 +134,13 @@ pub struct UpdateSummary {
     pub rooms: Vec<String>,
 }
 
-pub struct RoomSubscriptionRequiredState {
+pub struct RequiredState {
     pub key: String,
     pub value: String,
 }
 
 pub struct RoomSubscription {
-    pub required_state: Option<Vec<RoomSubscriptionRequiredState>>,
+    pub required_state: Option<Vec<RequiredState>>,
     pub timeline_limit: Option<u32>,
 }
 
@@ -259,12 +258,11 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
-    pub fn required_state(
-        self: Arc<Self>,
-        required_state: Vec<(RoomEventType, String)>,
-    ) -> Arc<Self> {
+    pub fn required_state(self: Arc<Self>, required_state: Vec<RequiredState>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.required_state(required_state);
+        builder
+            .inner
+            .required_state(required_state.into_iter().map(|s| (s.key.into(), s.value)).collect());
         Arc::new(builder)
     }
 
