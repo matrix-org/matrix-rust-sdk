@@ -80,7 +80,7 @@ pub enum RoomListEntry {
     /// There was `OwnedRoomId` but since the server told us to invalid this
     /// entry. it is considered stale
     Invalidated(OwnedRoomId),
-    /// This Entry is folled with `OwnedRoomId`
+    /// This Entry is followed with `OwnedRoomId`
     Filled(OwnedRoomId),
 }
 
@@ -249,7 +249,7 @@ pub struct SlidingSync {
     #[builder(private)]
     client: Client,
 
-    // ------ Inernal state
+    // ------ Internal state
     #[builder(private, default)]
     pos: PosState,
 
@@ -487,7 +487,7 @@ impl SlidingSync {
 /// let client = Client::new(homeserver).await?;
 /// let sliding_sync = client.sliding_sync().default_with_fullsync().build()?;
 ///
-/// # }
+/// # })
 /// ```
 #[derive(Clone, Debug, Builder)]
 #[builder(build_fn(name = "finish_build"))]
@@ -758,7 +758,7 @@ impl SlidingSyncView {
 
     /// Set the ranges to fetch
     ///
-    /// Note: sending an emtpy list of ranges is, according to the spec, to be
+    /// Note: sending an empty list of ranges is, according to the spec, to be
     /// understood that the consumer doesn't care about changes of the room
     /// order but you will only receive updates when for rooms entering or
     /// leaving the set.
@@ -893,7 +893,7 @@ impl SlidingSyncView {
                     }
                 }
                 s => {
-                    tracing::warn!("Unknown operation occured: {:?}", s);
+                    tracing::warn!("Unknown operation occurred: {:?}", s);
                 }
             }
         }

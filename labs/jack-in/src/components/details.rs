@@ -57,7 +57,7 @@ impl Details {
             }
         };
 
-        let name = room_data.name.clone().unwrap_or_else(|| "unkown".to_owned());
+        let name = room_data.name.clone().unwrap_or_else(|| "unknown".to_owned());
 
         let state_events = room_data
             .required_state

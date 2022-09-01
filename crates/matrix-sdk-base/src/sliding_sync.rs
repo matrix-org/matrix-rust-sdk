@@ -79,10 +79,10 @@ impl BaseClient {
         for (room_id, room_data) in rooms.iter() {
             if !room_data.invite_state.is_empty() {
                 let invite_states = &room_data.invite_state;
-                let room = store.get_or_create_stripped_room(&room_id).await;
+                let room = store.get_or_create_stripped_room(room_id).await;
                 let mut room_info = room.clone_info();
 
-                if let Some(r) = store.get_room(&room_id) {
+                if let Some(r) = store.get_room(room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     changes.add_room(room_info);
@@ -95,7 +95,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
 
@@ -166,8 +166,8 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
-                            let joined = store.get_joined_user_ids(&room_id).await?;
-                            let invited = store.get_invited_user_ids(&room_id).await?;
+                            let joined = store.get_joined_user_ids(room_id).await?;
+                            let invited = store.get_invited_user_ids(room_id).await?;
 
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
