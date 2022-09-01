@@ -14,10 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::io::Read;
 use std::{
     fmt::{self, Debug},
     future::Future,
-    io::Read,
     pin::Pin,
     sync::Arc,
 };
@@ -1875,7 +1876,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
+    /// # use std::fs;
     /// # use matrix_sdk::{Client, ruma::room_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -1883,10 +1884,9 @@ impl Client {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path)?;
+    /// let image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// let response = client.upload(&mime::IMAGE_JPEG, &mut image).await?;
+    /// let response = client.upload(&mime::IMAGE_JPEG, &image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) });
@@ -1894,17 +1894,14 @@ impl Client {
     pub async fn upload(
         &self,
         content_type: &Mime,
-        reader: &mut (impl Read + ?Sized),
+        data: &[u8],
     ) -> Result<create_content::v3::Response> {
-        let mut data = Vec::new();
-        reader.read_to_end(&mut data)?;
-
         let timeout = std::cmp::max(
             Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
             MIN_UPLOAD_REQUEST_TIMEOUT,
         );
 
-        let request = assign!(create_content::v3::Request::new(&data), {
+        let request = assign!(create_content::v3::Request::new(data), {
             content_type: Some(content_type.essence_str()),
         });
 
@@ -2691,18 +2688,18 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Upload the file to be read from `reader` and construct an attachment
+    /// Upload the file bytes in `data` and construct an attachment
     /// message with `body`, `content_type`, `info` and `thumbnail`.
-    pub(crate) async fn prepare_attachment_message<R: Read, T: Read>(
+    pub(crate) async fn prepare_attachment_message(
         &self,
         body: &str,
         content_type: &Mime,
-        reader: &mut R,
+        data: &[u8],
         info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_, T>>,
+        thumbnail: Option<Thumbnail<'_>>,
     ) -> Result<ruma::events::room::message::MessageType> {
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self.upload(thumbnail.content_type, thumbnail.reader).await?;
+            let response = self.upload(thumbnail.content_type, thumbnail.data).await?;
             let url = response.content_uri;
 
             use ruma::events::room::ThumbnailInfo;
@@ -2716,7 +2713,7 @@ impl Client {
             (None, None)
         };
 
-        let response = self.upload(content_type, reader).await?;
+        let response = self.upload(content_type, data).await?;
 
         let url = response.content_uri;
 

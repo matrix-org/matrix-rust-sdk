@@ -1,11 +1,4 @@
-use std::{
-    env,
-    fs::File,
-    io::{Seek, SeekFrom},
-    path::PathBuf,
-    process::exit,
-    sync::Arc,
-};
+use std::{env, fs, process::exit, sync::Arc};
 
 use matrix_sdk::{
     self,
@@ -17,10 +10,9 @@ use matrix_sdk::{
     },
     Client,
 };
-use tokio::sync::Mutex;
 use url::Url;
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Arc<Mutex<File>>) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Arc<[u8]>) {
     if let Room::Joined(room) = room {
         let msg_body = if let OriginalSyncRoomMessageEvent {
             content:
@@ -38,13 +30,9 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image:
 
         if msg_body.contains("!image") {
             println!("sending image");
-            let mut image = image.lock().await;
-
-            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, AttachmentConfig::new())
+            room.send_attachment("cat", &mime::IMAGE_JPEG, &image, AttachmentConfig::new())
                 .await
                 .unwrap();
-
-            image.seek(SeekFrom::Start(0)).unwrap();
 
             println!("message sent");
         }
@@ -55,7 +43,7 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-    image: File,
+    image: Arc<[u8]>,
 ) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
@@ -68,7 +56,6 @@ async fn login_and_sync(
 
     client.sync_once(SyncSettings::default()).await.unwrap();
 
-    let image = Arc::new(Mutex::new(image));
     client.add_event_handler(move |ev, room| on_room_message(ev, room, image.clone()));
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
@@ -93,8 +80,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
     println!("helloooo {homeserver_url} {username} {password} {image_path:#?}");
-    let path = PathBuf::from(image_path);
-    let image = File::open(path).expect("Can't open image file.");
+    let image = fs::read(&image_path).expect("Can't open image file.").into();
 
     login_and_sync(homeserver_url, username, password, image).await?;
     Ok(())

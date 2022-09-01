@@ -2,11 +2,7 @@
 use std::io::Cursor;
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
-use std::{
-    borrow::Borrow,
-    io::{BufReader, Read, Seek},
-    ops::Deref,
-};
+use std::{borrow::Borrow, ops::Deref};
 
 use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "e2e-encryption")]
@@ -39,13 +35,16 @@ use tracing::debug;
 #[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
-#[cfg(feature = "image-proc")]
-use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
-    attachment::{AttachmentConfig, Thumbnail},
+    attachment::AttachmentConfig,
     error::HttpResult,
     room::{Common, Left},
     BaseRoom, Client, Result, RoomType,
+};
+#[cfg(feature = "image-proc")]
+use crate::{
+    attachment::{generate_image_thumbnail, Thumbnail},
+    error::ImageError,
 };
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
@@ -628,7 +627,7 @@ impl Joined {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
+    /// # use std::fs;
     /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
@@ -637,56 +636,51 @@ impl Joined {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path)?;
+    /// let mut image = fs::read("/home/example/my-cat.jpg")?;
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_attachment(
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
-    ///         &mut image,
+    ///         &image,
     ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read + Seek, T: Read>(
+    pub async fn send_attachment(
         &self,
         body: &str,
         content_type: &Mime,
-        reader: &mut R,
-        config: AttachmentConfig<'_, T>,
+        data: &[u8],
+        config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
-        let reader = &mut BufReader::new(reader);
-
-        #[cfg(feature = "image-proc")]
-        let mut cursor;
-
         if config.thumbnail.is_some() {
-            self.prepare_and_send_attachment(body, content_type, reader, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         } else {
             #[cfg(not(feature = "image-proc"))]
-            let thumbnail = Thumbnail::NONE;
+            let thumbnail = None;
 
             #[cfg(feature = "image-proc")]
+            let data_slot;
+            #[cfg(feature = "image-proc")]
             let thumbnail = if config.generate_thumbnail {
-                match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
+                match generate_image_thumbnail(
+                    content_type,
+                    Cursor::new(data),
+                    config.thumbnail_size,
+                ) {
                     Ok((thumbnail_data, thumbnail_info)) => {
-                        reader.rewind()?;
-
-                        cursor = Cursor::new(thumbnail_data);
+                        data_slot = thumbnail_data;
                         Some(Thumbnail {
-                            reader: &mut cursor,
+                            data: &data_slot,
                             content_type: &mime::IMAGE_JPEG,
                             info: Some(thumbnail_info),
                         })
                     }
                     Err(
                         ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
-                    ) => {
-                        reader.rewind()?;
-                        None
-                    }
+                    ) => None,
                     Err(error) => return Err(error.into()),
                 }
             } else {
@@ -703,7 +697,7 @@ impl Joined {
                 thumbnail_size: None,
             };
 
-            self.prepare_and_send_attachment(body, content_type, reader, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         }
     }
 
@@ -729,12 +723,12 @@ impl Joined {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    async fn prepare_and_send_attachment<R: Read, T: Read>(
+    async fn prepare_and_send_attachment(
         &self,
         body: &str,
         content_type: &Mime,
-        reader: &mut R,
-        config: AttachmentConfig<'_, T>,
+        data: &[u8],
+        config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted() {
@@ -742,27 +736,21 @@ impl Joined {
                 .prepare_encrypted_attachment_message(
                     body,
                     content_type,
-                    reader,
+                    data,
                     config.info,
                     config.thumbnail,
                 )
                 .await?
         } else {
             self.client
-                .prepare_attachment_message(
-                    body,
-                    content_type,
-                    reader,
-                    config.info,
-                    config.thumbnail,
-                )
+                .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
                 .await?
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
-            .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
+            .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
             .await?;
 
         self.send(RoomMessageEventContent::new(content), config.txn_id).await
