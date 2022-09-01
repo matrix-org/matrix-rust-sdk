@@ -19,10 +19,11 @@ use ruma::{
         self,
         presence::{PresenceEvent, PresenceEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnyToDeviceEvent,
-        EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
-        RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
-        StaticEventContent, ToDeviceEventContent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
+        GlobalAccountDataEventContent, MessageLikeEventContent, RedactContent,
+        RedactedEventContent, RoomAccountDataEventContent, StateEventContent, StaticEventContent,
+        ToDeviceEventContent,
     },
     serde::Raw,
 };
@@ -154,6 +155,11 @@ impl SyncEvent for AnyRoomAccountDataEvent {
 
 impl SyncEvent for AnySyncEphemeralRoomEvent {
     const KIND: HandlerKind = HandlerKind::EphemeralRoomData;
+    const TYPE: Option<&'static str> = None;
+}
+
+impl SyncEvent for AnySyncTimelineEvent {
+    const KIND: HandlerKind = HandlerKind::Timeline;
     const TYPE: Option<&'static str> = None;
 }
 
