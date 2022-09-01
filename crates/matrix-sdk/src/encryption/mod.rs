@@ -31,10 +31,9 @@ pub use matrix_sdk_base::crypto::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
     },
-    CryptoStoreError, DecodeError, DecryptorError, Ed25519SignatureError, EventError, KeyError,
-    KeyExportError, LocalTrust, MediaEncryptionInfo, MegolmDecryptionError, MegolmError,
-    OlmDecryptionError, OlmError, OlmSessionCreationError, PickleError, RoomKeyImportResult,
-    SecretImportError, SessionCreationError, SessionKeyDecodeError, SignatureError,
+    vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError,
 };
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
