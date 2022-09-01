@@ -123,7 +123,6 @@ impl EncodeKey for EventEncryptionAlgorithm {
 
 impl EncodeKey for SupportedKeyInfo {
     fn encode(&self) -> Vec<u8> {
-        #[allow(deprecated)]
         (self.room_id(), &self.algorithm(), self.session_id()).encode()
     }
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
