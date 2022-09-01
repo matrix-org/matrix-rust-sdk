@@ -331,7 +331,7 @@ impl UserIdentity {
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     if user.verified() {
+    ///     if user.is_verified() {
     ///         println!("User {} is verified", user.user_id().as_str());
     ///     } else {
     ///         println!("User {} is not verified", user.user_id().as_str());
@@ -339,10 +339,10 @@ impl UserIdentity {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn verified(&self) -> bool {
+    pub fn is_verified(&self) -> bool {
         match &self.inner {
             UserIdentities::Own(i) => i.inner.is_verified(),
-            UserIdentities::Other(i) => i.inner.verified(),
+            UserIdentities::Other(i) => i.inner.is_verified(),
         }
     }
 

@@ -920,7 +920,7 @@ impl Common {
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
-            let any_unverified = devices.devices().any(|d| !d.verified());
+            let any_unverified = devices.devices().any(|d| !d.is_verified());
 
             if any_unverified {
                 return Ok(false);

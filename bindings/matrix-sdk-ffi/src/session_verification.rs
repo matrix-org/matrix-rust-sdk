@@ -58,7 +58,7 @@ impl SessionVerificationController {
     }
 
     pub fn is_verified(&self) -> bool {
-        self.user_identity.verified()
+        self.user_identity.is_verified()
     }
 
     pub fn request_verification(&self) -> anyhow::Result<()> {

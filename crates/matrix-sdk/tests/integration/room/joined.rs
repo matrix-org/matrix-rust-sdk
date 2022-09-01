@@ -1,4 +1,4 @@
-use std::{io::Cursor, time::Duration};
+use std::time::Duration;
 
 use matrix_sdk::{
     attachment::{
@@ -314,10 +314,13 @@ async fn room_attachment_send() {
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    let mut media = Cursor::new("Hello world");
-
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, &mut media, AttachmentConfig::new())
+        .send_attachment(
+            "image",
+            &mime::IMAGE_JPEG,
+            "Hello world".as_bytes(),
+            AttachmentConfig::new(),
+        )
         .await
         .unwrap();
 
@@ -360,8 +363,6 @@ async fn room_attachment_send_info() {
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    let mut media = Cursor::new("Hello world");
-
     let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
         height: Some(uint!(600)),
         width: Some(uint!(800)),
@@ -369,8 +370,10 @@ async fn room_attachment_send_info() {
         blurhash: None,
     }));
 
-    let response =
-        room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
+    let response = room
+        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .await
+        .unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
 }
@@ -411,8 +414,6 @@ async fn room_attachment_send_wrong_info() {
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    let mut media = Cursor::new("Hello world");
-
     let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
         height: Some(uint!(600)),
         width: Some(uint!(800)),
@@ -421,7 +422,8 @@ async fn room_attachment_send_wrong_info() {
         blurhash: None,
     }));
 
-    let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
+    let response =
+        room.send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config).await;
 
     response.unwrap_err();
 }
@@ -470,12 +472,8 @@ async fn room_attachment_send_info_thumbnail() {
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    let mut media = Cursor::new("Hello world");
-
-    let mut thumbnail_reader = Cursor::new("Thumbnail");
-
     let config = AttachmentConfig::with_thumbnail(Thumbnail {
-        reader: &mut thumbnail_reader,
+        data: "Thumbnail".as_bytes(),
         content_type: &mime::IMAGE_JPEG,
         info: Some(BaseThumbnailInfo {
             height: Some(uint!(360)),
@@ -490,8 +488,10 @@ async fn room_attachment_send_info_thumbnail() {
         blurhash: None,
     }));
 
-    let response =
-        room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
+    let response = room
+        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .await
+        .unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
 }

@@ -60,7 +60,7 @@ async fn print_devices(user_id: &UserId, client: &Client) {
             "   {:<10} {:<30} {:<}",
             device.device_id(),
             device.display_name().unwrap_or("-"),
-            device.verified()
+            device.is_verified()
         );
     }
 }

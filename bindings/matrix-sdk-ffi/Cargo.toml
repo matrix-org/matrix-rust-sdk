@@ -30,7 +30,7 @@ extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync"] } 
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync", "socks"] }
 once_cell = "1.10.0"
 sanitize-filename-reader-friendly = "2.2.1"
 serde = { version = "1", features = ["derive"] }
