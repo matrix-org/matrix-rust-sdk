@@ -97,7 +97,7 @@ use event_handler::AppserviceFn;
 pub use matrix_sdk;
 #[doc(no_inline)]
 pub use matrix_sdk::ruma;
-use matrix_sdk::{reqwest::Url, Client, ClientBuilder};
+use matrix_sdk::{config::RequestConfig, reqwest::Url, Client, ClientBuilder};
 use ruma::{
     api::{
         appservice::{
@@ -141,6 +141,7 @@ pub struct AppService {
     namespaces: Arc<NamespaceCache>,
     clients: Arc<DashMap<Localpart, Client>>,
     event_handler: event_handler::EventHandler,
+    default_request_config: Option<RequestConfig>,
 }
 
 /// Builder for an AppService
@@ -150,6 +151,7 @@ pub struct AppServiceBuilder {
     server_name: OwnedServerName,
     registration: AppServiceRegistration,
     client_builder: Option<ClientBuilder>,
+    default_request_config: Option<RequestConfig>,
 }
 
 impl AppServiceBuilder {
@@ -169,12 +171,24 @@ impl AppServiceBuilder {
         server_name: OwnedServerName,
         registration: AppServiceRegistration,
     ) -> Self {
-        AppServiceBuilder { homeserver_url, server_name, registration, client_builder: None }
+        AppServiceBuilder {
+            homeserver_url,
+            server_name,
+            registration,
+            client_builder: None,
+            default_request_config: None,
+        }
     }
 
     /// Set the client builder to use for the virtual user.
     pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
         self.client_builder = Some(client_builder);
+        self
+    }
+
+    /// Set the default `[RequestConfig]` to use for virtual users.
+    pub fn default_request_config(mut self, default_request_config: RequestConfig) -> Self {
+        self.default_request_config = Some(default_request_config);
         self
     }
 
@@ -193,6 +207,7 @@ impl AppServiceBuilder {
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
         let event_handler = event_handler::EventHandler::default();
+        let default_request_config = self.default_request_config;
 
         let appservice = AppService {
             homeserver_url,
@@ -201,6 +216,7 @@ impl AppServiceBuilder {
             namespaces,
             clients,
             event_handler,
+            default_request_config,
         };
         if let Some(client_builder) = self.client_builder {
             appservice
@@ -248,7 +264,13 @@ impl AppService {
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
     pub async fn virtual_user(&self, localpart: Option<&str>) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
-        self.virtual_user_builder(localpart).build().await
+        let builder = match self.default_request_config {
+            Some(config) => self
+                .virtual_user_builder(localpart)
+                .client_builder(Client::builder().request_config(config)),
+            None => self.virtual_user_builder(localpart),
+        };
+        builder.build().await
     }
 
     /// Same as [`virtual_user()`][Self::virtual_user] but with
@@ -540,6 +562,15 @@ impl AppService {
         info!(host, port, "Starting AppService");
 
         webserver::run_server(self.clone(), host, port).await?;
+        Ok(())
+    }
+
+    /// Set the default RequestConfig
+    pub fn set_default_request_config(
+        &mut self,
+        request_config: Option<RequestConfig>,
+    ) -> Result<()> {
+        self.default_request_config = request_config;
         Ok(())
     }
 }
