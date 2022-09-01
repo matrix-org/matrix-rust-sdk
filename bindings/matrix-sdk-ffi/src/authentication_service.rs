@@ -97,31 +97,29 @@ impl AuthenticationService {
         username: String,
         password: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        match self.client.read().unwrap().as_ref() {
-            Some(client) => {
-                // Login and ask the server for the full user ID as this could be different from
-                // the username that was entered.
-                client.login(username, password).map_err(AuthenticationError::from)?;
-                let whoami = client.whoami()?;
+        let client = match &*self.client.read().unwrap() {
+            Some(client) => client.clone(),
+            None => return Err(AuthenticationError::ClientMissing),
+        };
 
-                // Create a new client to setup the store path now the user ID is known.
-                let homeserver_url = client.homeserver();
-                let session = client.session().ok_or(AuthenticationError::SessionMissing)?;
-                let client = Arc::new(ClientBuilder::new())
-                    .base_path(self.base_path.clone())
-                    .homeserver_url(homeserver_url)
-                    .username(whoami.user_id.to_string())
-                    .build()
-                    .map_err(AuthenticationError::from)?;
+        // Login and ask the server for the full user ID as this could be different from
+        // the username that was entered.
+        client.login(username, password).map_err(AuthenticationError::from)?;
+        let whoami = client.whoami()?;
 
-                // Restore the client using the session from the login request.
-                client
-                    .restore_session(session)
-                    .map(|_| client.clone())
-                    .map_err(AuthenticationError::from)
-            }
-            None => Err(AuthenticationError::ClientMissing),
-        }
+        // Create a new client to setup the store path now the user ID is known.
+        let homeserver_url = client.homeserver();
+        let session = client.session().ok_or(AuthenticationError::SessionMissing)?;
+        let client = Arc::new(ClientBuilder::new())
+            .base_path(self.base_path.clone())
+            .homeserver_url(homeserver_url)
+            .username(whoami.user_id.to_string())
+            .build()
+            .map_err(AuthenticationError::from)?;
+
+        // Restore the client using the session from the login request.
+        client.restore_session(session).map_err(AuthenticationError::from)?;
+        Ok(client)
     }
 
     /// Restore an existing session on the current homeserver using an access
@@ -136,47 +134,45 @@ impl AuthenticationService {
         token: String,
         device_id: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        match self.client.read().unwrap().as_ref() {
-            Some(client) => {
-                // Restore the client and ask the server for the full user ID as this
-                // could be different from the username that was entered.
-                let discovery_user_id = UserId::parse("@unknown:unknown")
-                    .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
-                let device_id: OwnedDeviceId = device_id.as_str().into();
+        let client = match &*self.client.read().unwrap() {
+            Some(client) => client.clone(),
+            None => return Err(AuthenticationError::ClientMissing),
+        };
 
-                let discovery_session = Session {
-                    access_token: token.clone(),
-                    refresh_token: None,
-                    user_id: discovery_user_id,
-                    device_id: device_id.clone(),
-                };
+        // Restore the client and ask the server for the full user ID as this
+        // could be different from the username that was entered.
+        let discovery_user_id = UserId::parse("@unknown:unknown")
+            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
+        let device_id: OwnedDeviceId = device_id.as_str().into();
 
-                client.restore_session(discovery_session).map_err(AuthenticationError::from)?;
-                let whoami = client.whoami()?;
+        let discovery_session = Session {
+            access_token: token.clone(),
+            refresh_token: None,
+            user_id: discovery_user_id,
+            device_id: device_id.clone(),
+        };
 
-                // Create the actual client with a store path from the user ID.
-                let homeserver_url = client.homeserver();
-                let session = Session {
-                    access_token: token,
-                    refresh_token: None,
-                    user_id: whoami.user_id.clone(),
-                    device_id,
-                };
-                let client = Arc::new(ClientBuilder::new())
-                    .base_path(self.base_path.clone())
-                    .homeserver_url(homeserver_url)
-                    .username(whoami.user_id.to_string())
-                    .build()
-                    .map_err(AuthenticationError::from)?;
+        client.restore_session(discovery_session).map_err(AuthenticationError::from)?;
+        let whoami = client.whoami()?;
 
-                // Restore the client using the session.
-                client
-                    .restore_session(session)
-                    .map(|_| client.clone())
-                    .map_err(AuthenticationError::from)
-            }
-            None => Err(AuthenticationError::ClientMissing),
-        }
+        // Create the actual client with a store path from the user ID.
+        let homeserver_url = client.homeserver();
+        let session = Session {
+            access_token: token,
+            refresh_token: None,
+            user_id: whoami.user_id.clone(),
+            device_id,
+        };
+        let client = Arc::new(ClientBuilder::new())
+            .base_path(self.base_path.clone())
+            .homeserver_url(homeserver_url)
+            .username(whoami.user_id.to_string())
+            .build()
+            .map_err(AuthenticationError::from)?;
+
+        // Restore the client using the session.
+        client.restore_session(session).map_err(AuthenticationError::from)?;
+        Ok(client)
     }
 
     /// Get the homeserver login details from a client.
