@@ -132,3 +132,39 @@ impl RequestConfig {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::RequestConfig;
+
+    #[test]
+    fn smoketest() {
+        let cfg = RequestConfig::new()
+            .force_auth()
+            .homeserver("example.org".to_owned())
+            .retry_timeout(Duration::from_secs(32))
+            .retry_limit(4)
+            .timeout(Duration::from_secs(600));
+
+        assert_eq!(cfg.force_auth, true);
+        assert_eq!(cfg.homeserver, Some("example.org".to_owned()));
+        assert_eq!(cfg.retry_limit, Some(4));
+        assert_eq!(cfg.retry_timeout, Some(Duration::from_secs(32)));
+        assert_eq!(cfg.timeout, Duration::from_secs(600));
+    }
+
+    #[test]
+    fn testing_retry_settings() {
+        let mut cfg = RequestConfig::new();
+        assert_eq!(cfg.retry_limit, None);
+        cfg = cfg.retry_limit(10);
+        assert_eq!(cfg.retry_limit, Some(10));
+        cfg = cfg.disable_retry();
+        assert_eq!(cfg.retry_limit, Some(0));
+
+        let cfg = RequestConfig::short_retry();
+        assert_eq!(cfg.retry_limit, Some(3));
+    }
+}
