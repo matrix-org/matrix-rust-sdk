@@ -29,6 +29,7 @@ impl std::ops::Deref for Client {
         &self.client
     }
 }
+
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
 }

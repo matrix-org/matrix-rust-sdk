@@ -2,9 +2,7 @@
 //!
 //! `Demo` shows how to use tui-realm in a real case
 
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use eyre::{eyre, Result};
 use log::{warn, LevelFilter};

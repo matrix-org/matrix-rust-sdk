@@ -1,11 +1,7 @@
 use tuirealm::{
     command::{Cmd, CmdResult},
     props::{Alignment, Borders, Color, Style},
-    tui::{
-        layout::Rect,
-        text::Spans,
-        widgets::Tabs,
-    },
+    tui::{layout::Rect, text::Spans, widgets::Tabs},
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 

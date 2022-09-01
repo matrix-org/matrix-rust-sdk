@@ -1,7 +1,4 @@
-use std::sync::{
-    RwLock,
-    Arc,
-};
+use std::sync::{Arc, RwLock};
 
 use assign::assign;
 use futures_signals::{
@@ -52,7 +49,6 @@ impl StoppableSpawn {
 pub struct UnreadNotificationsCount {
     highlight_count: u32,
     notification_count: u32,
-
 }
 
 impl UnreadNotificationsCount {
@@ -70,8 +66,14 @@ impl UnreadNotificationsCount {
 impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     fn from(inner: RumaUnreadNotificationsCount) -> Self {
         UnreadNotificationsCount {
-            highlight_count: inner.highlight_count.and_then(|x| x.try_into().ok()).unwrap_or_default(),
-            notification_count: inner.notification_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
+            highlight_count: inner
+                .highlight_count
+                .and_then(|x| x.try_into().ok())
+                .unwrap_or_default(),
+            notification_count: inner
+                .notification_count
+                .and_then(|x| x.try_into().ok())
+                .unwrap_or_default(),
         }
     }
 }
@@ -522,7 +524,6 @@ impl SlidingSync {
         }
 
         spawn
-
     }
 }
 

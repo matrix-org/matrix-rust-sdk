@@ -107,7 +107,8 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
+pub type AliveRoomTimeline =
+    Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
 
 impl Default for RoomListEntry {
     fn default() -> Self {

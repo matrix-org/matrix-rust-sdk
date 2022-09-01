@@ -1,12 +1,7 @@
-use std::{
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use futures_signals::signal::Mutable;
-use matrix_sdk::{
-    ruma:: OwnedRoomId,
-    SlidingSyncView,
-};
+use matrix_sdk::{ruma::OwnedRoomId, SlidingSyncView};
 
 #[derive(Clone, Default)]
 pub struct CurrentRoomSummary {
