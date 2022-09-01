@@ -14,4 +14,4 @@ thead = "thead"
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
 # automatically ignored, we ignore them here.
-extend-exclude = ["*.json", "*.lock"]
+extend-exclude = ["*.json"]
