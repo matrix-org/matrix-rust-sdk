@@ -63,7 +63,7 @@ impl Device {
     /// method returns `true`.
     #[wasm_bindgen(js_name = "isVerified")]
     pub fn is_verified(&self) -> bool {
-        self.inner.verified()
+        self.inner.is_verified()
     }
 
     /// Is this device considered to be verified using cross signing.
