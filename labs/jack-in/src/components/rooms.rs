@@ -147,7 +147,7 @@ impl Component<Msg, JackInEvent> for Rooms {
         }
 
         if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
-            self.set_sliding_sync(s.clone());
+            self.set_sliding_sync(s);
         }
 
         None

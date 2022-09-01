@@ -38,7 +38,7 @@ use crate::{config::RequestConfig, Client, Result};
 ///
 /// If the client has been offline for a while, though, the SlidingSync might
 /// return back to `CatchingUp` at any point.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlidingSyncState {
     /// Hasn't started yet
     Cold,
@@ -58,7 +58,7 @@ impl Default for SlidingSyncState {
 
 #[allow(dead_code)]
 /// Define the mode by which the the SlidingSyncView is in fetching the data
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlidingSyncMode {
     /// FullSync all rooms in the background, configured with batch size
     FullSync,
@@ -99,7 +99,7 @@ impl RoomListEntry {
     }
 
     /// Ref to the inner room id, if given
-    pub fn as_ref<'a>(&'a self) -> Option<&'a OwnedRoomId> {
+    pub fn as_ref(&self) -> Option<&OwnedRoomId> {
         match &self {
             RoomListEntry::Empty => None,
             RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b),
@@ -147,7 +147,7 @@ impl SlidingSyncRoom {
 
     /// Are we currently fetching more timeline events in this room?
     pub fn is_loading_more(&self) -> bool {
-        self.is_loading_more.lock_ref().clone()
+        *self.is_loading_more.lock_ref()
     }
 
     /// the `prev_batch` key to fetch more timeline events for this room
@@ -184,10 +184,10 @@ impl SlidingSyncRoom {
             self.inner.name = name.clone();
         }
         if initial.is_some() {
-            self.inner.initial = initial.clone();
+            self.inner.initial = *initial;
         }
         if is_dm.is_some() {
-            self.inner.is_dm = is_dm.clone();
+            self.inner.is_dm = *is_dm;
         }
         if !invite_state.is_empty() {
             self.inner.invite_state = invite_state.clone();
@@ -410,8 +410,8 @@ impl SlidingSync {
     ///
     /// Run this stream to receive new updates from the server.
     pub async fn stream<'a>(
-        &'a self,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<UpdateSummary>> + 'a> {
+        &self,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<UpdateSummary>> + '_> {
         let views = self.views.lock_ref().to_vec();
         let _pos = self.pos.clone();
 
@@ -552,7 +552,7 @@ pub struct SlidingSyncView {
 }
 
 /// the default name for the full sync view
-pub const FULL_SYNC_VIEW_NAME: &'static str = "full-sync";
+pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 
 impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
@@ -636,7 +636,7 @@ struct SlidingSyncViewRequestGenerator<'a> {
 
 impl<'a> SlidingSyncViewRequestGenerator<'a> {
     fn new_with_syncup(view: &'a SlidingSyncView) -> Self {
-        let batch_size = view.batch_size.clone();
+        let batch_size = view.batch_size;
 
         SlidingSyncViewRequestGenerator {
             view,
@@ -657,11 +657,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     fn make_request_for_ranges(&self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
-        let timeline_limit = self
-            .view
-            .timeline_limit
-            .clone()
-            .map(|v| v.try_into().expect("u32 always fits into UInt"));
+        let timeline_limit = self.view.timeline_limit;
         let filters = self.view.filters.clone();
 
         assign!(v4::SyncRequestList::default(), {
@@ -780,7 +776,7 @@ impl SlidingSyncView {
         let start = offset.unwrap_or(0);
         let rooms = self.rooms.lock_ref();
         let listing = self.rooms_list.lock_ref();
-        let count = count.unwrap_or_else(|| listing.len() - start);
+        let count = count.unwrap_or(listing.len() - start);
         listing
             .iter()
             .skip(start)
@@ -793,7 +789,7 @@ impl SlidingSyncView {
 
     /// Return the room_id at the given index
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.rooms_list.lock_ref().get(index).map(|e| e.room_id()).flatten()
+        self.rooms_list.lock_ref().get(index).and_then(|e| e.room_id())
     }
 
     #[tracing::instrument(skip(self, ops))]
@@ -931,7 +927,7 @@ impl SlidingSyncView {
         Ok(changed)
     }
 
-    fn request_generator<'a>(&'a self) -> SlidingSyncViewRequestGenerator<'a> {
+    fn request_generator(&self) -> SlidingSyncViewRequestGenerator<'_> {
         match self.sync_mode.read_only().get_cloned() {
             SlidingSyncMode::FullSync => SlidingSyncViewRequestGenerator::new_with_syncup(self),
             SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self),

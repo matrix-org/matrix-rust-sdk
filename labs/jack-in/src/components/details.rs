@@ -64,7 +64,7 @@ impl Details {
             .iter()
             .filter_map(|r| r.deserialize().ok())
             .fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {
-                let event_name = r.event_type().to_owned();
+                let event_name = r.event_type();
                 b.entry(event_name.to_string())
                     .and_modify(|l| l.push(r.clone()))
                     .or_insert_with(|| vec![r.clone()]);
@@ -261,7 +261,7 @@ impl Component<Msg, JackInEvent> for Details {
         }
 
         if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
-            self.set_sliding_sync(s.clone());
+            self.set_sliding_sync(s);
         }
 
         None

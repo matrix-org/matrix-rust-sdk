@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 
 // Let's define the messages handled by our app. NOTE: it must derive
 // `PartialEq`
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum Msg {
     AppClose,
     Clock,
@@ -202,7 +202,7 @@ async fn run_ui(mut model: Model) {
             Err(err) => {
                 model.set_title(format!("Application error: {}", err));
             }
-            Ok(messages) if messages.len() > 0 => {
+            Ok(messages) if !messages.is_empty() => {
                 // NOTE: redraw if at least one msg has been processed
                 model.redraw = true;
                 for msg in messages.into_iter() {

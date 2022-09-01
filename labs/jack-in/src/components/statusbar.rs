@@ -88,7 +88,7 @@ impl MockComponent for StatusBar {
 impl Component<Msg, JackInEvent> for StatusBar {
     fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
         if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
-            self.set_sliding_sync(s.clone());
+            self.set_sliding_sync(s);
             None
         } else if let Event::Tick = ev {
             Some(Msg::Clock)

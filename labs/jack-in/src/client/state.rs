@@ -64,11 +64,11 @@ impl SlidingSyncState {
     }
 
     pub fn time_to_first_render(&self) -> Option<Duration> {
-        self.first_render.clone()
+        self.first_render
     }
 
     pub fn time_to_full_sync(&self) -> Option<Duration> {
-        self.full_sync.clone()
+        self.full_sync
     }
 
     pub fn loaded_rooms_count(&self) -> usize {
