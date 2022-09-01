@@ -221,19 +221,19 @@ impl From<&MatrixRoomEntry> for RoomListEntry {
         }
     }
 }
-pub trait SlidingSyncViewRoomItemsDelegate: Sync + Send {
+pub trait SlidingSyncViewRoomItemsObserver: Sync + Send {
     fn did_receive_update(&self);
 }
 
-pub trait SlidingSyncViewRoomListDelegate: Sync + Send {
+pub trait SlidingSyncViewRoomListObserver: Sync + Send {
     fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
 }
 
-pub trait SlidingSyncViewRoomsCountDelegate: Sync + Send {
+pub trait SlidingSyncViewRoomsCountObserver: Sync + Send {
     fn did_receive_update(&self, new_count: u32);
 }
 
-pub trait SlidingSyncViewStateDelegate: Sync + Send {
+pub trait SlidingSyncViewStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 #[derive(Clone)]
@@ -326,57 +326,57 @@ impl From<matrix_sdk::SlidingSyncView> for SlidingSyncView {
 }
 
 impl SlidingSyncView {
-    pub fn on_state_update(
+    pub fn observe_state(
         &self,
-        delegate: Box<dyn SlidingSyncViewStateDelegate>,
+        observer: Box<dyn SlidingSyncViewStateObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut signal = self.inner.state.signal_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(new_state) = signal.next().await {
-                    delegate.did_receive_update(new_state);
+                    observer.did_receive_update(new_state);
                 }
             }
         })))
     }
 
-    pub fn on_room_list_update(
+    pub fn observe_room_list(
         &self,
-        delegate: Box<dyn SlidingSyncViewRoomListDelegate>,
+        observer: Box<dyn SlidingSyncViewRoomListObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(diff) = room_list.next().await {
-                    delegate.did_receive_update(diff.into());
+                    observer.did_receive_update(diff.into());
                 }
             }
         })))
     }
 
-    pub fn on_room_items_update(
+    pub fn observe_room_items(
         &self,
-        delegate: Box<dyn SlidingSyncViewRoomItemsDelegate>,
+        observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
-                    delegate.did_receive_update();
+                    observer.did_receive_update();
                 }
             }
         })))
     }
 
-    pub fn on_rooms_count_update(
+    pub fn observe_rooms_count(
         &self,
-        delegate: Box<dyn SlidingSyncViewRoomsCountDelegate>,
+        observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut rooms_count = self.inner.rooms_count.signal_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(Some(new)) = rooms_count.next().await {
-                    delegate.did_receive_update(new);
+                    observer.did_receive_update(new);
                 }
             }
         })))
@@ -411,24 +411,24 @@ impl SlidingSyncView {
     }
 }
 
-pub trait SlidingSyncDelegate: Sync + Send {
+pub trait SlidingSyncObserver: Sync + Send {
     fn did_receive_sync_update(&self, summary: UpdateSummary);
 }
 
 pub struct SlidingSync {
     inner: matrix_sdk::SlidingSync,
     client: Client,
-    delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
+    observer: Arc<RwLock<Option<Box<dyn SlidingSyncObserver>>>>,
     sync_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
 impl SlidingSync {
     fn new(inner: matrix_sdk::SlidingSync, client: Client) -> Self {
-        SlidingSync { inner, client, delegate: Default::default(), sync_handle: Default::default() }
+        SlidingSync { inner, client, observer: Default::default(), sync_handle: Default::default() }
     }
 
-    pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
-        *self.delegate.write().unwrap() = delegate;
+    pub fn set_observer(&self, observer: Option<Box<dyn SlidingSyncObserver>>) {
+        *self.observer.write().unwrap() = observer;
     }
 
     pub fn subscribe(
@@ -483,7 +483,7 @@ impl SlidingSync {
 
     pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
-        let delegate = self.delegate.clone();
+        let observer = self.observer.clone();
         let spawn = Arc::new(StoppableSpawn::with_handle_ref(self.sync_handle.clone()));
         let inner_spawn = spawn.clone();
         {
@@ -509,10 +509,10 @@ impl SlidingSync {
                             break;
                         }
                     };
-                    if let Some(ref delegate) = *delegate.read().unwrap() {
-                        delegate.did_receive_sync_update(update.into());
+                    if let Some(ref observer) = *observer.read().unwrap() {
+                        observer.did_receive_sync_update(update.into());
                     } else {
-                        // when the delegate has been removed
+                        // when the observer has been removed
                         // we cancel the loop
                         inner_spawn.cancel();
                         break;

@@ -35,7 +35,7 @@ dictionary UpdateSummary {
 };
 
 
-callback interface SlidingSyncDelegate {
+callback interface SlidingSyncObserver {
     void did_receive_sync_update(UpdateSummary summary);
 };
 
@@ -57,7 +57,7 @@ enum SlidingSyncMode {
     "Selective",
 };
 
-callback interface SlidingSyncViewStateDelegate {
+callback interface SlidingSyncViewStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };
 
@@ -90,15 +90,15 @@ interface SlidingSyncViewRoomsListDiff {
 };
 
 
-callback interface SlidingSyncViewRoomListDelegate {
+callback interface SlidingSyncViewRoomListObserver {
     void did_receive_update(SlidingSyncViewRoomsListDiff diff);
 };
 
-callback interface SlidingSyncViewRoomsCountDelegate {
+callback interface SlidingSyncViewRoomsCountObserver {
     void did_receive_update(u32 count);
 };
 
-callback interface SlidingSyncViewRoomItemsDelegate {
+callback interface SlidingSyncViewRoomItemsObserver {
     void did_receive_update();
 };
 
@@ -135,10 +135,10 @@ interface SlidingSyncViewBuilder {
 };
 
 interface SlidingSyncView {
-    StoppableSpawn on_room_list_update(SlidingSyncViewRoomListDelegate update);
-    StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
-    StoppableSpawn on_state_update(SlidingSyncViewStateDelegate update);
-    StoppableSpawn on_room_items_update(SlidingSyncViewRoomItemsDelegate update);
+    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver update);
+    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver update);
+    StoppableSpawn observe_state(SlidingSyncViewStateObserver update);
+    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver update);
 
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
@@ -178,7 +178,7 @@ interface SlidingSyncRoom {
 
 interface SlidingSync {
 
-    void on_update(SlidingSyncDelegate? update);
+    void set_observer(SlidingSyncObserver? update);
 
     StoppableSpawn sync();
 
