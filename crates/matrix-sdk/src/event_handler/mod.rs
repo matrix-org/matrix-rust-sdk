@@ -111,6 +111,7 @@ pub enum HandlerKind {
     GlobalAccountData,
     RoomAccountData,
     EphemeralRoomData,
+    Timeline,
     MessageLike,
     OriginalMessageLike,
     RedactedMessageLike,
@@ -397,6 +398,10 @@ impl Client {
             // Event handlers specifically for redacted OR unredacted timeline events
             self.call_event_handlers(room, raw_event, handler_kind_r, &event_type, encryption_info)
                 .await;
+
+            // Event handlers for `AnySyncTimelineEvent`
+            let kind = HandlerKind::Timeline;
+            self.call_event_handlers(room, raw_event, kind, &event_type, encryption_info).await;
         }
 
         Ok(())
