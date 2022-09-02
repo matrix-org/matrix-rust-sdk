@@ -1,3 +1,5 @@
+//! High-level room API
+
 use std::ops::Deref;
 
 use crate::RoomType;
