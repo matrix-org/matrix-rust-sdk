@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -559,26 +559,28 @@ impl IndexeddbStateStore {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        let mut stores: Vec<&'static str> = [
+        let mut stores: HashSet<&'static str> = [
             (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
             (changes.session.is_some(), KEYS::SESSION),
             (!changes.ambiguity_maps.is_empty(), KEYS::DISPLAY_NAMES),
             (!changes.account_data.is_empty(), KEYS::ACCOUNT_DATA),
             (!changes.presence.is_empty(), KEYS::PRESENCE),
             (!changes.profiles.is_empty(), KEYS::PROFILES),
-            (!changes.state.is_empty(), KEYS::ROOM_STATE),
             (!changes.room_account_data.is_empty(), KEYS::ROOM_ACCOUNT_DATA),
-            #[cfg(feature = "experimental-timeline")]
-            (!changes.room_infos.is_empty() || !changes.timeline.is_empty(), KEYS::ROOM_INFOS),
-            #[cfg(not(feature = "experimental-timeline"))]
-            (!changes.room_infos.is_empty(), KEYS::ROOM_INFOS),
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
-            (!changes.stripped_room_infos.is_empty(), KEYS::STRIPPED_ROOM_INFOS),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
         .collect();
+
+        if !changes.state.is_empty() {
+            stores.extend([KEYS::ROOM_STATE, KEYS::STRIPPED_ROOM_STATE]);
+        }
+
+        if !changes.room_infos.is_empty() || !changes.stripped_room_infos.is_empty() {
+            stores.extend([KEYS::ROOM_INFOS, KEYS::STRIPPED_ROOM_INFOS]);
+        }
 
         if !changes.members.is_empty() {
             stores.extend([
@@ -586,6 +588,9 @@ impl IndexeddbStateStore {
                 KEYS::MEMBERS,
                 KEYS::INVITED_USER_IDS,
                 KEYS::JOINED_USER_IDS,
+                KEYS::STRIPPED_MEMBERS,
+                KEYS::STRIPPED_INVITED_USER_IDS,
+                KEYS::STRIPPED_JOINED_USER_IDS,
             ])
         }
 
@@ -604,6 +609,7 @@ impl IndexeddbStateStore {
         #[cfg(feature = "experimental-timeline")]
         if !changes.timeline.is_empty() {
             stores.extend([
+                KEYS::ROOM_INFOS,
                 KEYS::ROOM_TIMELINE,
                 KEYS::ROOM_TIMELINE_METADATA,
                 KEYS::ROOM_EVENT_ID_TO_POSITION,
@@ -615,6 +621,7 @@ impl IndexeddbStateStore {
             return Ok(());
         }
 
+        let stores: Vec<&'static str> = stores.into_iter().collect();
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
@@ -655,24 +662,28 @@ impl IndexeddbStateStore {
         }
 
         if !changes.state.is_empty() {
-            let store = tx.object_store(KEYS::ROOM_STATE)?;
+            let state = tx.object_store(KEYS::ROOM_STATE)?;
+            let stripped_state = tx.object_store(KEYS::STRIPPED_ROOM_STATE)?;
             for (room, event_types) in &changes.state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
                         let key = self.encode_key(KEYS::ROOM_STATE, (room, event_type, state_key));
-                        store.put_key_val(&key, &self.serialize_event(&event)?)?;
+                        state.put_key_val(&key, &self.serialize_event(&event)?)?;
+                        stripped_state.delete(&key)?;
                     }
                 }
             }
         }
 
         if !changes.room_infos.is_empty() {
-            let store = tx.object_store(KEYS::ROOM_INFOS)?;
+            let room_infos = tx.object_store(KEYS::ROOM_INFOS)?;
+            let stripped_room_infos = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
-                store.put_key_val(
+                room_infos.put_key_val(
                     &self.encode_key(KEYS::ROOM_INFOS, room_id),
                     &self.serialize_event(&room_info)?,
                 )?;
+                stripped_room_infos.delete(&self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id))?;
             }
         }
 
@@ -687,12 +698,14 @@ impl IndexeddbStateStore {
         }
 
         if !changes.stripped_room_infos.is_empty() {
-            let store = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_infos = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
+            let room_infos = tx.object_store(KEYS::ROOM_INFOS)?;
             for (room_id, info) in &changes.stripped_room_infos {
-                store.put_key_val(
+                stripped_room_infos.put_key_val(
                     &self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id),
                     &self.serialize_event(&info)?,
                 )?;
+                room_infos.delete(&self.encode_key(KEYS::ROOM_INFOS, room_id))?;
             }
         }
 
@@ -748,16 +761,24 @@ impl IndexeddbStateStore {
         }
 
         if !changes.members.is_empty() {
-            let profiles_store = tx.object_store(KEYS::PROFILES)?;
+            let profiles = tx.object_store(KEYS::PROFILES)?;
             let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
             let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
             let members = tx.object_store(KEYS::MEMBERS)?;
+            let stripped_members = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
+            let stripped_joined = tx.object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
+            let stripped_invited = tx.object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
 
             for (room, events) in &changes.members {
                 let profile_changes = changes.profiles.get(room);
 
                 for event in events.values() {
                     let key = (room, event.state_key());
+
+                    stripped_joined
+                        .delete(&self.encode_key(KEYS::STRIPPED_JOINED_USER_IDS, key))?;
+                    stripped_invited
+                        .delete(&self.encode_key(KEYS::STRIPPED_INVITED_USER_IDS, key))?;
 
                     match event.membership() {
                         MembershipState::Join => {
@@ -784,9 +805,10 @@ impl IndexeddbStateStore {
                         &self.encode_key(KEYS::MEMBERS, key),
                         &self.serialize_event(&event)?,
                     )?;
+                    stripped_members.delete(&self.encode_key(KEYS::STRIPPED_MEMBERS, key))?;
 
                     if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
-                        profiles_store.put_key_val_owned(
+                        profiles.put_key_val_owned(
                             &self.encode_key(KEYS::PROFILES, key),
                             &self.serialize_event(&profile)?,
                         )?;
@@ -1101,16 +1123,6 @@ impl IndexeddbStateStore {
     ) -> Result<Option<MemberEvent>> {
         if let Some(e) = self
             .inner
-            .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::MEMBERS)?
-            .get(&self.encode_key(KEYS::MEMBERS, (room_id, state_key)))?
-            .await?
-            .map(|f| self.deserialize_event(f))
-            .transpose()?
-        {
-            Ok(Some(MemberEvent::Sync(e)))
-        } else if let Some(e) = self
-            .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::STRIPPED_MEMBERS)?
             .get(&self.encode_key(KEYS::STRIPPED_MEMBERS, (room_id, state_key)))?
@@ -1119,6 +1131,16 @@ impl IndexeddbStateStore {
             .transpose()?
         {
             Ok(Some(MemberEvent::Stripped(e)))
+        } else if let Some(e) = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::MEMBERS)?
+            .get(&self.encode_key(KEYS::MEMBERS, (room_id, state_key)))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?
+        {
+            Ok(Some(MemberEvent::Sync(e)))
         } else {
             Ok(None)
         }
@@ -1538,27 +1560,27 @@ impl StateStore for IndexeddbStateStore {
     }
 
     async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_user_ids_stream(room_id).await?;
+        let ids: Vec<OwnedUserId> = self.get_stripped_user_ids_stream(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_stripped_user_ids_stream(room_id).await.map_err(|e| e.into())
+        self.get_user_ids_stream(room_id).await.map_err(|e| e.into())
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_invited_user_ids(room_id).await?;
+        let ids: Vec<OwnedUserId> = self.get_stripped_invited_user_ids(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_stripped_invited_user_ids(room_id).await.map_err(|e| e.into())
+        self.get_invited_user_ids(room_id).await.map_err(|e| e.into())
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_joined_user_ids(room_id).await?;
+        let ids: Vec<OwnedUserId> = self.get_stripped_joined_user_ids(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_stripped_joined_user_ids(room_id).await.map_err(|e| e.into())
+        self.get_joined_user_ids(room_id).await.map_err(|e| e.into())
     }
 
     async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {

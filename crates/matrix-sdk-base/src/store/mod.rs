@@ -617,6 +617,9 @@ impl Store {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
+        // Remove the respective room from non-stripped rooms.
+        self.rooms.remove(room_id);
+
         self.stripped_rooms
             .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomType::Invited))
@@ -632,6 +635,9 @@ impl Store {
 
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
+
+        // Remove the respective room from stripped rooms.
+        self.stripped_rooms.remove(room_id);
 
         self.rooms
             .entry(room_id.to_owned())

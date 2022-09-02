@@ -599,7 +599,7 @@ impl SledStateStore {
                     room_account_data,
                     stripped_joined,
                     stripped_invited,
-                    striped_rooms,
+                    stripped_rooms,
                     stripped_members,
                     stripped_state,
                 )| {
@@ -608,6 +608,11 @@ impl SledStateStore {
 
                         for event in events.values() {
                             let key = (room, event.state_key());
+
+                            stripped_joined
+                                .remove(self.encode_key(STRIPPED_JOINED_USER_ID, key))?;
+                            stripped_invited
+                                .remove(self.encode_key(STRIPPED_INVITED_USER_ID, key))?;
 
                             match event.membership() {
                                 MembershipState::Join => {
@@ -637,6 +642,7 @@ impl SledStateStore {
                                 self.serialize_value(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
+                            stripped_members.remove(self.encode_key(STRIPPED_ROOM_MEMBER, key))?;
 
                             if let Some(profile) =
                                 profile_changes.and_then(|p| p.get(event.state_key()))
@@ -678,6 +684,10 @@ impl SledStateStore {
                                     self.serialize_value(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
+                                stripped_state.remove(self.encode_key(
+                                    STRIPPED_ROOM_STATE,
+                                    (room, event_type, state_key),
+                                ))?;
                             }
                         }
                     }
@@ -688,14 +698,16 @@ impl SledStateStore {
                             self.serialize_value(room_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
+                        stripped_rooms.remove(self.encode_key(STRIPPED_ROOM_INFO, room_id))?;
                     }
 
                     for (room_id, info) in &changes.stripped_room_infos {
-                        striped_rooms.insert(
+                        stripped_rooms.insert(
                             self.encode_key(STRIPPED_ROOM_INFO, room_id),
                             self.serialize_value(&info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
+                        rooms.remove(self.encode_key(ROOM, room_id))?;
                     }
 
                     for (room, events) in &changes.stripped_members {
@@ -901,15 +913,17 @@ impl SledStateStore {
         let key = self.encode_key(MEMBER, (room_id, state_key));
         let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
         spawn_blocking(move || {
-            if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_value(&v)).transpose()? {
-                Ok(Some(MemberEvent::Sync(e)))
-            } else if let Some(e) = db
+            if let Some(e) = db
                 .stripped_members
                 .get(stripped_key)?
                 .map(|v| db.deserialize_value(&v))
                 .transpose()?
             {
                 Ok(Some(MemberEvent::Stripped(e)))
+            } else if let Some(e) =
+                db.members.get(key)?.map(|v| db.deserialize_value(&v)).transpose()?
+            {
+                Ok(Some(MemberEvent::Sync(e)))
             } else {
                 Ok(None)
             }
@@ -1165,6 +1179,13 @@ impl SledStateStore {
             members_batch.remove(key?);
         }
 
+        let mut stripped_members_batch = sled::Batch::default();
+        for key in
+            self.stripped_members.scan_prefix(self.encode_key(STRIPPED_ROOM_MEMBER, room_id)).keys()
+        {
+            stripped_members_batch.remove(key?);
+        }
+
         let mut profiles_batch = sled::Batch::default();
         for key in self.profiles.scan_prefix(self.encode_key(PROFILE, room_id)).keys() {
             profiles_batch.remove(key?);
@@ -1181,6 +1202,15 @@ impl SledStateStore {
             joined_user_ids_batch.remove(key?);
         }
 
+        let mut stripped_joined_user_ids_batch = sled::Batch::default();
+        for key in self
+            .stripped_joined_user_ids
+            .scan_prefix(self.encode_key(STRIPPED_JOINED_USER_ID, room_id))
+            .keys()
+        {
+            stripped_joined_user_ids_batch.remove(key?);
+        }
+
         let mut invited_user_ids_batch = sled::Batch::default();
         for key in
             self.invited_user_ids.scan_prefix(self.encode_key(INVITED_USER_ID, room_id)).keys()
@@ -1188,23 +1218,18 @@ impl SledStateStore {
             invited_user_ids_batch.remove(key?);
         }
 
+        let mut stripped_invited_user_ids_batch = sled::Batch::default();
+        for key in self
+            .stripped_invited_user_ids
+            .scan_prefix(self.encode_key(STRIPPED_INVITED_USER_ID, room_id))
+            .keys()
+        {
+            stripped_invited_user_ids_batch.remove(key?);
+        }
+
         let mut room_state_batch = sled::Batch::default();
         for key in self.room_state.scan_prefix(self.encode_key(ROOM_STATE, room_id)).keys() {
             room_state_batch.remove(key?);
-        }
-
-        let mut room_account_data_batch = sled::Batch::default();
-        for key in
-            self.room_account_data.scan_prefix(self.encode_key(ROOM_ACCOUNT_DATA, room_id)).keys()
-        {
-            room_account_data_batch.remove(key?);
-        }
-
-        let mut stripped_members_batch = sled::Batch::default();
-        for key in
-            self.stripped_members.scan_prefix(self.encode_key(STRIPPED_ROOM_MEMBER, room_id)).keys()
-        {
-            stripped_members_batch.remove(key?);
         }
 
         let mut stripped_room_state_batch = sled::Batch::default();
@@ -1215,6 +1240,64 @@ impl SledStateStore {
         {
             stripped_room_state_batch.remove(key?);
         }
+
+        let mut room_account_data_batch = sled::Batch::default();
+        for key in
+            self.room_account_data.scan_prefix(self.encode_key(ROOM_ACCOUNT_DATA, room_id)).keys()
+        {
+            room_account_data_batch.remove(key?);
+        }
+
+        let ret: Result<(), TransactionError<SledStoreError>> = (
+            &self.members,
+            &self.stripped_members,
+            &self.profiles,
+            &self.display_names,
+            &self.joined_user_ids,
+            &self.stripped_joined_user_ids,
+            &self.invited_user_ids,
+            &self.stripped_invited_user_ids,
+            &self.room_info,
+            &self.stripped_room_infos,
+            &self.room_state,
+            &self.stripped_room_state,
+            &self.room_account_data,
+        )
+            .transaction(
+                |(
+                    members,
+                    stripped_members,
+                    profiles,
+                    display_names,
+                    joined,
+                    stripped_joined,
+                    invited,
+                    stripped_invited,
+                    rooms,
+                    stripped_rooms,
+                    state,
+                    stripped_state,
+                    room_account_data,
+                )| {
+                    rooms.remove(self.encode_key(ROOM, room_id))?;
+                    stripped_rooms.remove(self.encode_key(STRIPPED_ROOM_INFO, room_id))?;
+
+                    members.apply_batch(&members_batch)?;
+                    stripped_members.apply_batch(&stripped_members_batch)?;
+                    profiles.apply_batch(&profiles_batch)?;
+                    display_names.apply_batch(&display_names_batch)?;
+                    joined.apply_batch(&joined_user_ids_batch)?;
+                    stripped_joined.apply_batch(&stripped_joined_user_ids_batch)?;
+                    invited.apply_batch(&invited_user_ids_batch)?;
+                    stripped_invited.apply_batch(&stripped_invited_user_ids_batch)?;
+                    state.apply_batch(&room_state_batch)?;
+                    stripped_state.apply_batch(&stripped_room_state_batch)?;
+                    room_account_data.apply_batch(&room_account_data_batch)?;
+
+                    Ok(())
+                },
+            );
+        ret?;
 
         let mut room_user_receipts_batch = sled::Batch::default();
         for key in
@@ -1232,56 +1315,14 @@ impl SledStateStore {
             room_event_receipts_batch.remove(key?);
         }
 
-        let ret: Result<(), TransactionError<SledStoreError>> = (
-            &self.members,
-            &self.profiles,
-            &self.display_names,
-            &self.joined_user_ids,
-            &self.invited_user_ids,
-            &self.room_info,
-            &self.room_state,
-            &self.room_account_data,
-            &self.stripped_room_infos,
-            &self.stripped_members,
-            &self.stripped_room_state,
-            &self.room_user_receipts,
-            &self.room_event_receipts,
-        )
-            .transaction(
-                |(
-                    members,
-                    profiles,
-                    display_names,
-                    joined,
-                    invited,
-                    rooms,
-                    state,
-                    room_account_data,
-                    stripped_rooms,
-                    stripped_members,
-                    stripped_state,
-                    room_user_receipts,
-                    room_event_receipts,
-                )| {
-                    rooms.remove(self.encode_key(ROOM, room_id))?;
-                    stripped_rooms.remove(self.encode_key(STRIPPED_ROOM_INFO, room_id))?;
-
-                    members.apply_batch(&members_batch)?;
-                    profiles.apply_batch(&profiles_batch)?;
-                    display_names.apply_batch(&display_names_batch)?;
-                    joined.apply_batch(&joined_user_ids_batch)?;
-                    invited.apply_batch(&invited_user_ids_batch)?;
-                    state.apply_batch(&room_state_batch)?;
-                    room_account_data.apply_batch(&room_account_data_batch)?;
-                    stripped_members.apply_batch(&stripped_members_batch)?;
-                    stripped_state.apply_batch(&stripped_room_state_batch)?;
+        let ret: Result<(), TransactionError<SledStoreError>> =
+            (&self.room_user_receipts, &self.room_event_receipts).transaction(
+                |(room_user_receipts, room_event_receipts)| {
                     room_user_receipts.apply_batch(&room_user_receipts_batch)?;
                     room_event_receipts.apply_batch(&room_event_receipts_batch)?;
-
                     Ok(())
                 },
             );
-
         ret?;
 
         #[cfg(feature = "experimental-timeline")]
@@ -1595,27 +1636,30 @@ impl StateStore for SledStateStore {
     }
 
     async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let v: Vec<OwnedUserId> = self.get_user_ids_stream(room_id).await?.try_collect().await?;
+        let v: Vec<OwnedUserId> =
+            self.get_stripped_user_ids_stream(room_id).await?.try_collect().await?;
         if !v.is_empty() {
             return Ok(v);
         }
-        self.get_stripped_user_ids_stream(room_id).await?.try_collect().await
+        self.get_user_ids_stream(room_id).await?.try_collect().await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let v: Vec<OwnedUserId> = self.get_invited_user_ids(room_id).await?.try_collect().await?;
+        let v: Vec<OwnedUserId> =
+            self.get_stripped_invited_user_ids(room_id).await?.try_collect().await?;
         if !v.is_empty() {
             return Ok(v);
         }
-        self.get_stripped_invited_user_ids(room_id).await?.try_collect().await
+        self.get_invited_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        let v: Vec<OwnedUserId> = self.get_joined_user_ids(room_id).await?.try_collect().await?;
+        let v: Vec<OwnedUserId> =
+            self.get_stripped_joined_user_ids(room_id).await?.try_collect().await?;
         if !v.is_empty() {
             return Ok(v);
         }
-        self.get_stripped_joined_user_ids(room_id).await?.try_collect().await
+        self.get_joined_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
