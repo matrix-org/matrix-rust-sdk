@@ -680,7 +680,7 @@ impl Account {
     ///     .await?
     ///     .map(|c| c.deserialize())
     ///     .transpose()?
-    ///     .unwrap_or_else(|| IgnoredUserListEventContent::new(Vec::new()));
+    ///     .unwrap_or_default();
     /// content.ignored_users.push(user_id!("@foo:bar.com").to_owned());
     /// account.set_account_data(content).await?;
     /// # anyhow::Ok(()) };

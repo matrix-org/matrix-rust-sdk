@@ -250,7 +250,7 @@ impl Client {
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .unwrap_or_else(|| DirectEventContent(BTreeMap::new()));
+            .unwrap_or_default();
 
         content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
 
