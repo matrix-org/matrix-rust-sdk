@@ -225,7 +225,6 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
 }
 
 #[derive(Parser, Debug)]
-#[clap()]
 struct Cli {
     /// The homeserver to connect to.
     #[clap(value_parser)]

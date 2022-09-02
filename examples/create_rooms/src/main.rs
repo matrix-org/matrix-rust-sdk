@@ -7,7 +7,6 @@ use matrix_sdk::{
 use url::Url;
 
 #[derive(Parser, Debug)]
-#[clap()]
 struct Cli {
     /// The homeserver to connect to.
     #[clap(value_parser)]
