@@ -238,10 +238,12 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
             kty: "oct".to_owned(),
             key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
             alg: "A256CTR".to_owned(),
+            #[allow(clippy::unnecessary_to_owned)]
             k: Base64::new(key.to_vec()),
             ext: true,
         });
-        let encoded_iv = Base64::new((iv).to_vec());
+        #[allow(clippy::unnecessary_to_owned)]
+        let encoded_iv = Base64::new(iv.to_vec());
 
         let key_array = &key.into();
 

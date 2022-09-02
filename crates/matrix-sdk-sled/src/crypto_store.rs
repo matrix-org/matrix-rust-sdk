@@ -768,7 +768,7 @@ impl CryptoStore for SledCryptoStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &(room_id, sender_key, session_id));
+        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, (room_id, sender_key, session_id));
         let pickle = self
             .inbound_group_sessions
             .get(&key)
@@ -882,7 +882,7 @@ impl CryptoStore for SledCryptoStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        let key = self.encode_key(DEVICE_TABLE_NAME, &(user_id, device_id));
+        let key = self.encode_key(DEVICE_TABLE_NAME, (user_id, device_id));
 
         Ok(self
             .devices
