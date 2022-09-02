@@ -1906,18 +1906,7 @@ impl Client {
         });
 
         let request_config = self.inner.http_client.request_config.timeout(timeout);
-        Ok(self
-            .inner
-            .http_client
-            .send(
-                request,
-                Some(request_config),
-                self.homeserver().await.to_string(),
-                self.access_token().as_deref(),
-                self.user_id(),
-                self.server_versions().await?,
-            )
-            .await?)
+        Ok(self.send(request, Some(request_config)).await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
