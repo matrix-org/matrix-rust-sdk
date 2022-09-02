@@ -1002,7 +1002,7 @@ impl Common {
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .unwrap_or_else(|| DirectEventContent(BTreeMap::new()));
+            .unwrap_or_default();
 
         let this_room_id = self.inner.room_id();
 
