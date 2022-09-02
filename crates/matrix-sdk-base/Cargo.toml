@@ -44,10 +44,10 @@ tracing = "0.1.34"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-ruma = { git = "https://github.com/ruma/ruma", rev = "914e5c21e95c774af8e2883be33e7b6539303545", features = ["client-api-c", "js", "canonical-json"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065", features = ["client-api-c", "js", "canonical-json"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ruma = { git = "https://github.com/ruma/ruma", rev = "914e5c21e95c774af8e2883be33e7b6539303545", features = ["client-api-c", "canonical-json"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065", features = ["client-api-c", "canonical-json"] }
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
