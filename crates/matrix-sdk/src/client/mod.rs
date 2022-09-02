@@ -304,6 +304,19 @@ impl Client {
         Ok(())
     }
 
+    /// Get a copy of the default request config.
+    ///
+    /// The default request config is what's used when sending requests if no
+    /// `RequestConfig` is explicitly passed to [`send`][Self::send] or another
+    /// function with such a parameter.
+    ///
+    /// If the default request config was not customized through
+    /// [`ClientBuilder`] when creating this `Client`, the returned value will
+    /// be equivalent to [`RequestConfig::default()`].
+    pub fn request_config(&self) -> RequestConfig {
+        self.inner.http_client.request_config
+    }
+
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
         self.inner.base_client.logged_in()
@@ -1905,7 +1918,7 @@ impl Client {
             content_type: Some(content_type.essence_str()),
         });
 
-        let request_config = self.inner.http_client.request_config.timeout(timeout);
+        let request_config = self.request_config().timeout(timeout);
         Ok(self.send(request, Some(request_config)).await?)
     }
 
@@ -2248,10 +2261,10 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let request_config = self.inner.http_client.request_config.timeout(
-            sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
-                + self.inner.http_client.request_config.timeout,
-        );
+        let mut request_config = self.request_config();
+        if let Some(timeout) = sync_settings.timeout {
+            request_config.timeout += timeout;
+        }
 
         let response = self.send(request, Some(request_config)).await?;
         let response = self.process_sync(response).await?;
@@ -2876,7 +2889,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
+        assert!(client.request_config().retry_limit.unwrap() == 3);
 
         Mock::given(method("POST"))
             .and(path("/_matrix/client/r0/login"))
@@ -2899,7 +2912,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
+        assert!(client.request_config().retry_timeout.unwrap() == retry_timeout);
 
         Mock::given(method("POST"))
             .and(path("/_matrix/client/r0/login"))
