@@ -1,12 +1,13 @@
 use std::{
-    env, io,
-    process::exit,
+    io,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
 };
 
+use anyhow::Result;
+use clap::Parser;
 use matrix_sdk::{
     self,
     config::SyncSettings,
@@ -23,7 +24,10 @@ use matrix_sdk::{
 use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: SasVerification) {
-    println!("Does the emoji match: {:?}", sas.emoji());
+    let emoji = sas.emoji().expect("The emoji should be available now");
+    let emoji: Vec<&str> = emoji.iter().map(|e| e.symbol).collect();
+
+    println!("Does the emoji match: {:?}", emoji);
 
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
@@ -65,16 +69,7 @@ async fn print_devices(user_id: &UserId, client: &Client) {
     }
 }
 
-async fn login(homeserver_url: String, username: &str, password: &str) -> matrix_sdk::Result<()> {
-    let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new(homeserver_url).await.unwrap();
-
-    client
-        .login_username(username, password)
-        .initial_device_display_name("rust-sdk")
-        .send()
-        .await?;
-
+async fn sync(client: Client) -> matrix_sdk::Result<()> {
     let client_ref = &client;
     let initial_sync = Arc::new(AtomicBool::from(true));
     let initial_ref = &initial_sync;
@@ -86,6 +81,15 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
 
             for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
                 match event {
+                    AnyToDeviceEvent::KeyVerificationRequest(e) => {
+                        let request = client
+                            .encryption()
+                            .get_verification_request(&e.sender, &e.content.transaction_id)
+                            .await
+                            .expect("Request object wasn't created");
+
+                        request.accept().await.expect("Can't accept verification request");
+                    }
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         if let Some(Verification::SasV1(sas)) = client
                             .encryption()
@@ -220,23 +224,49 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
     Ok(())
 }
 
+#[derive(Parser, Debug)]
+#[clap()]
+struct Cli {
+    /// The homeserver to connect to.
+    #[clap(value_parser)]
+    homeserver: Url,
+
+    /// The user name that should be used for the login.
+    #[clap(value_parser)]
+    user_name: String,
+
+    /// The password that should be used for the login.
+    #[clap(value_parser)]
+    password: String,
+
+    /// Set the proxy that should be used for the connection.
+    #[clap(short, long)]
+    proxy: Option<Url>,
+}
+
+async fn login(cli: Cli) -> Result<Client> {
+    let builder = Client::builder().homeserver_url(cli.homeserver);
+
+    let builder = if let Some(proxy) = cli.proxy { builder.proxy(proxy) } else { builder };
+
+    let client = builder.build().await?;
+
+    client
+        .login_username(&cli.user_name, &cli.password)
+        .initial_device_display_name("rust-sdk")
+        .send()
+        .await?;
+
+    Ok(client)
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+    let cli = Cli::parse();
+    let client = login(cli).await?;
 
-    let (homeserver_url, username, password) =
-        match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
-            (Some(a), Some(b), Some(c)) => (a, b, c),
-            _ => {
-                eprintln!(
-                    "Usage: {} <homeserver_url> <username> <password>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-            }
-        };
-
-    login(homeserver_url, &username, &password).await?;
+    sync(client).await?;
 
     Ok(())
 }

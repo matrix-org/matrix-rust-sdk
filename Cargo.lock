@@ -550,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.19"
+version = "3.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68d43934757334b5c0519ff882e1ab9647ac0258b47c24c4f490d78e42697fd5"
+checksum = "23b71c3ce99b7611011217b366d923f1d0a7e07a92bb2dbf1e84508c673ca3bd"
 dependencies = [
  "atty",
  "bitflags",
@@ -1215,7 +1215,7 @@ name = "example-create-rooms"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap 3.2.19",
+ "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -1250,6 +1250,7 @@ name = "example-emoji-verification"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -4020,7 +4021,7 @@ name = "sled-state-inspector"
 version = "0.1.0"
 dependencies = [
  "atty",
- "clap 3.2.19",
+ "clap 3.2.20",
  "futures",
  "matrix-sdk-base",
  "matrix-sdk-sled",
@@ -4575,7 +4576,7 @@ dependencies = [
  "bincode",
  "camino",
  "cargo_metadata",
- "clap 3.2.19",
+ "clap 3.2.20",
  "fs-err",
  "goblin",
  "heck",
@@ -5102,7 +5103,7 @@ checksum = "4916a4a3cad759e499a3620523bf9545cc162d7a06163727dde97ce9aaa4cf39"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "clap 3.2.19",
+ "clap 3.2.20",
  "serde",
  "serde_json",
  "xshell",
