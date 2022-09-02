@@ -241,6 +241,10 @@ struct Cli {
     /// Set the proxy that should be used for the connection.
     #[clap(short, long)]
     proxy: Option<Url>,
+
+    /// Enable verbose logging output.
+    #[clap(short, long, action)]
+    verbose: bool,
 }
 
 async fn login(cli: Cli) -> Result<Client> {
@@ -261,8 +265,12 @@ async fn login(cli: Cli) -> Result<Client> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
+
+    if cli.verbose {
+        tracing_subscriber::fmt::init();
+    }
+
     let client = login(cli).await?;
 
     sync(client).await?;
