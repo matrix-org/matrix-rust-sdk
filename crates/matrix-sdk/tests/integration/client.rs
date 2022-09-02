@@ -538,9 +538,9 @@ async fn get_media_content() {
         .mount(&server)
         .await;
 
-    client.get_media_content(&request, true).await.unwrap();
-    client.get_media_content(&request, true).await.unwrap();
-    client.get_media_content(&request, false).await.unwrap();
+    client.media().get_media_content(&request, true).await.unwrap();
+    client.media().get_media_content(&request, true).await.unwrap();
+    client.media().get_media_content(&request, false).await.unwrap();
 }
 
 #[async_test]
@@ -566,8 +566,8 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    client.get_file(event_content.clone(), true).await.unwrap();
-    client.get_file(event_content.clone(), true).await.unwrap();
+    client.media().get_file(event_content.clone(), true).await.unwrap();
+    client.media().get_file(event_content.clone(), true).await.unwrap();
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
@@ -580,6 +580,7 @@ async fn get_media_file() {
         .await;
 
     client
+        .media()
         .get_thumbnail(
             event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
