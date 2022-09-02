@@ -2444,7 +2444,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::UserId;
+    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
@@ -2472,9 +2472,16 @@ pub(crate) mod tests {
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        // let bc = &client.base_client;
-        // let ignored_users = bc.ignored_users.read().await;
-        // assert_eq!(1, ignored_users.len())
+        let content = client
+            .account()
+            .account_data::<IgnoredUserListEventContent>()
+            .await
+            .unwrap()
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(content.ignored_users.len(), 1);
     }
 
     #[async_test]
