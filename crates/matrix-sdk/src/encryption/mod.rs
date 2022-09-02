@@ -46,9 +46,7 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign,
-    events::GlobalAccountDataEventType,
-    DeviceId, OwnedUserId, TransactionId, UserId,
+    assign, DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -225,7 +223,9 @@ impl Client {
         &self,
         user_id: OwnedUserId,
     ) -> Result<Option<room::Joined>> {
-        use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
 
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -245,13 +245,12 @@ impl Client {
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
         let mut content = self
-            .store()
-            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .account()
+            .account_data::<DirectEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<DirectEvent>())
+            .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+            .unwrap_or_else(|| DirectEventContent(BTreeMap::new()));
 
         content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
 
