@@ -904,7 +904,7 @@ mod tests {
             )
             .build_sync_response();
 
-        client.inner.base_client.receive_sync_response(response).await.unwrap();
+        client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_joined_room(room_id).expect("Room should exist");
         assert!(room.is_encrypted());

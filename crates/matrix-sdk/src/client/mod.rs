@@ -145,7 +145,7 @@ pub(crate) struct ClientInner {
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
-    pub(crate) base_client: BaseClient,
+    base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
     server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
