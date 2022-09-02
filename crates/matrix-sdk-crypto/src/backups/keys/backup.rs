@@ -93,7 +93,7 @@ impl MegolmV1BackupKey {
 
     /// Convert the [`MegolmV1BackupKey`] to a base 64 encoded string.
     pub fn to_base64(&self) -> String {
-        crate::utilities::encode(&self.inner.key)
+        crate::utilities::encode(self.inner.key)
     }
 
     /// Get the backup version that this key is used with, if any.

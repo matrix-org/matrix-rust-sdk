@@ -185,10 +185,10 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
 
     let mut payload: Vec<u8> = vec![];
 
-    payload.extend(&VERSION.to_be_bytes());
-    payload.extend(&salt);
-    payload.extend(&iv);
-    payload.extend(&rounds.to_be_bytes());
+    payload.extend(VERSION.to_be_bytes());
+    payload.extend(salt);
+    payload.extend(iv);
+    payload.extend(rounds.to_be_bytes());
     payload.extend_from_slice(plaintext);
 
     let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create HMAC object");
