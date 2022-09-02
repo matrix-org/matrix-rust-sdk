@@ -40,10 +40,9 @@ impl RoomMember {
     /// # Example
     /// ```no_run
     /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::ruma::room_id;
-    /// # use matrix_sdk::RoomMember;
-    /// # use matrix_sdk::media::MediaFormat;
+    /// # use matrix_sdk::{
+    /// #     media::MediaFormat, room::RoomMember, ruma::room_id, Client,
+    /// # };
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
