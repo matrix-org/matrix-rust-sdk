@@ -70,8 +70,8 @@ use ruma::{
         SyncStateEvent,
     },
     presence::PresenceState,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
-    ServerName, UInt, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
+    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1590,13 +1590,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1650,13 +1653,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         if let Err(e) = tx.send(room).await {
                             debug!(
@@ -1779,12 +1785,17 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
+                    if event.origin_server_ts() <= now {
+                        return;
+                    }
+
                     let event_content = if let Some(original_event) = event.as_original() {
                         &original_event.content
                     } else {

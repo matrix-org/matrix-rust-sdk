@@ -46,7 +46,8 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, warn};
@@ -117,6 +118,7 @@ impl Common {
 
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
                 let mut tx = tx.clone();
@@ -125,6 +127,7 @@ impl Common {
                 async move {
                     if *event.membership() == MembershipState::Leave
                         && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");
 
