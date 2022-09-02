@@ -38,7 +38,6 @@ pub mod event_handler;
 mod http_client;
 /// High-level room API
 pub mod room;
-mod room_member;
 pub mod store;
 mod sync;
 
@@ -53,7 +52,6 @@ pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
-pub use room_member::RoomMember;
 
 #[cfg(test)]
 mod test_utils;

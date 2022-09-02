@@ -3,9 +3,10 @@ use std::ops::Deref;
 use thiserror::Error;
 
 use crate::{
-    room::{Common, Joined, Left},
-    BaseRoom, Client, Error, Result, RoomMember, RoomType,
+    room::{Common, Joined, Left, RoomMember},
+    BaseRoom, Client, Error, Result, RoomType,
 };
+
 /// A room in the invited state.
 ///
 /// This struct contains all methods specific to a `Room` with type

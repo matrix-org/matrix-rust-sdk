@@ -54,8 +54,8 @@ use tracing::{debug, warn};
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Joined, Left, Room, RoomType},
-    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
+    room::{Joined, Left, Room, RoomMember, RoomType},
+    BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
