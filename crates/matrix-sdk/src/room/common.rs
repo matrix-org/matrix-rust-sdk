@@ -32,7 +32,7 @@ use ruma::{
     },
     assign,
     events::{
-        direct::DirectEvent,
+        direct::DirectEventContent,
         room::{
             history_visibility::HistoryVisibility,
             member::{MembershipState, RoomMemberEventContent},
@@ -40,10 +40,10 @@ use ruma::{
             MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey,
-        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
+        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
@@ -997,13 +997,12 @@ impl Common {
 
         let mut content = self
             .client
-            .store()
-            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .account()
+            .account_data::<DirectEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<DirectEvent>())
+            .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+            .unwrap_or_else(|| DirectEventContent(BTreeMap::new()));
 
         let this_room_id = self.inner.room_id();
 
