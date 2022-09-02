@@ -20,8 +20,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    media, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
-    Session, StateChanges, StoreError,
+    DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
+    StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -36,6 +36,7 @@ pub mod config;
 mod error;
 pub mod event_handler;
 mod http_client;
+pub mod media;
 /// High-level room API
 pub mod room;
 pub mod store;
@@ -52,6 +53,7 @@ pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
+pub use media::Media;
 
 #[cfg(test)]
 mod test_utils;

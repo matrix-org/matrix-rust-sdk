@@ -119,7 +119,7 @@ impl Client {
             let mut buf = Vec::new();
             encryptor.read_to_end(&mut buf)?;
 
-            let response = self.upload(thumbnail.content_type, &buf).await?;
+            let response = self.media().upload(thumbnail.content_type, &buf).await?;
 
             let file: ruma::events::room::EncryptedFile = {
                 let keys = encryptor.finish();
@@ -151,7 +151,7 @@ impl Client {
         let mut buf = Vec::new();
         encryptor.read_to_end(&mut buf)?;
 
-        let response = self.upload(content_type, &buf).await?;
+        let response = self.media().upload(content_type, &buf).await?;
 
         let file: ruma::events::room::EncryptedFile = {
             let keys = encryptor.finish();

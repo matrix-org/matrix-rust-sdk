@@ -177,7 +177,7 @@ impl Account {
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
             let request = MediaRequest { source: MediaSource::Plain(url), format };
-            Ok(Some(self.client.get_media_content(&request, true).await?))
+            Ok(Some(self.client.media().get_media_content(&request, true).await?))
         } else {
             Ok(None)
         }
@@ -189,7 +189,7 @@ impl Account {
     /// content repository, and set the user's avatar to the MXC URI for the
     /// uploaded file.
     ///
-    /// This is a convenience method for calling [`Client::upload()`],
+    /// This is a convenience method for calling [`Media::upload()`],
     /// followed by [`Account::set_avatar_url()`].
     ///
     /// Returns the MXC URI of the uploaded avatar.
@@ -208,8 +208,10 @@ impl Account {
     /// client.account().upload_avatar(&mime::IMAGE_JPEG, &image).await?;
     /// # anyhow::Ok(()) });
     /// ```
+    ///
+    /// [`Media::upload()`]: crate::Media::upload
     pub async fn upload_avatar(&self, content_type: &Mime, data: &[u8]) -> Result<OwnedMxcUri> {
-        let upload_response = self.client.upload(content_type, data).await?;
+        let upload_response = self.client.media().upload(content_type, data).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
     }
