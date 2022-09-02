@@ -38,6 +38,7 @@ impl RoomMember {
     /// * `format` - The desired format of the avatar.
     ///
     /// # Example
+    ///
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::{
@@ -48,7 +49,7 @@ impl RoomMember {
     /// # block_on(async {
     /// # let user = "example";
     /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
+    /// client.login_username(user, "password").send().await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
     /// let room = client.get_joined_room(&room_id).unwrap();
     /// let members = room.members().await.unwrap();
