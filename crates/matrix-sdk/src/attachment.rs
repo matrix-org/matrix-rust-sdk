@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types and traits for attachments.
+
 #[cfg(feature = "image-proc")]
 use std::io::{BufRead, Cursor, Seek};
 use std::time::Duration;

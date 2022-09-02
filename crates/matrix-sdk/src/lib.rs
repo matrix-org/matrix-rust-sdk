@@ -29,7 +29,6 @@ pub use reqwest;
 pub use ruma;
 
 mod account;
-/// Types and traits for attachments.
 pub mod attachment;
 mod client;
 pub mod config;
@@ -37,7 +36,6 @@ mod error;
 pub mod event_handler;
 mod http_client;
 pub mod media;
-/// High-level room API
 pub mod room;
 pub mod store;
 mod sync;
