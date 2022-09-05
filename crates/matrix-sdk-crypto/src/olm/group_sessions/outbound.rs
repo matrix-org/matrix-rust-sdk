@@ -28,8 +28,8 @@ use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
-    DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, SecondsSinceUnixEpoch,
+    TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -41,12 +41,18 @@ pub use vodozemac::{
     PickleError,
 };
 
+use super::SessionCreationError;
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
-    types::events::{
-        room::encrypted::{
-            MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+    types::{
+        events::{
+            room::encrypted::{
+                MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+            },
+            room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
         },
-        room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
+        EventEncryptionAlgorithm,
     },
     Device, ToDeviceRequest,
 };
@@ -107,7 +113,7 @@ impl EncryptionSettings {
             content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
 
         Self {
-            algorithm: content.algorithm,
+            algorithm: EventEncryptionAlgorithm::from(content.algorithm.as_str()),
             rotation_period,
             rotation_period_msgs,
             history_visibility,
@@ -153,6 +159,17 @@ pub struct ShareInfo {
 }
 
 impl OutboundGroupSession {
+    pub(super) fn session_config(
+        algorithm: &EventEncryptionAlgorithm,
+    ) -> Result<SessionConfig, SessionCreationError> {
+        match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(SessionConfig::version_1()),
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => Ok(SessionConfig::version_2()),
+            _ => Err(SessionCreationError::Algorithm(algorithm.to_owned())),
+        }
+    }
+
     /// Create a new outbound group session for the given room.
     ///
     /// Outbound group sessions are used to encrypt room messages.
@@ -173,11 +190,13 @@ impl OutboundGroupSession {
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
-    ) -> Self {
-        let session = GroupSession::new(SessionConfig::version_1());
+    ) -> Result<Self, SessionCreationError> {
+        let config = Self::session_config(&settings.algorithm)?;
+
+        let session = GroupSession::new(config);
         let session_id = session.session_id();
 
-        OutboundGroupSession {
+        Ok(OutboundGroupSession {
             inner: RwLock::new(session).into(),
             room_id: room_id.into(),
             device_id,
@@ -190,7 +209,7 @@ impl OutboundGroupSession {
             settings: Arc::new(settings),
             shared_with_set: Arc::new(DashMap::new()),
             to_share_with_set: Arc::new(DashMap::new()),
-        }
+        })
     }
 
     pub(crate) fn add_request(
@@ -297,14 +316,26 @@ impl OutboundGroupSession {
         let relates_to = content.get("m.relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
-
-        let scheme: RoomEventEncryptionScheme = MegolmV1AesSha2Content {
-            ciphertext,
-            sender_key: self.account_identity_keys.curve25519,
-            session_id: self.session_id().to_owned(),
-            device_id: (*self.device_id).to_owned(),
-        }
-        .into();
+        let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
+                ciphertext,
+                sender_key: self.account_identity_keys.curve25519,
+                session_id: self.session_id().to_owned(),
+                device_id: (*self.device_id).to_owned(),
+            }
+            .into(),
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => MegolmV2AesSha2Content {
+                ciphertext,
+                session_id: self.session_id().to_owned(),
+                sender_key: self.account_identity_keys.curve25519,
+                device_id: (*self.device_id).to_owned(),
+            }
+            .into(),
+            _ => unreachable!(
+                "An outbound group session is always using one of the supported algorithms"
+            ),
+        };
 
         let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
 

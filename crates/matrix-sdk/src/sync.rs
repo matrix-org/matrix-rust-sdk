@@ -7,7 +7,7 @@ use matrix_sdk_base::{
 use ruma::api::client::sync::sync_events;
 use tracing::{error, warn};
 
-use crate::{event_handler::EventKind, Client, Result};
+use crate::{event_handler::HandlerKind, Client, Result};
 
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
@@ -29,9 +29,10 @@ impl Client {
             notifications,
         } = &response;
 
-        self.handle_sync_events(EventKind::GlobalAccountData, &None, &account_data.events).await?;
-        self.handle_sync_events(EventKind::Presence, &None, &presence.events).await?;
-        self.handle_sync_events(EventKind::ToDevice, &None, &to_device.events).await?;
+        self.handle_sync_events(HandlerKind::GlobalAccountData, &None, &account_data.events)
+            .await?;
+        self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
+        self.handle_sync_events(HandlerKind::ToDevice, &None, &to_device.events).await?;
 
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
@@ -43,8 +44,9 @@ impl Client {
             let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
                 room_info;
 
-            self.handle_sync_events(EventKind::EphemeralRoomData, &room, &ephemeral.events).await?;
-            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+            self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, &ephemeral.events)
+                .await?;
+            self.handle_sync_events(HandlerKind::RoomAccountData, &room, &account_data.events)
                 .await?;
             self.handle_sync_state_events(&room, &state.events).await?;
             self.handle_sync_timeline_events(&room, &timeline.events).await?;
@@ -59,7 +61,7 @@ impl Client {
 
             let LeftRoom { timeline, state, account_data } = room_info;
 
-            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+            self.handle_sync_events(HandlerKind::RoomAccountData, &room, &account_data.events)
                 .await?;
             self.handle_sync_state_events(&room, &state.events).await?;
             self.handle_sync_timeline_events(&room, &timeline.events).await?;
@@ -74,7 +76,7 @@ impl Client {
 
             // FIXME: Destructure room_info
             self.handle_sync_events(
-                EventKind::StrippedState,
+                HandlerKind::StrippedState,
                 &room,
                 &room_info.invite_state.events,
             )

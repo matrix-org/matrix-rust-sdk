@@ -2,7 +2,7 @@ use core::pin::Pin;
 use std::sync::Arc;
 
 use futures_core::Stream;
-use matrix_sdk::{deserialized_responses::SyncRoomEvent, locks::Mutex, Result};
+use matrix_sdk::{deserialized_responses::SyncTimelineEvent, locks::Mutex, Result};
 use tokio_stream::StreamExt;
 use tracing::error;
 
@@ -11,7 +11,7 @@ use super::{
     RUNTIME,
 };
 
-type MsgStream = Pin<Box<dyn Stream<Item = Result<SyncRoomEvent>> + Send>>;
+type MsgStream = Pin<Box<dyn Stream<Item = Result<SyncTimelineEvent>> + Send>>;
 
 pub struct BackwardsStream {
     stream: Arc<Mutex<MsgStream>>,

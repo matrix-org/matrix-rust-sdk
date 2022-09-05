@@ -27,12 +27,12 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
-    DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, UserId,
+    DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use tracing::warn;
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
+use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing"))]
@@ -47,7 +47,7 @@ use crate::{
             forwarded_room_key::ForwardedRoomKeyContent,
             room::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
-        DeviceKey, DeviceKeys, Signatures, SignedKey,
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey, SigningKey,
     },
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
@@ -141,7 +141,36 @@ impl Device {
         }
     }
 
-    /// Request an interacitve verification with this `Device`
+    /// Is this our own device?
+    pub fn is_our_own_device(&self) -> bool {
+        let own_ed25519_key = self.verification_machine.store.account.identity_keys().ed25519;
+        let own_curve25519_key = self.verification_machine.store.account.identity_keys().curve25519;
+
+        self.user_id() == self.verification_machine.own_user_id()
+            && self.device_id() == self.verification_machine.own_device_id()
+            && self.ed25519_key().map(|k| k == own_ed25519_key).unwrap_or(false)
+            && self.curve25519_key().map(|k| k == own_curve25519_key).unwrap_or(false)
+    }
+
+    /// Does the given `InboundGroupSession` belong to this device?
+    ///
+    /// An `InboundGroupSession` is exchanged between devices as an Olm
+    /// encrypted `m.room_key` event. This method determines if this `Device`
+    /// can be confirmed as the creator and owner of the `m.room_key`.
+    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> bool {
+        if session.has_been_imported() {
+            false
+        } else if let Some(SigningKey::Ed25519(key)) =
+            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519)
+        {
+            self.ed25519_key().map(|k| k == *key).unwrap_or(false)
+                && self.curve25519_key().map(|k| k == session.sender_key).unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that
     /// needs to be sent out.
@@ -149,7 +178,7 @@ impl Device {
         self.request_verification_helper(None).await
     }
 
-    /// Request an interacitve verification with this `Device`
+    /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that
     /// needs to be sent out.
@@ -193,8 +222,8 @@ impl Device {
     ///
     /// [`is_locally_trusted()`]: #method.is_locally_trusted
     /// [`is_cross_signing_trusted()`]: #method.is_cross_signing_trusted
-    pub fn verified(&self) -> bool {
-        self.inner.verified(&self.own_identity, &self.device_owner_identity)
+    pub fn is_verified(&self) -> bool {
+        self.inner.is_verified(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Is this device considered to be verified using cross signing.
@@ -323,7 +352,7 @@ impl UserDevices {
             .filter(|d| {
                 !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
             })
-            .any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
+            .any(|d| d.is_verified(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -461,12 +490,46 @@ impl ReadOnlyDevice {
         &self.inner.algorithms
     }
 
+    /// Does this device support any of our known Olm encryption algorithms.
+    pub fn supports_olm(&self) -> bool {
+        #[cfg(feature = "experimental-algorithms")]
+        {
+            self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+                || self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+        }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        {
+            self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+        }
+    }
+
+    /// Does this device support the olm.v2.curve25519-aes-sha2 encryption
+    /// algorithm.
+    #[cfg(feature = "experimental-algorithms")]
+    pub fn supports_olm_v2(&self) -> bool {
+        self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+    }
+
+    /// Get the optimal `SessionConfig` for this device.
+    pub fn olm_session_config(&self) -> SessionConfig {
+        #[cfg(feature = "experimental-algorithms")]
+        if self.supports_olm_v2() {
+            SessionConfig::version_2()
+        } else {
+            SessionConfig::version_1()
+        }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        SessionConfig::version_1()
+    }
+
     /// Is the device deleted.
-    pub fn deleted(&self) -> bool {
+    pub fn is_deleted(&self) -> bool {
         self.deleted.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn verified(
+    pub(crate) fn is_verified(
         &self,
         own_identity: &Option<ReadOnlyOwnUserIdentity>,
         device_owner: &Option<ReadOnlyUserIdentities>,
@@ -746,12 +809,12 @@ pub(crate) mod tests {
     #[test]
     fn delete_a_device() {
         let device = get_device();
-        assert!(!device.deleted());
+        assert!(!device.is_deleted());
 
         let device_clone = device.clone();
 
         device.mark_as_deleted();
-        assert!(device.deleted());
-        assert!(device_clone.deleted());
+        assert!(device.is_deleted());
+        assert!(device_clone.is_deleted());
     }
 }

@@ -5,13 +5,13 @@ pub use matrix_sdk::ruma::events::room::{
     message::RoomMessageEventContent as MessageEventContent, MediaSource,
 };
 use matrix_sdk::{
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::SyncTimelineEvent,
     ruma::events::{
         room::{
             message::{ImageMessageEventContent, MessageFormat, MessageType},
             ImageInfo,
         },
-        AnySyncMessageLikeEvent, AnySyncRoomEvent, SyncMessageLikeEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
     },
 };
 
@@ -144,9 +144,9 @@ impl AnyMessage {
     }
 }
 
-pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage>> {
+pub fn sync_event_to_message(sync_event: SyncTimelineEvent) -> Option<Arc<AnyMessage>> {
     match sync_event.event.deserialize() {
-        Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+        Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncMessageLikeEvent::Original(m),
         ))) => {
             let base_message = Arc::new(BaseMessage {

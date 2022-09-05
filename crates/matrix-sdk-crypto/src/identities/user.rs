@@ -207,7 +207,7 @@ impl Deref for UserIdentity {
 
 impl UserIdentity {
     /// Is this user identity verified.
-    pub fn verified(&self) -> bool {
+    pub fn is_verified(&self) -> bool {
         self.own_identity
             .as_ref()
             .map(|o| o.is_identity_signed(&self.inner).is_ok())
@@ -1046,8 +1046,8 @@ pub(crate) mod tests {
         assert!(!first.is_cross_signing_trusted());
 
         identity.mark_as_verified();
-        assert!(second.verified());
-        assert!(!first.verified());
+        assert!(second.is_verified());
+        assert!(!first.is_verified());
     }
 
     #[async_test]
@@ -1075,12 +1075,12 @@ pub(crate) mod tests {
             device_owner_identity: Some(public_identity.clone().into()),
         };
 
-        assert!(!device.verified());
+        assert!(!device.is_verified());
 
         let mut device_keys = device.as_device_keys().to_owned();
 
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
-        assert!(device.verified());
+        assert!(device.is_verified());
     }
 }

@@ -116,11 +116,12 @@ impl ClientBuilder {
     /// Set the user ID to discover the homeserver from.
     ///
     /// `builder.user_id(id)` is a shortcut for
-    /// `builder.server_name(id.server_name())`.
+    /// <code>builder.[server_name](Self::server_name)(id.server_name())</code>.
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
+    #[deprecated = "Use `server_name(user_id.server_name())` instead"]
     pub fn user_id(self, user_id: &UserId) -> Self {
         self.server_name(user_id.server_name())
     }
@@ -427,8 +428,6 @@ impl ClientBuilder {
             members_request_locks: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
-            event_handler_data: Default::default(),
-            event_handler_counter: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,

@@ -26,17 +26,21 @@ use std::{
 };
 
 use futures_util::stream::{self, StreamExt};
-use matrix_sdk_base::crypto::{
-    store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
-    ToDeviceRequest,
+pub use matrix_sdk_base::crypto::{
+    olm::{
+        SessionCreationError as MegolmSessionCreationError,
+        SessionExportError as OlmSessionExportError,
+    },
+    vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError,
 };
-pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
+use matrix_sdk_base::crypto::{
+    CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+};
 use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
-use ruma::{
-    api::client::config::set_global_account_data, events::GlobalAccountDataEventContent,
-    OwnedDeviceId,
-};
+use ruma::OwnedDeviceId;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -49,19 +53,18 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign,
-    events::GlobalAccountDataEventType,
-    DeviceId, OwnedUserId, TransactionId, UserId,
+    assign, DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
+pub use crate::error::RoomKeyImportError;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
     },
-    error::{HttpError, HttpResult, RoomKeyImportError},
+    error::HttpResult,
     room, Client, Error, Result,
 };
 
@@ -109,21 +112,25 @@ impl Client {
     /// Encrypt and upload the file to be read from `reader` and construct an
     /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn prepare_encrypted_attachment_message<R: Read, T: Read>(
+    pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
         body: &str,
         content_type: &mime::Mime,
-        reader: &mut R,
+        data: &[u8],
         info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_, T>>,
+        thumbnail: Option<Thumbnail<'_>>,
     ) -> Result<ruma::events::room::message::MessageType> {
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
+            let mut cursor = Cursor::new(thumbnail.data);
+            let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
 
-            let response = self.upload(thumbnail.content_type, &mut reader).await?;
+            let mut buf = Vec::new();
+            encryptor.read_to_end(&mut buf)?;
+
+            let response = self.media().upload(thumbnail.content_type, &buf).await?;
 
             let file: ruma::events::room::EncryptedFile = {
-                let keys = reader.finish();
+                let keys = encryptor.finish();
                 ruma::events::room::EncryptedFileInit {
                     url: response.content_uri,
                     key: keys.key,
@@ -147,12 +154,15 @@ impl Client {
             (None, None)
         };
 
-        let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
+        let mut cursor = Cursor::new(data);
+        let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
+        let mut buf = Vec::new();
+        encryptor.read_to_end(&mut buf)?;
 
-        let response = self.upload(content_type, &mut reader).await?;
+        let response = self.media().upload(content_type, &buf).await?;
 
         let file: ruma::events::room::EncryptedFile = {
-            let keys = reader.finish();
+            let keys = encryptor.finish();
             ruma::events::room::EncryptedFileInit {
                 url: response.content_uri,
                 key: keys.key,
@@ -162,6 +172,8 @@ impl Client {
             }
             .into()
         };
+
+        use std::io::Cursor;
 
         use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {
@@ -215,27 +227,13 @@ impl Client {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn send_account_data<T>(
-        &self,
-        content: T,
-    ) -> Result<set_global_account_data::v3::Response>
-    where
-        T: GlobalAccountDataEventContent,
-    {
-        let own_user =
-            self.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
-
-        let request = set_global_account_data::v3::Request::new(&content, own_user)?;
-
-        Ok(self.send(request, None).await?)
-    }
-
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn create_dm_room(
         &self,
         user_id: OwnedUserId,
     ) -> Result<Option<room::Joined>> {
-        use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
 
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -255,20 +253,19 @@ impl Client {
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
         let mut content = self
-            .store()
-            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .account()
+            .account_data::<DirectEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<DirectEvent>())
+            .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+            .unwrap_or_default();
 
         content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
 
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
-        self.send_account_data(content).await?;
+        self.account().set_account_data(content).await?;
 
         // If the room is already in our store, fetch it, otherwise wait for a
         // sync to be done which should put the room into our store.
@@ -565,9 +562,9 @@ impl Encryption {
     /// if let Some(device) =
     ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?
     /// {
-    ///     println!("{:?}", device.verified());
+    ///     println!("{:?}", device.is_verified());
     ///
-    ///     if !device.verified() {
+    ///     if !device.is_verified() {
     ///         let verification = device.request_verification().await?;
     ///     }
     /// }
@@ -647,7 +644,7 @@ impl Encryption {
     /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
-    ///     println!("{:?}", user.verified());
+    ///     println!("{:?}", user.is_verified());
     ///
     ///     let verification = user.request_verification().await?;
     /// }
@@ -907,7 +904,7 @@ mod tests {
             )
             .build_sync_response();
 
-        client.inner.base_client.receive_sync_response(response).await.unwrap();
+        client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_joined_room(room_id).expect("Room should exist");
         assert!(room.is_encrypted());

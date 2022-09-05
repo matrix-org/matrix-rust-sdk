@@ -3,9 +3,10 @@ use std::ops::Deref;
 use thiserror::Error;
 
 use crate::{
-    room::{Common, Joined, Left},
-    BaseRoom, Client, Error, Result, RoomMember, RoomType,
+    room::{Common, Joined, Left, RoomMember},
+    BaseRoom, Client, Error, Result, RoomType,
 };
+
 /// A room in the invited state.
 ///
 /// This struct contains all methods specific to a `Room` with type
@@ -42,10 +43,9 @@ impl Invited {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
-    pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
-        // TODO: Make this private
+    pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
         if room.room_type() == RoomType::Invited {
-            Some(Self { inner: Common::new(client, room) })
+            Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None
         }

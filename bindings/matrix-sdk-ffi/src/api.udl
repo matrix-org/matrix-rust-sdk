@@ -1,9 +1,6 @@
-namespace sdk {
-    void setup_tracing(string configuration);
-
+namespace matrix_sdk_ffi {
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
-    string gen_transaction_id();
 };
 
 [Error]
@@ -65,6 +62,12 @@ interface Client {
     [Throws=ClientError]
     string device_id();
 
+    [Throws=ClientError]
+    string? account_data(string event_type);
+
+    [Throws=ClientError]
+    void set_account_data(string event_type, string content);
+
     sequence<Room> rooms();
 
     [Throws=ClientError]
@@ -91,9 +94,9 @@ interface Room {
     string? name();
     string? topic();
     string? avatar_url();
-    
+
     Membership membership();
-    
+
     boolean is_direct();
     boolean is_public();
     boolean is_space();
@@ -179,15 +182,15 @@ interface HomeserverLoginDetails {
 
 interface AuthenticationService {
     constructor(string base_path);
-    
+
     HomeserverLoginDetails? homeserver_details();
-    
+
     [Throws=AuthenticationError]
     void configure_homeserver(string server_name);
-    
+
     [Throws=AuthenticationError]
     Client login(string username, string password);
-    
+
     [Throws=AuthenticationError]
     Client restore_with_access_token(string token, string device_id);
 };

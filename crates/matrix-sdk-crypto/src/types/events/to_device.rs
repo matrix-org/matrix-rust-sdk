@@ -23,7 +23,6 @@ use ruma::{
             mac::ToDeviceKeyVerificationMacEvent, ready::ToDeviceKeyVerificationReadyEvent,
             request::ToDeviceKeyVerificationRequestEvent, start::ToDeviceKeyVerificationStartEvent,
         },
-        room_key_request::ToDeviceRoomKeyRequestEvent,
         secret::request::{SecretName, ToDeviceSecretRequestEvent},
         EventContent, ToDeviceEventType,
     },
@@ -41,6 +40,7 @@ use super::{
     forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
     room::encrypted::EncryptedToDeviceEvent,
     room_key::RoomKeyEvent,
+    room_key_request::RoomKeyRequestEvent,
     secret_send::SecretSendEvent,
     EventType,
 };
@@ -76,7 +76,7 @@ pub enum ToDeviceEvents {
     /// The `m.room_key` to-device event.
     RoomKey(RoomKeyEvent),
     /// The `m.room_key_request` to-device event.
-    RoomKeyRequest(ToDeviceRoomKeyRequestEvent),
+    RoomKeyRequest(RoomKeyRequestEvent),
     /// The `m.forwarded_room_key` to-device event.
     ForwardedRoomKey(Box<ForwardedRoomKeyEvent>),
     /// The `m.secret.send` to-device event.
@@ -128,7 +128,7 @@ impl ToDeviceEvents {
 
             ToDeviceEvents::RoomEncrypted(_) => ToDeviceEventType::RoomEncrypted,
             ToDeviceEvents::RoomKey(_) => ToDeviceEventType::RoomKey,
-            ToDeviceEvents::RoomKeyRequest(e) => e.content.event_type(),
+            ToDeviceEvents::RoomKeyRequest(_) => ToDeviceEventType::RoomKeyRequest,
             ToDeviceEvents::ForwardedRoomKey(_) => ToDeviceEventType::ForwardedRoomKey,
 
             ToDeviceEvents::SecretSend(_) => ToDeviceEventType::SecretSend,
@@ -201,6 +201,8 @@ impl ToDeviceEvents {
             ToDeviceEvents::ForwardedRoomKey(mut e) => {
                 match &mut e.content {
                     ForwardedRoomKeyContent::MegolmV1AesSha2(c) => c.session_key.zeroize(),
+                    #[cfg(feature = "experimental-algorithms")]
+                    ForwardedRoomKeyContent::MegolmV2AesSha2(c) => c.session_key.zeroize(),
                     ForwardedRoomKeyContent::Unknown(_) => (),
                 }
 

@@ -2,10 +2,7 @@
 use std::io::Cursor;
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
-use std::{
-    io::{BufReader, Read, Seek},
-    ops::Deref,
-};
+use std::{borrow::Borrow, ops::Deref};
 
 use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "e2e-encryption")]
@@ -26,7 +23,10 @@ use ruma::{
         typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
+    events::{
+        room::message::RoomMessageEventContent, EmptyStateKey, MessageLikeEventContent,
+        StateEventContent,
+    },
     serde::Raw,
     EventId, OwnedTransactionId, TransactionId, UserId,
 };
@@ -35,13 +35,16 @@ use tracing::debug;
 #[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
-#[cfg(feature = "image-proc")]
-use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
-    attachment::{AttachmentConfig, Thumbnail},
+    attachment::AttachmentConfig,
     error::HttpResult,
     room::{Common, Left},
     BaseRoom, Client, Result, RoomType,
+};
+#[cfg(feature = "image-proc")]
+use crate::{
+    attachment::{generate_image_thumbnail, Thumbnail},
+    error::ImageError,
 };
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
@@ -73,10 +76,9 @@ impl Joined {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
-    pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
-        // TODO: Make this private
+    pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
         if room.room_type() == RoomType::Joined {
-            Some(Self { inner: Common::new(client, room) })
+            Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None
         }
@@ -299,7 +301,7 @@ impl Joined {
         if !self.is_encrypted() {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-            self.send_state_event(content, "").await?;
+            self.send_state_event(content).await?;
 
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
@@ -625,7 +627,7 @@ impl Joined {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
+    /// # use std::fs;
     /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
@@ -634,56 +636,51 @@ impl Joined {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path)?;
+    /// let mut image = fs::read("/home/example/my-cat.jpg")?;
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_attachment(
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
-    ///         &mut image,
+    ///         &image,
     ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read + Seek, T: Read>(
+    pub async fn send_attachment(
         &self,
         body: &str,
         content_type: &Mime,
-        reader: &mut R,
-        config: AttachmentConfig<'_, T>,
+        data: &[u8],
+        config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
-        let reader = &mut BufReader::new(reader);
-
-        #[cfg(feature = "image-proc")]
-        let mut cursor;
-
         if config.thumbnail.is_some() {
-            self.prepare_and_send_attachment(body, content_type, reader, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         } else {
             #[cfg(not(feature = "image-proc"))]
-            let thumbnail = Thumbnail::NONE;
+            let thumbnail = None;
 
             #[cfg(feature = "image-proc")]
+            let data_slot;
+            #[cfg(feature = "image-proc")]
             let thumbnail = if config.generate_thumbnail {
-                match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
+                match generate_image_thumbnail(
+                    content_type,
+                    Cursor::new(data),
+                    config.thumbnail_size,
+                ) {
                     Ok((thumbnail_data, thumbnail_info)) => {
-                        reader.rewind()?;
-
-                        cursor = Cursor::new(thumbnail_data);
+                        data_slot = thumbnail_data;
                         Some(Thumbnail {
-                            reader: &mut cursor,
+                            data: &data_slot,
                             content_type: &mime::IMAGE_JPEG,
                             info: Some(thumbnail_info),
                         })
                     }
                     Err(
                         ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
-                    ) => {
-                        reader.rewind()?;
-                        None
-                    }
+                    ) => None,
                     Err(error) => return Err(error.into()),
                 }
             } else {
@@ -700,7 +697,7 @@ impl Joined {
                 thumbnail_size: None,
             };
 
-            self.prepare_and_send_attachment(body, content_type, reader, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         }
     }
 
@@ -726,12 +723,12 @@ impl Joined {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    async fn prepare_and_send_attachment<R: Read, T: Read>(
+    async fn prepare_and_send_attachment(
         &self,
         body: &str,
         content_type: &Mime,
-        reader: &mut R,
-        config: AttachmentConfig<'_, T>,
+        data: &[u8],
+        config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted() {
@@ -739,33 +736,79 @@ impl Joined {
                 .prepare_encrypted_attachment_message(
                     body,
                     content_type,
-                    reader,
+                    data,
                     config.info,
                     config.thumbnail,
                 )
                 .await?
         } else {
             self.client
-                .prepare_attachment_message(
-                    body,
-                    content_type,
-                    reader,
-                    config.info,
-                    config.thumbnail,
-                )
+                .media()
+                .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
                 .await?
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
-            .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
+            .media()
+            .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
             .await?;
 
         self.send(RoomMessageEventContent::new(content), config.txn_id).await
     }
 
-    /// Send a room state event to the homeserver.
+    /// Send a state event with an empty state key to the homeserver.
+    ///
+    /// For state events with a non-empty state key, see
+    /// [`send_state_event_for_key`][Self::send_state_event_for_key].
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the state event.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::room::Joined = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent, room::encryption::RoomEncryptionEventContent,
+    ///         EmptyStateKey,
+    ///     },
+    ///     EventEncryptionAlgorithm,
+    /// };
+    ///
+    /// let encryption_event_content = RoomEncryptionEventContent::new(
+    ///     EventEncryptionAlgorithm::MegolmV1AesSha2,
+    /// );
+    /// joined_room.send_state_event(encryption_event_content).await?;
+    ///
+    /// // Custom event:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(
+    ///     type = "org.matrix.msc_9000.xxx",
+    ///     kind = State,
+    ///     state_key_type = EmptyStateKey,
+    /// )]
+    /// struct XxxStateEventContent {/* fields... */}
+    ///
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event(content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn send_state_event(
+        &self,
+        content: impl StateEventContent<StateKey = EmptyStateKey>,
+    ) -> Result<send_state_event::v3::Response> {
+        self.send_state_event_for_key(&EmptyStateKey, content).await
+    }
+
+    /// Send a state event to the homeserver.
     ///
     /// Returns the parsed response from the server.
     ///
@@ -774,12 +817,14 @@ impl Joined {
     /// * `content` - The content of the state event.
     ///
     /// * `state_key` - A unique key which defines the overwriting semantics for
-    /// this piece of room state. This value is often a zero-length string.
+    ///   this piece of room state.
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::room::Joined = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent,
@@ -787,35 +832,32 @@ impl Joined {
     ///     },
     ///     mxc_uri,
     /// };
-    /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
-    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
     /// let mut content = RoomMemberEventContent::new(MembershipState::Join);
     /// content.avatar_url = Some(avatar_url);
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send_state_event(content, "").await?;
-    /// }
+    /// joined_room.send_state_event_for_key(ruma::user_id!("@foo:bar.com"), content).await?;
     ///
     /// // Custom event:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
     /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
     /// struct XxxStateEventContent { /* fields... */ }
-    /// let content: XxxStateEventContent = todo!();
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send_state_event(content, "").await?;
-    /// }
-    /// # anyhow::Ok(()) });
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event_for_key("foo", content).await?;
+    /// # anyhow::Ok(()) };
     /// ```
-    pub async fn send_state_event(
+    pub async fn send_state_event_for_key<C, K>(
         &self,
-        content: impl StateEventContent,
-        state_key: &str,
-    ) -> Result<send_state_event::v3::Response> {
+        state_key: &K,
+        content: C,
+    ) -> Result<send_state_event::v3::Response>
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
         let request =
             send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
         let response = self.client.send(request, None).await?;

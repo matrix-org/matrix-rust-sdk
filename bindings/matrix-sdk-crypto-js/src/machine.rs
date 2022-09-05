@@ -10,10 +10,10 @@ use wasm_bindgen::prelude::*;
 use crate::{
     downcast, encryption,
     future::future_to_promise,
-    identifiers, requests,
+    identifiers, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events,
+    sync_events, types, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -34,16 +34,74 @@ impl OlmMachine {
     /// `user_id` represents the unique ID of the user that owns this
     /// machine. `device_id` represents the unique ID of the device
     /// that owns this machine.
+    ///
+    /// `store_name` and `store_passphrase` are both optional, but
+    /// must be both set to have an effect. If they are both set, the
+    /// state of the machine will persist in a database named
+    /// `store_name` where its content is encrypted by the passphrase
+    /// given by `store_passphrase`. If they are not both set, the
+    /// created machine will keep the encryption keys only in memory,
+    /// and once the object is dropped, the keys will be lost.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(user_id: &identifiers::UserId, device_id: &identifiers::DeviceId) -> Promise {
+    pub fn new(
+        user_id: &identifiers::UserId,
+        device_id: &identifiers::DeviceId,
+        store_name: Option<String>,
+        store_passphrase: Option<String>,
+    ) -> Promise {
         let user_id = user_id.inner.clone();
         let device_id = device_id.inner.clone();
 
         future_to_promise(async move {
+            let store = match (store_name, store_passphrase) {
+                // We need this `#[cfg]` because `IndexeddbCryptoStore`
+                // implements `CryptoStore` only on `target_arch =
+                // "wasm32"`. Without that, we could have a compilation
+                // error when checking the entire workspace. In
+                // practise, it doesn't impact this crate because it's
+                // always compiled for `wasm32`.
+                #[cfg(target_arch = "wasm32")]
+                (Some(store_name), Some(mut store_passphrase)) => {
+                    use std::sync::Arc;
+                    use zeroize::Zeroize;
+
+                    let store = Some(
+                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_passphrase(
+                            &store_name,
+                            &store_passphrase,
+                        )
+                        .await
+                        .map(Arc::new)?,
+                    );
+
+                    store_passphrase.zeroize();
+
+                    store
+                }
+
+                (Some(_), None) => return Err(anyhow::Error::msg("The `store_name` has been set, and so, it expects a `store_passphrase`, which is not set; please provide one")),
+
+                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, which is not; please provide one")),
+
+                _ => None,
+            };
+
             Ok(OlmMachine {
-                inner: matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
-                    .await,
+                inner: match store {
+                    Some(store) => {
+                        matrix_sdk_crypto::OlmMachine::with_store(
+                            user_id.as_ref(),
+                            device_id.as_ref(),
+                            store,
+                        )
+                        .await?
+                    }
+                    None => {
+                        matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
+                            .await
+                    }
+                },
             })
         })
     }
@@ -62,7 +120,7 @@ impl OlmMachine {
 
     /// Get the public parts of our Olm identity keys.
     #[wasm_bindgen(getter, js_name = "identityKeys")]
-    pub fn identity_keys(&self) -> IdentityKeys {
+    pub fn identity_keys(&self) -> vodozemac::IdentityKeys {
         self.inner.identity_keys().into()
     }
 
@@ -282,6 +340,27 @@ impl OlmMachine {
         }))
     }
 
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we
+    /// have stored locally.
+    #[wasm_bindgen(js_name = "crossSigningStatus")]
+    pub fn cross_signing_status(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, olm::CrossSigningStatus>(async move {
+            Ok(me.cross_signing_status().await.into())
+        })
+    }
+
+    /// Sign the given message using our device key and if available
+    /// cross-signing master key.
+    pub fn sign(&self, message: String) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, types::Signatures>(async move { Ok(me.sign(&message).await.into()) })
+    }
+
     /// Invalidate the currently active outbound group session for the
     /// given room.
     ///
@@ -373,71 +452,5 @@ impl OlmMachine {
                 None => Ok(JsValue::NULL),
             }
         }))
-    }
-}
-
-/// An Ed25519 public key, used to verify digital signatures.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct Ed25519PublicKey {
-    inner: vodozemac::Ed25519PublicKey,
-}
-
-#[wasm_bindgen]
-impl Ed25519PublicKey {
-    /// The number of bytes an Ed25519 public key has.
-    #[wasm_bindgen(getter)]
-    pub fn length(&self) -> usize {
-        vodozemac::Ed25519PublicKey::LENGTH
-    }
-
-    /// Serialize an Ed25519 public key to an unpadded base64
-    /// representation.
-    #[wasm_bindgen(js_name = "toBase64")]
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
-    }
-}
-
-/// A Curve25519 public key.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub struct Curve25519PublicKey {
-    inner: vodozemac::Curve25519PublicKey,
-}
-
-#[wasm_bindgen]
-impl Curve25519PublicKey {
-    /// The number of bytes a Curve25519 public key has.
-    #[wasm_bindgen(getter)]
-    pub fn length(&self) -> usize {
-        vodozemac::Curve25519PublicKey::LENGTH
-    }
-
-    /// Serialize an Curve25519 public key to an unpadded base64
-    /// representation.
-    #[wasm_bindgen(js_name = "toBase64")]
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
-    }
-}
-
-/// Struct holding the two public identity keys of an account.
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Debug)]
-pub struct IdentityKeys {
-    /// The Ed25519 public key, used for signing.
-    pub ed25519: Ed25519PublicKey,
-
-    /// The Curve25519 public key, used for establish shared secrets.
-    pub curve25519: Curve25519PublicKey,
-}
-
-impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
-    fn from(value: matrix_sdk_crypto::olm::IdentityKeys) -> Self {
-        Self {
-            ed25519: Ed25519PublicKey { inner: value.ed25519 },
-            curve25519: Curve25519PublicKey { inner: value.curve25519 },
-        }
     }
 }

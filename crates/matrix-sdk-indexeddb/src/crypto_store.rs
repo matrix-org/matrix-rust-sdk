@@ -418,7 +418,7 @@ impl IndexeddbCryptoStore {
                 let room_id = session.room_id();
                 let pickle = session.pickle().await;
                 sessions.put_key_val(
-                    &self.encode_key(KEYS::OUTBOUND_GROUP_SESSIONS, &room_id),
+                    &self.encode_key(KEYS::OUTBOUND_GROUP_SESSIONS, room_id),
                     &self.serialize_value(&pickle)?,
                 )?;
             }
@@ -452,7 +452,7 @@ impl IndexeddbCryptoStore {
             let identities = tx.object_store(KEYS::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                 identities.put_key_val(
-                    &self.encode_key(KEYS::IDENTITIES, &identity.user_id()),
+                    &self.encode_key(KEYS::IDENTITIES, identity.user_id()),
                     &self.serialize_value(&identity)?,
                 )?;
             }

@@ -16,7 +16,7 @@ pub enum EncryptionAlgorithm {
     MegolmV1AesSha2,
 }
 
-impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
+impl From<EncryptionAlgorithm> for matrix_sdk_crypto::types::EventEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         use EncryptionAlgorithm::*;
 
@@ -27,9 +27,9 @@ impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
     }
 }
 
-impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
-    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
-        use ruma::EventEncryptionAlgorithm::*;
+impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgorithm {
+    fn from(value: matrix_sdk_crypto::types::EventEncryptionAlgorithm) -> Self {
+        use matrix_sdk_crypto::types::EventEncryptionAlgorithm::*;
 
         match value {
             OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,

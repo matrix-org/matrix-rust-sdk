@@ -32,12 +32,14 @@ use matrix_sdk_base::{
     MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 #[cfg(feature = "experimental-timeline")]
 use ruma::{
     canonical_json::redact_in_place,
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
     CanonicalJsonObject, RoomVersionId,
 };
 use ruma::{
@@ -610,28 +612,28 @@ impl SledStateStore {
                             match event.membership() {
                                 MembershipState::Join => {
                                     joined.insert(
-                                        self.encode_key(JOINED_USER_ID, &key),
+                                        self.encode_key(JOINED_USER_ID, key),
                                         self.serialize_value(event.state_key())
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
-                                    invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
+                                    invited.remove(self.encode_key(INVITED_USER_ID, key))?;
                                 }
                                 MembershipState::Invite => {
                                     invited.insert(
-                                        self.encode_key(INVITED_USER_ID, &key),
+                                        self.encode_key(INVITED_USER_ID, key),
                                         self.serialize_value(event.state_key())
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
-                                    joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
+                                    joined.remove(self.encode_key(JOINED_USER_ID, key))?;
                                 }
                                 _ => {
-                                    joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
-                                    invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
+                                    joined.remove(self.encode_key(JOINED_USER_ID, key))?;
+                                    invited.remove(self.encode_key(INVITED_USER_ID, key))?;
                                 }
                             }
 
                             members.insert(
-                                self.encode_key(MEMBER, &key),
+                                self.encode_key(MEMBER, key),
                                 self.serialize_value(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -640,7 +642,7 @@ impl SledStateStore {
                                 profile_changes.and_then(|p| p.get(event.state_key()))
                             {
                                 profiles.insert(
-                                    self.encode_key(PROFILE, &key),
+                                    self.encode_key(PROFILE, key),
                                     self.serialize_value(&profile)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
@@ -661,7 +663,7 @@ impl SledStateStore {
                     for (room, events) in &changes.room_account_data {
                         for (event_type, event) in events {
                             room_account_data.insert(
-                                self.encode_key(ROOM_ACCOUNT_DATA, &(room, event_type)),
+                                self.encode_key(ROOM_ACCOUNT_DATA, (room, event_type)),
                                 self.serialize_value(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -703,31 +705,31 @@ impl SledStateStore {
                             match event.content.membership {
                                 MembershipState::Join => {
                                     stripped_joined.insert(
-                                        self.encode_key(STRIPPED_JOINED_USER_ID, &key),
+                                        self.encode_key(STRIPPED_JOINED_USER_ID, key),
                                         self.serialize_value(&event.state_key)
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     stripped_invited
-                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
+                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, key))?;
                                 }
                                 MembershipState::Invite => {
                                     stripped_invited.insert(
-                                        self.encode_key(STRIPPED_INVITED_USER_ID, &key),
+                                        self.encode_key(STRIPPED_INVITED_USER_ID, key),
                                         self.serialize_value(&event.state_key)
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     stripped_joined
-                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
+                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, key))?;
                                 }
                                 _ => {
                                     stripped_joined
-                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
+                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, key))?;
                                     stripped_invited
-                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
+                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, key))?;
                                 }
                             }
                             stripped_members.insert(
-                                self.encode_key(STRIPPED_ROOM_MEMBER, &key),
+                                self.encode_key(STRIPPED_ROOM_MEMBER, key),
                                 self.serialize_value(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -1294,7 +1296,7 @@ impl SledStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         let db = self.clone();
         let key = self.encode_key(TIMELINE_METADATA, room_id);
         let metadata: Option<TimelineMetadata> = db
@@ -1333,14 +1335,14 @@ impl SledStateStore {
         info!(%room_id, "Removing stored timeline");
 
         let mut timeline_batch = sled::Batch::default();
-        for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
+        for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, room_id)).keys() {
             timeline_batch.remove(key?);
         }
 
         let mut event_id_to_position_batch = sled::Batch::default();
         for key in self
             .room_event_id_to_position
-            .scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, &room_id))
+            .scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, room_id))
             .keys()
         {
             event_id_to_position_batch.remove(key?);
@@ -1351,7 +1353,7 @@ impl SledStateStore {
                 .transaction(
                     |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
                         room_timeline_metadata
-                            .remove(self.encode_key(TIMELINE_METADATA, &room_id))?;
+                            .remove(self.encode_key(TIMELINE_METADATA, room_id))?;
 
                         room_timeline.apply_batch(&timeline_batch)?;
                         room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
@@ -1387,7 +1389,7 @@ impl SledStateStore {
             } else {
                 let metadata: Option<TimelineMetadata> = self
                     .room_timeline_metadata
-                    .get(self.encode_key(TIMELINE_METADATA, &room_id))?
+                    .get(self.encode_key(TIMELINE_METADATA, room_id))?
                     .map(|item| self.deserialize_value(&item))
                     .transpose()?;
                 if let Some(mut metadata) = metadata {
@@ -1452,7 +1454,7 @@ impl SledStateStore {
             if timeline.sync {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::MessageLike(
+                    if let Ok(AnySyncTimelineEvent::MessageLike(
                         AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
                             redaction,
                         )),
@@ -1467,7 +1469,7 @@ impl SledStateStore {
                                 .room_timeline
                                 .get(position_key.as_ref())?
                                 .map(|e| {
-                                    self.deserialize_value::<SyncRoomEvent>(&e)
+                                    self.deserialize_value::<SyncTimelineEvent>(&e)
                                         .map_err(SledStoreError::from)
                                 })
                                 .transpose()?
@@ -1510,7 +1512,7 @@ impl SledStateStore {
             }
 
             timeline_metadata_batch.insert(
-                self.encode_key(TIMELINE_METADATA, &room_id),
+                self.encode_key(TIMELINE_METADATA, room_id),
                 self.serialize_value(&metadata)?,
             );
         }
@@ -1709,7 +1711,7 @@ impl StateStore for SledStateStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
+    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await.map_err(|e| e.into())
     }
 }
@@ -1733,7 +1735,7 @@ mod tests {
         SledStateStore::builder().build().map_err(Into::into)
     }
 
-    statestore_integration_tests! { integration }
+    statestore_integration_tests!();
 }
 
 #[cfg(test)]
@@ -1746,7 +1748,7 @@ mod encrypted_tests {
         SledStateStoreBuilder::build_encrypted().map_err(Into::into)
     }
 
-    statestore_integration_tests! { integration }
+    statestore_integration_tests!();
 }
 
 #[cfg(test)]

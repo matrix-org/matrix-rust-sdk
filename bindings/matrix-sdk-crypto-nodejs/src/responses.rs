@@ -196,8 +196,8 @@ impl DecryptedRoomEvent {
     }
 }
 
-impl From<matrix_sdk_common::deserialized_responses::RoomEvent> for DecryptedRoomEvent {
-    fn from(value: matrix_sdk_common::deserialized_responses::RoomEvent) -> Self {
+impl From<matrix_sdk_common::deserialized_responses::TimelineEvent> for DecryptedRoomEvent {
+    fn from(value: matrix_sdk_common::deserialized_responses::TimelineEvent) -> Self {
         Self { event: value.event.json().get().to_owned(), encryption_info: value.encryption_info }
     }
 }

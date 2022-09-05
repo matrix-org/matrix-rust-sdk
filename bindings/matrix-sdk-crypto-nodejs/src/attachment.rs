@@ -17,7 +17,7 @@ pub struct Attachment;
 impl Attachment {
     /// Encrypt the content of the `Uint8Array`.
     ///
-    /// It produces an `EncryptedAttachment`, we can be used to
+    /// It produces an `EncryptedAttachment`, which can be used to
     /// retrieve the media encryption information, or the encrypted
     /// data.
     #[napi]

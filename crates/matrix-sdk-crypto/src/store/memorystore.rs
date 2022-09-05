@@ -37,9 +37,8 @@ use crate::{
 
 fn encode_key_info(info: &SecretInfo) -> String {
     match info {
-        #[allow(deprecated)]
         SecretInfo::KeyRequest(info) => {
-            format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
+            format!("{}{}{}", info.room_id(), info.algorithm(), info.session_id())
         }
         SecretInfo::SecretRequest(i) => i.as_ref().to_owned(),
     }
@@ -354,7 +353,8 @@ mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-        );
+        )
+        .unwrap();
 
         let store = MemoryStore::new();
         store.save_inbound_group_sessions(vec![inbound.clone()]).await;

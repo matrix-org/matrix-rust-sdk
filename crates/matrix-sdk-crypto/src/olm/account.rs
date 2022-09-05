@@ -30,8 +30,8 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -47,8 +47,10 @@ use vodozemac::{
 
 use super::{
     utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
-    PrivateCrossSigningIdentity, Session,
+    PrivateCrossSigningIdentity, Session, SessionCreationError as MegolmSessionCreationError,
 };
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::{MasterPubkey, ReadOnlyDevice},
@@ -62,7 +64,7 @@ use crate::{
                 ToDeviceEncryptedEventContent,
             },
         },
-        CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
     },
     utilities::encode,
     CryptoStoreError, OlmError, SignatureError,
@@ -135,7 +137,7 @@ impl OlmMessageHash {
 
         let sha = Sha256::new()
             .chain_update(sender_key.as_bytes())
-            .chain_update(&[message_type as u8])
+            .chain_update([message_type as u8])
             .chain_update(&ciphertext)
             .finalize();
 
@@ -188,6 +190,15 @@ impl Account {
         }
     }
 
+    #[cfg(feature = "experimental-algorithms")]
+    async fn decrypt_olm_v2(
+        &self,
+        sender: &UserId,
+        content: &OlmV2Curve25519AesSha2Content,
+    ) -> OlmResult<OlmDecryptionInfo> {
+        self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
+    }
+
     async fn decrypt_olm_v1(
         &self,
         sender: &UserId,
@@ -219,6 +230,10 @@ impl Account {
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
                 self.decrypt_olm_v1(&event.sender, c).await
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
+                self.decrypt_olm_v2(&event.sender, c).await
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
@@ -308,8 +323,8 @@ impl Account {
                     // return with an error if it isn't one.
                     OlmMessage::Normal(_) => {
                         warn!(
-                            sender = sender.as_str(),
-                            sender_key = sender_key.to_base64(),
+                            %sender,
+                            %sender_key,
                             "Failed to decrypt a non-pre-key message with all \
                             available sessions",
                         );
@@ -323,11 +338,11 @@ impl Account {
                             Ok(r) => r,
                             Err(e) => {
                                 warn!(
-                                    sender = sender.as_str(),
-                                    sender_key = sender_key.to_base64(),
-                                    error = ?e,
+                                    %sender,
+                                    %sender_key,
+                                    session_keys = ?m.session_keys(),
                                     "Failed to create a new Olm session from a \
-                                    prekey message",
+                                    pre-key message: {e:?}",
                                 );
                                 return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
                             }
@@ -350,12 +365,12 @@ impl Account {
             };
 
         trace!(
-            sender = sender.as_str(),
-            sender_key = sender_key.to_base64(),
+            %sender,
+            %sender_key,
             "Successfully decrypted an Olm message"
         );
 
-        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext) {
+        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might created a new session but decryption might still
@@ -388,9 +403,17 @@ impl Account {
         }
     }
 
-    /// Parse a decrypted Olm message, check that the plaintext and encrypted
-    /// senders match and that the message was meant for us.
-    fn parse_decrypted_to_device_event(
+    /// Parse the decrypted plaintext as JSON and verify that it wasn't
+    /// forwarded by a third party.
+    ///
+    /// These checks are mandated by the spec[1]:
+    ///
+    /// > Other properties are included in order to prevent an attacker from
+    /// > publishing someone else's Curve25519 keys as their own and
+    /// > subsequently claiming to have sent messages which they didn't.
+    /// > sender must correspond to the user who sent the event, recipient to
+    /// > the local user, and recipient_keys to the local Ed25519 key.
+    async fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
@@ -414,6 +437,30 @@ impl Account {
             )
             .into())
         } else {
+            // If this event is an `m.room_key` event, defer the check for the
+            // Ed25519 key of the sender until we decrypt room events. This
+            // ensures that we receive the room key even if we don't have access
+            // to the device.
+            if !matches!(event, AnyDecryptedOlmEvent::RoomKey(_)) {
+                if let Some(device) =
+                    self.store.get_device_from_curve_key(event.sender(), sender_key).await?
+                {
+                    if let Some(key) = device.ed25519_key() {
+                        if key != event.keys().ed25519 {
+                            return Err(EventError::MismatchedKeys(
+                                key.into(),
+                                event.keys().ed25519.into(),
+                            )
+                            .into());
+                        }
+                    } else {
+                        return Err(EventError::MissingSigningKey.into());
+                    }
+                } else {
+                    return Err(EventError::MissingSigningKey.into());
+                }
+            }
+
             Ok(DecryptionResult {
                 event,
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
@@ -476,7 +523,11 @@ impl fmt::Debug for ReadOnlyAccount {
 impl ReadOnlyAccount {
     const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
         &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
+        &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
         &EventEncryptionAlgorithm::MegolmV1AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
+        &EventEncryptionAlgorithm::MegolmV2AesSha2,
     ];
 
     /// Create a fresh new account, this will generate the identity key-pair.
@@ -911,21 +962,23 @@ impl ReadOnlyAccount {
     /// session failed.
     ///
     /// # Arguments
-    /// * `their_identity_key` - The other account's identity/curve25519 key.
+    /// * `config` - The session config that should be used when creating the
+    /// Session.
+    /// * `identity_key` - The other account's identity/curve25519 key.
     ///
-    /// * `their_one_time_key` - A signed one-time key that the other account
+    /// * `one_time_key` - A signed one-time key that the other account
     /// created and shared with us.
+    ///
+    /// * `fallback_used` - Was the one-time key a fallback key.
     pub async fn create_outbound_session_helper(
         &self,
+        config: SessionConfig,
         identity_key: Curve25519PublicKey,
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
     ) -> Session {
-        let session = self.inner.lock().await.create_outbound_session(
-            SessionConfig::version_1(),
-            identity_key,
-            one_time_key,
-        );
+        let session =
+            self.inner.lock().await.create_outbound_session(config, identity_key, one_time_key);
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
@@ -1000,8 +1053,11 @@ impl ReadOnlyAccount {
 
         let is_fallback = one_time_key.fallback();
         let one_time_key = one_time_key.key();
+        let config = device.olm_session_config();
 
-        Ok(self.create_outbound_session_helper(identity_key, one_time_key, is_fallback).await)
+        Ok(self
+            .create_outbound_session_helper(config, identity_key, one_time_key, is_fallback)
+            .await)
     }
 
     /// Create a new session with another account given a pre-key Olm message.
@@ -1019,6 +1075,12 @@ impl ReadOnlyAccount {
         their_identity_key: Curve25519PublicKey,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
+        debug!(
+            sender_key = %their_identity_key,
+            session_keys = ?message.session_keys(),
+            "Creating a new Olm session from a pre-key message"
+        );
+
         let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
@@ -1059,19 +1121,19 @@ impl ReadOnlyAccount {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
-    ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
-        if settings.algorithm != EventEncryptionAlgorithm::MegolmV1AesSha2 {
-            return Err(());
-        }
+    ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
+        trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
 
         let visibility = settings.history_visibility.clone();
+        let algorithm = settings.algorithm.to_owned();
 
         let outbound = OutboundGroupSession::new(
             self.device_id.clone(),
             self.identity_keys.clone(),
             room_id,
             settings,
-        );
+        )?;
+
         let identity_keys = self.identity_keys();
 
         let sender_key = identity_keys.curve25519;
@@ -1082,9 +1144,9 @@ impl ReadOnlyAccount {
             signing_key,
             room_id,
             &outbound.session_key().await,
-            outbound.settings().algorithm.to_owned(),
+            algorithm,
             Some(visibility),
-        );
+        )?;
 
         Ok((outbound, inbound))
     }
@@ -1128,6 +1190,15 @@ impl ReadOnlyAccount {
             .unwrap()
             .deserialize()
             .unwrap();
+
+        #[cfg(feature = "experimental-algorithms")]
+        let content = if let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) = message {
+            c
+        } else {
+            panic!("Invalid encrypted event algorithm {}", message.algorithm());
+        };
+
+        #[cfg(not(feature = "experimental-algorithms"))]
         let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
             c
         } else {
