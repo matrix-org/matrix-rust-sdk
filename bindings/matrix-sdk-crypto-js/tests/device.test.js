@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest } = require('../pkg/matrix_sdk_crypto_js');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest, Sas } = require('../pkg/matrix_sdk_crypto_js');
 const { addMachineToMachine } = require('./helper');
 
 describe('LocalTrust', () => {
@@ -108,11 +108,11 @@ describe(Device.name, () => {
         expect(device2).toBeInstanceOf(Device);
 
         // Request a verification from `m1` to `device2`.
-        let [verificationRequest1, outgoingVerificationRequest1] = await device2.requestVerification();
+        let [verificationRequest1, outgoingVerificationRequest] = await device2.requestVerification();
 
         {
             expect(verificationRequest1).toBeInstanceOf(VerificationRequest);
-            expect(outgoingVerificationRequest1).toBeInstanceOf(ToDeviceRequest);
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
 
             expect(verificationRequest1.ownUserId.toString()).toStrictEqual(userId1.toString());
             expect(verificationRequest1.otherUserId.toString()).toStrictEqual(userId2.toString());
@@ -137,8 +137,8 @@ describe(Device.name, () => {
         let verificationRequest2;
 
         {
-            const outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest1.body);
-            const outgoingContent = outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()]
+            outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
+            const outgoingContent = outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()];
 
             // Let's pretend the message is coming from a server.
             const toDeviceEvents = {
@@ -197,6 +197,36 @@ describe(Device.name, () => {
 
             // Let's send the verification ready to `m1`.
             const receiveSyncChanges = await JSON.parse(await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set()));
+        }
+
+        // Let's start a SAS verification.
+        {
+            const [sas, outgoingVerificationRequest] = await verificationRequest2.startSas();
+            expect(sas).toBeInstanceOf(Sas);
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+
+            {
+                expect(sas.userId.toString()).toStrictEqual(userId2.toString());
+                expect(sas.deviceId.toString()).toStrictEqual(deviceId2.toString());
+                expect(sas.otherUserId.toString()).toStrictEqual(userId1.toString());
+                expect(sas.otherDeviceId.toString()).toStrictEqual(deviceId1.toString());
+                expect(sas.flowId).toStrictEqual(flowId);
+                expect(sas.roomId).toBeUndefined();
+                expect(sas.supportsEmoji()).toStrictEqual(false);
+                expect(sas.startedFromRequest()).toStrictEqual(true);
+                expect(sas.isSelfVerification()).toStrictEqual(false);
+                expect(sas.haveWeConfirmed()).toStrictEqual(false);
+                expect(sas.hasBeenAccepted()).toStrictEqual(false);
+                expect(sas.cancelInfo()).toBeUndefined();
+                expect(sas.weStarted()).toStrictEqual(false);
+                expect(sas.timedOut()).toStrictEqual(false);
+                expect(sas.canBePresented()).toStrictEqual(false);
+                expect(sas.isDone()).toStrictEqual(false);
+                expect(sas.isCancelled()).toStrictEqual(false);
+                expect(sas.emoji()).toBeUndefined();
+                expect(sas.emojiIndex()).toBeUndefined();
+                expect(sas.decimals()).toBeUndefined();
+            }
         }
     });
 });
