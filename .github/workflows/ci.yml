@@ -308,7 +308,6 @@ jobs:
 
   typos:
     name: Spell Check with Typos
-    needs: [style]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -321,7 +320,6 @@ jobs:
 
   clippy:
     name: Run clippy
-    needs: [style]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
