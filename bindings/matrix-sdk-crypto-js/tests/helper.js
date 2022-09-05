@@ -27,22 +27,32 @@ async function addMachineToMachine(machineToAdd, machine) {
         expect(body.device_keys).toBeDefined();
         expect(body.one_time_keys).toBeDefined();
 
+        // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysupload
+        const hypothetical_response = JSON.stringify({
+            "one_time_key_counts": {
+                "curve25519": 10,
+                "signed_curve25519": 20
+            }
+        });
+        const marked = await machineToAdd.markRequestAsSent(outgoingRequests[0].id, outgoingRequests[0].type, hypothetical_response);
+        expect(marked).toStrictEqual(true);
+
         keysUploadRequest = body;
     }
 
     {
-        // Just to be sure… not important.
         expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
+
+        // Let's forge a `KeysQuery`'s response.
+        let keyQueryResponse = {'device_keys': {}};
+        const userId = machineToAdd.userId.toString();
+        const deviceId = machineToAdd.deviceId.toString();
+        keyQueryResponse['device_keys'][userId] = {};
+        keyQueryResponse['device_keys'][userId][deviceId] = keysUploadRequest.device_keys;
+
+        const marked = await machine.markRequestAsSent(outgoingRequests[1].id, outgoingRequests[1].type, JSON.stringify(keyQueryResponse));
+        expect(marked).toStrictEqual(true);
     }
-
-    // Let's forge a `KeysQuery`'s response.
-    let keyQueryResponse = {'device_keys': {}};
-    const userId = machineToAdd.userId.toString();
-    const deviceId = machineToAdd.deviceId.toString();
-    keyQueryResponse['device_keys'][userId] = {};
-    keyQueryResponse['device_keys'][userId][deviceId] = keysUploadRequest.device_keys;
-
-    await machine.markRequestAsSent('anID', RequestType.KeysQuery, JSON.stringify(keyQueryResponse));
 }
 
 module.exports = { addMachineToMachine };

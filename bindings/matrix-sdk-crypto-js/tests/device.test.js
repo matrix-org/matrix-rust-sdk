@@ -81,10 +81,10 @@ describe(OlmMachine.name, () => {
 
 describe(Device.name, () => {
     const userId1 = new UserId('@alice:example.org');
-    const deviceId1 = new DeviceId('foobar');
+    const deviceId1 = new DeviceId('alice_device');
 
     const userId2 = new UserId('@bob:example.org');
-    const deviceId2 = new DeviceId('bazqux');
+    const deviceId2 = new DeviceId('bob_device');
 
     function machine(new_user, new_device) {
         return new OlmMachine(new_user || userId1, new_device || deviceId1);
@@ -107,8 +107,8 @@ describe(Device.name, () => {
 
         expect(device2).toBeInstanceOf(Device);
 
-        // Request a verification with `dev1`.
-        const [verificationRequest1, outgoingVerificationRequest1] = await device2.requestVerification();
+        // Request a verification from `m1` to `device2`.
+        let [verificationRequest1, outgoingVerificationRequest1] = await device2.requestVerification();
 
         {
             expect(verificationRequest1).toBeInstanceOf(VerificationRequest);
@@ -131,11 +131,72 @@ describe(Device.name, () => {
             expect(verificationRequest1.isCancelled()).toStrictEqual(false);
         }
 
+        let flowId;
 
-        // Send the outgoing verification request from `m1` to `m2`.
+        // Fetch the verification from `m2`.
+        let verificationRequest2;
+
         {
-            //const receiveSyncChanges = await JSON.parse(await m2.receiveSyncChanges(outgoingVerificationRequest1.body, new DeviceLists(), new Map(), new Set()));
-            //console.log(receiveSyncChanges);
+            const outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest1.body);
+            const outgoingContent = outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()]
+
+            // Let's pretend the message is coming from a server.
+            const toDeviceEvents = {
+                "events": [{
+                    sender: userId1.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingContent,
+                }]
+            };
+
+            // Let's send the verification request to `m2`.
+            const receiveSyncChanges = await JSON.parse(await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set()));
+
+            // Oh, a new verification request.
+            flowId = outgoingContent.transaction_id;
+            verificationRequest2 = m2.getVerificationRequest(userId1, flowId);
+
+            expect(verificationRequest2).toBeInstanceOf(VerificationRequest);
+
+            expect(verificationRequest2.ownUserId.toString()).toStrictEqual(userId2.toString());
+            expect(verificationRequest2.otherUserId.toString()).toStrictEqual(userId1.toString());
+            expect(verificationRequest2.otherDeviceId.toString()).toStrictEqual(deviceId1.toString());
+            expect(verificationRequest2.roomId).toBeUndefined();
+            expect(verificationRequest2.cancelInfo).toBeUndefined();
+            expect(verificationRequest2.isPassive()).toStrictEqual(false);
+            expect(verificationRequest2.isReady()).toStrictEqual(false);
+            expect(verificationRequest2.timedOut()).toStrictEqual(false);
+            expect(verificationRequest2.theirSupportedMethods).toStrictEqual([VerificationMethod.SasV1, VerificationMethod.ReciprocateV1]);
+            expect(verificationRequest2.ourSupportedMethods).toBeUndefined();
+            expect(verificationRequest2.flowId).toMatch(/^[a-f0-9]+$/);
+            expect(verificationRequest2.isSelfVerification()).toStrictEqual(false);
+            expect(verificationRequest2.weStarted()).toStrictEqual(false);
+            expect(verificationRequest2.isDone()).toStrictEqual(false);
+            expect(verificationRequest2.isCancelled()).toStrictEqual(false);
+
+            const verificationRequests = m2.getVerificationRequests(userId1);
+            expect(verificationRequests).toHaveLength(1);
+            expect(verificationRequests[0].flowId).toStrictEqual(verificationRequest2.flowId); // there are the same
+        }
+
+        // The request verification is ready.
+        {
+            let outgoingVerificationRequest = verificationRequest2.accept();
+
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+            outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
+
+            // Let's pretend the message is coming from a server.
+            const toDeviceEvents = {
+                "events": [{
+                    sender: userId1.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+                }]
+            };
+
+            // Let's send the verification ready to `m1`.
+            const receiveSyncChanges = await JSON.parse(await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set()));
         }
     });
 });
