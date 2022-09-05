@@ -1,12 +1,13 @@
 //! Different verification types.
 
-use js_sys::{Array, JsString};
+use js_sys::{Array, JsString, Promise};
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::{
+    future::future_to_promise,
     identifiers::{DeviceId, RoomId, UserId},
     requests,
 };
@@ -128,6 +129,12 @@ impl TryFrom<Verification> for JsValue {
 #[derive(Debug)]
 pub struct Sas {
     inner: matrix_sdk_crypto::Sas,
+}
+
+impl From<matrix_sdk_crypto::Sas> for Sas {
+    fn from(inner: matrix_sdk_crypto::Sas) -> Self {
+        Self { inner }
+    }
 }
 
 #[wasm_bindgen]
@@ -872,7 +879,36 @@ impl VerificationRequest {
             .map_err(Into::into)
     }
 
-    // start_sas
+    /// Transition from this verification request into a SAS verification flow.
+    #[wasm_bindgen(js_name = "startSas")]
+    pub fn start_sas(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            match me
+                .start_sas()
+                .await?
+                .map(|(sas, outgoing_verification_request)| -> Result<Array, JsError> {
+                    let tuple = Array::new();
+
+                    tuple.set(0, Sas::from(sas).into());
+                    tuple.set(
+                        1,
+                        OutgoingVerificationRequest::from(outgoing_verification_request)
+                            .try_into()?,
+                    );
+
+                    Ok(tuple)
+                })
+                .transpose()
+            {
+                Ok(a) => Ok(a),
+                Err(_) => {
+                    Err(anyhow::Error::msg("Failed to build the outgoing verification request"))
+                }
+            }
+        })
+    }
     // generate_qr_code if `qrcode`
     // scan_qr_code if `qrcode`
 }
