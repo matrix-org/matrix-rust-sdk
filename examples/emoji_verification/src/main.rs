@@ -117,7 +117,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                         }
                     }
 
-                    AnyToDeviceEvent::KeyVerificationMac(e) => {
+                    AnyToDeviceEvent::KeyVerificationDone(e) => {
                         if let Some(Verification::SasV1(sas)) = client
                             .encryption()
                             .get_verification(&e.sender, e.content.transaction_id.as_str())
