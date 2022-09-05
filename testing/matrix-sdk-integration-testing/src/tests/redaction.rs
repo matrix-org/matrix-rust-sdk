@@ -46,10 +46,10 @@ async fn test_redacting_name() -> Result<()> {
 
     let content = RoomNameEventContent::new(Some("Inappropriate text".to_owned()));
 
-    room.send_state_event(content, "").await?;
+    room.send_state_event(content).await?;
     // sync up.
     for _ in 0..=10 {
-        // we call sync up to three times to give the server time to flush other
+        // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state event
         sync_once(&tamatoa).await?;
 
@@ -69,11 +69,10 @@ async fn test_redacting_name() -> Result<()> {
         "Event not found"
     );
 
-
     room.redact(room_avatar_event.event_id(), None, None).await?;
     // sync up.
     for _ in 0..=10 {
-        // we call sync up to three times to give the server time to flush other
+        // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state ev
         sync_once(&tamatoa).await?;
 
@@ -114,10 +113,10 @@ async fn test_redacting_name_static() -> Result<()> {
     // let's send a specific state event
     let content = RoomNameEventContent::new(Some("Inapropriate text".to_owned()));
 
-    room.send_state_event(content, "").await?;
+    room.send_state_event(content).await?;
     // sync up.
     for _ in 0..=10 {
-        // we call sync up to three times to give the server time to flush other
+        // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state event
         sync_once(&tamatoa).await?;
 
@@ -129,7 +128,7 @@ async fn test_redacting_name_static() -> Result<()> {
     // check state event.
 
     let room_avatar_event: SyncRoomNameEvent =
-        room.get_state_event_static("").await?.expect("Room Name not found").deserialize()?;
+        room.get_state_event_static().await?.expect("Room Name not found").deserialize()?;
     assert!(
         room_avatar_event.as_original().expect("event exists").content.name.is_some(),
         "Event not found"
@@ -138,7 +137,7 @@ async fn test_redacting_name_static() -> Result<()> {
     room.redact(room_avatar_event.event_id(), None, None).await?;
     // we sync up.
     for _ in 0..=10 {
-        // we call sync up to three times to give the server time to flush other
+        // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state ev
         sync_once(&tamatoa).await?;
 
@@ -148,7 +147,7 @@ async fn test_redacting_name_static() -> Result<()> {
     }
 
     let room_avatar_event: SyncRoomNameEvent =
-        room.get_state_event_static("").await?.expect("Room Name not found").deserialize()?;
+        room.get_state_event_static().await?.expect("Room Name not found").deserialize()?;
     // Name content has been redacted
     assert!(room_avatar_event.as_original().is_none(), "Event still found");
 
