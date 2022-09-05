@@ -61,9 +61,9 @@ use crate::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
             OwnedStartContent, StartContent,
         },
-        Cancelled, FlowId,
+        Cancelled, Emoji, FlowId,
     },
-    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =

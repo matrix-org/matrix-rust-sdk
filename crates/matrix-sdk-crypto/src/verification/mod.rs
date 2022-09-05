@@ -83,6 +83,43 @@ pub struct Emoji {
     pub description: &'static str,
 }
 
+/// Format the the list of emojis as a two line string.
+///
+/// The first line will contain the emojis spread out so the second line can
+/// contain the descriptions centered bellow the emoji.
+pub fn format_emojis(emojis: [Emoji; 7]) -> String {
+    let (emojis, descriptions): (Vec<_>, Vec<_>) =
+        emojis.iter().map(|e| (e.symbol, e.description)).unzip();
+
+    let center_emoji = |emoji: &str| -> String {
+        const EMOJI_WIDTH: usize = 2;
+        // These are emojis that need VARIATION-SELECTOR-16 (U+FE0F) so that they are
+        // rendered with coloured glyphs. For these, we need to add an extra
+        // space after them so that they are rendered properly in terminals.
+        const VARIATION_SELECTOR_EMOJIS: [&str; 7] = ["☁️", "❤️", "☂️", "✏️", "✂️", "☎️", "✈️"];
+
+        // Hack to make terminals behave properly when one of the above is printed.
+        let emoji = if VARIATION_SELECTOR_EMOJIS.contains(&emoji) {
+            format!("{} ", emoji)
+        } else {
+            emoji.to_owned()
+        };
+
+        // This is a trick to account for the fact that emojis are wider than other
+        // monospace characters.
+        let placeholder = ".".repeat(EMOJI_WIDTH);
+
+        format!("{:^12}", placeholder).replace(&placeholder, &emoji)
+    };
+
+    let emoji_string = emojis.iter().map(|e| center_emoji(e)).collect::<Vec<_>>().join("");
+
+    let description =
+        descriptions.iter().map(|d| format!("{:^12}", d)).collect::<Vec<_>>().join("");
+
+    format!("{emoji_string}\n{description}")
+}
+
 impl VerificationStore {
     pub async fn get_device(
         &self,
