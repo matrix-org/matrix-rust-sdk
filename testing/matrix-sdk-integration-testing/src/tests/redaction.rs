@@ -44,7 +44,7 @@ async fn test_redacting_name() -> Result<()> {
     bg_syncer.abort();
     // let's send a specific state event
 
-    let content = RoomNameEventContent::new(Some("Inapropriate text".to_owned()));
+    let content = RoomNameEventContent::new(Some("Inappropriate text".to_owned()));
 
     room.send_state_event(content, "").await?;
     // sync up.
