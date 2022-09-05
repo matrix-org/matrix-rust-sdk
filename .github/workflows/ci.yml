@@ -107,33 +107,33 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-    - name: Get xtask
-      uses: actions/cache@v3
-      with:
-        path: target/debug/xtask
-        key: xtask-${{ hashFiles('xtask/**') }}
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
 
-    - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci examples
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci examples
 
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
@@ -142,33 +142,33 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-    - name: Get xtask
-      uses: actions/cache@v3
-      with:
-        path: target/debug/xtask
-        key: xtask-${{ hashFiles('xtask/**') }}
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
 
-    - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci test-crypto
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci test-crypto
 
   test-all-crates:
     name: ${{ matrix.name }}
@@ -351,22 +351,22 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        components: rustfmt
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+          profile: minimal
+          override: true
 
-    - name: Cargo fmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: -- --check
+      - name: Cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -- --check
 
   typos:
     name: Spell Check with Typos
@@ -374,11 +374,11 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout Actions Repository
-      uses: actions/checkout@v3
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v3
 
-    - name: Check the spelling of the files in our repo
-      uses: crate-ci/typos@master
+      - name: Check the spelling of the files in our repo
+        uses: crate-ci/typos@master
 
   clippy:
     name: Run clippy
@@ -387,31 +387,31 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        components: clippy
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+          profile: minimal
+          override: true
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
-    - name: Get xtask
-      uses: actions/cache@v3
-      with:
-        path: target/debug/xtask
-        key: xtask-${{ hashFiles('xtask/**') }}
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
 
-    - name: Clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci clippy
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci clippy
 
   integration-tests:
     name: Integration test
