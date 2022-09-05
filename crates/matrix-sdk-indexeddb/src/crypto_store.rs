@@ -245,11 +245,14 @@ impl IndexeddbCryptoStore {
             .transpose()?;
 
         let store_cipher = match store_cipher {
-            Some(key) => StoreCipher::import(passphrase, &key)
+            Some(cipher) => StoreCipher::import(passphrase, &cipher)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?,
             None => {
-                let key = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-                let encrypted = key.export(passphrase).map_err(CryptoStoreError::backend)?;
+                let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+                #[cfg(not(test))]
+                let export = cipher.export(passphrase);
+                #[cfg(test)]
+                let export = cipher._insecure_export_fast_for_testing(passphrase);
 
                 let tx: IdbTransaction<'_> = db.transaction_on_one_with_mode(
                     "matrix-sdk-crypto",
@@ -259,10 +262,10 @@ impl IndexeddbCryptoStore {
 
                 ob.put_key_val(
                     &JsValue::from_str(KEYS::STORE_CIPHER),
-                    &JsValue::from_serde(&encrypted)?,
+                    &JsValue::from_serde(&export.map_err(CryptoStoreError::backend)?)?,
                 )?;
                 tx.await.into_result()?;
-                key
+                cipher
             }
         };
 
