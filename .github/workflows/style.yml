@@ -39,31 +39,6 @@ jobs:
         command: fmt
         args: -- --check
 
-  pre-commit-styles:
-    name: Check Style
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Actions Repository
-      uses: actions/checkout@v3
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        components: clippy
-        profile: minimal
-        override: true
-
-    - name: Setup Python Env
-      uses: actions/setup-python@v2
-
-    - name: Check Styles with pre-commit
-      uses: pre-commit/action@v2.0.3
-      with:
-        # only run `commit`-hooks, excludes typos, clippy, etc
-        extra_args: --show-diff-on-failure --hook-stage commit
-
   typos:
     name: Spell Check with Typos
     needs: [style]
