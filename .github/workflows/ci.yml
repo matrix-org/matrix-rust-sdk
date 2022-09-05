@@ -16,7 +16,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
   cancel-others:
     runs-on: ubuntu-latest
     steps:
@@ -25,8 +24,37 @@ jobs:
         with:
           access_token: ${{ github.token }}
 
+  xtask:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Check xtask cache
+        uses: actions/cache@v3
+        id: xtask-cache
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Install rust stable toolchain
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xtask
+
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
+    needs: xtask
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -60,6 +88,12 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -68,6 +102,7 @@ jobs:
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
+    needs: xtask
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -87,6 +122,12 @@ jobs:
 
     - name: Install nextest
       uses: taiki-e/install-action@nextest
+
+    - name: Get xtask
+      uses: actions/cache@v3
+      with:
+        path: target/debug/xtask
+        key: xtask-${{ hashFiles('xtask/**') }}
 
     - name: Test
       uses: actions-rs/cargo@v1
@@ -96,6 +137,7 @@ jobs:
 
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
+    needs: xtask
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -115,6 +157,12 @@ jobs:
 
     - name: Install nextest
       uses: taiki-e/install-action@nextest
+
+    - name: Get xtask
+      uses: actions/cache@v3
+      with:
+        path: target/debug/xtask
+        key: xtask-${{ hashFiles('xtask/**') }}
 
     - name: Test
       uses: actions-rs/cargo@v1
@@ -174,6 +222,7 @@ jobs:
 
   test-wasm:
     name: 🕸️ ${{ matrix.name }}
+    needs: xtask
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -233,6 +282,12 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
       - name: Rust Check
         uses: actions-rs/cargo@v1
         with:
@@ -246,8 +301,9 @@ jobs:
           args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
 
   test-appservice:
-    if: github.event_name == 'push' || !github.event.pull_request.draft
     name: ${{ matrix.os-name }} [m]-appservice
+    needs: xtask
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -276,6 +332,12 @@ jobs:
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
 
       - name: Run checks
         uses: actions-rs/cargo@v1
@@ -320,6 +382,7 @@ jobs:
 
   clippy:
     name: Run clippy
+    needs: xtask
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -337,6 +400,12 @@ jobs:
 
     - name: Load cache
       uses: Swatinem/rust-cache@v1
+
+    - name: Get xtask
+      uses: actions/cache@v3
+      with:
+        path: target/debug/xtask
+        key: xtask-${{ hashFiles('xtask/**') }}
 
     - name: Clippy
       uses: actions-rs/cargo@v1
