@@ -338,20 +338,23 @@ impl SledCryptoStore {
     }
 
     fn get_or_create_store_cipher(passphrase: &str, database: &Db) -> Result<StoreCipher> {
-        let key = if let Some(key) =
+        let cipher = if let Some(key) =
             database.get("store_cipher".encode()).map_err(CryptoStoreError::backend)?
         {
             StoreCipher::import(passphrase, &key).map_err(|_| CryptoStoreError::UnpicklingError)?
         } else {
-            let key = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-            let encrypted = key.export(passphrase).map_err(CryptoStoreError::backend)?;
+            let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+            #[cfg(not(test))]
+            let export = cipher.export(passphrase);
+            #[cfg(test)]
+            let export = cipher._insecure_export_fast_for_testing(passphrase);
             database
-                .insert("store_cipher".encode(), encrypted)
+                .insert("store_cipher".encode(), export.map_err(CryptoStoreError::backend)?)
                 .map_err(CryptoStoreError::backend)?;
-            key
+            cipher
         };
 
-        Ok(key)
+        Ok(cipher)
     }
 
     pub(crate) fn open_helper(

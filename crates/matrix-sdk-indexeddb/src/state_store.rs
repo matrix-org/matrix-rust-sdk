@@ -328,9 +328,13 @@ impl IndexeddbStateStoreBuilder {
                 StoreCipher::import(passphrase, &inner)?
             } else {
                 let cipher = StoreCipher::new()?;
+                #[cfg(not(test))]
+                let export = cipher.export(passphrase)?;
+                #[cfg(test)]
+                let export = cipher._insecure_export_fast_for_testing(passphrase)?;
                 ob.put_key_val(
                     &JsValue::from_str(KEYS::STORE_KEY),
-                    &JsValue::from_serde(&StoreKeyWrapper(cipher.export(passphrase)?))?,
+                    &JsValue::from_serde(&StoreKeyWrapper(export))?,
                 )?;
                 cipher
             };

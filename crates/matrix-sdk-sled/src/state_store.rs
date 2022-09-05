@@ -244,7 +244,11 @@ impl SledStateStoreBuilder {
                 Some(StoreCipher::import(passphrase, &inner)?.into())
             } else {
                 let cipher = StoreCipher::new()?;
-                db.insert("store_cipher".encode(), cipher.export(passphrase)?)?;
+                #[cfg(not(test))]
+                let export = cipher.export(passphrase)?;
+                #[cfg(test)]
+                let export = cipher._insecure_export_fast_for_testing(passphrase)?;
+                db.insert("store_cipher".encode(), export)?;
                 Some(cipher.into())
             }
         } else {
