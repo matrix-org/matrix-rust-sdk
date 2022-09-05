@@ -17,6 +17,7 @@ env:
 
 jobs:
   cancel-others:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Cancel Previous Runs
