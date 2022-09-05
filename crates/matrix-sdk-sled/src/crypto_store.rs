@@ -1047,7 +1047,7 @@ mod tests {
         store
     }
 
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }
 
 #[cfg(test)]
@@ -1070,5 +1070,5 @@ mod encrypted_tests {
 
         store
     }
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }
