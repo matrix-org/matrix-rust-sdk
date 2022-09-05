@@ -245,6 +245,107 @@ jobs:
           command: run
           args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
 
+  test-appservice:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    name: ${{ matrix.os-name }} [m]-appservice
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-name: 🐧
+
+          - os: macos-latest
+            os-name: 🍏
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run checks
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci test-appservice
+
+  formatting:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+        profile: minimal
+        override: true
+
+    - name: Cargo fmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
+
+  typos:
+    name: Spell Check with Typos
+    needs: [style]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout Actions Repository
+      uses: actions/checkout@v3
+
+    - name: Check the spelling of the files in our repo
+      uses: crate-ci/typos@master
+
+  clippy:
+    name: Run clippy
+    needs: [style]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: clippy
+        profile: minimal
+        override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci clippy
+
   integration-tests:
     name: Integration test
     if: github.event_name == 'push' || !github.event.pull_request.draft
