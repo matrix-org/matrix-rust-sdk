@@ -32,9 +32,9 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-        Cancelled,
+        Cancelled, Emoji,
     },
-    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]

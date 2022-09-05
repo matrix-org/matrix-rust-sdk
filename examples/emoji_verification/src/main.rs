@@ -1,5 +1,5 @@
 use std::{
-    io,
+    io::{self, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -11,7 +11,7 @@ use clap::Parser;
 use matrix_sdk::{
     self,
     config::SyncSettings,
-    encryption::verification::{SasVerification, Verification},
+    encryption::verification::{format_emojis, SasVerification, Verification},
     ruma::{
         events::{
             room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -25,9 +25,10 @@ use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: SasVerification) {
     let emoji = sas.emoji().expect("The emoji should be available now");
-    let emoji: Vec<&str> = emoji.iter().map(|e| e.symbol).collect();
 
-    println!("Does the emoji match: {:?}", emoji);
+    println!("\nDo the emojis match: \n{}", format_emojis(emoji));
+    print!("Confirm with `yes` or cancel with `no`: ");
+    std::io::stdout().flush().expect("We should be able to flush stdout");
 
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
