@@ -135,10 +135,10 @@ interface SlidingSyncViewBuilder {
 };
 
 interface SlidingSyncView {
-    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver update);
-    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver update);
-    StoppableSpawn observe_state(SlidingSyncViewStateObserver update);
-    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver update);
+    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver observer);
+    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
+    StoppableSpawn observe_state(SlidingSyncViewStateObserver observer);
+    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
 
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
@@ -178,7 +178,7 @@ interface SlidingSyncRoom {
 
 interface SlidingSync {
 
-    void set_observer(SlidingSyncObserver? update);
+    void set_observer(SlidingSyncObserver? observer);
 
     StoppableSpawn sync();
 
