@@ -148,7 +148,7 @@ mod tests {
             .retry_limit(4)
             .timeout(Duration::from_secs(600));
 
-        assert_eq!(cfg.force_auth, true);
+        assert!(cfg.force_auth);
         assert_eq!(cfg.homeserver, Some("example.org".to_owned()));
         assert_eq!(cfg.retry_limit, Some(4));
         assert_eq!(cfg.retry_timeout, Some(Duration::from_secs(32)));

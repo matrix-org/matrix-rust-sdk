@@ -135,7 +135,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `to_device_events`, thhe to-device events of the current sync
+    /// * `to_device_events`, the to-device events of the current sync
     ///   response.
     /// * `changed_devices`, the list of devices that changed in this sync
     ///   response.
