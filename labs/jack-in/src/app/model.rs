@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use log::warn;
 use tokio::sync::mpsc;
+use tracing::warn;
 use tuirealm::{
     props::{Alignment, Borders, Color},
     terminal::TerminalBridge,

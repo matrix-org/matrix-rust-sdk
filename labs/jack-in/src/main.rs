@@ -5,11 +5,11 @@
 use std::path::{Path, PathBuf};
 
 use eyre::{eyre, Result};
-use log::{warn, LevelFilter};
 use matrix_sdk::{
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
     Client, Session,
 };
+use tracing::{log::LevelFilter, warn};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
@@ -108,12 +108,12 @@ async fn main() -> Result<()> {
         //tracing_subscriber::fmt::init();
         #[cfg(feature = "file-logging")]
         {
-            use log::LevelFilter;
             use log4rs::{
                 append::file::FileAppender,
                 config::{Appender, Config, Logger, Root},
                 encode::pattern::PatternEncoder,
             };
+            use tracing::level_filters::LevelFilter;
 
             let file = FileAppender::builder()
                 .encoder(Box::new(PatternEncoder::default()))
@@ -148,8 +148,8 @@ async fn main() -> Result<()> {
         #[cfg(not(feature = "file-logging"))]
         {
             tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
-            tui_logger::set_default_level(log::LevelFilter::Warn);
-            tui_logger::set_level_for_target("matrix_sdk", log::LevelFilter::Warn);
+            tui_logger::set_default_level(LevelFilter::Warn);
+            tui_logger::set_level_for_target("matrix_sdk", LevelFilter::Warn);
         }
     }
 

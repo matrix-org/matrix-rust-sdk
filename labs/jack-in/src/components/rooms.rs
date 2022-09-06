@@ -1,4 +1,4 @@
-use log::warn;
+use tracing::warn;
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},

@@ -1,7 +1,7 @@
 use eyre::{Result, WrapErr};
 use futures::{pin_mut, StreamExt};
-use log::{error, warn};
 use tokio::sync::mpsc;
+use tracing::{error, warn};
 
 pub mod state;
 

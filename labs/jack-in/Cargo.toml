@@ -22,7 +22,6 @@ tracing-subscriber = "0.3.15"
 eyre = "0.6"
 
 tui-logger = "0.8.0"
-log = "0.4"
 
 # file-logging specials
 tracing = { version = "0.1.35", features = ["log"] }
