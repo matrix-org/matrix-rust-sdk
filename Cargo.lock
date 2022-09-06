@@ -2464,10 +2464,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assign",
+ "ctor",
  "matrix-sdk",
  "once_cell",
  "tempfile",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]

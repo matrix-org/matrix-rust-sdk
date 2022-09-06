@@ -70,7 +70,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "join_rule": "public"
                                 },
                                 "event_id": "$15139375514WsgmR:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.join_rules",
@@ -86,7 +86,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$151800140517rfvjc:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 151800140,
+                                "origin_server_ts": 151800140000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -100,7 +100,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "history_visibility": "shared"
                                 },
                                 "event_id": "$15139375515VaJEY:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.history_visibility",
@@ -113,7 +113,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "creator": "@example:localhost"
                                 },
                                 "event_id": "$15139375510KUZHi:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.create",
@@ -128,7 +128,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     ]
                                 },
                                 "event_id": "$15139375516NUgtD:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "localhost",
                                 "type": "m.room.aliases",
@@ -141,7 +141,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "topic": "room topic"
                                 },
                                 "event_id": "$151957878228ssqrJ:localhost",
-                                "origin_server_ts": 151957878,
+                                "origin_server_ts": 151957878000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.topic",
@@ -175,7 +175,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "users_default": 0
                                 },
                                 "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.power_levels",
@@ -188,7 +188,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "alias": "#tutorial:localhost"
                                 },
                                 "event_id": "$15139375513VdeRF:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.canonical_alias",
@@ -204,7 +204,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$152034824468gOeNB:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 152034824,
+                                "origin_server_ts": 152034824000000_u64,
                                 "sender": "@example2:localhost",
                                 "state_key": "@example2:localhost",
                                 "type": "m.room.member",
@@ -229,7 +229,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$152037280074GZeOm:localhost",
-                                "origin_server_ts": 152037280,
+                                "origin_server_ts": 152037280000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -332,7 +332,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "join_rule": "public"
                                 },
                                 "event_id": "$15139375514WsgmR:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.join_rules",
@@ -348,7 +348,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$151800140517rfvjc:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 151800140,
+                                "origin_server_ts": 151800140000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -362,7 +362,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "history_visibility": "shared"
                                 },
                                 "event_id": "$15139375515VaJEY:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.history_visibility",
@@ -375,7 +375,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "creator": "@example:localhost"
                                 },
                                 "event_id": "$15139375510KUZHi:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.create",
@@ -388,7 +388,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "topic": "room topic"
                                 },
                                 "event_id": "$151957878228ssqrJ:localhost",
-                                "origin_server_ts": 151957878,
+                                "origin_server_ts": 151957878000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.topic",
@@ -422,7 +422,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "users_default": 0
                                 },
                                 "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.power_levels",
@@ -438,7 +438,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$152034824468gOeNB:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 152034824,
+                                "origin_server_ts": 152034824000000_u64,
                                 "sender": "@example2:localhost",
                                 "state_key": "@example2:localhost",
                                 "type": "m.room.member",
@@ -459,7 +459,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                   "displayname": "example"
                                 },
                                 "event_id": "$1585345508297748AIUBh:matrix.org",
-                                "origin_server_ts": 158534550,
+                                "origin_server_ts": 158534550000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -487,7 +487,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$152037280074GZeOm:localhost",
-                                "origin_server_ts": 152037280,
+                                "origin_server_ts": 152037280000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -585,7 +585,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$152037280074GZeOm:localhost",
-                                "origin_server_ts": 152037280,
+                                "origin_server_ts": 152037280000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -606,7 +606,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$editevid:localhost",
-                                "origin_server_ts": 159026265,
+                                "origin_server_ts": 159026265000000_u64,
                                 "sender": "@alice:matrix.org",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -618,7 +618,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "reason": "😀"
                                 },
                                 "event_id": "$151957878228ssqrJ:localhost",
-                                "origin_server_ts": 151957878,
+                                "origin_server_ts": 151957878000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.redaction",
                                 "redacts": "$151957878228ssqrj:localhost",
@@ -629,7 +629,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                             {
                                 "content": {},
                                 "event_id": "$15275046980maRLj:localhost",
-                                "origin_server_ts": 152750469,
+                                "origin_server_ts": 152750469000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -637,7 +637,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "redacted_because": {
                                         "content": {},
                                         "event_id": "$15275047031IXQRi:localhost",
-                                        "origin_server_ts": 152750470,
+                                        "origin_server_ts": 152750470000000_u64,
                                         "redacts": "$15275046980maRLj:localhost",
                                         "sender": "@example:localhost",
                                         "type": "m.room.redaction",
@@ -657,7 +657,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     }
                                 },
                                 "event_id": "$15275047031IXQRi:localhost",
-                                "origin_server_ts": 159027581,
+                                "origin_server_ts": 159027581000000_u64,
                                 "sender": "@alice:matrix.org",
                                 "type": "m.reaction",
                                 "unsigned": {
@@ -672,7 +672,7 @@ pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.notice"
                                 },
                                 "event_id": "$098237280074GZeOm:localhost",
-                                "origin_server_ts": 162037280,
+                                "origin_server_ts": 162037280000000_u64,
                                 "sender": "@bot:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -716,7 +716,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$152037280074GZeOm2:localhost",
-                                "origin_server_ts": 152037280,
+                                "origin_server_ts": 152037280000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -737,7 +737,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$editevid2:localhost",
-                                "origin_server_ts": 159026265,
+                                "origin_server_ts": 159026265000000_u64,
                                 "sender": "@alice:matrix.org",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -749,7 +749,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     "reason": "😀"
                                 },
                                 "event_id": "$151957878228ssqrJ2:localhost",
-                                "origin_server_ts": 151957878,
+                                "origin_server_ts": 151957878000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.redaction",
                                 "redacts": "$151957878228ssqrj:localhost",
@@ -760,7 +760,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                             {
                                 "content": {},
                                 "event_id": "$15275046980maRLj2:localhost",
-                                "origin_server_ts": 152750469,
+                                "origin_server_ts": 152750469000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -768,7 +768,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     "redacted_because": {
                                         "content": {},
                                         "event_id": "$15275047031IXQRi:localhost",
-                                        "origin_server_ts": 152750470,
+                                        "origin_server_ts": 152750470000000_u64,
                                         "redacts": "$15275046980maRLj:localhost",
                                         "sender": "@example:localhost",
                                         "type": "m.room.redaction",
@@ -788,7 +788,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     }
                                 },
                                 "event_id": "$15275047031IXQRi2:localhost",
-                                "origin_server_ts": 159027581,
+                                "origin_server_ts": 159027581000000_u64,
                                 "sender": "@alice:matrix.org",
                                 "type": "m.reaction",
                                 "unsigned": {
@@ -803,7 +803,7 @@ pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.notice"
                                 },
                                 "event_id": "$098237280074GZeOm2:localhost",
-                                "origin_server_ts": 162037280,
+                                "origin_server_ts": 162037280000000_u64,
                                 "sender": "@bot:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -944,7 +944,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "join_rule": "public"
                                 },
                                 "event_id": "$15139375514WsgmR:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.join_rules",
@@ -960,7 +960,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$151800140517rfvjc:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 151800140,
+                                "origin_server_ts": 151800140000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -974,7 +974,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "history_visibility": "shared"
                                 },
                                 "event_id": "$15139375515VaJEY:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.history_visibility",
@@ -987,7 +987,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "creator": "@example:localhost"
                                 },
                                 "event_id": "$15139375510KUZHi:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.create",
@@ -1002,7 +1002,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     ]
                                 },
                                 "event_id": "$15139375516NUgtD:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "localhost",
                                 "type": "m.room.aliases",
@@ -1015,7 +1015,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "topic": "room topic"
                                 },
                                 "event_id": "$151957878228ssqrJ:localhost",
-                                "origin_server_ts": 151957878,
+                                "origin_server_ts": 151957878000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.topic",
@@ -1049,7 +1049,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "users_default": 0
                                 },
                                 "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.power_levels",
@@ -1062,7 +1062,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "alias": "#tutorial:localhost"
                                 },
                                 "event_id": "$15139375513VdeRF:localhost",
-                                "origin_server_ts": 151393755,
+                                "origin_server_ts": 151393755000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "",
                                 "type": "m.room.canonical_alias",
@@ -1078,7 +1078,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                 },
                                 "event_id": "$152034824468gOeNB:localhost",
                                 "membership": "join",
-                                "origin_server_ts": 152034824,
+                                "origin_server_ts": 152034824000000_u64,
                                 "sender": "@example2:localhost",
                                 "state_key": "@example2:localhost",
                                 "type": "m.room.member",
@@ -1099,7 +1099,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                   "displayname": "example"
                                 },
                                 "event_id": "$1585345508297748AIUBh:matrix.org",
-                                "origin_server_ts": 158534550,
+                                "origin_server_ts": 158534550000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -1127,7 +1127,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "msgtype": "m.text"
                                 },
                                 "event_id": "$152037280074GZeOm:localhost",
-                                "origin_server_ts": 152037280,
+                                "origin_server_ts": 152037280000000_u64,
                                 "sender": "@example:localhost",
                                 "type": "m.room.message",
                                 "unsigned": {
@@ -1192,7 +1192,7 @@ pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
                                 "content": {
                                     "membership": "leave"
                                 },
-                                "origin_server_ts": 158957809,
+                                "origin_server_ts": 158957809000000_u64,
                                 "sender": "@example:localhost",
                                 "state_key": "@example:localhost",
                                 "type": "m.room.member",
@@ -1270,7 +1270,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "version": 0
                                 },
                                 "event_id": "$143273582443PhrSn:example.org",
-                                "origin_server_ts": 143273582,
+                                "origin_server_ts": 143273582000000_u64,
                                 "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
                                 "sender": "@example:example.org",
                                 "type": "m.call.invite",
@@ -1289,7 +1289,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "version": 0
                                 },
                                 "event_id": "$143273582443PhrSn:example.org",
-                                "origin_server_ts": 143273582,
+                                "origin_server_ts": 143273582000000_u64,
                                 "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
                                 "sender": "@example:example.org",
                                 "type": "m.call.answer",
@@ -1310,7 +1310,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "version": 0
                                 },
                                 "event_id": "$143273582443PhrSn:example.org",
-                                "origin_server_ts": 143273582,
+                                "origin_server_ts": 143273582000000_u64,
                                 "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
                                 "sender": "@example:example.org",
                                 "type": "m.call.candidates",
@@ -1324,7 +1324,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "version": 0
                                 },
                                 "event_id": "$143273582443PhrSn:example.org",
-                                "origin_server_ts": 143273582,
+                                "origin_server_ts": 143273582000000_u64,
                                 "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
                                 "sender": "@example:example.org",
                                 "type": "m.call.hangup",

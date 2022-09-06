@@ -111,10 +111,6 @@ impl RoomMember {
 
     /// Get the membership state of this member.
     pub fn membership(&self) -> &MembershipState {
-        if let Some(p) = self.profile.as_ref() {
-            p.membership()
-        } else {
-            self.event.membership()
-        }
+        self.event.membership()
     }
 }

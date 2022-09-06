@@ -46,7 +46,8 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, warn};
@@ -108,7 +109,7 @@ impl Common {
     ///
     /// Returns a [`Result`] containing an instance of [`Left`] if successful.
     ///
-    /// Only invited and joined rooms can be left
+    /// Only invited and joined rooms can be left.
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
@@ -117,6 +118,7 @@ impl Common {
 
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
                 let mut tx = tx.clone();
@@ -125,6 +127,7 @@ impl Common {
                 async move {
                     if *event.membership() == MembershipState::Leave
                         && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");
 
@@ -153,14 +156,14 @@ impl Common {
 
         let option = TryStreamExt::try_next(&mut rx).await?;
 
-        Ok(option.expect("receive joined room result from event handler"))
+        Ok(option.expect("receive left room result from event handler"))
     }
 
     /// Join this room.
     ///
     /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
     /// if successful.
-    /// Only invited and left rooms can be joined via this method
+    /// Only invited and left rooms can be joined via this method.
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn join(&self) -> Result<Joined> {
         self.client.join_room_by_id(self.room_id()).await
