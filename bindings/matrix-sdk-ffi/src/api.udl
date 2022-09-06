@@ -75,6 +75,9 @@ interface Client {
 
     [Throws=ClientError]
     SessionVerificationController get_session_verification_controller();
+
+    [Throws=ClientError]
+    void logout();
 };
 
 callback interface RoomDelegate {

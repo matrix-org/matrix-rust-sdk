@@ -54,7 +54,7 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
-            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider},
+            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider, logout},
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
@@ -2431,6 +2431,12 @@ impl Client {
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Log out the current user
+    pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
+        let request = logout::v3::Request::new();
         self.send(request, None).await
     }
 }

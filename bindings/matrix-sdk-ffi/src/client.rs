@@ -283,6 +283,14 @@ impl Client {
             Ok(Arc::new(session_verification_controller))
         })
     }
+
+    /// Log out the current user
+    pub fn logout(&self) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            _ = self.client.logout().await;
+            Ok(())
+        })
+    }
 }
 
 #[uniffi::export]
