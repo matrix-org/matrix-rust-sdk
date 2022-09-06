@@ -1,12 +1,12 @@
 use std::sync::{Arc, RwLock};
 
-use assign::assign;
 use futures_signals::{
     signal::SignalExt,
     signal_vec::{SignalVecExt, VecDiff},
 };
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::ruma::{
+    assign,
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,

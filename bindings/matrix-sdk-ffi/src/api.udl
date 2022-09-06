@@ -146,7 +146,6 @@ interface SlidingSyncView {
     void add_range(u32 from, u32 to);
     void reset_ranges();
     void set_range(u32 from, u32 to);
-
 };
 
 interface UnreadNotificationsCount {
@@ -157,7 +156,6 @@ interface UnreadNotificationsCount {
 };
 
 interface SlidingSyncRoom {
-
     string? name();
     string room_id();
 
@@ -177,7 +175,6 @@ interface SlidingSyncRoom {
 };
 
 interface SlidingSync {
-
     void set_observer(SlidingSyncObserver? observer);
 
     StoppableSpawn sync();

@@ -10,7 +10,6 @@ mod helpers;
 pub mod messages;
 pub mod room;
 pub mod session_verification;
-#[cfg(feature = "sliding-sync")]
 pub mod sliding_sync;
 mod uniffi_api;
 
@@ -28,7 +27,6 @@ pub static RUNTIME: Lazy<Runtime> =
 
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
-#[cfg(feature = "sliding-sync")]
 pub use self::sliding_sync::*;
 pub use self::{
     authentication_service::*, backward_stream::*, client::*, messages::*, room::*,
