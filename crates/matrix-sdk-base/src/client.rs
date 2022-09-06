@@ -327,6 +327,7 @@ impl BaseClient {
                             ),
                         ) => {
                             room_info.handle_redaction(r);
+                            changes.redact(r);
                             // FIXME: Find the event in self.store (needs
                             // something like a get_event_by_id), redact it and
                             // put it back via StateChanges. See

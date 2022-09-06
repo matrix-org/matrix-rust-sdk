@@ -46,7 +46,10 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent, ReceiptType},
-        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::{
+            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            redaction::OriginalSyncRoomRedactionEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
@@ -679,6 +682,10 @@ pub struct StateChanges {
     /// A map of `RoomId` to `ReceiptEventContent`.
     pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
 
+    /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
+    /// `SyncRoomRedactionEvent`.
+    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OriginalSyncRoomRedactionEvent>>,
+
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
     pub stripped_state: BTreeMap<
@@ -768,6 +775,14 @@ impl StateChanges {
             .entry(event.event_type())
             .or_default()
             .insert(event.state_key().to_owned(), raw_event);
+    }
+
+    /// Redact an event in the room
+    pub fn add_redaction(&mut self, room_id: &RoomId, redaction: OriginalSyncRoomRedactionEvent) {
+        self.redactions
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(redaction.redacts.clone(), redaction);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
