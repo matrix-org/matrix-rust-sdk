@@ -245,11 +245,14 @@ impl IndexeddbCryptoStore {
             .transpose()?;
 
         let store_cipher = match store_cipher {
-            Some(key) => StoreCipher::import(passphrase, &key)
+            Some(cipher) => StoreCipher::import(passphrase, &cipher)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?,
             None => {
-                let key = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-                let encrypted = key.export(passphrase).map_err(CryptoStoreError::backend)?;
+                let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+                #[cfg(not(test))]
+                let export = cipher.export(passphrase);
+                #[cfg(test)]
+                let export = cipher._insecure_export_fast_for_testing(passphrase);
 
                 let tx: IdbTransaction<'_> = db.transaction_on_one_with_mode(
                     "matrix-sdk-crypto",
@@ -259,10 +262,10 @@ impl IndexeddbCryptoStore {
 
                 ob.put_key_val(
                     &JsValue::from_str(KEYS::STORE_CIPHER),
-                    &JsValue::from_serde(&encrypted)?,
+                    &JsValue::from_serde(&export.map_err(CryptoStoreError::backend)?)?,
                 )?;
                 tx.await.into_result()?;
-                key
+                cipher
             }
         };
 
@@ -418,7 +421,7 @@ impl IndexeddbCryptoStore {
                 let room_id = session.room_id();
                 let pickle = session.pickle().await;
                 sessions.put_key_val(
-                    &self.encode_key(KEYS::OUTBOUND_GROUP_SESSIONS, &room_id),
+                    &self.encode_key(KEYS::OUTBOUND_GROUP_SESSIONS, room_id),
                     &self.serialize_value(&pickle)?,
                 )?;
             }
@@ -452,7 +455,7 @@ impl IndexeddbCryptoStore {
             let identities = tx.object_store(KEYS::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                 identities.put_key_val(
-                    &self.encode_key(KEYS::IDENTITIES, &identity.user_id()),
+                    &self.encode_key(KEYS::IDENTITIES, identity.user_id()),
                     &self.serialize_value(&identity)?,
                 )?;
             }
@@ -1092,7 +1095,7 @@ mod tests {
                 .expect("Can't create store without passphrase"),
         }
     }
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -1112,5 +1115,5 @@ mod encrypted_tests {
 
     // FIXME: the tests pass, if run one by one, but run all together locally,
     //        as well as CI fails... see matrix-org/matrix-rust-sdk#661
-    //     cryptostore_integration_tests! { integration }
+    //     cryptostore_integration_tests!();
 }

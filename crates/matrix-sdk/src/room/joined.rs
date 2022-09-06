@@ -743,6 +743,7 @@ impl Joined {
                 .await?
         } else {
             self.client
+                .media()
                 .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
                 .await?
         };
@@ -750,6 +751,7 @@ impl Joined {
         #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
+            .media()
             .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
             .await?;
 

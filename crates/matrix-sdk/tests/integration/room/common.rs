@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use matrix_sdk::{config::SyncSettings, DisplayName, RoomMember};
+use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName};
 use matrix_sdk_test::{
     async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, TimelineTestEvent,
 };

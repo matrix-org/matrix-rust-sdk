@@ -590,9 +590,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.19"
+version = "3.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68d43934757334b5c0519ff882e1ab9647ac0258b47c24c4f490d78e42697fd5"
+checksum = "23b71c3ce99b7611011217b366d923f1d0a7e07a92bb2dbf1e84508c673ca3bd"
 dependencies = [
  "atty",
  "bitflags",
@@ -1358,7 +1358,7 @@ name = "example-create-rooms"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap 3.2.19",
+ "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -1393,6 +1393,7 @@ name = "example-emoji-verification"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2714,10 +2715,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assign",
+ "ctor",
  "matrix-sdk",
  "once_cell",
  "tempfile",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3823,7 +3826,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.6.3"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "assign",
  "js_int",
@@ -3837,7 +3840,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "ruma-common",
  "serde",
@@ -3847,7 +3850,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.14.1"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "assign",
  "bytes",
@@ -3863,7 +3866,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.9.2"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "base64",
  "bytes",
@@ -3893,7 +3896,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.5.0"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3904,7 +3907,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "js_int",
  "thiserror",
@@ -3913,7 +3916,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.9.2"
-source = "git+https://github.com/ruma/ruma?rev=914e5c21e95c774af8e2883be33e7b6539303545#914e5c21e95c774af8e2883be33e7b6539303545"
+source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4332,7 +4335,7 @@ name = "sled-state-inspector"
 version = "0.1.0"
 dependencies = [
  "atty",
- "clap 3.2.19",
+ "clap 3.2.20",
  "futures",
  "matrix-sdk-base",
  "matrix-sdk-sled",
@@ -5024,7 +5027,7 @@ dependencies = [
  "bincode",
  "camino",
  "cargo_metadata",
- "clap 3.2.19",
+ "clap 3.2.20",
  "fs-err",
  "goblin",
  "heck 0.4.0",
@@ -5572,7 +5575,7 @@ checksum = "4916a4a3cad759e499a3620523bf9545cc162d7a06163727dde97ce9aaa4cf39"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "clap 3.2.19",
+ "clap 3.2.20",
  "serde",
  "serde_json",
  "xshell",

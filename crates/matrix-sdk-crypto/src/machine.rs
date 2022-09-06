@@ -1002,24 +1002,7 @@ impl OlmMachine {
         room_id: &RoomId,
     ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
         let event = event.deserialize()?;
-
-        let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
-            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
-            #[cfg(feature = "experimental-algorithms")]
-            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
-            _ => return Err(EventError::UnsupportedAlgorithm.into()),
-        };
-
-        Ok(self
-            .key_request_machine
-            .request_key(
-                room_id,
-                #[allow(deprecated)]
-                content.sender_key(),
-                content.session_id(),
-                &content.algorithm(),
-            )
-            .await?)
+        self.key_request_machine.request_key(room_id, &event).await
     }
 
     async fn get_verification_state(
@@ -1105,7 +1088,6 @@ impl OlmMachine {
             .store
             .get_inbound_group_session(
                 room_id,
-                #[allow(deprecated)]
                 &content.sender_key().to_base64(),
                 content.session_id(),
             )
@@ -1144,26 +1126,12 @@ impl OlmMachine {
                 }
             }
 
-            let encryption_info = self
-                .get_encryption_info(
-                    &session,
-                    &event.sender,
-                    #[allow(deprecated)]
-                    content.device_id(),
-                )
-                .await?;
+            let encryption_info =
+                self.get_encryption_info(&session, &event.sender, content.device_id()).await?;
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
-            self.key_request_machine
-                .create_outgoing_key_request(
-                    room_id,
-                    #[allow(deprecated)]
-                    content.sender_key(),
-                    content.session_id(),
-                    &content.algorithm(),
-                )
-                .await?;
+            self.key_request_machine.create_outgoing_key_request(room_id, event).await?;
 
             Err(MegolmError::MissingRoomKey)
         }

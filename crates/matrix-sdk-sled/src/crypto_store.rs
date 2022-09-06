@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -30,13 +31,11 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
         RoomKeyCounts,
     },
+    types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{
-    events::room_key_request::RequestedKeyInfo, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,
-    TransactionId, UserId,
-};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
@@ -48,7 +47,7 @@ use tracing::debug;
 use super::OpenStoreError;
 use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 5;
 
 // Table names that are used to derive a separate key for each tree. This ensure
 // that user ids encoded for different trees won't end up as the same byte
@@ -115,22 +114,24 @@ impl EncodeKey for SecretInfo {
     }
 }
 
-impl EncodeKey for RequestedKeyInfo {
+impl EncodeKey for EventEncryptionAlgorithm {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        let s: &str = self.as_ref();
+        s.as_bytes().into()
+    }
+}
+
+impl EncodeKey for SupportedKeyInfo {
     fn encode(&self) -> Vec<u8> {
-        #[allow(deprecated)]
-        (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
+        (self.room_id(), &self.algorithm(), self.session_id()).encode()
     }
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let room_id = store_cipher.hash_key(table_name, self.room_id.as_bytes());
-        #[allow(deprecated)]
-        let sender_key = store_cipher.hash_key(table_name, self.sender_key.as_bytes());
-        let algorithm = store_cipher.hash_key(table_name, self.algorithm.as_ref().as_bytes());
-        let session_id = store_cipher.hash_key(table_name, self.session_id.as_bytes());
+        let room_id = store_cipher.hash_key(table_name, self.room_id().as_bytes());
+        let algorithm = store_cipher.hash_key(table_name, self.algorithm().as_ref().as_bytes());
+        let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
 
         [
             room_id.as_slice(),
-            &[ENCODE_SEPARATOR],
-            sender_key.as_slice(),
             &[ENCODE_SEPARATOR],
             algorithm.as_slice(),
             &[ENCODE_SEPARATOR],
@@ -319,6 +320,15 @@ impl SledCryptoStore {
             ));
         }
 
+        if version <= 4 {
+            // Room key requests are not that important, if they are needed they
+            // will be sent out again. So let's drop all of them since we
+            // removed the `sender_key` from the hash key.
+            self.outgoing_secret_requests.clear().map_err(CryptoStoreError::backend)?;
+            self.unsent_secret_requests.clear().map_err(CryptoStoreError::backend)?;
+            self.secret_requests_by_info.clear().map_err(CryptoStoreError::backend)?;
+        }
+
         self.inner
             .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
             .map_err(CryptoStoreError::backend)?;
@@ -328,20 +338,23 @@ impl SledCryptoStore {
     }
 
     fn get_or_create_store_cipher(passphrase: &str, database: &Db) -> Result<StoreCipher> {
-        let key = if let Some(key) =
+        let cipher = if let Some(key) =
             database.get("store_cipher".encode()).map_err(CryptoStoreError::backend)?
         {
             StoreCipher::import(passphrase, &key).map_err(|_| CryptoStoreError::UnpicklingError)?
         } else {
-            let key = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-            let encrypted = key.export(passphrase).map_err(CryptoStoreError::backend)?;
+            let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+            #[cfg(not(test))]
+            let export = cipher.export(passphrase);
+            #[cfg(test)]
+            let export = cipher._insecure_export_fast_for_testing(passphrase);
             database
-                .insert("store_cipher".encode(), encrypted)
+                .insert("store_cipher".encode(), export.map_err(CryptoStoreError::backend)?)
                 .map_err(CryptoStoreError::backend)?;
-            key
+            cipher
         };
 
-        Ok(key)
+        Ok(cipher)
     }
 
     pub(crate) fn open_helper(
@@ -758,7 +771,7 @@ impl CryptoStore for SledCryptoStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &(room_id, sender_key, session_id));
+        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, (room_id, sender_key, session_id));
         let pickle = self
             .inbound_group_sessions
             .get(&key)
@@ -872,7 +885,7 @@ impl CryptoStore for SledCryptoStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        let key = self.encode_key(DEVICE_TABLE_NAME, &(user_id, device_id));
+        let key = self.encode_key(DEVICE_TABLE_NAME, (user_id, device_id));
 
         Ok(self
             .devices
@@ -1037,7 +1050,7 @@ mod tests {
         store
     }
 
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }
 
 #[cfg(test)]
@@ -1060,5 +1073,5 @@ mod encrypted_tests {
 
         store
     }
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }

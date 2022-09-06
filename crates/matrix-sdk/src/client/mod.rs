@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::io::Read;
 use std::{
     fmt::{self, Debug},
     future::Future,
@@ -31,15 +29,13 @@ use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse,
-    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
-    BaseClient, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
+    deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
+    SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
-    instant::{Duration, Instant},
+    instant::Instant,
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
-use mime::{self, Mime};
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
@@ -55,7 +51,6 @@ use ruma::{
             },
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
-            media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
@@ -71,13 +66,12 @@ use ruma::{
         room::{
             create::RoomCreateEventContent,
             member::{MembershipState, RoomMemberEventContent},
-            MediaSource,
         },
         SyncStateEvent,
     },
     presence::PresenceState,
-    DeviceId, MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
+    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -90,14 +84,13 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 use crate::{
-    attachment::{AttachmentInfo, Thumbnail},
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerHandle, EventHandlerResult, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
-    room, Account, Error, RefreshTokenError, Result, RumaApiError,
+    room, Account, Error, Media, RefreshTokenError, Result, RumaApiError,
 };
 
 mod builder;
@@ -109,11 +102,6 @@ pub use self::{
     builder::{ClientBuildError, ClientBuilder},
     login_builder::LoginBuilder,
 };
-
-/// A conservative upload speed of 1Mbps
-const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
-/// 5 min minimal upload request timeout, used to clamp the request timeout.
-const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -157,15 +145,15 @@ pub(crate) struct ClientInner {
     /// The underlying HTTP client.
     pub(crate) http_client: HttpClient,
     /// User session data.
-    pub(crate) base_client: BaseClient,
+    base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
     pub(crate) server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
-    #[cfg(feature = "e2e-encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
@@ -268,8 +256,8 @@ impl Client {
     /// * `transaction_id` - The id of the transaction, used to guard against
     ///   the same transaction being sent twice. This guarding currently isn't
     ///   implemented.
-    /// * `incoming_transaction` - The sync response converted from a
-    ///   transaction received from the homeserver.
+    /// * `sync_response` - The sync response converted from a transaction
+    ///   received from the homeserver.
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
@@ -302,6 +290,19 @@ impl Client {
         self.process_sync(sync_response).await?;
 
         Ok(())
+    }
+
+    /// Get a copy of the default request config.
+    ///
+    /// The default request config is what's used when sending requests if no
+    /// `RequestConfig` is explicitly passed to [`send`][Self::send] or another
+    /// function with such a parameter.
+    ///
+    /// If the default request config was not customized through
+    /// [`ClientBuilder`] when creating this `Client`, the returned value will
+    /// be equivalent to [`RequestConfig::default()`].
+    pub fn request_config(&self) -> &RequestConfig {
+        &self.inner.http_client.request_config
     }
 
     /// Is the client logged in.
@@ -515,6 +516,11 @@ impl Client {
         Encryption::new(self.clone())
     }
 
+    /// Get the media manager of the client.
+    pub fn media(&self) -> Media {
+        Media::new(self.clone())
+    }
+
     /// Register a handler for a specific event type.
     ///
     /// The handler is a function or closure with one or more arguments. The
@@ -583,6 +589,12 @@ impl Client {
     /// client.add_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///     // You can omit any or all arguments after the first.
     /// });
+    ///
+    /// // Registering a temporary event handler:
+    /// let handle = client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
+    ///     /* Event handler */
+    /// });
+    /// client.remove_event_handler(handle);
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
@@ -1578,13 +1590,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1638,13 +1653,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         if let Err(e) = tx.send(room).await {
                             debug!(
@@ -1767,12 +1785,17 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
+                    if event.origin_server_ts() <= now {
+                        return;
+                    }
+
                     let event_content = if let Some(original_event) = event.as_original() {
                         &original_event.content
                     } else {
@@ -1861,63 +1884,6 @@ impl Client {
     ) -> HttpResult<get_public_rooms_filtered::v3::Response> {
         let request = room_search.into();
         self.send(request, None).await
-    }
-
-    /// Upload some media to the server.
-    ///
-    /// # Arguments
-    ///
-    /// * `content_type` - The type of the media, this will be used as the
-    /// content-type header.
-    ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    /// media.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::fs;
-    /// # use matrix_sdk::{Client, ruma::room_id};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use mime;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver).await?;
-    /// let image = fs::read("/home/example/my-cat.jpg")?;
-    ///
-    /// let response = client.upload(&mime::IMAGE_JPEG, &image).await?;
-    ///
-    /// println!("Cat URI: {}", response.content_uri);
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub async fn upload(
-        &self,
-        content_type: &Mime,
-        data: &[u8],
-    ) -> Result<create_content::v3::Response> {
-        let timeout = std::cmp::max(
-            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
-            MIN_UPLOAD_REQUEST_TIMEOUT,
-        );
-
-        let request = assign!(create_content::v3::Request::new(data), {
-            content_type: Some(content_type.essence_str()),
-        });
-
-        let request_config = self.inner.http_client.request_config.clone().timeout(timeout);
-        Ok(self
-            .inner
-            .http_client
-            .send(
-                request,
-                Some(request_config),
-                self.homeserver().await.to_string(),
-                self.access_token().as_deref(),
-                self.user_id(),
-                self.server_versions().await?,
-            )
-            .await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -2263,11 +2229,10 @@ impl Client {
             set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
-
-        let request_config = self.inner.http_client.request_config.clone().timeout(
-            sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
-                + self.inner.http_client.request_config.timeout,
-        );
+        let mut request_config = self.request_config().clone();
+        if let Some(timeout) = sync_settings.timeout {
+            request_config.timeout += timeout;
+        }
 
         let response = self.send(request, Some(request_config)).await?;
         let response = self.process_sync(response).await?;
@@ -2484,293 +2449,10 @@ impl Client {
         self.inner.base_client.sync_token().await
     }
 
-    /// Get a media file's content.
-    ///
-    /// If the content is encrypted and encryption is enabled, the content will
-    /// be decrypted.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the content.
-    ///
-    /// * `use_cache` - If we should use the media cache for this request.
-    pub async fn get_media_content(
-        &self,
-        request: &MediaRequest,
-        use_cache: bool,
-    ) -> Result<Vec<u8>> {
-        let content = if use_cache {
-            self.inner.base_client.store().get_media_content(request).await?
-        } else {
-            None
-        };
-
-        if let Some(content) = content {
-            Ok(content)
-        } else {
-            let content: Vec<u8> = match &request.source {
-                MediaSource::Encrypted(file) => {
-                    let content: Vec<u8> =
-                        self.send(get_content::v3::Request::from_url(&file.url)?, None).await?.file;
-
-                    #[cfg(feature = "e2e-encryption")]
-                    let content = {
-                        let mut cursor = std::io::Cursor::new(content);
-                        let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-                            &mut cursor,
-                            file.as_ref().clone().into(),
-                        )?;
-
-                        let mut decrypted = Vec::new();
-                        reader.read_to_end(&mut decrypted)?;
-
-                        decrypted
-                    };
-
-                    content
-                }
-                MediaSource::Plain(uri) => {
-                    if let MediaFormat::Thumbnail(size) = &request.format {
-                        self.send(
-                            get_content_thumbnail::v3::Request::from_url(
-                                uri,
-                                size.width,
-                                size.height,
-                            )?,
-                            None,
-                        )
-                        .await?
-                        .file
-                    } else {
-                        self.send(get_content::v3::Request::from_url(uri)?, None).await?.file
-                    }
-                }
-            };
-
-            if use_cache {
-                self.inner.base_client.store().add_media_content(request, content.clone()).await?;
-            }
-
-            Ok(content)
-        }
-    }
-
-    /// Remove a media file's content from the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the content.
-    pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        Ok(self.inner.base_client.store().remove_media_content(request).await?)
-    }
-
-    /// Delete all the media content corresponding to the given
-    /// uri from the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `uri` - The `MxcUri` of the files.
-    pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.inner.base_client.store().remove_media_content_for_uri(uri).await?)
-    }
-
-    /// Get the file of the given media event content.
-    ///
-    /// If the content is encrypted and encryption is enabled, the content will
-    /// be decrypted.
-    ///
-    /// Returns `Ok(None)` if the event content has no file.
-    ///
-    /// This is a convenience method that calls the
-    /// [`get_media_content`](#method.get_media_content) method.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `use_cache` - If we should use the media cache for this file.
-    pub async fn get_file(
-        &self,
-        event_content: impl MediaEventContent,
-        use_cache: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        if let Some(source) = event_content.source() {
-            Ok(Some(
-                self.get_media_content(
-                    &MediaRequest { source, format: MediaFormat::File },
-                    use_cache,
-                )
-                .await?,
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Remove the file of the given media event content from the cache.
-    ///
-    /// This is a convenience method that calls the
-    /// [`remove_media_content`](#method.remove_media_content) method.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_content` - The media event content.
-    pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
-        if let Some(source) = event_content.source() {
-            self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?
-        }
-
-        Ok(())
-    }
-
-    /// Get a thumbnail of the given media event content.
-    ///
-    /// If the content is encrypted and encryption is enabled, the content will
-    /// be decrypted.
-    ///
-    /// Returns `Ok(None)` if the event content has no thumbnail.
-    ///
-    /// This is a convenience method that calls the
-    /// [`get_media_content`](#method.get_media_content) method.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
-    ///   not match the size specified.
-    ///
-    /// * `use_cache` - If we should use the media cache for this thumbnail.
-    pub async fn get_thumbnail(
-        &self,
-        event_content: impl MediaEventContent,
-        size: MediaThumbnailSize,
-        use_cache: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        if let Some(source) = event_content.thumbnail_source() {
-            Ok(Some(
-                self.get_media_content(
-                    &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
-                    use_cache,
-                )
-                .await?,
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Remove the thumbnail of the given media event content from the cache.
-    ///
-    /// This is a convenience method that calls the
-    /// [`remove_media_content`](#method.remove_media_content) method.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `size` - The _desired_ size of the thumbnail. Must match the size
-    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
-    pub async fn remove_thumbnail(
-        &self,
-        event_content: impl MediaEventContent,
-        size: MediaThumbnailSize,
-    ) -> Result<()> {
-        if let Some(source) = event_content.source() {
-            self.remove_media_content(&MediaRequest {
-                source,
-                format: MediaFormat::Thumbnail(size),
-            })
-            .await?
-        }
-
-        Ok(())
-    }
-
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
         self.send(request, None).await
-    }
-
-    /// Upload the file bytes in `data` and construct an attachment
-    /// message with `body`, `content_type`, `info` and `thumbnail`.
-    pub(crate) async fn prepare_attachment_message(
-        &self,
-        body: &str,
-        content_type: &Mime,
-        data: &[u8],
-        info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_>>,
-    ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self.upload(thumbnail.content_type, thumbnail.data).await?;
-            let url = response.content_uri;
-
-            use ruma::events::room::ThumbnailInfo;
-            let thumbnail_info = assign!(
-                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-            );
-
-            (Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info)))
-        } else {
-            (None, None)
-        };
-
-        let response = self.upload(content_type, data).await?;
-
-        let url = response.content_uri;
-
-        use ruma::events::room::{self, message};
-        Ok(match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info,
-                });
-                message::MessageType::Image(message::ImageMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
-            }
-            mime::AUDIO => {
-                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-                message::MessageType::Audio(message::AudioMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
-            }
-            mime::VIDEO => {
-                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                message::MessageType::Video(message::VideoMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
-            }
-            _ => {
-                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                message::MessageType::File(message::FileMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
-            }
-        })
     }
 }
 
@@ -2783,7 +2465,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::UserId;
+    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
@@ -2811,9 +2493,16 @@ pub(crate) mod tests {
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        // let bc = &client.base_client;
-        // let ignored_users = bc.ignored_users.read().await;
-        // assert_eq!(1, ignored_users.len())
+        let content = client
+            .account()
+            .account_data::<IgnoredUserListEventContent>()
+            .await
+            .unwrap()
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(content.ignored_users.len(), 1);
     }
 
     #[async_test]
@@ -2837,7 +2526,7 @@ pub(crate) mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
             .mount(&server)
             .await;
-        let client = Client::builder().user_id(&alice).build().await.unwrap();
+        let client = Client::builder().server_name(alice.server_name()).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2856,7 +2545,7 @@ pub(crate) mod tests {
             .await;
 
         assert!(
-            Client::builder().user_id(&alice).build().await.is_err(),
+            Client::builder().server_name(alice.server_name()).build().await.is_err(),
             "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }
@@ -2892,7 +2581,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
+        assert!(client.request_config().retry_limit.unwrap() == 3);
 
         Mock::given(method("POST"))
             .and(path("/_matrix/client/r0/login"))
@@ -2915,7 +2604,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
+        assert!(client.request_config().retry_timeout.unwrap() == retry_timeout);
 
         Mock::given(method("POST"))
             .and(path("/_matrix/client/r0/login"))

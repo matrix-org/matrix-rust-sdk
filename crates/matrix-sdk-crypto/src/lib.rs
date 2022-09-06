@@ -68,7 +68,7 @@ impl RoomKeyImportResult {
     }
 }
 
-pub use error::{MegolmError, OlmError, SignatureError};
+pub use error::{EventError, MegolmError, OlmError, SessionCreationError, SignatureError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
@@ -87,6 +87,19 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
-pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
+pub use verification::{
+    format_emojis, AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest,
+};
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};
+
+/// Re-exported Error types from the [vodozemac](https://crates.io/crates/vodozemac) crate.
+pub mod vodozemac {
+    pub use vodozemac::{
+        megolm::{DecryptionError as MegolmDecryptionError, SessionKeyDecodeError},
+        olm::{
+            DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
+        },
+        DecodeError, KeyError, PickleError, SignatureError,
+    };
+}

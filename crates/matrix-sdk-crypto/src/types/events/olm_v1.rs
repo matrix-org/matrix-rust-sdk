@@ -23,8 +23,11 @@ use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
 
 use super::{
-    forwarded_room_key::ForwardedRoomKeyContent, room_key::RoomKeyContent,
-    secret_send::SecretSendContent, EventType,
+    forwarded_room_key::ForwardedRoomKeyContent,
+    room_key::RoomKeyContent,
+    room_key_request::{self, SupportedKeyInfo},
+    secret_send::SecretSendContent,
+    EventType,
 };
 use crate::types::{deserialize_ed25519_key, events::from_str, serialize_ed25519_key};
 
@@ -35,6 +38,35 @@ pub type DecryptedRoomKeyEvent = DecryptedOlmV1Event<RoomKeyContent>;
 /// An `m.forwarded_room_key` event that was decrypted using the
 /// `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedForwardedRoomKeyEvent = DecryptedOlmV1Event<ForwardedRoomKeyContent>;
+
+impl DecryptedForwardedRoomKeyEvent {
+    /// Get the unique info about the room key that is contained in this
+    /// forwarded room key event.
+    ///
+    /// Returns `None` if we do not understand the algorithm that was used to
+    /// encrypt the event.
+    pub fn room_key_info(&self) -> Option<SupportedKeyInfo> {
+        match &self.content {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(c) => Some(
+                room_key_request::MegolmV1AesSha2Content {
+                    room_id: c.room_id.to_owned(),
+                    sender_key: c.claimed_sender_key,
+                    session_id: c.session_id.to_owned(),
+                }
+                .into(),
+            ),
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(c) => Some(
+                room_key_request::MegolmV2AesSha2Content {
+                    room_id: c.room_id.to_owned(),
+                    session_id: c.session_id.to_owned(),
+                }
+                .into(),
+            ),
+            ForwardedRoomKeyContent::Unknown(_) => None,
+        }
+    }
+}
 
 /// An `m.secret.send` event that was decrypted using the
 /// `m.olm.v1.curve25519-aes-sha2` algorithm

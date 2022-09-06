@@ -251,7 +251,8 @@ impl Client {
         let source = (*media_source).clone();
 
         RUNTIME.block_on(async move {
-            Ok(l.get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
+            Ok(l.media()
+                .get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
                 .await?)
         })
     }

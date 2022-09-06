@@ -32,7 +32,7 @@ use ruma::{
     },
     assign,
     events::{
-        direct::DirectEvent,
+        direct::DirectEventContent,
         room::{
             history_visibility::HistoryVisibility,
             member::{MembershipState, RoomMemberEventContent},
@@ -40,13 +40,14 @@ use ruma::{
             MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey,
-        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
+        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, warn};
@@ -54,8 +55,8 @@ use tracing::{debug, warn};
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Joined, Left, Room, RoomType},
-    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
+    room::{Joined, Left, Room, RoomMember, RoomType},
+    BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
@@ -108,7 +109,7 @@ impl Common {
     ///
     /// Returns a [`Result`] containing an instance of [`Left`] if successful.
     ///
-    /// Only invited and joined rooms can be left
+    /// Only invited and joined rooms can be left.
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
@@ -117,6 +118,7 @@ impl Common {
 
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
                 let mut tx = tx.clone();
@@ -125,6 +127,7 @@ impl Common {
                 async move {
                     if *event.membership() == MembershipState::Leave
                         && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");
 
@@ -153,14 +156,14 @@ impl Common {
 
         let option = TryStreamExt::try_next(&mut rx).await?;
 
-        Ok(option.expect("receive joined room result from event handler"))
+        Ok(option.expect("receive left room result from event handler"))
     }
 
     /// Join this room.
     ///
     /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
     /// if successful.
-    /// Only invited and left rooms can be joined via this method
+    /// Only invited and left rooms can be joined via this method.
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn join(&self) -> Result<Joined> {
         self.client.join_room_by_id(self.room_id()).await
@@ -205,7 +208,7 @@ impl Common {
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
             let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
-            Ok(Some(self.client.get_media_content(&request, true).await?))
+            Ok(Some(self.client.media().get_media_content(&request, true).await?))
         } else {
             Ok(None)
         }
@@ -997,13 +1000,12 @@ impl Common {
 
         let mut content = self
             .client
-            .store()
-            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .account()
+            .account_data::<DirectEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<DirectEvent>())
+            .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+            .unwrap_or_default();
 
         let this_room_id = self.inner.room_id();
 

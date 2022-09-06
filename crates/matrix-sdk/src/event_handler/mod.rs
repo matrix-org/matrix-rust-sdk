@@ -45,6 +45,7 @@ use std::{
 };
 
 use anymap2::any::CloneAnySendSync;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
@@ -106,10 +107,11 @@ impl EventHandlerStore {
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EventKind {
+pub enum HandlerKind {
     GlobalAccountData,
     RoomAccountData,
     EphemeralRoomData,
+    Timeline,
     MessageLike,
     OriginalMessageLike,
     RedactedMessageLike,
@@ -121,7 +123,7 @@ pub enum EventKind {
     Presence,
 }
 
-impl EventKind {
+impl HandlerKind {
     fn message_like_redacted(redacted: bool) -> Self {
         if redacted {
             Self::RedactedMessageLike
@@ -142,7 +144,7 @@ impl EventKind {
 /// A statically-known event kind/type that can be retrieved from an event sync.
 pub trait SyncEvent {
     #[doc(hidden)]
-    const KIND: EventKind;
+    const KIND: HandlerKind;
     #[doc(hidden)]
     const TYPE: Option<&'static str>;
 }
@@ -156,7 +158,7 @@ pub(crate) struct EventHandlerWrapper {
 /// [`Client::remove_event_handler`].
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
-    pub(crate) ev_kind: EventKind,
+    pub(crate) ev_kind: HandlerKind,
     pub(crate) ev_type: Option<&'static str>,
     pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
@@ -318,7 +320,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_events<T>(
         &self,
-        kind: EventKind,
+        kind: HandlerKind,
         room: &Option<room::Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
@@ -349,15 +351,15 @@ impl Client {
         }
 
         // Event handlers for possibly-redacted state events
-        self.handle_sync_events(EventKind::State, room, state_events).await?;
+        self.handle_sync_events(HandlerKind::State, room, state_events).await?;
 
         // Event handlers specifically for redacted OR unredacted state events
         for raw_event in state_events {
             let StateEventDetails { event_type, unsigned } = raw_event.deserialize_as()?;
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let event_kind = EventKind::state_redacted(redacted);
+            let handler_kind = HandlerKind::state_redacted(redacted);
 
-            self.call_event_handlers(room, raw_event.json(), event_kind, &event_type, None).await;
+            self.call_event_handlers(room, raw_event.json(), handler_kind, &event_type, None).await;
         }
 
         Ok(())
@@ -376,38 +378,30 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
-        // Event handlers for possibly-redacted timeline events
-        for item in timeline_events {
-            let TimelineEventDetails { event_type, state_key, .. } = item.event.deserialize_as()?;
-
-            let event_kind = match state_key {
-                Some(_) => EventKind::State,
-                None => EventKind::MessageLike,
-            };
-
-            let raw_event = &item.event.json();
-            let encryption_info = item.encryption_info.as_ref();
-
-            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
-                .await;
-        }
-
-        // Event handlers specifically for redacted OR unredacted timeline events
         for item in timeline_events {
             let TimelineEventDetails { event_type, state_key, unsigned } =
                 item.event.deserialize_as()?;
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let event_kind = match state_key {
-                Some(_) => EventKind::state_redacted(redacted),
-                None => EventKind::message_like_redacted(redacted),
+            let (handler_kind_g, handler_kind_r) = match state_key {
+                Some(_) => (HandlerKind::State, HandlerKind::state_redacted(redacted)),
+                None => (HandlerKind::MessageLike, HandlerKind::message_like_redacted(redacted)),
             };
 
-            let raw_event = &item.event.json();
+            let raw_event = item.event.json();
             let encryption_info = item.encryption_info.as_ref();
 
-            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
+            // Event handlers for possibly-redacted timeline events
+            self.call_event_handlers(room, raw_event, handler_kind_g, &event_type, encryption_info)
                 .await;
+
+            // Event handlers specifically for redacted OR unredacted timeline events
+            self.call_event_handlers(room, raw_event, handler_kind_r, &event_type, encryption_info)
+                .await;
+
+            // Event handlers for `AnySyncTimelineEvent`
+            let kind = HandlerKind::Timeline;
+            self.call_event_handlers(room, raw_event, kind, &event_type, encryption_info).await;
         }
 
         Ok(())
@@ -417,14 +411,14 @@ impl Client {
         &self,
         room: &Option<room::Room>,
         raw: &RawJsonValue,
-        ev_kind: EventKind,
+        ev_kind: HandlerKind,
         ev_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
         let room_id = room.as_ref().map(|r| r.room_id());
 
         // Construct event handler futures
-        let futures: Vec<_> = self
+        let mut futures: FuturesUnordered<_> = self
             .inner
             .event_handlers
             .handlers
@@ -445,10 +439,8 @@ impl Client {
             .collect();
 
         // Run the event handler futures with the `self.event_handlers.handlers`
-        // lock no longer being held, in order.
-        for fut in futures {
-            fut.await;
-        }
+        // lock no longer being held.
+        while let Some(()) = futures.next().await {}
     }
 }
 

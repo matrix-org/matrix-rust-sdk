@@ -648,6 +648,53 @@ macro_rules! statestore_integration_tests {
             }
 
             #[async_test]
+            async fn test_stripped_non_stripped() -> StoreResult<()> {
+                let store = get_store().await.unwrap();
+                let room_id = room_id!("!test_stripped_non_stripped:localhost");
+                let user_id = user_id();
+
+                assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
+                assert_eq!(store.get_room_infos().await.unwrap().len(), 0);
+                assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 0);
+
+                let mut changes = StateChanges::default();
+                changes
+                    .members
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(user_id.to_owned(), membership_event());
+                changes.add_room(RoomInfo::new(room_id, RoomType::Left));
+                store.save_changes(&changes).await.unwrap();
+
+                assert!(matches!(
+                    store.get_member_event(room_id, user_id).await.unwrap(),
+                    Some(matrix_sdk_common::deserialized_responses::MemberEvent::Sync(_))
+                ));
+                assert_eq!(store.get_room_infos().await.unwrap().len(), 1);
+                assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 0);
+
+                let members = store.get_user_ids(room_id).await.unwrap();
+                assert_eq!(members, vec![user_id.to_owned()]);
+
+                let mut changes = StateChanges::default();
+                changes.add_stripped_member(room_id, custom_stripped_membership_event(user_id));
+                changes.add_stripped_room(RoomInfo::new(room_id, RoomType::Invited));
+                store.save_changes(&changes).await.unwrap();
+
+                assert!(matches!(
+                    store.get_member_event(room_id, user_id).await.unwrap(),
+                    Some(matrix_sdk_common::deserialized_responses::MemberEvent::Stripped(_))
+                ));
+                assert_eq!(store.get_room_infos().await.unwrap().len(), 0);
+                assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);
+
+                let members = store.get_user_ids(room_id).await.unwrap();
+                assert_eq!(members, vec![user_id.to_owned()]);
+
+                Ok(())
+            }
+
+            #[async_test]
             async fn test_room_removal() -> StoreResult<()> {
                 let room_id = room_id();
                 let user_id = user_id();

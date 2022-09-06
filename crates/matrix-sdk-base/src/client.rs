@@ -239,7 +239,7 @@ impl BaseClient {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn handle_unenecrypted_verification_event(
+    async fn handle_unencrypted_verification_event(
         &self,
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
@@ -353,12 +353,12 @@ impl BaseClient {
                                 ruma::events::room::message::MessageType::VerificationRequest(
                                     _,
                                 ) => {
-                                    self.handle_unenecrypted_verification_event(e, room_id).await?;
+                                    self.handle_unencrypted_verification_event(e, room_id).await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                self.handle_unenecrypted_verification_event(e, room_id).await?;
+                                self.handle_unencrypted_verification_event(e, room_id).await?;
                             }
                             _ => (),
                         },

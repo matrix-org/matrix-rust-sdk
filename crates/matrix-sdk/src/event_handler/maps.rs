@@ -19,11 +19,11 @@ use std::{
 
 use ruma::{OwnedRoomId, RoomId};
 
-use super::{EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, EventKind};
+use super::{EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, HandlerKind};
 
 #[derive(Default)]
 pub(super) struct EventHandlerMaps {
-    by_kind: BTreeMap<EventKind, Vec<EventHandlerWrapper>>,
+    by_kind: BTreeMap<HandlerKind, Vec<EventHandlerWrapper>>,
     by_kind_type: BTreeMap<KindTypeWrap, Vec<EventHandlerWrapper>>,
     by_kind_roomid: BTreeMap<KindRoomId, Vec<EventHandlerWrapper>>,
     by_kind_type_roomid: BTreeMap<KindTypeRoomIdWrap, Vec<EventHandlerWrapper>>,
@@ -51,7 +51,7 @@ impl EventHandlerMaps {
 
     pub fn get_handlers<'a>(
         &'a self,
-        ev_kind: EventKind,
+        ev_kind: HandlerKind,
         ev_type: &str,
         room_id: Option<&'a RoomId>,
     ) -> impl Iterator<Item = (EventHandlerHandle, &'a EventHandlerFn)> + 'a {
@@ -138,7 +138,7 @@ impl EventHandlerMaps {
 }
 
 enum Key {
-    Kind(EventKind),
+    Kind(HandlerKind),
     KindType(KindTypeWrap),
     KindRoomId(KindRoomId),
     KindTypeRoomId(KindTypeRoomIdWrap),
@@ -164,13 +164,13 @@ struct KindTypeWrap(KindType<'static>);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct KindType<'a> {
-    ev_kind: EventKind,
+    ev_kind: HandlerKind,
     ev_type: &'a str,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct KindRoomId {
-    ev_kind: EventKind,
+    ev_kind: HandlerKind,
     room_id: OwnedRoomId,
 }
 
@@ -179,7 +179,7 @@ struct KindTypeRoomIdWrap(KindTypeRoomId<'static>);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct KindTypeRoomId<'a> {
-    ev_kind: EventKind,
+    ev_kind: HandlerKind,
     ev_type: &'a str,
     room_id: OwnedRoomId,
 }

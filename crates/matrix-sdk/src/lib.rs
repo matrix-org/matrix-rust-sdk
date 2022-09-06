@@ -20,8 +20,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    media, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
-    Session, StateChanges, StoreError,
+    DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
+    StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -29,16 +29,14 @@ pub use reqwest;
 pub use ruma;
 
 mod account;
-/// Types and traits for attachments.
 pub mod attachment;
 mod client;
 pub mod config;
 mod error;
 pub mod event_handler;
 mod http_client;
-/// High-level room API
+pub mod media;
 pub mod room;
-mod room_member;
 pub mod store;
 mod sync;
 
@@ -56,7 +54,7 @@ pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
-pub use room_member::RoomMember;
+pub use media::Media;
 #[cfg(feature = "sliding-sync")]
 pub use sliding_sync::{
     RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
