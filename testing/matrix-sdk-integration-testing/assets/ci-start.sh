@@ -5,8 +5,6 @@ export SYNAPSE_REPORT_STATS=no
 echo " ====== Generating config  ====== "
 /start.py generate
 echo " ====== Patching for CI  ====== "
-sed -i 's/^#enable_registration_without_verification:.*$/enable_registration_without_verification: true/g' /data/homeserver.yaml
-sed -i 's/^#enable_registration:.*$/enable_registration: true/g' /data/homeserver.yaml
 echo """
 enable_registration: true
 enable_registration_without_verification: true
