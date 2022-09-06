@@ -6,12 +6,11 @@ use futures_signals::{
 };
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::ruma::{
-    assign,
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    IdParseError, OwnedRoomId,
+    assign, IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
     Client as MatrixClient, RoomListEntry as MatrixRoomEntry,

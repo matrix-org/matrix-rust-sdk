@@ -409,7 +409,6 @@ impl BaseClient {
         Ok(timeline)
     }
 
-    #[tracing::instrument(skip(self, events, room_info, changes))]
     pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
@@ -444,7 +443,6 @@ impl BaseClient {
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
-    #[tracing::instrument(skip(self, events, room_info, changes, ambiguity_cache))]
     pub(crate) async fn handle_state(
         &self,
         events: &[Raw<AnySyncStateEvent>],
@@ -460,8 +458,6 @@ impl BaseClient {
         let room_id = room_info.room_id.clone();
 
         for raw_event in events {
-            let span = tracing::span!(tracing::Level::TRACE, "deserialize state");
-            let enter = span.enter();
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
@@ -469,7 +465,6 @@ impl BaseClient {
                     continue;
                 }
             };
-            drop(enter);
 
             room_info.handle_state_event(&event);
 
@@ -808,7 +803,6 @@ impl BaseClient {
         Ok(response)
     }
 
-    #[tracing::instrument]
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
@@ -1022,7 +1016,6 @@ impl BaseClient {
     /// Gets the push rules from `changes` if they have been updated, otherwise
     /// get them from the store. As a fallback, uses
     /// `Ruleset::server_default` if the user is logged in.
-    #[tracing::instrument(skip(self, changes))]
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(event) = changes
             .account_data

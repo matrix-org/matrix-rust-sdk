@@ -22,7 +22,6 @@ impl BaseClient {
     ///
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
-    #[tracing::instrument(skip(self, response))]
     pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let v4::Response {
@@ -40,7 +39,8 @@ impl BaseClient {
             ..
         } = response;
 
-        // FIXME not yet supported by sliding sync.
+        // FIXME not yet supported by sliding sync. see
+        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
         // #[cfg(feature = "encryption")]
         // let to_device = {
         //     if let Some(o) = self.olm_machine().await {

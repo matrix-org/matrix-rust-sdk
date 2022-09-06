@@ -27,10 +27,9 @@ pub static RUNTIME: Lazy<Runtime> =
 
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
-pub use self::sliding_sync::*;
 pub use self::{
     authentication_service::*, backward_stream::*, client::*, messages::*, room::*,
-    session_verification::*,
+    session_verification::*, sliding_sync::*,
 };
 
 #[derive(Default, Debug)]
