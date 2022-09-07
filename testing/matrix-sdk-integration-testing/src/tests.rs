@@ -1,3 +1,3 @@
 mod invitations;
-mod repeated_join;
 mod redaction;
+mod repeated_join;

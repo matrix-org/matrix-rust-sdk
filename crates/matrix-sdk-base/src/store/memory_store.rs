@@ -45,7 +45,6 @@ use ruma::{
     events::{
         room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
-    Redact,
 };
 use tracing::{info, warn};
 
@@ -469,7 +468,7 @@ impl MemoryStore {
                     for mut ref_evt_mu in ref_room_mu.value_mut().iter_mut() {
                         let raw_evt = ref_evt_mu.value_mut();
                         if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                            if let Some(_) = redactions.get(&event_id) {
+                            if redactions.get(&event_id).is_some() {
                                 let mut evt = raw_evt.deserialize_as::<CanonicalJsonObject>()?;
                                 let redacted = redact(
                                     &mut evt,
