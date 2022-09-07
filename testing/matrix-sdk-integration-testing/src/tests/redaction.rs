@@ -57,7 +57,7 @@ async fn test_redacting_name() -> Result<()> {
         }
     }
 
-    assert_eq!(room.name(), Some("Inapropriate text".to_owned()));
+    assert_eq!(room.name(), Some("Inappropriate text".to_owned()));
     // check state event.
 
     let raw_event =
@@ -109,7 +109,7 @@ async fn test_redacting_name_static() -> Result<()> {
     bg_syncer.abort();
 
     // let's send a specific state event
-    let content = RoomNameEventContent::new(Some("Inapropriate text".to_owned()));
+    let content = RoomNameEventContent::new(Some("Inappropriate text".to_owned()));
 
     room.send_state_event(content).await?;
     // sync up.
