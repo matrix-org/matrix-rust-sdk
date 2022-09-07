@@ -273,21 +273,27 @@ impl KeysBackupRequest {
 
 macro_rules! request {
     ($request:ident from $ruma_request:ident maps fields $( $field:ident ),+ $(,)? ) => {
+        impl $request {
+            pub(crate) fn to_json(request: &$ruma_request) -> Result<String, serde_json::Error> {
+                let mut map = serde_json::Map::new();
+                $(
+                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field).unwrap());
+                )+
+                let object = serde_json::Value::Object(map);
+
+                serde_json::to_string(&object)
+            }
+        }
+
         impl TryFrom<(String, &$ruma_request)> for $request {
             type Error = serde_json::Error;
 
             fn try_from(
                 (request_id, request): (String, &$ruma_request),
             ) -> Result<Self, Self::Error> {
-                let mut map = serde_json::Map::new();
-                $(
-                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field).unwrap());
-                )+
-                let value = serde_json::Value::Object(map);
-
                 Ok($request {
                     id: request_id.into(),
-                    body: serde_json::to_string(&value)?.into(),
+                    body: Self::to_json(request)?.into(),
                 })
             }
         }

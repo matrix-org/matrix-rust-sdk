@@ -162,14 +162,6 @@ impl Sas {
         self.inner.other_device_id().to_owned().into()
     }
 
-    /*
-    /// Get the device of the other user.
-    #[wasm_bindgen(js_name = "otherDevice")]
-    pub fn other_device(&self) {
-        todo!()
-    }
-    */
-
     /// Get the unique ID that identifies this SAS verification flow,
     /// be either a to-device request ID or a room event ID.
     #[wasm_bindgen(getter, js_name = "flowId")]
@@ -244,18 +236,37 @@ impl Sas {
             .map_err(Into::into)
     }
 
-    /*
-    #[wasm_bindgen(js_name = "acceptWithSettings")]
-    pub fn accept_with_settings(&self) {
-        todo!()
-    }
-    */
+    /// Confirm the SAS verification.
+    ///
+    /// This confirms that the short auth strings match on both sides.
+    ///
+    /// Does nothing if we’re not in a state where we can confirm the
+    /// short auth string, otherwise returns a `MacEventContent` that
+    /// needs to be sent to the server.
+    pub fn confirm(&self) -> Promise {
+        let me = self.inner.clone();
 
-    /*
-    pub fn confirm(&self) {
-        todo!()
+        future_to_promise(async move {
+            let (outgoing_verification_requests, signature_upload_request) = me.confirm().await?;
+            let outgoing_verification_requests = outgoing_verification_requests
+                .into_iter()
+                .map(OutgoingVerificationRequest)
+                .map(JsValue::try_from)
+                .collect::<Result<Array, _>>()?;
+
+            let tuple = Array::new();
+            tuple.set(0, outgoing_verification_requests.into());
+            tuple.set(
+                1,
+                signature_upload_request
+                    .map(|request| requests::SignatureUploadRequest::to_json(&request))
+                    .transpose()?
+                    .into(),
+            );
+
+            Ok(tuple)
+        })
     }
-    */
 
     /*
     pub fn cancel(&self) {
@@ -383,11 +394,6 @@ impl Qr {
     pub fn other_device_id(&self) -> DeviceId {
         self.inner.other_device_id().to_owned().into()
     }
-
-    /*
-    #[wasm_bindgen(getter, js_name = "otherDevice")]
-    pub fn other_device(&self) -> ReadOnlyDevice {}
-    */
 
     /// Did we initiate the verification request.
     #[wasm_bindgen(js_name = "weStarted")]
