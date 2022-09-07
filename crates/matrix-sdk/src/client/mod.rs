@@ -15,7 +15,6 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
@@ -68,7 +67,7 @@ use ruma::{
             create::RoomCreateEventContent,
             member::{MembershipState, RoomMemberEventContent},
         },
-        GlobalAccountDataEventType, SyncStateEvent,
+        SyncStateEvent,
     },
     presence::PresenceState,
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
@@ -1849,7 +1848,9 @@ impl Client {
 
     /// Create a direct message room with the specified user.
     pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
-        use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
 
         // First we create the DM room, where we invite the user and tell the
         // invitee that the room should be a DM.
@@ -1867,13 +1868,12 @@ impl Client {
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
         let mut content = self
-            .store()
-            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .account()
+            .account_data::<DirectEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<DirectEvent>())
+            .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+            .unwrap_or_default();
 
         content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
 
