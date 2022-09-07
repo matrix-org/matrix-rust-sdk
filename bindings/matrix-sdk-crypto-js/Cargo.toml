@@ -21,7 +21,7 @@ wasm-opt = ['-Oz']
 crate-type = ["cdylib"]
 
 [features]
-default = ["tracing"]
+default = ["tracing", "qrcode"]
 qrcode = ["matrix-sdk-crypto/qrcode", "matrix-sdk-qrcode"]
 tracing = []
 
