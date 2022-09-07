@@ -1,5 +1,4 @@
-//! Different verification types.
-
+///! Different verification types.
 use js_sys::{Array, JsString, Promise};
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
@@ -230,11 +229,20 @@ impl Sas {
         self.inner.we_started()
     }
 
-    /*
-    pub fn accept(&self) {
-        todo!()
+    /// Accept the SAS verification.
+    ///
+    /// This does nothing if the verification was already accepted,
+    /// otherwise it returns an `AcceptEventContent` that needs to be
+    /// sent out.
+    pub fn accept(&self) -> Result<JsValue, JsError> {
+        self.inner
+            .accept()
+            .map(OutgoingVerificationRequest)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
     }
-    */
 
     /*
     #[wasm_bindgen(js_name = "acceptWithSettings")]
@@ -308,7 +316,7 @@ impl Sas {
     /// inclusive which can be converted to an emoji using [the
     /// relevant specification
     /// entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
-    #[wasm_bindgen(js_name = "emoji_index")]
+    #[wasm_bindgen(js_name = "emojiIndex")]
     pub fn emoji_index(&self) -> Option<Array> {
         Some(self.inner.emoji_index()?.into_iter().map(JsValue::from).collect())
     }

@@ -496,7 +496,8 @@ impl OlmMachine {
     /// requested by a to-device request, or a room event ID if the
     /// verification has been requested by a room event).
     ///
-    /// It returns a `Verification` object.
+    /// It returns a “`Verification` object”, which is either a `Sas`
+    /// or `Qr` object.
     #[wasm_bindgen(js_name = "getVerification")]
     pub fn get_verification(
         &self,
