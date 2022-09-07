@@ -1,5 +1,5 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest, Sas } = require('../pkg/matrix_sdk_crypto_js');
-const { addMachineToMachine } = require('./helper');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest, Sas, Emoji } = require('../pkg/matrix_sdk_crypto_js');
+const { zip, addMachineToMachine } = require('./helper');
 
 describe('LocalTrust', () => {
     test('has the correct variant values', () => {
@@ -143,7 +143,6 @@ describe(Device.name, () => {
         {
             const outgoingContent = outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()];
 
-            // Let's pretend the message is coming from a server.
             const toDeviceEvents = {
                 events: [{
                     sender: userId1.toString(),
@@ -191,13 +190,12 @@ describe(Device.name, () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.ready');
 
-            // Let's pretend the message is coming from a server.
             const toDeviceEvents = {
                 events: [{
                     sender: userId2.toString(),
                     type: outgoingVerificationRequest.event_type,
                     content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }]
+                }],
             };
 
             // Let's send the verification ready to `m1`.
@@ -255,7 +253,7 @@ describe(Device.name, () => {
                     sender: userId2.toString(),
                     type: outgoingVerificationRequest.event_type,
                     content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }]
+                }],
             };
 
             // Let's send the SAS start to `m1`.
@@ -303,7 +301,7 @@ describe(Device.name, () => {
                     sender: userId1.toString(),
                     type: outgoingVerificationRequest.event_type,
                     content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }]
+                }],
             };
 
             // Let's send the SAS accept to `m2`.
@@ -316,7 +314,109 @@ describe(Device.name, () => {
             expect(sas2.supportsEmoji()).toStrictEqual(true);
         }
 
-        // Let's send the verification key from `m2` to `m1`.
+        // Let's send the verification keys.
+        {
+            // From `m2` to `m1`.
+            {
+                const outgoingRequests = await m2.outgoingRequests();
+                let toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
+
+                expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
+                const toDeviceRequestId = toDeviceRequest.id;
+                const toDeviceRequestType = toDeviceRequest.type;
+
+                toDeviceRequest = JSON.parse(toDeviceRequest.body);
+                expect(toDeviceRequest.event_type).toStrictEqual('m.key.verification.key');
+
+                const toDeviceEvents = {
+                    events: [{
+                        sender: userId2.toString(),
+                        type: toDeviceRequest.event_type,
+                        content: toDeviceRequest.messages[userId1.toString()][deviceId1.toString()],
+                    }],
+                };
+
+                // Let's send te SAS key to `m1`.
+                await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+
+                m2.markRequestAsSent(toDeviceRequestId, toDeviceRequestType, '{}');
+            }
+
+            // From `m1` to `m2`.
+            {
+                const outgoingRequests = await m1.outgoingRequests();
+                let toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
+
+                expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
+                const toDeviceRequestId = toDeviceRequest.id;
+                const toDeviceRequestType = toDeviceRequest.type;
+
+                toDeviceRequest = JSON.parse(toDeviceRequest.body);
+                expect(toDeviceRequest.event_type).toStrictEqual('m.key.verification.key');
+
+                const toDeviceEvents = {
+                    events: [{
+                        sender: userId1.toString(),
+                        type: toDeviceRequest.event_type,
+                        content: toDeviceRequest.messages[userId2.toString()][deviceId2.toString()],
+                    }],
+                };
+
+                // Let's send te SAS key to `m2`.
+                await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+
+                m1.markRequestAsSent(toDeviceRequestId, toDeviceRequestType, '{}');
+            }
+        }
+
+        // Let's see the emojis :-].
+        {
+            const emojis1 = sas1.emoji();
+            const emojiIndexes1 = sas1.emojiIndex();
+            const emojis2 = sas2.emoji();
+            const emojiIndexes2 = sas2.emojiIndex();
+
+            expect(emojis1).toHaveLength(7);
+            expect(emojiIndexes1).toHaveLength(emojis1.length);
+            expect(emojis2).toHaveLength(emojis1.length);
+            expect(emojiIndexes2).toHaveLength(emojis1.length);
+
+            const isEmoji = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/;
+
+            for (const [emoji1, emojiIndex1, emoji2, emojiIndex2] of zip(emojis1, emojiIndexes1, emojis2, emojiIndexes2)) {
+                expect(emoji1).toBeInstanceOf(Emoji);
+                expect(emoji1.symbol).toMatch(isEmoji);
+                expect(emoji1.description).toBeTruthy();
+
+                expect(emojiIndex1).toBeGreaterThanOrEqual(0);
+                expect(emojiIndex1).toBeLessThanOrEqual(63);
+
+                expect(emoji2).toBeInstanceOf(Emoji);
+                expect(emoji2.symbol).toStrictEqual(emoji1.symbol);
+                expect(emoji2.description).toStrictEqual(emoji1.description);
+
+                expect(emojiIndex2).toStrictEqual(emojiIndex1);
+            }
+        }
+
+        // Let's see the decimals.
+        {
+            const decimals1 = sas1.decimals();
+            const decimals2 = sas2.decimals();
+
+            expect(decimals1).toHaveLength(3);
+            expect(decimals2).toHaveLength(decimals1.length);
+
+            const isDecimal = /^[0-9]{4}$/;
+
+            for (const [decimal1, decimal2] of zip(decimals1, decimals2)) {
+                expect(decimal1.toString()).toMatch(isDecimal);
+
+                expect(decimal2).toStrictEqual(decimal1);
+            }
+        }
+
+        // Let's confirm the verification: We have a match!
         {
 
         }

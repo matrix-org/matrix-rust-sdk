@@ -1,5 +1,13 @@
 const { DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest } = require('../pkg/matrix_sdk_crypto_js');
 
+function* zip(...arrays) {
+    const len = Math.min(...arrays.map((array) => array.length));
+
+    for (let nth = 0; nth < len; ++nth) {
+        yield [...arrays.map((array) => array.at(nth))]
+    }
+}
+
 // Add a machine to another machine, i.e. be sure a machine knows
 // another exists.
 async function addMachineToMachine(machineToAdd, machine) {
@@ -55,4 +63,7 @@ async function addMachineToMachine(machineToAdd, machine) {
     }
 }
 
-module.exports = { addMachineToMachine };
+module.exports = {
+    zip,
+    addMachineToMachine,
+};
