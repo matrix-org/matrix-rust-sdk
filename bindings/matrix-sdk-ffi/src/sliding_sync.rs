@@ -91,11 +91,11 @@ impl SlidingSyncRoom {
     }
 
     pub fn is_dm(&self) -> Option<bool> {
-        self.inner.is_dm.clone()
+        self.inner.is_dm
     }
 
     pub fn is_initial(&self) -> Option<bool> {
-        self.inner.initial.clone()
+        self.inner.initial
     }
     pub fn is_loading_more(&self) -> bool {
         self.inner.is_loading_more()
@@ -235,7 +235,7 @@ pub trait SlidingSyncViewRoomsCountObserver: Sync + Send {
 pub trait SlidingSyncViewStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SlidingSyncViewBuilder {
     inner: matrix_sdk::SlidingSyncViewBuilder,
 }
@@ -406,7 +406,7 @@ impl SlidingSyncView {
     }
 
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
-        self.inner.rooms_list.lock_ref().as_slice().into_iter().map(|e| e.into()).collect()
+        self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
     }
 }
 
