@@ -13,7 +13,7 @@ use crate::{
     identifiers, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events, types, verification, vodozemac,
+    store, sync_events, types, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -350,6 +350,36 @@ impl OlmMachine {
 
         future_to_promise::<_, olm::CrossSigningStatus>(async move {
             Ok(me.cross_signing_status().await.into())
+        })
+    }
+
+    /// Export all the private cross signing keys we have.
+    ///
+    /// The export will contain the seed for the ed25519 keys as a
+    /// unpadded base64 encoded string.
+    ///
+    /// This method returns None if we don’t have any private cross
+    /// signing keys.
+    #[wasm_bindgen(js_name = "exportCrossSigningKeys")]
+    pub fn export_cross_signing_keys(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(me.export_cross_signing_keys().await.map(store::CrossSigningKeyExport::from))
+        })
+    }
+
+    /// Import our private cross signing keys.
+    ///
+    /// The export needs to contain the seed for the ed25519 keys as
+    /// an unpadded base64 encoded string.
+    #[wasm_bindgen(js_name = "importCrossSigningKeys")]
+    pub fn import_cross_signing_keys(&self, export: store::CrossSigningKeyExport) -> Promise {
+        let me = self.inner.clone();
+        let export = export.inner;
+
+        future_to_promise(async move {
+            Ok(me.import_cross_signing_keys(export).await.map(olm::CrossSigningStatus::from)?)
         })
     }
 

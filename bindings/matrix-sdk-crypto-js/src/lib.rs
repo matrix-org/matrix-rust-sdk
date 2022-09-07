@@ -27,6 +27,7 @@ pub mod machine;
 pub mod olm;
 pub mod requests;
 pub mod responses;
+pub mod store;
 pub mod sync_events;
 mod tracing;
 pub mod types;
