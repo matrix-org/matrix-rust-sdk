@@ -34,10 +34,7 @@ use zeroize::Zeroize;
 const VERSION: u8 = 1;
 const KDF_SALT_SIZE: usize = 32;
 const XNONCE_SIZE: usize = 24;
-#[cfg(not(test))]
 const KDF_ROUNDS: u32 = 200_000;
-#[cfg(test)]
-const KDF_ROUNDS: u32 = 1000;
 
 type MacKeySeed = [u8; 32];
 
@@ -120,12 +117,21 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn export(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
+        self.export_impl(passphrase, KDF_ROUNDS)
+    }
+
+    #[doc(hidden)]
+    pub fn _insecure_export_fast_for_testing(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
+        self.export_impl(passphrase, 1000)
+    }
+
+    fn export_impl(&self, passphrase: &str, kdf_rounds: u32) -> Result<Vec<u8>, Error> {
         let mut rng = thread_rng();
 
         let mut salt = [0u8; KDF_SALT_SIZE];
         salt.try_fill(&mut rng)?;
 
-        let key = StoreCipher::expand_key(passphrase, &salt, KDF_ROUNDS);
+        let key = StoreCipher::expand_key(passphrase, &salt, kdf_rounds);
         let key = ChachaKey::from_slice(key.as_ref());
         let cipher = XChaCha20Poly1305::new(key);
 
@@ -141,7 +147,7 @@ impl StoreCipher {
         keys.zeroize();
 
         let store_cipher = EncryptedStoreCipher {
-            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: KDF_ROUNDS, kdf_salt: salt },
+            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: kdf_rounds, kdf_salt: salt },
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
         };
 
@@ -619,7 +625,7 @@ mod tests {
 
         let encrypted_value = store_cipher.encrypt_value(&value)?;
 
-        let encrypted = store_cipher.export(passphrase)?;
+        let encrypted = store_cipher._insecure_export_fast_for_testing(passphrase)?;
         let decrypted = StoreCipher::import(passphrase, &encrypted)?;
 
         assert_eq!(store_cipher.inner.encryption_key, decrypted.inner.encryption_key);

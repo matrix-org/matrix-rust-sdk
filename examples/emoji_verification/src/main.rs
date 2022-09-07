@@ -1,5 +1,5 @@
 use std::{
-    io,
+    io::{self, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -11,7 +11,7 @@ use clap::Parser;
 use matrix_sdk::{
     self,
     config::SyncSettings,
-    encryption::verification::{SasVerification, Verification},
+    encryption::verification::{format_emojis, SasVerification, Verification},
     ruma::{
         events::{
             room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -25,9 +25,10 @@ use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: SasVerification) {
     let emoji = sas.emoji().expect("The emoji should be available now");
-    let emoji: Vec<&str> = emoji.iter().map(|e| e.symbol).collect();
 
-    println!("Does the emoji match: {:?}", emoji);
+    println!("\nDo the emojis match: \n{}", format_emojis(emoji));
+    print!("Confirm with `yes` or cancel with `no`: ");
+    std::io::stdout().flush().expect("We should be able to flush stdout");
 
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
@@ -116,7 +117,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                         }
                     }
 
-                    AnyToDeviceEvent::KeyVerificationMac(e) => {
+                    AnyToDeviceEvent::KeyVerificationDone(e) => {
                         if let Some(Verification::SasV1(sas)) = client
                             .encryption()
                             .get_verification(&e.sender, e.content.transaction_id.as_str())
@@ -241,6 +242,10 @@ struct Cli {
     /// Set the proxy that should be used for the connection.
     #[clap(short, long)]
     proxy: Option<Url>,
+
+    /// Enable verbose logging output.
+    #[clap(short, long, action)]
+    verbose: bool,
 }
 
 async fn login(cli: Cli) -> Result<Client> {
@@ -261,8 +266,12 @@ async fn login(cli: Cli) -> Result<Client> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
+
+    if cli.verbose {
+        tracing_subscriber::fmt::init();
+    }
+
     let client = login(cli).await?;
 
     sync(client).await?;

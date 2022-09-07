@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, ReadOnlyDevice, Sas as BaseSas};
+use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas};
 use ruma::{events::key::verification::cancel::CancelCode, UserId};
 
 use crate::{error::Result, Client};
@@ -151,7 +151,7 @@ impl SasVerification {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn emoji(&self) -> Option<[super::Emoji; 7]> {
+    pub fn emoji(&self) -> Option<[Emoji; 7]> {
         self.inner.emoji()
     }
 

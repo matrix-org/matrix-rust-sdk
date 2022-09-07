@@ -16,8 +16,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
   cancel-others:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Cancel Previous Runs
@@ -25,8 +25,37 @@ jobs:
         with:
           access_token: ${{ github.token }}
 
+  xtask:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Check xtask cache
+        uses: actions/cache@v3
+        id: xtask-cache
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Install rust stable toolchain
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xtask
+
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
+    needs: xtask
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -60,6 +89,12 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -68,59 +103,73 @@ jobs:
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
+    needs: xtask
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-    - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci examples
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci examples
 
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
+    needs: xtask
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v3
+      - name: Checkout the repo
+        uses: actions/checkout@v3
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-    - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci test-crypto
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci test-crypto
 
   test-all-crates:
     name: ${{ matrix.name }}
@@ -174,6 +223,7 @@ jobs:
 
   test-wasm:
     name: 🕸️ ${{ matrix.name }}
+    needs: xtask
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -233,6 +283,12 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
       - name: Rust Check
         uses: actions-rs/cargo@v1
         with:
@@ -244,6 +300,119 @@ jobs:
         with:
           command: run
           args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
+
+  test-appservice:
+    name: ${{ matrix.os-name }} [m]-appservice
+    needs: xtask
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-name: 🐧
+
+          - os: macos-latest
+            os-name: 🍏
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Run checks
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci test-appservice
+
+  formatting:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+          profile: minimal
+          override: true
+
+      - name: Cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -- --check
+
+  typos:
+    name: Spell Check with Typos
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v3
+
+      - name: Check the spelling of the files in our repo
+        uses: crate-ci/typos@master
+
+  clippy:
+    name: Run clippy
+    needs: xtask
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-${{ hashFiles('xtask/**') }}
+
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci clippy
 
   integration-tests:
     name: Integration test

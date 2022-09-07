@@ -12,7 +12,7 @@ use matrix_sdk::{
     Client,
 };
 
-use crate::helpers::get_client_for_user;
+use crate::helpers::{get_client_for_user, Store};
 
 async fn sync_once(client: &Client) -> Result<()> {
     let settings = match client.sync_token().await {
@@ -25,8 +25,7 @@ async fn sync_once(client: &Client) -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name() -> Result<()> {
-    crate::helpers::log_init();
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user(Store::Memory, "tamatoa".to_owned()).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
@@ -92,8 +91,7 @@ async fn test_redacting_name() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name_static() -> Result<()> {
-    crate::helpers::log_init();
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user(Store::Memory, "tamatoa".to_owned()).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,

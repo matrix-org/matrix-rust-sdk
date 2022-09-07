@@ -3,20 +3,19 @@ use std::{collections::HashMap, option_env};
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    config::RequestConfig,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
-    store::make_store_config,
     Client,
 };
 use once_cell::sync::Lazy;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
-use tracing_subscriber;
 
 static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
 
-/// Helper function to initialize logging and tracing
-pub fn log_init() {
-    let _ = tracing_subscriber::fmt::try_init();
+#[ctor::ctor]
+fn init_logging() {
+    tracing_subscriber::FmtSubscriber::builder().with_test_writer().init();
 }
 
 /// read the test configuration from the environment
@@ -27,7 +26,14 @@ pub fn test_server_conf() -> (String, String) {
     )
 }
 
-pub async fn get_client_for_user(username: String) -> Result<Client> {
+/// The StateStore to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Store {
+    Memory,
+    Sled,
+}
+
+pub async fn get_client_for_user(store: Store, username: String) -> Result<Client> {
     let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
         return Ok(client.clone());
@@ -37,12 +43,15 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
 
     let tmp_dir = tempdir()?;
 
-    let client = Client::builder()
+    let mut builder = Client::builder()
         .user_agent("matrix-sdk-integation-tests")
-        .store_config(make_store_config(tmp_dir.path(), None)?)
         .homeserver_url(homeserver_url)
-        .build()
-        .await?;
+        .request_config(RequestConfig::new().disable_retry());
+    builder = match store {
+        Store::Memory => builder,
+        Store::Sled => builder.sled_store(tmp_dir.path(), None)?,
+    };
+    let client = builder.build().await?;
     // safe to assume we have not registered this user yet, but ignore if we did
 
     if let Err(resp) = client.register(RegistrationRequest::new()).await {

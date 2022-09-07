@@ -87,7 +87,9 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
-pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
+pub use verification::{
+    format_emojis, AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest,
+};
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};
 
