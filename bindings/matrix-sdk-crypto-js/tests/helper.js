@@ -51,12 +51,23 @@ async function addMachineToMachine(machineToAdd, machine) {
     {
         expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
 
+        let [signingKeysUploadRequest, _] = await machineToAdd.bootstrapCrossSigning(true);
+        signingKeysUploadRequest = JSON.parse(signingKeysUploadRequest.body);
+
         // Let's forge a `KeysQuery`'s response.
-        let keyQueryResponse = {'device_keys': {}};
+        let keyQueryResponse = {
+            device_keys: {},
+            master_keys: {},
+            self_signing_keys: {},
+            user_signing_keys: {},
+        };
         const userId = machineToAdd.userId.toString();
         const deviceId = machineToAdd.deviceId.toString();
-        keyQueryResponse['device_keys'][userId] = {};
-        keyQueryResponse['device_keys'][userId][deviceId] = keysUploadRequest.device_keys;
+        keyQueryResponse.device_keys[userId] = {};
+        keyQueryResponse.device_keys[userId][deviceId] = keysUploadRequest.device_keys;
+        keyQueryResponse.master_keys[userId] = signingKeysUploadRequest.master_key;
+        keyQueryResponse.self_signing_keys[userId] = signingKeysUploadRequest.self_signing_key;
+        keyQueryResponse.user_signing_keys[userId] = signingKeysUploadRequest.user_signing_key;
 
         const marked = await machine.markRequestAsSent(outgoingRequests[1].id, outgoingRequests[1].type, JSON.stringify(keyQueryResponse));
         expect(marked).toStrictEqual(true);
