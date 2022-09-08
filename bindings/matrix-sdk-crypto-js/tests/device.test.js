@@ -707,10 +707,13 @@ describe('Key Verification', () => {
         });
 
         test('can read QR code\'s bytes', async () => {
+            const qrCodeHeader = 'MATRIX';
+            const qrCodeVersion = '\x02';
+
             const bytes = qr2.toBytes();
 
             expect(bytes).toHaveLength(122);
-            expect(bytes.slice(0, 10)).toStrictEqual([77, 65, 84, 82, 73, 88, 2, 0, 0, 32]);
+            expect(bytes.slice(0, 7)).toStrictEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
         });
     });
 });
