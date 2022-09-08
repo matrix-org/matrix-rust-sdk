@@ -625,7 +625,7 @@ impl SlidingSyncViewBuilder {
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
-    FullSync(u32, u32), // current position, batch_size
+    FullSync { position: u32, batch_size: u32 },
     Live,
 }
 
@@ -640,7 +640,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
 
         SlidingSyncViewRequestGenerator {
             view,
-            inner: InnerSlidingSyncViewRequestGenerator::FullSync(0, batch_size),
+            inner: InnerSlidingSyncViewRequestGenerator::FullSync { position: 0, batch_size },
         }
     }
 
@@ -680,9 +680,9 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
     type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let InnerSlidingSyncViewRequestGenerator::FullSync(cur_pos, _) = self.inner {
+        if let InnerSlidingSyncViewRequestGenerator::FullSync { position, .. } = self.inner {
             if let Some(count) = self.view.rooms_count.get_cloned() {
-                if count <= cur_pos {
+                if count <= position {
                     // we are switching to live mode
                     self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
                         *before == SlidingSyncState::CatchingUp
@@ -699,9 +699,10 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
             }
         }
         match self.inner {
-            InnerSlidingSyncViewRequestGenerator::FullSync(cur_pos, batch_size) => {
-                let (end, req) = self.prefetch_request(cur_pos, batch_size);
-                self.inner = InnerSlidingSyncViewRequestGenerator::FullSync(end, batch_size);
+            InnerSlidingSyncViewRequestGenerator::FullSync { position, batch_size } => {
+                let (end, req) = self.prefetch_request(position, batch_size);
+                self.inner =
+                    InnerSlidingSyncViewRequestGenerator::FullSync { position: end, batch_size };
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
                     *before == SlidingSyncState::Preload
                 });

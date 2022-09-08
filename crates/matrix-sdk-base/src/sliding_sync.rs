@@ -25,7 +25,8 @@ impl BaseClient {
     pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let v4::Response {
-            // not applicable.
+            // FIXME not yet supported by sliding sync. see
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
             // next_batch,
             rooms,
             lists,
@@ -118,7 +119,8 @@ impl BaseClient {
                     )
                 };
 
-                // FIXME not yet supported by sliding sync.
+                // FIXME not yet supported by sliding sync. see
+                // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
                 // if let Some(event) =
                 //     room_data.ephemeral.events.iter().find_map(|e| match e.deserialize() {
                 //         Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
@@ -197,7 +199,8 @@ impl BaseClient {
             }
         }
 
-        // FIXME not yet supported by sliding sync.
+        // FIXME not yet supported by sliding sync. see
+        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
         // self.handle_account_data(&account_data.events, &mut changes).await;
 
         // FIXME not yet supported by sliding sync.

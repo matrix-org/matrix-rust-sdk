@@ -113,8 +113,7 @@ impl SlidingSyncRoom {
         let messages = self.inner.timeline();
         // room is having the latest events at the end,
         let lock = messages.lock_ref();
-        let mut msg_iter = lock.iter();
-        while let Some(m) = msg_iter.next_back() {
+        for m in lock.iter().rev() {
             if let Some(e) = crate::messages::sync_event_to_message(m.clone().into()) {
                 return Some(e);
             }
@@ -242,7 +241,7 @@ pub struct SlidingSyncViewBuilder {
 
 impl SlidingSyncViewBuilder {
     pub fn new() -> Self {
-        SlidingSyncViewBuilder { inner: matrix_sdk::SlidingSyncViewBuilder::default() }
+        Default::default()
     }
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
@@ -493,7 +492,7 @@ impl SlidingSync {
             }
 
             *sync_handle = Some(RUNTIME.spawn(async move {
-                let stream = inner.stream().await.expect("Doesn't fail.");
+                let stream = inner.stream().await.unwrap();
                 pin_mut!(stream);
                 loop {
                     let update = match stream.next().await {

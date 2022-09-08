@@ -85,10 +85,10 @@ interface SlidingSyncViewRoomsListDiff {
         u32 new_index
     );
     Push(RoomListEntry value);
-    // Pop();
-    // Clear();
+    // The following are supported by the generic VecDiff-type but
+    // in sliding sync effectively do not happen and thus aren't exposed
+    // to not pollute the API: Pop(); Clear();
 };
-
 
 callback interface SlidingSyncViewRoomListObserver {
     void did_receive_update(SlidingSyncViewRoomsListDiff diff);
@@ -101,7 +101,6 @@ callback interface SlidingSyncViewRoomsCountObserver {
 callback interface SlidingSyncViewRoomItemsObserver {
     void did_receive_update();
 };
-
 
 interface SlidingSyncViewBuilder {
     constructor();
@@ -171,7 +170,6 @@ interface SlidingSyncRoom {
     boolean is_loading_more();
 
     AnyMessage? latest_room_message();
-
 };
 
 interface SlidingSync {
