@@ -259,7 +259,7 @@ impl Sas {
             tuple.set(
                 1,
                 signature_upload_request
-                    .map(|request| requests::SignatureUploadRequest::to_json(&request))
+                    .map(|request| requests::SignatureUploadRequest::try_from(&request))
                     .transpose()?
                     .into(),
             );

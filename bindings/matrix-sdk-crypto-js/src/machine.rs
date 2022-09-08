@@ -383,6 +383,36 @@ impl OlmMachine {
         })
     }
 
+    /// Create a new cross signing identity and get the upload request
+    /// to push the new public keys to the server.
+    ///
+    /// Warning: This will delete any existing cross signing keys that
+    /// might exist on the server and thus will reset the trust
+    /// between all the devices.
+    ///
+    /// Uploading these keys will require user interactive auth.
+    #[wasm_bindgen(js_name = "bootstrapCrossSigning")]
+    pub fn bootstrap_cross_signing(&self, reset: bool) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let (upload_signing_keys_request, upload_signatures_request) =
+                me.bootstrap_cross_signing(reset).await?;
+
+            let tuple = Array::new();
+            tuple.set(
+                0,
+                requests::SigningKeysUploadRequest::try_from(&upload_signing_keys_request)?.into(),
+            );
+            tuple.set(
+                1,
+                requests::SignatureUploadRequest::try_from(&upload_signatures_request)?.into(),
+            );
+
+            Ok(tuple)
+        })
+    }
+
     /// Sign the given message using our device key and if available
     /// cross-signing master key.
     pub fn sign(&self, message: String) -> Promise {
