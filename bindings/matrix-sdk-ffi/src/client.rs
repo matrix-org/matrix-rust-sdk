@@ -81,11 +81,6 @@ impl Client {
         *self.delegate.write().unwrap() = delegate;
     }
 
-    /// The homeserver this client is configured to use.
-    pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(async move { self.async_homeserver().await })
-    }
-
     pub async fn async_homeserver(&self) -> String {
         self.client.homeserver().await.to_string()
     }
@@ -166,22 +161,6 @@ impl Client {
         });
     }
 
-    /// Indication whether we've received a first sync response since
-    /// establishing the client (in memory)
-    pub fn has_first_synced(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
-    }
-
-    /// Indication whether we are currently syncing
-    pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
-    }
-
-    /// Is this a guest account?
-    pub fn is_guest(&self) -> bool {
-        self.state.read().unwrap().is_guest
-    }
-
     pub fn restore_token(&self) -> anyhow::Result<String> {
         RUNTIME.block_on(async move {
             let session = self.client.session().expect("Missing session");
@@ -192,10 +171,6 @@ impl Client {
                 is_guest: self.state.read().unwrap().is_guest,
             })?)
         })
-    }
-
-    pub fn rooms(&self) -> Vec<Arc<Room>> {
-        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
     pub fn user_id(&self) -> anyhow::Result<String> {
@@ -282,6 +257,34 @@ impl Client {
 
             Ok(Arc::new(session_verification_controller))
         })
+    }
+}
+
+#[uniffi::export]
+impl Client {
+    /// The homeserver this client is configured to use.
+    pub fn homeserver(&self) -> String {
+        RUNTIME.block_on(async move { self.async_homeserver().await })
+    }
+
+    /// Indication whether we've received a first sync response since
+    /// establishing the client (in memory)
+    pub fn has_first_synced(&self) -> bool {
+        self.state.read().unwrap().has_first_synced
+    }
+
+    /// Indication whether we are currently syncing
+    pub fn is_syncing(&self) -> bool {
+        self.state.read().unwrap().has_first_synced
+    }
+
+    /// Is this a guest account?
+    pub fn is_guest(&self) -> bool {
+        self.state.read().unwrap().is_guest
+    }
+
+    pub fn rooms(&self) -> Vec<Arc<Room>> {
+        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 }
 
