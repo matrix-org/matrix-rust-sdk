@@ -4,7 +4,7 @@
 use std::fmt;
 
 #[cfg(feature = "qrcode")]
-use js_sys::Uint8Array;
+use js_sys::Uint8ClampedArray;
 use js_sys::{Array, JsString, Promise};
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
@@ -661,13 +661,13 @@ impl From<matrix_sdk_qrcode::qrcode::QrCode> for QrCode {
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
 impl QrCode {
-    /// Render the QR code into a `Uint8Array` where 1 represents a
+    /// Render the QR code into a `Uint8ClampedArray` where 1 represents a
     /// dark pixel and 0 a white pixel.
     #[wasm_bindgen(js_name = "renderIntoBuffer")]
-    pub fn render_into_buffer(&self) -> Result<Uint8Array, JsError> {
+    pub fn render_into_buffer(&self) -> Result<Uint8ClampedArray, JsError> {
         let colors: Vec<u8> =
             self.inner.to_colors().into_iter().map(|color| color.select(1u8, 0u8)).collect();
-        let buffer = Uint8Array::new_with_length(colors.len().try_into()?);
+        let buffer = Uint8ClampedArray::new_with_length(colors.len().try_into()?);
         buffer.copy_from(colors.as_slice());
 
         Ok(buffer)

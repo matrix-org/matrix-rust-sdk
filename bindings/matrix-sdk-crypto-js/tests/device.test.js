@@ -721,11 +721,9 @@ describe('Key Verification', () => {
 
             const buffer = qrCode.renderIntoBuffer();
 
-            expect(buffer).toBeInstanceOf(Uint8Array);
-
+            expect(buffer).toBeInstanceOf(Uint8ClampedArray);
             // 45px ⨉ 45px
             expect(buffer).toHaveLength(45 * 45);
-
             // 0 for a white pixel, 1 for a black pixel.
             expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
         });
