@@ -1,4 +1,10 @@
 ///! Different verification types.
+
+#[cfg(feature = "qrcode")]
+use std::fmt;
+
+#[cfg(feature = "qrcode")]
+use js_sys::Uint8Array;
 use js_sys::{Array, JsString, Promise};
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
@@ -355,6 +361,13 @@ impl Sas {
 #[derive(Debug)]
 pub struct Qr {
     inner: matrix_sdk_crypto::QrVerification,
+}
+
+#[cfg(feature = "qrcode")]
+impl From<matrix_sdk_crypto::QrVerification> for Qr {
+    fn from(inner: matrix_sdk_crypto::QrVerification) -> Self {
+        Self { inner }
+    }
 }
 
 #[cfg(feature = "qrcode")]
@@ -923,7 +936,21 @@ impl VerificationRequest {
             }
         })
     }
-    // generate_qr_code if `qrcode`
+
+    /// Generate a QR code that can be used by another client to start
+    /// a QR code based verification.
+    #[cfg(feature = "qrcode")]
+    #[wasm_bindgen(js_name = "generateQrCode")]
+    pub fn generate_qr_code(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let qrcode_verification = me.generate_qr_code().await?;
+
+            Ok(qrcode_verification.map(Qr::from))
+        })
+    }
+
     // scan_qr_code if `qrcode`
 }
 
