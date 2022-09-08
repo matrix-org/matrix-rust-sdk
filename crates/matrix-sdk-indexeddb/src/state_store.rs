@@ -873,7 +873,7 @@ impl IndexeddbStateStore {
 
             for (room_id, redactions) in &changes.redactions {
                 let range = self.encode_to_range(KEYS::ROOM_STATE, room_id)?;
-                let mut cursor = match state.open_cursor_with_range(&range)?.await? {
+                let cursor = match state.open_cursor_with_range(&range)?.await? {
                     Some(c) => c,
                     _ => continue,
                 };
@@ -904,7 +904,7 @@ impl IndexeddbStateStore {
                             let redacted =
                                 redact(&raw_evt.deserialize_as::<CanonicalJsonObject>()?, version)
                                     .map_err(StoreError::Redaction)?;
-                            state.put_key_val(&key, &self.serialize_event(&redacted)?);
+                            state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
                         }
                     }
 
