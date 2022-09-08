@@ -710,6 +710,7 @@ describe('Key Verification', () => {
             const bytes = qr2.toBytes();
 
             expect(bytes).toHaveLength(122);
+            expect(bytes.slice(0, 10)).toStrictEqual([77, 65, 84, 82, 73, 88, 2, 0, 0, 32]);
         });
     });
 });
