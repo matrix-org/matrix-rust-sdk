@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 use ruma::api::client::sync::sync_events;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone)]
 /// Settings for a sync call.
+#[derive(Clone)]
 pub struct SyncSettings<'a> {
     pub(crate) filter: Option<sync_events::v3::Filter<'a>>,
     pub(crate) timeout: Option<Duration>,
@@ -30,6 +30,26 @@ pub struct SyncSettings<'a> {
 impl<'a> Default for SyncSettings<'a> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<'a> fmt::Debug for SyncSettings<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct("SyncSettings");
+
+        macro_rules! opt_field {
+            ($field:ident) => {
+                if let Some(value) = &self.$field {
+                    s.field(stringify!($field), value);
+                }
+            };
+        }
+
+        opt_field!(filter);
+        opt_field!(timeout);
+        opt_field!(token);
+
+        s.field("full_state", &self.full_state).finish()
     }
 }
 
