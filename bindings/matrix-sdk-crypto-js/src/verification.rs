@@ -663,6 +663,7 @@ impl From<matrix_sdk_qrcode::qrcode::QrCode> for QrCode {
 impl QrCode {
     /// Render the QR code into a `Uint8Array` where 1 represents a
     /// dark pixel and 0 a white pixel.
+    #[wasm_bindgen(js_name = "renderIntoBuffer")]
     pub fn render_into_buffer(&self) -> Result<Uint8Array, JsError> {
         let colors: Vec<u8> =
             self.inner.to_colors().into_iter().map(|color| color.select(1u8, 0u8)).collect();

@@ -702,8 +702,6 @@ describe('Key Verification', () => {
             expect(qr2.reciprocated()).toStrictEqual(false);
             expect(qr2.flowId).toMatch(/^[a-f0-9]+$/);
             expect(qr2.roomId).toBeUndefined();
-            expect(qr2.toQrCode()).toBeInstanceOf(QrCode);
-            expect(qr2.toBytes()).toBeInstanceOf(Array);
         });
 
         test('can read QR code\'s bytes', async () => {
@@ -714,6 +712,22 @@ describe('Key Verification', () => {
 
             expect(bytes).toHaveLength(122);
             expect(bytes.slice(0, 7)).toStrictEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
+        });
+
+        test('can render QR code', async () => {
+            const qrCode = qr2.toQrCode();
+
+            expect(qrCode).toBeInstanceOf(QrCode);
+
+            const buffer = qrCode.renderIntoBuffer();
+
+            expect(buffer).toBeInstanceOf(Uint8Array);
+
+            // 45px ⨉ 45px
+            expect(buffer).toHaveLength(45 * 45);
+
+            // 0 for a white pixel, 1 for a black pixel.
+            expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
         });
     });
 });
