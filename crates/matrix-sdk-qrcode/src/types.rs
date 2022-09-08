@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    convert::{TryFrom, TryInto},
-    io::{Cursor, Read},
-};
+use std::io::{Cursor, Read};
 
 use byteorder::{BigEndian, ReadBytesExt};
 #[cfg(feature = "decode_image")]
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
-use ruma_common::{serde::Base64, OwnedEventId};
+use ruma_common::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]
@@ -318,8 +315,7 @@ impl QrVerificationData {
 
         match mode {
             VerificationData::QR_MODE => {
-                let event_id = flow_id.try_into()?;
-                Ok(VerificationData::new(event_id, first_key, second_key, shared_secret).into())
+                Ok(VerificationData::new(flow_id, first_key, second_key, shared_secret).into())
             }
             SelfVerificationData::QR_MODE => {
                 Ok(SelfVerificationData::new(flow_id, first_key, second_key, shared_secret).into())
@@ -337,7 +333,7 @@ impl QrVerificationData {
     /// This represents the ID as a string even if it is a `EventId`.
     pub fn flow_id(&self) -> &str {
         match self {
-            QrVerificationData::Verification(v) => v.event_id.as_str(),
+            QrVerificationData::Verification(v) => v.flow_id.as_str(),
             QrVerificationData::SelfVerification(v) => &v.transaction_id,
             QrVerificationData::SelfVerificationNoMasterKey(v) => &v.transaction_id,
         }
@@ -377,7 +373,7 @@ impl QrVerificationData {
 /// cross signing keys.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationData {
-    event_id: OwnedEventId,
+    flow_id: String,
     first_master_key: Ed25519PublicKey,
     second_master_key: Ed25519PublicKey,
     shared_secret: Base64,
@@ -389,23 +385,25 @@ impl VerificationData {
     /// Create a new `VerificationData` struct that can be encoded as a QR code.
     ///
     /// # Arguments
-    /// * `event_id` - The event id of the `m.key.verification.request` event
-    /// that initiated the verification flow this QR code should be part of.
+    /// * `flow_id` - The event ID or transaction ID of the
+    /// `m.key.verification.request` event that initiated the
+    /// verification flow this QR code should be part of.
     ///
-    /// * `first_key` - Our own cross signing master key. Needs to be encoded as
+    /// * `first_master_key` - Our own cross signing master key. Needs to be
+    ///   encoded as
     /// unpadded base64
     ///
-    /// * `second_key` - The cross signing master key of the other user.
+    /// * `second_master_key` - The cross signing master key of the other user.
     ///
-    /// * ` shared_secret` - A random bytestring encoded as unpadded base64,
+    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
     /// needs to be at least 8 bytes long.
     pub fn new(
-        event_id: OwnedEventId,
-        first_key: Ed25519PublicKey,
-        second_key: Ed25519PublicKey,
+        flow_id: String,
+        first_master_key: Ed25519PublicKey,
+        second_master_key: Ed25519PublicKey,
         shared_secret: Base64,
     ) -> Self {
-        Self { event_id, first_master_key: first_key, second_master_key: second_key, shared_secret }
+        Self { flow_id, first_master_key, second_master_key, shared_secret }
     }
 
     /// Encode the `VerificationData` into a vector of bytes that can be
@@ -438,7 +436,7 @@ impl VerificationData {
     pub fn to_bytes(&self) -> Result<Vec<u8>, EncodingError> {
         to_bytes(
             Self::QR_MODE,
-            self.event_id.as_str(),
+            self.flow_id.as_str(),
             self.first_master_key,
             self.second_master_key,
             &self.shared_secret,
@@ -455,7 +453,7 @@ impl VerificationData {
     pub fn to_qr_code(&self) -> Result<QrCode, EncodingError> {
         to_qr_code(
             Self::QR_MODE,
-            self.event_id.as_str(),
+            self.flow_id.as_str(),
             self.first_master_key,
             self.second_master_key,
             &self.shared_secret,
