@@ -12,6 +12,7 @@ use matrix_sdk::{
     Client, RoomType,
 };
 use tokio::sync::mpsc;
+use tracing::trace;
 
 use crate::helpers::{get_client_for_user, Store};
 
@@ -53,7 +54,7 @@ async fn test_repeated_join_leave() -> Result<()> {
     karl.add_event_handler(signal_on_invite);
 
     for i in 0..3 {
-        println!("Iteration {i}");
+        trace!("Iteration {i}");
 
         // Test that karl has the expected state in its client.
         assert!(karl.get_invited_room(room_id).is_some());
@@ -65,10 +66,10 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert_eq!(*membership.membership(), MembershipState::Invite);
 
         // Join the room
-        println!("Joining..");
+        trace!("Joining..");
         let room =
             karl.get_invited_room(room_id).expect("karl has the room").accept_invitation().await?;
-        println!("Done");
+        trace!("Done");
         let membership = room.get_member_no_sync(&karl_id).await?.expect("karl joined");
         assert_eq!(*membership.membership(), MembershipState::Join);
 
@@ -77,9 +78,9 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert!(karl.get_left_room(room_id).is_none());
 
         // Leave the room
-        println!("Leaving..");
+        trace!("Leaving..");
         let room = room.leave().await?;
-        println!("Done");
+        trace!("Done");
         let membership = room.get_member_no_sync(&karl_id).await?.expect("karl left");
         assert_eq!(*membership.membership(), MembershipState::Leave);
 
@@ -88,10 +89,10 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert!(karl.get_left_room(room_id).is_some());
 
         // Invite karl again and wait for karl to receive the invite.
-        println!("Inviting..");
+        trace!("Inviting..");
         let room = peter.get_joined_room(room_id).expect("peter created the room!");
         room.invite_user_by_id(&karl_id).await?;
-        println!("Waiting to receive invite..");
+        trace!("Waiting to receive invite..");
         invite_signal.recv().await.expect("sender must be open");
     }
 

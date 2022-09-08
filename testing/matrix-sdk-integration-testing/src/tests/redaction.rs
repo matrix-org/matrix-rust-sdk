@@ -83,7 +83,6 @@ async fn test_redacting_name_memory_store() -> Result<()> {
     let raw_event =
         room.get_state_event(StateEventType::RoomName, "").await?.expect("Room Name not found");
     let room_name_event: SyncRoomNameEvent = raw_event.deserialize_as()?;
-    println!("{:?}", room_name_event);
     // Name content has been redacted
     assert!(
         room_name_event.as_original().expect("event exists").content.name.is_none(),
