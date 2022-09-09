@@ -113,50 +113,11 @@ impl Common {
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
-
-        let (tx, mut rx) = mpsc::channel::<Result<Left>>(1);
-
-        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if *event.membership() == MembershipState::Leave
-                        && *event.state_key() == user_id
-                        && event.origin_server_ts() > now
-                    {
-                        debug!("received RoomMemberEvent corresponding to requested leave");
-
-                        let left_result = if let Room::Left(left_room) = room {
-                            Ok(left_room)
-                        } else {
-                            warn!("Corresponding Room not in state: left");
-                            Err(Error::InconsistentState)
-                        };
-
-                        if let Err(e) = tx.send(left_result).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.client.event_handler_drop_guard(handle);
-
         self.client.send(request, None).await?;
 
-        let option = TryStreamExt::try_next(&mut rx).await?;
+        // let room = self.client.base_client().set_room_state(RoomState::Left);
 
-        Ok(option.expect("receive left room result from event handler"))
+        todo!()
     }
 
     /// Join this room.

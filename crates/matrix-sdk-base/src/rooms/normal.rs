@@ -640,13 +640,27 @@ pub struct RoomInfo {
     pub(crate) notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
     pub(crate) summary: RoomSummary,
-    /// Flag remembering if the room members are synced.
-    pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
+    /// How much we know about this room.
+    pub(crate) sync_info: SyncInfo, // FIXME: Serialization change!
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) enum SyncInfo {
+    /// We only know the room exists and whether it is in invite / joined / left state.
+    ///
+    /// This is the case when
+    NoState,
+
+    /// We know the basic room state, but don't have the full member list.
+    IncompleteMembers,
+
+    /// We have all the latest state events, including the full member list.
+    FullySynced,
 }
 
 impl RoomInfo {
@@ -657,7 +671,7 @@ impl RoomInfo {
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
-            members_synced: false,
+            sync_info: SyncInfo::IncompleteMembers, // FIXME: NoState? Extra fn param?
             last_prev_batch: None,
             base_info: BaseRoomInfo::new(),
         }
