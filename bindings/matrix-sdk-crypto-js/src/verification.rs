@@ -235,7 +235,7 @@ impl Sas {
     pub fn accept(&self) -> Result<JsValue, JsError> {
         self.inner
             .accept()
-            .map(OutgoingVerificationRequest)
+            .map(OutgoingVerificationRequest::from)
             .map(JsValue::try_from)
             .transpose()
             .map(JsValue::from)
@@ -256,7 +256,7 @@ impl Sas {
             let (outgoing_verification_requests, signature_upload_request) = me.confirm().await?;
             let outgoing_verification_requests = outgoing_verification_requests
                 .into_iter()
-                .map(OutgoingVerificationRequest)
+                .map(OutgoingVerificationRequest::from)
                 .map(JsValue::try_from)
                 .collect::<Result<Array, _>>()?;
 
@@ -482,12 +482,37 @@ impl Qr {
         Ok(self.inner.to_bytes()?.into_iter().map(JsValue::from).collect())
     }
 
+    /// Notify the other side that we have successfully scanned the QR
+    /// code and that the QR verification flow can start.
+    ///
+    /// This will return some OutgoingContent if the object is in the
+    /// correct state to start the verification flow, otherwise None.
+    pub fn reciprocate(&self) -> Result<JsValue, JsError> {
+        self.inner
+            .reciprocate()
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
+    }
+
+    /// Confirm that the other side has scanned our QR code.
+    #[wasm_bindgen(js_name = "confirmScanning")]
+    pub fn confirm_scanning(&self) -> Result<JsValue, JsError> {
+        self.inner
+            .confirm_scanning()
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
+    }
+
     /*
     /// Cancel the verification flow.
     pub fn cancel(&self) -> … {}
     pub fn cancel_with_code(&self, code: …) -> … {}
-    pub fn reciprocate(&self) -> … {}
-    pub fn confirm_scanning(&self) -> … {}
     */
 }
 
@@ -891,7 +916,7 @@ impl VerificationRequest {
 
         self.inner
             .accept_with_methods(methods)
-            .map(OutgoingVerificationRequest)
+            .map(OutgoingVerificationRequest::from)
             .map(JsValue::try_from)
             .transpose()
             .map(JsValue::from)
@@ -915,7 +940,7 @@ impl VerificationRequest {
     pub fn accept(&self) -> Result<JsValue, JsError> {
         self.inner
             .accept()
-            .map(OutgoingVerificationRequest)
+            .map(OutgoingVerificationRequest::from)
             .map(JsValue::try_from)
             .transpose()
             .map(JsValue::from)
@@ -929,7 +954,7 @@ impl VerificationRequest {
     pub fn cancel(&self) -> Result<JsValue, JsError> {
         self.inner
             .cancel()
-            .map(OutgoingVerificationRequest)
+            .map(OutgoingVerificationRequest::from)
             .map(JsValue::try_from)
             .transpose()
             .map(JsValue::from)
