@@ -9,6 +9,7 @@ use crate::{
     types, verification, vodozemac,
 };
 
+/// A device represents a E2EE capable client of an user.
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct Device {
