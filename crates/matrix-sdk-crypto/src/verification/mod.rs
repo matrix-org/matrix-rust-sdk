@@ -425,8 +425,8 @@ pub enum FlowId {
 
 impl FlowId {
     pub fn room_id(&self) -> Option<&RoomId> {
-        if let FlowId::InRoom(r, _) = &self {
-            Some(r)
+        if let FlowId::InRoom(room_id, _) = &self {
+            Some(room_id)
         } else {
             None
         }
@@ -434,8 +434,8 @@ impl FlowId {
 
     pub fn as_str(&self) -> &str {
         match self {
-            FlowId::InRoom(_, r) => r.as_str(),
-            FlowId::ToDevice(t) => t.as_str(),
+            FlowId::InRoom(_, event_id) => event_id.as_str(),
+            FlowId::ToDevice(transaction_id) => transaction_id.as_str(),
         }
     }
 }
