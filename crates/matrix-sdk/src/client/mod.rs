@@ -24,13 +24,11 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use futures_channel::mpsc;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
-    SessionTokens, StateStore, SyncOutsideWasm,
+    deserialized_responses::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session,
+    SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -62,23 +60,16 @@ use ruma::{
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::{
-        room::{
-            create::RoomCreateEventContent,
-            member::{MembershipState, RoomMemberEventContent},
-        },
-        SyncStateEvent,
-    },
     presence::PresenceState,
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
-    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -1586,10 +1577,9 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
         let response = self.send(request, None).await?;
-
-        // get_or_create_room(response.room_id, RoomState::Joined)
-
-        todo!()
+        let base_room =
+            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        Ok(room::Joined::new(self, base_room).unwrap())
     }
 
     /// Join a room by `RoomId`.
@@ -1610,10 +1600,9 @@ impl Client {
             server_name: server_names,
         });
         let response = self.send(request, None).await?;
-
-        // get_or_create_room(response.room_id, RoomState::Joined)
-
-        todo!()
+        let base_room =
+            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        Ok(room::Joined::new(self, base_room).unwrap())
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1697,9 +1686,9 @@ impl Client {
         let request = room.into();
         let response = self.send(request, None).await?;
 
-        // get_or_create_room(response.room_id, RoomState::Joined)
-
-        todo!()
+        let base_room =
+            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        Ok(room::Joined::new(self, base_room).unwrap())
     }
 
     /// Create a direct message room with the specified user.

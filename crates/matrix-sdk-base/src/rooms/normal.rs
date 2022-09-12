@@ -140,6 +140,10 @@ impl Room {
         self.inner.read().unwrap().room_type
     }
 
+    pub(crate) fn set_room_type(&self, room_type: RoomType) {
+        self.inner.write().unwrap().room_type = room_type;
+    }
+
     /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
     pub fn is_space(&self) -> bool {
         self.inner.read().unwrap().room_type().map_or(false, |t| *t == CreateRoomType::Space)
@@ -158,6 +162,17 @@ impl Room {
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
         self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
+    }
+
+    /// Check if the room states have been synced
+    ///
+    /// States might be missing if we have only seen the room_id of this Room
+    /// so far, for example as the response for a `create_room` request without
+    /// being synced yet.
+    ///
+    /// Returns true if the state is synced, false otherwise.
+    pub fn is_state_synced(&self) -> bool {
+        self.inner.read().unwrap().sync_info != SyncInfo::NoState
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
@@ -652,9 +667,11 @@ pub struct RoomInfo {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) enum SyncInfo {
-    /// We only know the room exists and whether it is in invite / joined / left state.
+    /// We only know the room exists and whether it is in invite / joined / left
+    /// state.
     ///
-    /// This is the case when
+    /// This is the case when we have a limited sync or only seen the room
+    /// because of a request we've done, like a room creation event.
     NoState,
 
     /// We know the basic room state, but don't have the full member list.
@@ -665,7 +682,9 @@ pub(crate) enum SyncInfo {
 }
 
 impl SyncInfo {
-    fn incomplete() -> Self { SyncInfo::IncompleteMembers }
+    fn incomplete() -> Self {
+        SyncInfo::IncompleteMembers
+    }
 }
 
 impl RoomInfo {
@@ -676,7 +695,7 @@ impl RoomInfo {
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
-            sync_info: SyncInfo::IncompleteMembers, // FIXME: NoState? Extra fn param?
+            sync_info: SyncInfo::NoState,
             last_prev_batch: None,
             base_info: BaseRoomInfo::new(),
         }

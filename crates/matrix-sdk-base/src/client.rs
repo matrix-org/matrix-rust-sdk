@@ -169,6 +169,12 @@ impl BaseClient {
         self.store.get_rooms()
     }
 
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        self.store.get_or_create_room(room_id, room_type).await
+    }
+
     /// Get all the rooms this client knows about.
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
         self.store.get_stripped_rooms()
@@ -556,6 +562,25 @@ impl BaseClient {
         }
 
         changes.account_data = account_data;
+    }
+
+    /// User has left a room
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
+        if room.room_type() == RoomType::Left {
+            return Ok(room);
+        }
+
+        // needs to be updated first
+        room.set_room_type(RoomType::Left);
+        let room_info = room.clone_info();
+        let mut changes = StateChanges::new("".to_owned());
+        changes.add_room(room_info);
+        self.store.save_changes(&changes).await?;
+
+        Ok(self.store.get_or_create_room(room_id, RoomType::Left).await)
     }
 
     /// Receive a response from a sync call.

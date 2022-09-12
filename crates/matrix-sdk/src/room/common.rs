@@ -1,9 +1,7 @@
 use std::{borrow::Borrow, collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
-use futures_channel::mpsc;
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
-use futures_util::{SinkExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
@@ -34,9 +32,7 @@ use ruma::{
     events::{
         direct::DirectEventContent,
         room::{
-            history_visibility::HistoryVisibility,
-            member::{MembershipState, RoomMemberEventContent},
-            server_acl::RoomServerAclEventContent,
+            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
             MediaSource,
         },
         tag::{TagInfo, TagName},
@@ -46,16 +42,14 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, OwnedEventId,
-    OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tracing::{debug, warn};
 
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Joined, Left, Room, RoomMember, RoomType},
+    room::{Joined, Left, RoomMember, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -115,9 +109,8 @@ impl Common {
         let request = leave_room::v3::Request::new(self.inner.room_id());
         self.client.send(request, None).await?;
 
-        // let room = self.client.base_client().set_room_state(RoomState::Left);
-
-        todo!()
+        let base_room = self.client.base_client().room_left(self.room_id()).await?;
+        Ok(Left::new(&self.client, base_room).unwrap())
     }
 
     /// Join this room.
