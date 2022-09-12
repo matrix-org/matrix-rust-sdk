@@ -389,9 +389,7 @@ impl VerificationData {
     /// `m.key.verification.request` event that initiated the
     /// verification flow this QR code should be part of.
     ///
-    /// * `first_master_key` - Our own cross signing master key. Needs to be
-    ///   encoded as
-    /// unpadded base64
+    /// * `first_master_key` - Our own cross signing master key.
     ///
     /// * `second_master_key` - The cross signing master key of the other user.
     ///
@@ -491,14 +489,11 @@ impl SelfVerificationData {
     /// transaction id was sent by the `m.key.verification.request` event
     /// that initiated the verification flow this QR code should be part of.
     ///
-    /// * `master_key` - Our own cross signing master key. Needs to be encoded
-    ///   as
-    /// unpadded base64
+    /// * `master_key` - Our own cross signing master key.
     ///
-    /// * `device_key` - The ed25519 key of the other device, encoded as
-    /// unpadded base64.
+    /// * `device_key` - The ed25519 key of the other device.
     ///
-    /// * ` shared_secret` - A random bytestring encoded as unpadded base64,
+    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
     /// needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
@@ -594,14 +589,11 @@ impl SelfVerificationNoMasterKey {
     /// transaction id was sent by the `m.key.verification.request` event
     /// that initiated the verification flow this QR code should be part of.
     ///
-    /// * `device_key` - The ed25519 key of our own device, encoded as unpadded
-    /// base64.
+    /// * `device_key` - The ed25519 key of our own device.
     ///
-    /// * `master_key` - Our own cross signing master key. Needs to be encoded
-    ///   as
-    /// unpadded base64
+    /// * `master_key` - Our own cross signing master key.
     ///
-    /// * ` shared_secret` - A random bytestring encoded as unpadded base64,
+    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
     /// needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
