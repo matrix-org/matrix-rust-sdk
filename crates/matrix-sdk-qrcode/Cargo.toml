@@ -15,18 +15,10 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
-[features]
-default = ["decode_image"]
-decode_image = ["dep:image", "dep:rqrr", "qrcode/image", "qrcode/svg"]
-
 [dependencies]
 base64 = "0.13.0"
 byteorder = "1.4.3"
-# image and rqrr can't be upgraded before qrcode gets updated
-# https://github.com/matrix-org/matrix-rust-sdk/issues/690
-image = { version = "0.23.0", optional = true }
 qrcode = { version = "0.12.0", default-features = false }
-rqrr = { version = "0.4.0", optional = true }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065" }
 thiserror = "1.0.30"
 

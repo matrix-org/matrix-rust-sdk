@@ -12,14 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "decode_image")]
-use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
 use ruma_common::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
-#[cfg(feature = "decode_image")]
-use crate::error::DecodingError;
 use crate::error::EncodingError;
 
 pub(crate) const HEADER: &[u8] = b"MATRIX";
@@ -75,30 +71,4 @@ pub(crate) fn to_qr_code(
     bits.push_terminator(EcLevel::L)?;
 
     Ok(QrCode::with_bits(bits, EcLevel::L)?)
-}
-
-#[cfg(feature = "decode_image")]
-pub(crate) fn decode_qr<I>(image: I) -> Result<Vec<u8>, DecodingError>
-where
-    I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
-{
-    let mut image = rqrr::PreparedImage::prepare(image);
-    let grids = image.detect_grids();
-
-    let mut error = None;
-
-    for grid in grids {
-        let mut decoded = Vec::new();
-
-        match grid.decode_to(&mut decoded) {
-            Ok(_) => {
-                if decoded.starts_with(HEADER) {
-                    return Ok(decoded);
-                }
-            }
-            Err(e) => error = Some(e),
-        }
-    }
-
-    Err(error.map(|e| e.into()).unwrap_or_else(|| DecodingError::Header))
 }

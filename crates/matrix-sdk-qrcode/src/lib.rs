@@ -21,125 +21,14 @@ mod types;
 mod utils;
 
 pub use error::{DecodingError, EncodingError};
-#[cfg(feature = "decode_image")]
-pub use image;
 pub use qrcode;
-#[cfg(feature = "decode_image")]
-pub use rqrr;
 pub use types::{
     QrVerificationData, SelfVerificationData, SelfVerificationNoMasterKey, VerificationData,
 };
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "decode_image")]
-    use std::io::Cursor;
-
-    #[cfg(feature = "decode_image")]
-    use image::{ImageFormat, Luma};
-    #[cfg(feature = "decode_image")]
-    use qrcode::QrCode;
-
-    #[cfg(feature = "decode_image")]
-    use crate::utils::decode_qr;
     use crate::{DecodingError, QrVerificationData};
-
-    #[cfg(feature = "decode_image")]
-    static VERIFICATION: &[u8; 4277] = include_bytes!("../data/verification.png");
-    #[cfg(feature = "decode_image")]
-    static SELF_VERIFICATION: &[u8; 1467] = include_bytes!("../data/self-verification.png");
-    #[cfg(feature = "decode_image")]
-    static SELF_NO_MASTER: &[u8; 1775] = include_bytes!("../data/self-no-master.png");
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_qr_test() {
-        let image = Cursor::new(VERIFICATION);
-        let image = image::load(image, ImageFormat::Png).unwrap().to_luma8();
-        decode_qr(image).expect("Couldn't decode the QR code");
-    }
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_test() {
-        let image = Cursor::new(VERIFICATION);
-        let image = image::load(image, ImageFormat::Png).unwrap().to_luma8();
-        let result = QrVerificationData::try_from(image).unwrap();
-
-        assert!(matches!(result, QrVerificationData::Verification(_)));
-    }
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_encode_cycle() {
-        let image = Cursor::new(VERIFICATION);
-        let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerificationData::from_image(image).unwrap();
-
-        assert!(matches!(result, QrVerificationData::Verification(_)));
-
-        let encoded = result.to_qr_code().unwrap();
-        let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerificationData::try_from(image).unwrap();
-
-        assert_eq!(result, second_result);
-
-        let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerificationData::from_bytes(bytes).unwrap();
-
-        assert_eq!(result, third_result);
-    }
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_encode_cycle_self() {
-        let image = Cursor::new(SELF_VERIFICATION);
-        let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerificationData::try_from(image).unwrap();
-
-        assert!(matches!(result, QrVerificationData::SelfVerification(_)));
-
-        let encoded = result.to_qr_code().unwrap();
-        let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerificationData::from_luma(image).unwrap();
-
-        assert_eq!(result, second_result);
-
-        let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerificationData::from_bytes(bytes).unwrap();
-
-        assert_eq!(result, third_result);
-    }
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_encode_cycle_self_no_master() {
-        let image = Cursor::new(SELF_NO_MASTER);
-        let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerificationData::from_image(image).unwrap();
-
-        assert!(matches!(result, QrVerificationData::SelfVerificationNoMasterKey(_)));
-
-        let encoded = result.to_qr_code().unwrap();
-        let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerificationData::try_from(image).unwrap();
-
-        assert_eq!(result, second_result);
-
-        let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerificationData::try_from(bytes).unwrap();
-
-        assert_eq!(result, third_result);
-    }
-
-    #[test]
-    #[cfg(feature = "decode_image")]
-    fn decode_invalid_qr() {
-        let qr = QrCode::new(b"NonMatrixCode").expect("Can't build a simple QR code");
-        let image = qr.render::<Luma<u8>>().build();
-        let result = QrVerificationData::try_from(image);
-        assert!(matches!(result, Err(DecodingError::Header)))
-    }
 
     #[test]
     fn decode_invalid_header() {
