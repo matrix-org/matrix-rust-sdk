@@ -5,17 +5,21 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
     ruma::{
-        api::{client::{
-            account::whoami,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-            session::get_login_types,
-            sync::sync_events::v3::Filter, error::ErrorKind,
-        }, error::{FromHttpResponseError, ServerError}},
+        api::{
+            client::{
+                account::whoami,
+                error::ErrorKind,
+                filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+                session::get_login_types,
+                sync::sync_events::v3::Filter,
+            },
+            error::{FromHttpResponseError, ServerError},
+        },
         events::room::MediaSource,
         serde::Raw,
         TransactionId,
     },
-    Client as MatrixClient, LoopCtrl, Session, HttpError, RumaApiError, Error,
+    Client as MatrixClient, Error, HttpError, LoopCtrl, RumaApiError, Session,
 };
 
 use super::{
@@ -56,9 +60,18 @@ impl Client {
     }
 
     /// Login using a username and password.
-    pub fn login(&self, username: String, password: String, initial_device_name: String, device_id: Option<String>) -> anyhow::Result<()> {
+    pub fn login(
+        &self,
+        username: String,
+        password: String,
+        initial_device_name: String,
+        device_id: Option<String>,
+    ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let mut builder = self.client.login_username(&username, &password).initial_device_display_name(&initial_device_name);
+            let mut builder = self
+                .client
+                .login_username(&username, &password)
+                .initial_device_display_name(&initial_device_name);
             let device_id_temp;
             if device_id.is_some() {
                 device_id_temp = device_id.unwrap();
@@ -147,18 +160,18 @@ impl Client {
                         if !state.read().unwrap().has_first_synced {
                             state.write().unwrap().has_first_synced = true;
                         }
-    
+
                         if state.read().unwrap().should_stop_syncing {
                             state.write().unwrap().is_syncing = false;
                             return LoopCtrl::Break;
                         } else if !state.read().unwrap().is_syncing {
                             state.write().unwrap().is_syncing = true;
                         }
-    
+
                         if let Some(delegate) = &*delegate.read().unwrap() {
                             delegate.did_receive_sync_update()
                         }
-    
+
                         if let Some(session_verification_controller) =
                             &*session_verification_controller.read().await
                         {
@@ -166,19 +179,22 @@ impl Client {
                                 .process_to_device_messages(sync_response.to_device)
                                 .await;
                         }
-    
+
                         LoopCtrl::Continue
                     } else {
                         let mut control = LoopCtrl::Continue;
-                        if let Err(Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(RumaApiError::ClientApi(error)))))) = &result {
+                        if let Err(Error::Http(HttpError::Api(FromHttpResponseError::Server(
+                            ServerError::Known(RumaApiError::ClientApi(error)),
+                        )))) = &result
+                        {
                             if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                                 let is_soft_logout = match error.kind {
                                     ErrorKind::UnknownToken { soft_logout } => soft_logout,
-                                    _ => unreachable!()
+                                    _ => unreachable!(),
                                 };
 
                                 state.write().unwrap().is_soft_logout = is_soft_logout;
-        
+
                                 if let Some(delegate) = &*delegate.read().unwrap() {
                                     delegate.did_update_restore_token();
                                     delegate.did_receive_auth_error(is_soft_logout);
@@ -189,7 +205,6 @@ impl Client {
                         }
                         control
                     }
-                    
                 })
                 .await;
         });

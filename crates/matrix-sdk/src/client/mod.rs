@@ -54,7 +54,9 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
-            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider, logout},
+            session::{
+                get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
+            },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
