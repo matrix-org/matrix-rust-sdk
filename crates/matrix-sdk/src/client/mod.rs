@@ -2381,10 +2381,11 @@ impl Client {
     /// client
     ///     .sync_with_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
-    ///
-    ///         for (room_id, room) in response.rooms.join {
-    ///             for event in room.timeline.events {
-    ///                 channel.send(event).await.unwrap();
+    ///         if let Ok(sync_response) = response {
+    ///             for (room_id, room) in sync_response.rooms.join {
+    ///                 for event in room.timeline.events {
+    ///                     channel.send(event).await.unwrap();
+    ///                 }
     ///             }
     ///         }
     ///
