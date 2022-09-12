@@ -1,4 +1,4 @@
-///! Different verification types.
+//! Different verification types.
 
 #[cfg(feature = "qrcode")]
 use std::fmt;
