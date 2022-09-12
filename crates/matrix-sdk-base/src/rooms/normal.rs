@@ -157,7 +157,7 @@ impl Room {
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
-        self.inner.read().unwrap().members_synced
+        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
@@ -649,7 +649,7 @@ pub struct RoomInfo {
     pub(crate) base_info: BaseRoomInfo,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) enum SyncInfo {
     /// We only know the room exists and whether it is in invite / joined / left state.
     ///
@@ -694,12 +694,12 @@ impl RoomInfo {
 
     /// Mark this Room as having all the members synced
     pub fn mark_members_synced(&mut self) {
-        self.members_synced = true;
+        self.sync_info = SyncInfo::FullySynced;
     }
 
     /// Mark this Room still missing member information
     pub fn mark_members_missing(&mut self) {
-        self.members_synced = false;
+        self.sync_info = SyncInfo::IncompleteMembers;
     }
 
     /// Set the `prev_batch`-token.
