@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 base64 = "0.13.0"
 byteorder = "1.4.3"
 qrcode = { version = "0.12.0", default-features = false }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065" }
+ruma-common = "0.10.0"
 thiserror = "1.0.30"
 
 [dependencies.vodozemac]

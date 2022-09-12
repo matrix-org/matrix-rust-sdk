@@ -3460,8 +3460,9 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.6.3"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43e1cf5ca37fd8088ac2070ee334915fcef6e158251edd2fff5e21cddf7bc93d"
 dependencies = [
  "assign",
  "js_int",
@@ -3474,8 +3475,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-appservice-api"
-version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4f8cecdd4e2729656fc4126b6b5b218834d4025e0ed0e5063087a0231098a5c"
 dependencies = [
  "ruma-common",
  "serde",
@@ -3484,8 +3486,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.14.1"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2709c891d277ef94d56657c3ec92ed464779dbfff055e518425eedf11d9ecb7"
 dependencies = [
  "assign",
  "bytes",
@@ -3500,8 +3503,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.9.2"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd9939e85b436ac77d90aa90c2b70753fd558c8bc7898509b8d4f7428ee11e73"
 dependencies = [
  "base64",
  "bytes",
@@ -3530,8 +3534,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-federation-api"
-version = "0.5.0"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f905d12f6144c7a754bd0339fa6893698c03d03a908abb20cc6eeb4ec7f9466"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3541,8 +3546,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-identifiers-validation"
-version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eabac62d16465a87435579c779d74dceabb93b09e44c766af6085050f3cc4275"
 dependencies = [
  "js_int",
  "thiserror",
@@ -3550,8 +3556,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-macros"
-version = "0.9.2"
-source = "git+https://github.com/ruma/ruma?rev=c745d3baf720b38a254e640a526717864e87a065#c745d3baf720b38a254e640a526717864e87a065"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "010a348310768bfb8f9e27c1f29684fba5a3f046909c697d22b938642c24e967"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
