@@ -178,12 +178,8 @@ impl DecryptedRoomEvent {
     /// Chain of Curve25519 keys through which this session was
     /// forwarded, via `m.forwarded_room_key` events.
     #[napi(getter)]
-    pub fn forwarding_curve25519_key_chain(&self) -> Option<Vec<String>> {
-        Some(match &self.encryption_info.as_ref()?.algorithm_info {
-            AlgorithmInfo::MegolmV1AesSha2 { forwarding_curve25519_key_chain, .. } => {
-                forwarding_curve25519_key_chain.clone()
-            }
-        })
+    pub fn forwarding_curve25519_key_chain(&self) -> Vec<String> {
+        vec![]
     }
 
     /// The verification state of the device that sent us the event,

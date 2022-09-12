@@ -1068,11 +1068,6 @@ impl OlmMachine {
                     .iter()
                     .map(|(k, v)| (k.to_owned(), v.to_base64()))
                     .collect(),
-                forwarding_curve25519_key_chain: session
-                    .forwarding_key_chain()
-                    .iter()
-                    .map(|k| k.to_base64())
-                    .collect(),
             },
             verification_state,
         })
