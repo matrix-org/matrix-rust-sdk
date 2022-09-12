@@ -4,7 +4,6 @@ const {
     DeviceId,
     DeviceKeyId,
     RoomId,
-    DeviceKeyAlgorithName,
     Device,
     LocalTrust,
     UserDevices,
@@ -882,7 +881,7 @@ describe('Key Verification', () => {
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
         });
 
-        test('can confirm QR code has beeen confirmed', () => {
+        test('can confirm QR code has been confirmed', () => {
             expect(qr2.hasBeenConfirmed()).toStrictEqual(true);
         });
     });
