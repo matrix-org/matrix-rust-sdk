@@ -494,7 +494,7 @@ impl QrVerification {
         let secret = Self::generate_secret();
 
         let inner: QrVerificationData = VerificationData::new(
-            flow_id.as_str().to_string(),
+            flow_id.as_str().to_owned(),
             own_master_key,
             other_master_key,
             secret,
