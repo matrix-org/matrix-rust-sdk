@@ -183,19 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn decode_invalid_room_id() {
-        let data = b"MATRIX\
-                   \x02\x00\x00\x0f\
-                   test:localhost\
-                   kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
-                   \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
-                   SECRETISLONGENOUGH";
-
-        let result = QrVerificationData::from_bytes(data);
-        assert!(matches!(result, Err(DecodingError::Identifier(_))))
-    }
-
-    #[test]
     fn decode_invalid_keys() {
         let data = b"MATRIX\
                    \x02\x00\x00\x0f\

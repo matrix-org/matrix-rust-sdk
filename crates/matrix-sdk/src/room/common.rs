@@ -586,7 +586,9 @@ impl Common {
         if let Some(mutex) =
             self.client.inner.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
-            mutex.lock().await;
+            // If a member request is already going on, await the release of
+            // the lock.
+            _ = mutex.lock().await;
 
             Ok(None)
         } else {

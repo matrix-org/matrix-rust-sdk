@@ -325,9 +325,9 @@ impl Joined {
         if let Some(mutex) =
             self.client.inner.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
-            // If a group session share request is already going on,
-            // await the release of the lock.
-            mutex.lock().await;
+            // If a group session share request is already going on, await the
+            // release of the lock.
+            _ = mutex.lock().await;
         } else {
             // Otherwise create a new lock and share the group
             // session.

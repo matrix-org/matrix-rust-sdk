@@ -66,3 +66,9 @@ fn setup_tracing(configuration: String) {
         .with(fmt::layer().with_ansi(false))
         .init();
 }
+
+mod uniffi_types {
+    pub use matrix_sdk::ruma::events::room::{
+        message::RoomMessageEventContent as MessageEventContent, MediaSource,
+    };
+}

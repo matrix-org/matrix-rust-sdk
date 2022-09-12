@@ -235,10 +235,12 @@ pub fn sync_event_to_message(sync_event: SyncTimelineEvent) -> Option<Arc<AnyMes
     }
 }
 
+#[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
 }
 
+#[uniffi::export]
 pub fn message_event_content_from_markdown(md: String) -> Arc<MessageEventContent> {
     Arc::new(MessageEventContent::text_markdown(md))
 }

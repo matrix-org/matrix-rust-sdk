@@ -836,6 +836,7 @@ mod test {
     use std::sync::Arc;
 
     use assign::assign;
+    use matrix_sdk_test::async_test;
     use ruma::{
         event_id,
         events::{
@@ -889,7 +890,7 @@ mod test {
         })
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_default() {
         let _ = env_logger::try_init();
         let (_, room) = make_room(RoomType::Joined);
@@ -927,7 +928,7 @@ mod test {
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_invited() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
@@ -950,7 +951,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_invited_no_heroes() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
@@ -969,7 +970,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_joined() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
@@ -1001,7 +1002,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_joined_no_heroes() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
@@ -1027,7 +1028,8 @@ mod test {
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
-    #[tokio::test]
+
+    #[async_test]
     async fn test_display_name_dm_alone() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);

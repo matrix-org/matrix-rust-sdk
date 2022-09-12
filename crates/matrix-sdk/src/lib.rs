@@ -63,3 +63,13 @@ pub use sliding_sync::{
 
 #[cfg(test)]
 mod test_utils;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[ctor::ctor]
+fn init_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .init();
+}
