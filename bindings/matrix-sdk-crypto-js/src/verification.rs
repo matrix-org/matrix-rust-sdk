@@ -756,6 +756,7 @@ impl QrCode {
 /// A scanned QR code.
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct QrCodeScan {
     inner: matrix_sdk_qrcode::QrVerificationData,
 }
