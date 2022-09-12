@@ -274,18 +274,30 @@ impl Sas {
         })
     }
 
-    /*
-    pub fn cancel(&self) {
-        todo!()
+    /// Cancel the verification.
+    pub fn cancel(&self) -> Result<JsValue, JsError> {
+        self.inner
+            .cancel()
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
     }
-    */
 
-    /*
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with given code.
     #[wasm_bindgen(js_name = "cancelWithCode")]
-    pub fn cancel_with_code(&self) {
-        todo!()
+    pub fn cancel_with_code(&self, code: CancelCode) -> Result<JsValue, JsError> {
+        self.inner
+            .cancel_with_code(code.try_into()?)
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
     }
-    */
 
     /// Has the SAS verification flow timed out.
     #[wasm_bindgen(js_name = "timedOut")]
@@ -509,11 +521,30 @@ impl Qr {
             .map_err(Into::into)
     }
 
-    /*
     /// Cancel the verification flow.
-    pub fn cancel(&self) -> … {}
-    pub fn cancel_with_code(&self, code: …) -> … {}
-    */
+    pub fn cancel(&self) -> Result<JsValue, JsError> {
+        self.inner
+            .cancel()
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
+    }
+
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with given code.
+    #[wasm_bindgen(js_name = "cancelWithCode")]
+    pub fn cancel_with_code(&self, code: CancelCode) -> Result<JsValue, JsError> {
+        self.inner
+            .cancel_with_code(code.try_into()?)
+            .map(OutgoingVerificationRequest::from)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+            .map_err(Into::into)
+    }
 }
 
 /// Information about the cancellation of a verification request or
@@ -624,6 +655,29 @@ impl From<&RumaCancelCode> for CancelCode {
             MismatchedSas => Self::MismatchedSas,
             _ => Self::Other,
         }
+    }
+}
+
+impl TryFrom<CancelCode> for RumaCancelCode {
+    type Error = JsError;
+
+    fn try_from(code: CancelCode) -> Result<Self, Self::Error> {
+        use CancelCode::*;
+
+        Ok(match code {
+            User => Self::User,
+            Timeout => Self::Timeout,
+            UnknownTransaction => Self::UnknownTransaction,
+            UnknownMethod => Self::UnknownMethod,
+            UnexpectedMessage => Self::UnexpectedMessage,
+            KeyMismatch => Self::KeyMismatch,
+            UserMismatch => Self::UserMismatch,
+            InvalidMessage => Self::InvalidMessage,
+            Accepted => Self::Accepted,
+            MismatchedCommitment => Self::MismatchedCommitment,
+            MismatchedSas => Self::MismatchedSas,
+            Other => return Err(JsError::new("`Other` variant is invalid at this place")),
+        })
     }
 }
 
