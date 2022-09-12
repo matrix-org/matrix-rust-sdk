@@ -12,7 +12,7 @@ If you still want to play with QR codes, here is a helpful example.
 
 ```rust,no_run
 use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
-//use image::Luma;
+use image::Luma;
 
 fn main() -> Result<(), DecodingError> {
     let data = b"MATRIX\
@@ -24,7 +24,7 @@ fn main() -> Result<(), DecodingError> {
 
     let data = QrVerificationData::from_bytes(data)?;
     let encoded = data.to_qr_code().unwrap();
-    //let image = encoded.render::<Luma<u8>>().build();
+    let image = encoded.render::<Luma<u8>>().build();
 
     Ok(())
 }
