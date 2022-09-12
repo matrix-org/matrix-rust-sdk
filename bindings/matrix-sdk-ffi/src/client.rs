@@ -5,17 +5,17 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
     ruma::{
-        api::client::{
+        api::{client::{
             account::whoami,
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             session::get_login_types,
-            sync::sync_events::v3::Filter,
-        },
+            sync::sync_events::v3::Filter, error::ErrorKind,
+        }, error::{FromHttpResponseError, ServerError}},
         events::room::MediaSource,
         serde::Raw,
         TransactionId,
     },
-    Client as MatrixClient, LoopCtrl, Session,
+    Client as MatrixClient, LoopCtrl, Session, HttpError, RumaApiError, Error,
 };
 
 use super::{
@@ -32,6 +32,7 @@ impl std::ops::Deref for Client {
 
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
+    fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
 #[derive(Clone)]
@@ -63,8 +64,11 @@ impl Client {
 
     /// Restores the client from a `RestoreToken`.
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
-        let RestoreToken { session, homeurl: _, is_guest: _ } =
+        let RestoreToken { session, homeurl: _, is_guest: _, is_soft_logout } =
             serde_json::from_str(&restore_token)?;
+
+        // update soft logout state
+        self.state.write().unwrap().is_soft_logout = is_soft_logout;
 
         self.restore_session(session)
     }
@@ -136,31 +140,53 @@ impl Client {
             let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
 
             client
-                .sync_with_callback(sync_settings, |sync_response| async {
-                    if !state.read().unwrap().has_first_synced {
-                        state.write().unwrap().has_first_synced = true;
-                    }
+                .sync_with_callback(sync_settings, |result| async {
+                    if let Ok(sync_response) = result {
+                        if !state.read().unwrap().has_first_synced {
+                            state.write().unwrap().has_first_synced = true;
+                        }
+    
+                        if state.read().unwrap().should_stop_syncing {
+                            state.write().unwrap().is_syncing = false;
+                            return LoopCtrl::Break;
+                        } else if !state.read().unwrap().is_syncing {
+                            state.write().unwrap().is_syncing = true;
+                        }
+    
+                        if let Some(delegate) = &*delegate.read().unwrap() {
+                            delegate.did_receive_sync_update()
+                        }
+    
+                        if let Some(session_verification_controller) =
+                            &*session_verification_controller.read().await
+                        {
+                            session_verification_controller
+                                .process_to_device_messages(sync_response.to_device)
+                                .await;
+                        }
+    
+                        LoopCtrl::Continue
+                    } else {
+                        let mut control = LoopCtrl::Continue;
+                        if let Err(Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(RumaApiError::ClientApi(error)))))) = &result {
+                            if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                                let is_soft_logout = match error.kind {
+                                    ErrorKind::UnknownToken { soft_logout } => soft_logout,
+                                    _ => unreachable!()
+                                };
 
-                    if state.read().unwrap().should_stop_syncing {
-                        state.write().unwrap().is_syncing = false;
-                        return LoopCtrl::Break;
-                    } else if !state.read().unwrap().is_syncing {
-                        state.write().unwrap().is_syncing = true;
-                    }
+                                state.write().unwrap().is_soft_logout = is_soft_logout;
+        
+                                if let Some(delegate) = &*delegate.read().unwrap() {
+                                    delegate.did_receive_auth_error(is_soft_logout);
+                                }
 
-                    if let Some(delegate) = &*delegate.read().unwrap() {
-                        delegate.did_receive_sync_update()
+                                control = LoopCtrl::Break
+                            }
+                        }
+                        control
                     }
-
-                    if let Some(session_verification_controller) =
-                        &*session_verification_controller.read().await
-                    {
-                        session_verification_controller
-                            .process_to_device_messages(sync_response.to_device)
-                            .await;
-                    }
-
-                    LoopCtrl::Continue
+                    
                 })
                 .await;
         });
@@ -177,6 +203,11 @@ impl Client {
         self.state.read().unwrap().has_first_synced
     }
 
+    /// Flag indicating whether the session is in soft logout mode
+    pub fn is_soft_logout(&self) -> bool {
+        self.state.read().unwrap().is_soft_logout
+    }
+
     /// Is this a guest account?
     pub fn is_guest(&self) -> bool {
         self.state.read().unwrap().is_guest
@@ -190,6 +221,7 @@ impl Client {
                 session,
                 homeurl,
                 is_guest: self.state.read().unwrap().is_guest,
+                is_soft_logout: self.state.read().unwrap().is_soft_logout,
             })?)
         })
     }

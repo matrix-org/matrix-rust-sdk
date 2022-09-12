@@ -1427,6 +1427,8 @@ impl Client {
 
                     self.base_client().set_session_tokens(session_tokens);
 
+                    // TODO: Let ffi client to know that tokens have changed
+
                     Ok(Some(res))
                 }
                 Err(error) => {
@@ -2337,7 +2339,7 @@ impl Client {
     pub async fn sync_with_callback<C>(
         &self,
         mut sync_settings: crate::config::SyncSettings<'_>,
-        callback: impl Fn(SyncResponse) -> C,
+        callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
     {
@@ -2350,10 +2352,10 @@ impl Client {
         loop {
             // TODO we should abort the sync loop if the error is a storage error or
             // the access token got invalid.
-            if let Ok(r) = self.sync_loop_helper(&mut sync_settings).await {
-                if callback(r).await == LoopCtrl::Break {
-                    return;
-                }
+            let result = self.sync_loop_helper(&mut sync_settings).await;
+
+            if callback(result).await == LoopCtrl::Break {
+                return;
             }
 
             Client::delay_sync(&mut last_sync_time).await

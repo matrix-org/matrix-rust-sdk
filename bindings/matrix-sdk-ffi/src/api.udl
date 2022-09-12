@@ -10,6 +10,7 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_sync_update();
+    void did_receive_auth_error(boolean is_soft_logout);
 };
 
 interface ClientBuilder {
@@ -49,6 +50,8 @@ interface Client {
     boolean has_first_synced();
 
     boolean is_syncing();
+
+    boolean is_soft_logout();
 
     [Throws=ClientError]
     string user_id();
