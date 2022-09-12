@@ -749,7 +749,9 @@ describe('Key Verification', () => {
 
             expect(qrCode).toBeInstanceOf(QrCode);
 
-            let canvasBuffer;
+            // Want to get `canvasBuffer` to render the QR code? Install `npm install canvas` and uncomment the following blocks.
+
+            //let canvasBuffer;
 
             {
                 const buffer = qrCode.renderIntoBuffer();
@@ -760,6 +762,7 @@ describe('Key Verification', () => {
                 // 0 for a white pixel, 1 for a black pixel.
                 expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
 
+                /*
                 const { Canvas } = require('canvas');
                 const canvas = new Canvas(55, 55);
 
@@ -792,6 +795,7 @@ describe('Key Verification', () => {
 
                 context.putImageData(imageData, 5, 5);
                 canvasBuffer = canvas.toBuffer('image/png');
+                */
             }
 
             // Want to see the QR code? Uncomment the following block.

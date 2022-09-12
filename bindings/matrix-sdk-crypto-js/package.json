@@ -26,7 +26,6 @@
         "pkg/matrix_sdk_crypto.d.ts"
     ],
     "devDependencies": {
-        "canvas": "^2.10.1",
         "cross-env": "^7.0.3",
         "fake-indexeddb": "^4.0",
         "jest": "^28.1.0",
