@@ -26,12 +26,13 @@
         "pkg/matrix_sdk_crypto.d.ts"
     ],
     "devDependencies": {
-        "wasm-pack": "^0.10.2",
+        "canvas": "^2.10.1",
+        "cross-env": "^7.0.3",
+        "fake-indexeddb": "^4.0",
         "jest": "^28.1.0",
         "typedoc": "^0.22.17",
-        "cross-env": "^7.0.3",
-        "yargs-parser": "~21.0.1",
-        "fake-indexeddb": "^4.0"
+        "wasm-pack": "^0.10.2",
+        "yargs-parser": "~21.0.1"
     },
     "engines": {
         "node": ">= 10"

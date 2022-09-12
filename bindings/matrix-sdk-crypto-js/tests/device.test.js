@@ -719,13 +719,60 @@ describe('Key Verification', () => {
 
             expect(qrCode).toBeInstanceOf(QrCode);
 
-            const buffer = qrCode.renderIntoBuffer();
+            let canvasBuffer;
 
-            expect(buffer).toBeInstanceOf(Uint8ClampedArray);
-            // 45px ⨉ 45px
-            expect(buffer).toHaveLength(45 * 45);
-            // 0 for a white pixel, 1 for a black pixel.
-            expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
+            {
+                const buffer = qrCode.renderIntoBuffer();
+
+                expect(buffer).toBeInstanceOf(Uint8ClampedArray);
+                // 45px ⨉ 45px
+                expect(buffer).toHaveLength(45 * 45);
+                // 0 for a white pixel, 1 for a black pixel.
+                expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
+
+                const { Canvas } = require('canvas');
+                const canvas = new Canvas(45, 45);
+
+                const context = canvas.getContext('2d');
+                // New image data, filled with black, transparent pixels.
+                const imageData = context.createImageData(45, 45);
+                const data = imageData.data;
+
+                for (
+                    let dataNth = 0,
+                        bufferNth = 0;
+                    dataNth < data.length && bufferNth < buffer.length;
+                    dataNth += 4,
+                    bufferNth += 1
+                ) {
+                    // White pixel
+                    if (buffer[bufferNth] == 0) {
+                        data[dataNth] = 255;
+                        data[dataNth + 1] = 255;
+                        data[dataNth + 2] = 255;
+                        data[dataNth + 3] = 255;
+                    }
+                }
+
+                context.putImageData(imageData, 0, 0);
+                canvasBuffer = canvas.toBuffer('image/png');
+            }
+
+            // Want to see the QR code? Uncomment the following block.
+            /*
+            {
+                const fs = require('fs/promises');
+                const path = require('path');
+                const os = require('os');
+
+                const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-sdk-crypto--'));
+                const qrCodeFile = path.join(tempDirectory, 'qrcode.png');
+
+                console.log(`View the QR code at \`${qrCodeFile}\`.`);
+
+                expect(await fs.writeFile(qrCodeFile, canvasBuffer)).toBeUndefined();
+            }
+            */
         });
     });
 });
