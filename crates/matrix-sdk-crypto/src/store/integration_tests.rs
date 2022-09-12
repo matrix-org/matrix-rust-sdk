@@ -303,11 +303,6 @@ macro_rules! cryptostore_integration_tests {
 
                 let mut export = session.export().await;
 
-                let curve_key =
-                    Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
-                        .unwrap();
-                export.forwarding_curve25519_key_chain = vec![curve_key];
-
                 let session = InboundGroupSession::from_export(&export).unwrap();
 
                 let changes =
@@ -332,7 +327,6 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap();
                 assert_eq!(session, loaded_session);
                 let export = loaded_session.export().await;
-                assert!(!export.forwarding_curve25519_key_chain.is_empty());
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
