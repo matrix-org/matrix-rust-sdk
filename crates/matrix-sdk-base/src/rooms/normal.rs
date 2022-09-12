@@ -643,6 +643,7 @@ pub struct RoomInfo {
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
     /// How much we know about this room.
+    #[serde(default = "SyncInfo::incomplete")]
     pub(crate) sync_info: SyncInfo, // FIXME: Serialization change!
     /// Base room info which holds some basic event contents important for the
     /// room state.
@@ -661,6 +662,10 @@ pub(crate) enum SyncInfo {
 
     /// We have all the latest state events, including the full member list.
     FullySynced,
+}
+
+impl SyncInfo {
+    fn incomplete() -> Self { SyncInfo::IncompleteMembers }
 }
 
 impl RoomInfo {
