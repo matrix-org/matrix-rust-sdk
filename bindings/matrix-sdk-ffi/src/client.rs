@@ -136,6 +136,7 @@ impl Client {
         let state = self.state.clone();
         let delegate = self.delegate.clone();
         let session_verification_controller = self.session_verification_controller.clone();
+        let local_self = self.clone();
         RUNTIME.spawn(async move {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
@@ -182,28 +183,7 @@ impl Client {
 
                         LoopCtrl::Continue
                     } else {
-                        let mut control = LoopCtrl::Continue;
-                        if let Err(Error::Http(HttpError::Api(FromHttpResponseError::Server(
-                            ServerError::Known(RumaApiError::ClientApi(error)),
-                        )))) = &result
-                        {
-                            if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                                let is_soft_logout = match error.kind {
-                                    ErrorKind::UnknownToken { soft_logout } => soft_logout,
-                                    _ => unreachable!(),
-                                };
-
-                                state.write().unwrap().is_soft_logout = is_soft_logout;
-
-                                if let Some(delegate) = &*delegate.read().unwrap() {
-                                    delegate.did_update_restore_token();
-                                    delegate.did_receive_auth_error(is_soft_logout);
-                                }
-
-                                control = LoopCtrl::Break
-                            }
-                        }
-                        control
+                        local_self.process_sync_error(result.err().unwrap())
                     }
                 })
                 .await;
@@ -315,6 +295,32 @@ impl Client {
             _ = self.client.logout().await;
             Ok(())
         })
+    }
+
+    /// Process a sync error and return loop control accordingly
+    fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
+        let mut control = LoopCtrl::Continue;
+        if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+            RumaApiError::ClientApi(error),
+        )))) = sync_error
+        {
+            if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                let is_soft_logout = match error.kind {
+                    ErrorKind::UnknownToken { soft_logout } => soft_logout,
+                    _ => unreachable!(),
+                };
+
+                self.state.write().unwrap().is_soft_logout = is_soft_logout;
+
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_update_restore_token();
+                    delegate.did_receive_auth_error(is_soft_logout);
+                }
+
+                control = LoopCtrl::Break
+            }
+        }
+        control
     }
 }
 
