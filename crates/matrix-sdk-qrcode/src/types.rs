@@ -15,14 +15,10 @@
 use std::io::{Cursor, Read};
 
 use byteorder::{BigEndian, ReadBytesExt};
-#[cfg(feature = "decode_image")]
-use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
 use ruma_common::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
-#[cfg(feature = "decode_image")]
-use crate::utils::decode_qr;
 use crate::{
     error::{DecodingError, EncodingError},
     utils::{to_bytes, to_qr_code, HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION},
@@ -39,25 +35,6 @@ pub enum QrVerificationData {
     /// The QR verification is self-verifying in which the current device does
     /// not yet trust the master key
     SelfVerificationNoMasterKey(SelfVerificationNoMasterKey),
-}
-
-#[cfg(feature = "decode_image")]
-impl TryFrom<DynamicImage> for QrVerificationData {
-    type Error = DecodingError;
-
-    fn try_from(image: DynamicImage) -> Result<Self, Self::Error> {
-        Self::from_image(image)
-    }
-}
-
-// FIXME: We can't implement the generic trait because of https://github.com/rust-lang/rust/issues/50133
-#[cfg(feature = "decode_image")]
-impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerificationData {
-    type Error = DecodingError;
-
-    fn try_from(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<Self, Self::Error> {
-        Self::from_luma(image)
-    }
 }
 
 impl TryFrom<&[u8]> for QrVerificationData {
@@ -77,59 +54,6 @@ impl TryFrom<Vec<u8>> for QrVerificationData {
 }
 
 impl QrVerificationData {
-    /// Decode and parse an image of a QR code into a `QrVerificationData`
-    ///
-    /// The image will be converted into a grey scale image before decoding is
-    /// attempted
-    ///
-    /// # Arguments
-    ///
-    /// * `image` - The image containing the QR code.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
-    /// # fn main() -> Result<(), DecodingError> {
-    /// use image;
-    ///
-    /// let image = image::open("/path/to/my/image.png").unwrap();
-    /// let result = QrVerificationData::from_image(image)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "decode_image")]
-    pub fn from_image(image: DynamicImage) -> Result<Self, DecodingError> {
-        let image = image.to_luma8();
-        Self::decode(image)
-    }
-
-    /// Decode and parse an grey scale image of a QR code into a
-    /// `QrVerificationData`
-    ///
-    /// # Arguments
-    ///
-    /// * `image` - The grey scale image containing the QR code.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
-    /// # fn main() -> Result<(), DecodingError> {
-    /// use image;
-    ///
-    /// let image = image::open("/path/to/my/image.png").unwrap();
-    /// let image = image.to_luma8();
-    /// let result = QrVerificationData::from_luma(image)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "decode_image")]
-    pub fn from_luma<I>(image: I) -> Result<Self, DecodingError>
-    where
-        I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
-    {
-        Self::decode(image)
-    }
-
     /// Parse the decoded payload of a QR code in byte slice form as a
     /// `QrVerificationData`
     ///
@@ -290,17 +214,6 @@ impl QrVerificationData {
         let second_key = Ed25519PublicKey::from_slice(&second_key)?;
 
         QrVerificationData::new(mode, flow_id, first_key, second_key, shared_secret)
-    }
-
-    /// Decode the given image of an QR code and if we find a valid code, try to
-    /// decode it as a `QrVerification`.
-    #[cfg(feature = "decode_image")]
-    fn decode<I>(image: I) -> Result<QrVerificationData, DecodingError>
-    where
-        I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
-    {
-        let decoded = decode_qr(image)?;
-        Self::decode_bytes(decoded)
     }
 
     fn new(

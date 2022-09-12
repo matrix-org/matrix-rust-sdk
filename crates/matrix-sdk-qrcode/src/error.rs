@@ -17,10 +17,6 @@ use thiserror::Error;
 /// Error type describing errors that happen while QR data is being decoded.
 #[derive(Error, Debug)]
 pub enum DecodingError {
-    /// Error decoding the QR code.
-    #[cfg(feature = "decode_image")]
-    #[error(transparent)]
-    Qr(#[from] rqrr::DeQRError),
     /// The QR code data is missing the mandatory Matrix header.
     #[error("the decoded QR code is missing the Matrix header")]
     Header,
