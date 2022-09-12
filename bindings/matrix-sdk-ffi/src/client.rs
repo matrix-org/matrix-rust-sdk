@@ -33,6 +33,7 @@ impl std::ops::Deref for Client {
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
     fn did_receive_auth_error(&self, is_soft_logout: bool);
+    fn did_update_restore_token(&self);
 }
 
 #[derive(Clone)]
@@ -178,6 +179,7 @@ impl Client {
                                 state.write().unwrap().is_soft_logout = is_soft_logout;
         
                                 if let Some(delegate) = &*delegate.read().unwrap() {
+                                    delegate.did_update_restore_token();
                                     delegate.did_receive_auth_error(is_soft_logout);
                                 }
 
