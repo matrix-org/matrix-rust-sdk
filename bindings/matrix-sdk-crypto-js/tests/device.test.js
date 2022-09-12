@@ -837,6 +837,54 @@ describe('Key Verification', () => {
             expect(qr1.flowId).toMatch(/^[a-f0-9]+$/);
             expect(qr1.roomId).toBeUndefined();
         });
+
+        test('can start a QR verification/reciprocate (`m.key.verification.start`)', async () => {
+            let outgoingVerificationRequest = qr1.reciprocate();
+
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+
+            outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
+            expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.start');
+
+            const toDeviceEvents = {
+                events: [{
+                    sender: userId1.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+                }]
+            };
+
+            // Let's send the verification request to `m2`.
+            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+        });
+
+        test('can confirm QR code has been scanned', () => {
+            expect(qr2.hasBeenScanned()).toStrictEqual(true);
+        });
+
+        test('can confirm scanning (`m.key.verification.done`)', async () => {
+            let outgoingVerificationRequest = qr2.confirmScanning();
+
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+
+            outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
+            expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.done');
+
+            const toDeviceEvents = {
+                events: [{
+                    sender: userId2.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+                }]
+            };
+
+            // Let's send the verification request to `m2`.
+            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+        });
+
+        test('can confirm QR code has beeen confirmed', () => {
+            expect(qr2.hasBeenConfirmed()).toStrictEqual(true);
+        });
     });
 });
 
