@@ -56,9 +56,15 @@ impl Client {
     }
 
     /// Login using a username and password.
-    pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
+    pub fn login(&self, username: String, password: String, initial_device_name: String, device_id: Option<String>) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.login_username(&username, &password).send().await?;
+            let mut builder = self.client.login_username(&username, &password).initial_device_display_name(&initial_device_name);
+            let device_id_temp;
+            if device_id.is_some() {
+                device_id_temp = device_id.unwrap();
+                builder = builder.device_id(&device_id_temp)
+            }
+            builder.send().await?;
             Ok(())
         })
     }
