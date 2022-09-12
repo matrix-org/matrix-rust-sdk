@@ -80,143 +80,154 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
             let client = &client_ref;
             let initial = &initial_ref;
 
-            for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
-                match event {
-                    AnyToDeviceEvent::KeyVerificationRequest(e) => {
-                        let request = client
-                            .encryption()
-                            .get_verification_request(&e.sender, &e.content.transaction_id)
-                            .await
-                            .expect("Request object wasn't created");
+            if let Ok(sync_response) = response {
+                for event in
+                    sync_response.to_device.events.iter().filter_map(|e| e.deserialize().ok())
+                {
+                    match event {
+                        AnyToDeviceEvent::KeyVerificationRequest(e) => {
+                            let request = client
+                                .encryption()
+                                .get_verification_request(&e.sender, &e.content.transaction_id)
+                                .await
+                                .expect("Request object wasn't created");
 
-                        request.accept().await.expect("Can't accept verification request");
-                    }
-                    AnyToDeviceEvent::KeyVerificationStart(e) => {
-                        if let Some(Verification::SasV1(sas)) = client
-                            .encryption()
-                            .get_verification(&e.sender, e.content.transaction_id.as_str())
-                            .await
-                        {
-                            println!(
-                                "Starting verification with {} {}",
-                                &sas.other_device().user_id(),
-                                &sas.other_device().device_id()
-                            );
-                            print_devices(&e.sender, client).await;
-                            sas.accept().await.unwrap();
+                            request.accept().await.expect("Can't accept verification request");
                         }
-                    }
-
-                    AnyToDeviceEvent::KeyVerificationKey(e) => {
-                        if let Some(Verification::SasV1(sas)) = client
-                            .encryption()
-                            .get_verification(&e.sender, e.content.transaction_id.as_str())
-                            .await
-                        {
-                            tokio::spawn(wait_for_confirmation((*client).clone(), sas));
-                        }
-                    }
-
-                    AnyToDeviceEvent::KeyVerificationDone(e) => {
-                        if let Some(Verification::SasV1(sas)) = client
-                            .encryption()
-                            .get_verification(&e.sender, e.content.transaction_id.as_str())
-                            .await
-                        {
-                            if sas.is_done() {
-                                print_result(&sas);
+                        AnyToDeviceEvent::KeyVerificationStart(e) => {
+                            if let Some(Verification::SasV1(sas)) = client
+                                .encryption()
+                                .get_verification(&e.sender, e.content.transaction_id.as_str())
+                                .await
+                            {
+                                println!(
+                                    "Starting verification with {} {}",
+                                    &sas.other_device().user_id(),
+                                    &sas.other_device().device_id()
+                                );
                                 print_devices(&e.sender, client).await;
+                                sas.accept().await.unwrap();
                             }
                         }
+
+                        AnyToDeviceEvent::KeyVerificationKey(e) => {
+                            if let Some(Verification::SasV1(sas)) = client
+                                .encryption()
+                                .get_verification(&e.sender, e.content.transaction_id.as_str())
+                                .await
+                            {
+                                tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                            }
+                        }
+
+                        AnyToDeviceEvent::KeyVerificationDone(e) => {
+                            if let Some(Verification::SasV1(sas)) = client
+                                .encryption()
+                                .get_verification(&e.sender, e.content.transaction_id.as_str())
+                                .await
+                            {
+                                if sas.is_done() {
+                                    print_result(&sas);
+                                    print_devices(&e.sender, client).await;
+                                }
+                            }
+                        }
+
+                        _ => (),
                     }
-
-                    _ => (),
                 }
-            }
 
-            if !initial.load(Ordering::SeqCst) {
-                for (_room_id, room_info) in response.rooms.join {
-                    for event in
-                        room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
-                    {
-                        if let AnySyncTimelineEvent::MessageLike(event) = event {
-                            match event {
-                                AnySyncMessageLikeEvent::RoomMessage(
-                                    SyncMessageLikeEvent::Original(m),
-                                ) => {
-                                    if let MessageType::VerificationRequest(_) = &m.content.msgtype
-                                    {
-                                        let request = client
-                                            .encryption()
-                                            .get_verification_request(&m.sender, &m.event_id)
-                                            .await
-                                            .expect("Request object wasn't created");
+                if !initial.load(Ordering::SeqCst) {
+                    for (_room_id, room_info) in sync_response.rooms.join {
+                        for event in room_info
+                            .timeline
+                            .events
+                            .iter()
+                            .filter_map(|e| e.event.deserialize().ok())
+                        {
+                            if let AnySyncTimelineEvent::MessageLike(event) = event {
+                                match event {
+                                    AnySyncMessageLikeEvent::RoomMessage(
+                                        SyncMessageLikeEvent::Original(m),
+                                    ) => {
+                                        if let MessageType::VerificationRequest(_) =
+                                            &m.content.msgtype
+                                        {
+                                            let request = client
+                                                .encryption()
+                                                .get_verification_request(&m.sender, &m.event_id)
+                                                .await
+                                                .expect("Request object wasn't created");
 
-                                        request
-                                            .accept()
-                                            .await
-                                            .expect("Can't accept verification request");
-                                    }
-                                }
-                                AnySyncMessageLikeEvent::KeyVerificationStart(
-                                    SyncMessageLikeEvent::Original(e),
-                                ) => {
-                                    if let Some(Verification::SasV1(sas)) = client
-                                        .encryption()
-                                        .get_verification(
-                                            &e.sender,
-                                            e.content.relates_to.event_id.as_str(),
-                                        )
-                                        .await
-                                    {
-                                        println!(
-                                            "Starting verification with {} {}",
-                                            &sas.other_device().user_id(),
-                                            &sas.other_device().device_id()
-                                        );
-                                        print_devices(&e.sender, client).await;
-                                        sas.accept().await.unwrap();
-                                    }
-                                }
-                                AnySyncMessageLikeEvent::KeyVerificationKey(
-                                    SyncMessageLikeEvent::Original(e),
-                                ) => {
-                                    if let Some(Verification::SasV1(sas)) = client
-                                        .encryption()
-                                        .get_verification(
-                                            &e.sender,
-                                            e.content.relates_to.event_id.as_str(),
-                                        )
-                                        .await
-                                    {
-                                        tokio::spawn(wait_for_confirmation((*client).clone(), sas));
-                                    }
-                                }
-                                AnySyncMessageLikeEvent::KeyVerificationDone(
-                                    SyncMessageLikeEvent::Original(e),
-                                ) => {
-                                    if let Some(Verification::SasV1(sas)) = client
-                                        .encryption()
-                                        .get_verification(
-                                            &e.sender,
-                                            e.content.relates_to.event_id.as_str(),
-                                        )
-                                        .await
-                                    {
-                                        if sas.is_done() {
-                                            print_result(&sas);
-                                            print_devices(&e.sender, client).await;
+                                            request
+                                                .accept()
+                                                .await
+                                                .expect("Can't accept verification request");
                                         }
                                     }
+                                    AnySyncMessageLikeEvent::KeyVerificationStart(
+                                        SyncMessageLikeEvent::Original(e),
+                                    ) => {
+                                        if let Some(Verification::SasV1(sas)) = client
+                                            .encryption()
+                                            .get_verification(
+                                                &e.sender,
+                                                e.content.relates_to.event_id.as_str(),
+                                            )
+                                            .await
+                                        {
+                                            println!(
+                                                "Starting verification with {} {}",
+                                                &sas.other_device().user_id(),
+                                                &sas.other_device().device_id()
+                                            );
+                                            print_devices(&e.sender, client).await;
+                                            sas.accept().await.unwrap();
+                                        }
+                                    }
+                                    AnySyncMessageLikeEvent::KeyVerificationKey(
+                                        SyncMessageLikeEvent::Original(e),
+                                    ) => {
+                                        if let Some(Verification::SasV1(sas)) = client
+                                            .encryption()
+                                            .get_verification(
+                                                &e.sender,
+                                                e.content.relates_to.event_id.as_str(),
+                                            )
+                                            .await
+                                        {
+                                            tokio::spawn(wait_for_confirmation(
+                                                (*client).clone(),
+                                                sas,
+                                            ));
+                                        }
+                                    }
+                                    AnySyncMessageLikeEvent::KeyVerificationDone(
+                                        SyncMessageLikeEvent::Original(e),
+                                    ) => {
+                                        if let Some(Verification::SasV1(sas)) = client
+                                            .encryption()
+                                            .get_verification(
+                                                &e.sender,
+                                                e.content.relates_to.event_id.as_str(),
+                                            )
+                                            .await
+                                        {
+                                            if sas.is_done() {
+                                                print_result(&sas);
+                                                print_devices(&e.sender, client).await;
+                                            }
+                                        }
+                                    }
+                                    _ => (),
                                 }
-                                _ => (),
                             }
                         }
                     }
                 }
-            }
 
-            initial.store(false, Ordering::SeqCst);
+                initial.store(false, Ordering::SeqCst);
+            }
 
             LoopCtrl::Continue
         })

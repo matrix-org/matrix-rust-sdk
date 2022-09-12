@@ -97,7 +97,9 @@ pub async fn run() -> Result<JsValue, JsValue> {
     client.sync_once(SyncSettings::default()).await.unwrap();
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
-    client.sync_with_callback(settings, |response| bot.on_sync_response(response.ok().unwrap())).await;
+    client
+        .sync_with_callback(settings, |response| bot.on_sync_response(response.ok().unwrap()))
+        .await;
 
     Ok(JsValue::NULL)
 }
