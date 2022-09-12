@@ -22,7 +22,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = ["tracing", "qrcode"]
-qrcode = ["matrix-sdk-crypto/qrcode", "matrix-sdk-qrcode"]
+qrcode = ["matrix-sdk-crypto/qrcode", "dep:matrix-sdk-qrcode"]
 tracing = []
 
 [dependencies]

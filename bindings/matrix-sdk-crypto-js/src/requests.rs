@@ -267,6 +267,7 @@ pub struct KeysBackupRequest {
 ///
 /// This uploads the public cross signing key triplet.
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Debug)]
 pub struct SigningKeysUploadRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]

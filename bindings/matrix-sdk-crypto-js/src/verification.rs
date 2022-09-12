@@ -674,6 +674,35 @@ impl QrCode {
     }
 }
 
+/// A scanned QR code.
+#[cfg(feature = "qrcode")]
+#[wasm_bindgen]
+pub struct QrCodeScan {
+    inner: matrix_sdk_qrcode::QrVerificationData,
+}
+
+#[cfg(feature = "qrcode")]
+impl From<matrix_sdk_qrcode::QrVerificationData> for QrCodeScan {
+    fn from(inner: matrix_sdk_qrcode::QrVerificationData) -> Self {
+        Self { inner }
+    }
+}
+
+#[cfg(feature = "qrcode")]
+#[wasm_bindgen]
+impl QrCodeScan {
+    /// Parse the decoded payload of a QR code in byte slice form.
+    ///
+    /// This method is useful if you would like to do your own custom QR code
+    /// decoding.
+    #[wasm_bindgen(js_name = "fromBytes")]
+    pub fn from_bytes(buffer: Uint8ClampedArray) -> Result<QrCodeScan, JsError> {
+        let bytes = buffer.to_vec();
+
+        Ok(Self { inner: matrix_sdk_qrcode::QrVerificationData::from_bytes(&bytes)? })
+    }
+}
+
 /// An object controlling key verification requests.
 ///
 /// Interactive verification flows usually start with a verification
@@ -952,7 +981,18 @@ impl VerificationRequest {
         })
     }
 
-    // scan_qr_code if `qrcode`
+    /// Start a QR code verification by providing a scanned QR code
+    /// for this verification flow.
+    #[cfg(feature = "qrcode")]
+    #[wasm_bindgen(js_name = "scanQrCode")]
+    pub fn scan_qr_code(&self, data: QrCodeScan) -> Promise {
+        let me = self.inner.clone();
+        let qr_verification_data = data.inner;
+
+        future_to_promise(
+            async move { Ok(me.scan_qr_code(qr_verification_data).await?.map(Qr::from)) },
+        )
+    }
 }
 
 // JavaScript has no complex enums like Rust. To return structs of

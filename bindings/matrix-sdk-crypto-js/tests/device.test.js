@@ -1,4 +1,34 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceKeyAlgorithName, Device, LocalTrust, UserDevices, DeviceKey, DeviceKeyName, DeviceKeyAlgorithmName, Ed25519PublicKey, Curve25519PublicKey, Signatures, VerificationMethod, VerificationRequest, ToDeviceRequest, DeviceLists, KeysUploadRequest, RequestType, KeysQueryRequest, Sas, Emoji, SigningKeysUploadRequest, SignatureUploadRequest, Qr, QrCode } = require('../pkg/matrix_sdk_crypto_js');
+const {
+    OlmMachine,
+    UserId,
+    DeviceId,
+    DeviceKeyId,
+    RoomId,
+    DeviceKeyAlgorithName,
+    Device,
+    LocalTrust,
+    UserDevices,
+    DeviceKey,
+    DeviceKeyName,
+    DeviceKeyAlgorithmName,
+    Ed25519PublicKey,
+    Curve25519PublicKey,
+    Signatures,
+    VerificationMethod,
+    VerificationRequest,
+    ToDeviceRequest,
+    DeviceLists,
+    KeysUploadRequest,
+    RequestType,
+    KeysQueryRequest,
+    Sas,
+    Emoji,
+    SigningKeysUploadRequest,
+    SignatureUploadRequest,
+    Qr,
+    QrCode,
+    QrCodeScan,
+} = require('../pkg/matrix_sdk_crypto_js');
 const { LoggerLevel, Tracing } = require('../pkg/matrix_sdk_crypto_js');
 const { zip, addMachineToMachine } = require('./helper');
 
@@ -699,19 +729,20 @@ describe('Key Verification', () => {
             expect(qr2.isCancelled()).toStrictEqual(false);
             expect(qr2.isSelfVerification()).toStrictEqual(false);
             expect(qr2.reciprocated()).toStrictEqual(false);
-            expect(qr2.reciprocated()).toStrictEqual(false);
             expect(qr2.flowId).toMatch(/^[a-f0-9]+$/);
             expect(qr2.roomId).toBeUndefined();
         });
+
+        let qrCodeBytes;
 
         test('can read QR code\'s bytes', async () => {
             const qrCodeHeader = 'MATRIX';
             const qrCodeVersion = '\x02';
 
-            const bytes = qr2.toBytes();
+            qrCodeBytes = qr2.toBytes();
 
-            expect(bytes).toHaveLength(122);
-            expect(bytes.slice(0, 7)).toStrictEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
+            expect(qrCodeBytes).toHaveLength(122);
+            expect(qrCodeBytes.slice(0, 7)).toStrictEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
         });
 
         test('can render QR code', async () => {
@@ -731,12 +762,17 @@ describe('Key Verification', () => {
                 expect(buffer.every(p => p == 0 || p == 1)).toStrictEqual(true);
 
                 const { Canvas } = require('canvas');
-                const canvas = new Canvas(45, 45);
+                const canvas = new Canvas(55, 55);
 
                 const context = canvas.getContext('2d');
+                context.fillStyle = 'white';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+
                 // New image data, filled with black, transparent pixels.
                 const imageData = context.createImageData(45, 45);
                 const data = imageData.data;
+
+                const [r, g, b, a] = [0, 1, 2, 3];
 
                 for (
                     let dataNth = 0,
@@ -745,16 +781,17 @@ describe('Key Verification', () => {
                     dataNth += 4,
                     bufferNth += 1
                 ) {
+                    data[dataNth + a] = 255;
+
                     // White pixel
                     if (buffer[bufferNth] == 0) {
-                        data[dataNth] = 255;
-                        data[dataNth + 1] = 255;
-                        data[dataNth + 2] = 255;
-                        data[dataNth + 3] = 255;
+                        data[dataNth + r] = 255;
+                        data[dataNth + g] = 255;
+                        data[dataNth + b] = 255;
                     }
                 }
 
-                context.putImageData(imageData, 0, 0);
+                context.putImageData(imageData, 5, 5);
                 canvasBuffer = canvas.toBuffer('image/png');
             }
 
@@ -773,6 +810,32 @@ describe('Key Verification', () => {
                 expect(await fs.writeFile(qrCodeFile, canvasBuffer)).toBeUndefined();
             }
             */
+        });
+
+        let qr1;
+
+        test('can scan a QR code from bytes', async () => {
+            const scan = QrCodeScan.fromBytes(qrCodeBytes);
+
+            expect(scan).toBeInstanceOf(QrCodeScan);
+
+            qr1 = await verificationRequest1.scanQrCode(scan);
+
+            expect(qr1).toBeInstanceOf(Qr);
+
+            expect(qr1.hasBeenScanned()).toStrictEqual(false);
+            expect(qr1.hasBeenConfirmed()).toStrictEqual(false);
+            expect(qr1.userId.toString()).toStrictEqual(userId1.toString());
+            expect(qr1.otherUserId.toString()).toStrictEqual(userId2.toString());
+            expect(qr1.otherDeviceId.toString()).toStrictEqual(deviceId2.toString());
+            expect(qr1.weStarted()).toStrictEqual(true);
+            expect(qr1.cancelInfo()).toBeUndefined();
+            expect(qr1.isDone()).toStrictEqual(false);
+            expect(qr1.isCancelled()).toStrictEqual(false);
+            expect(qr1.isSelfVerification()).toStrictEqual(false);
+            expect(qr1.reciprocated()).toStrictEqual(true);
+            expect(qr1.flowId).toMatch(/^[a-f0-9]+$/);
+            expect(qr1.roomId).toBeUndefined();
         });
     });
 });
