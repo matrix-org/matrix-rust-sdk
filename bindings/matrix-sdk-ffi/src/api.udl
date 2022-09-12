@@ -1,7 +1,4 @@
-namespace matrix_sdk_ffi {
-    MediaSource media_source_from_url(string url);
-    MessageEventContent message_event_content_from_markdown(string md);
-};
+namespace matrix_sdk_ffi {};
 
 [Error]
 interface ClientError {
@@ -39,20 +36,10 @@ interface Client {
     [Throws=ClientError]
     void restore_login(string restore_token);
 
-    string homeserver();
-
     void start_sync(u16? timeline_limit);
 
     [Throws=ClientError]
     string restore_token();
-
-    boolean is_guest();
-
-    boolean has_first_synced();
-
-    boolean is_syncing();
-
-    boolean is_soft_logout();
 
     [Throws=ClientError]
     string user_id();
@@ -71,8 +58,6 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
-
-    sequence<Room> rooms();
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);

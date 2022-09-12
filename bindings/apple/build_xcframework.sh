@@ -52,7 +52,7 @@ lipo -create \
 # Architecture for the .a file argument doesn't matter, since the API is the same on all
 uniffi-bindgen generate \
   --language swift \
-  --cdylib "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+  --lib-file "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   --out-dir ${GENERATED_DIR} \
   "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl"
 

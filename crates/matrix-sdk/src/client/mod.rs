@@ -70,8 +70,8 @@ use ruma::{
         SyncStateEvent,
     },
     presence::PresenceState,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
-    ServerName, UInt, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
+    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -152,8 +152,8 @@ pub(crate) struct ClientInner {
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
-    #[cfg(feature = "e2e-encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
@@ -256,8 +256,8 @@ impl Client {
     /// * `transaction_id` - The id of the transaction, used to guard against
     ///   the same transaction being sent twice. This guarding currently isn't
     ///   implemented.
-    /// * `incoming_transaction` - The sync response converted from a
-    ///   transaction received from the homeserver.
+    /// * `sync_response` - The sync response converted from a transaction
+    ///   received from the homeserver.
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
@@ -589,6 +589,12 @@ impl Client {
     /// client.add_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///     // You can omit any or all arguments after the first.
     /// });
+    ///
+    /// // Registering a temporary event handler:
+    /// let handle = client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
+    ///     /* Event handler */
+    /// });
+    /// client.remove_event_handler(handle);
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
@@ -1586,13 +1592,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1646,13 +1655,16 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join
+                        && *event.state_key() == user_id
+                        && event.origin_server_ts() > now
                     {
                         if let Err(e) = tx.send(room).await {
                             debug!(
@@ -1775,12 +1787,17 @@ impl Client {
 
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
                 let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
+                    if event.origin_server_ts() <= now {
+                        return;
+                    }
+
                     let event_content = if let Some(original_event) = event.as_original() {
                         &original_event.content
                     } else {
@@ -1829,6 +1846,45 @@ impl Client {
                 return Err(Error::InconsistentState);
             };
         }
+    }
+
+    /// Create a direct message room with the specified user.
+    pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.to_owned()];
+
+        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
+            invite,
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        });
+
+        let room = self.create_room(request).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .account()
+            .account_data::<DirectEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+
+        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.account().set_account_data(content).await?;
+
+        Ok(room)
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
