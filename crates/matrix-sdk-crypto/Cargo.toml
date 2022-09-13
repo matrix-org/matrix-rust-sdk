@@ -52,13 +52,11 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 tokio = { version = "1.18", default-features = false, features = ["time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
-git = "https://github.com/ruma/ruma"
-rev = "c745d3baf720b38a254e640a526717864e87a065"
+version = "0.7.0"
 features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
-git = "https://github.com/ruma/ruma"
-rev = "c745d3baf720b38a254e640a526717864e87a065"
+version = "0.7.0"
 features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]

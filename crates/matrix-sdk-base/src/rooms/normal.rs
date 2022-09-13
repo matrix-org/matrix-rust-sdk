@@ -843,16 +843,13 @@ mod test {
     use matrix_sdk_test::async_test;
     use ruma::{
         event_id,
-        events::{
-            room::{
-                canonical_alias::RoomCanonicalAliasEventContent,
-                member::{
-                    MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                    StrippedRoomMemberEvent, SyncRoomMemberEvent,
-                },
-                name::RoomNameEventContent,
+        events::room::{
+            canonical_alias::RoomCanonicalAliasEventContent,
+            member::{
+                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                RoomMemberUnsigned, StrippedRoomMemberEvent, SyncRoomMemberEvent,
             },
-            StateUnsigned,
+            name::RoomNameEventContent,
         },
         room_alias_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
     };
@@ -890,7 +887,7 @@ mod test {
             state_key: user_id.to_owned(),
             event_id: event_id!("$h29iv0s1:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
-            unsigned: StateUnsigned::default(),
+            unsigned: RoomMemberUnsigned::default(),
         })
     }
 

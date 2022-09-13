@@ -55,7 +55,7 @@ macro_rules! statestore_integration_tests {
                     room::{
                         member::{
                             MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                            StrippedRoomMemberEvent, SyncRoomMemberEvent,
+                            RoomMemberUnsigned, StrippedRoomMemberEvent, SyncRoomMemberEvent,
                         },
                         power_levels::RoomPowerLevelsEventContent,
                         MediaSource,
@@ -63,7 +63,7 @@ macro_rules! statestore_integration_tests {
                     AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent,
                     AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
                     AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
-                    StateEventType, StateUnsigned,
+                    StateEventType,
                 },
                 mxc_uri, room_id,
                 serde::Raw,
@@ -280,7 +280,7 @@ macro_rules! statestore_integration_tests {
                     sender: user_id.to_owned(),
                     origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
                     state_key: user_id.to_owned(),
-                    unsigned: StateUnsigned::default(),
+                    unsigned: RoomMemberUnsigned::default(),
                 })
             }
 

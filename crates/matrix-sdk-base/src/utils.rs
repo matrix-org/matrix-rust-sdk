@@ -1,7 +1,8 @@
 use ruma::{
     events::{
         room::member::{MembershipState, RoomMemberEventContent},
-        RedactContent, RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
+        RedactContent, RedactedEventContent, RedactedStateEventContent, StateEventContent,
+        StrippedStateEvent, SyncStateEvent,
     },
     EventId, OwnedEventId, RoomVersionId,
 };
@@ -20,9 +21,13 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 /// event ID. The event ID is optional so this type can also hold events from
 /// invited rooms, where event IDs are not available.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(bound(
+    serialize = "C: Serialize, C::Redacted: Serialize",
+    deserialize = "C: DeserializeOwned, C::Redacted: DeserializeOwned"
+))]
 pub enum MinimalStateEvent<C: StateEventContent + RedactContent>
 where
-    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+    C::Redacted: RedactedStateEventContent,
 {
     /// An unredacted event.
     Original(OriginalMinimalStateEvent<C>),
@@ -61,7 +66,7 @@ where
 impl<C> MinimalStateEvent<C>
 where
     C: StateEventContent + RedactContent,
-    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+    C::Redacted: RedactedStateEventContent,
 {
     /// Get the inner event's ID.
     pub fn event_id(&self) -> Option<&EventId> {
@@ -121,7 +126,7 @@ impl MinimalRoomMemberEvent {
 impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
     C: Clone + StateEventContent + RedactContent,
-    C::Redacted: Clone + StateEventContent + RedactedEventContent + DeserializeOwned,
+    C::Redacted: Clone + RedactedStateEventContent,
 {
     fn from(ev: &SyncStateEvent<C>) -> Self {
         match ev {
@@ -140,7 +145,7 @@ where
 impl<C> From<&StrippedStateEvent<C>> for MinimalStateEvent<C>
 where
     C: Clone + StateEventContent + RedactContent,
-    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+    C::Redacted: RedactedStateEventContent,
 {
     fn from(ev: &StrippedStateEvent<C>) -> Self {
         Self::Original(OriginalMinimalStateEvent { content: ev.content.clone(), event_id: None })
