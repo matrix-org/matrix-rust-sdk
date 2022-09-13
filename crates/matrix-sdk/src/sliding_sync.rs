@@ -232,6 +232,7 @@ pub struct UpdateSummary {
 
 /// The sliding sync instance
 #[derive(Clone, Debug, Builder)]
+#[builder(pattern = "owned", derive(Clone, Debug))]
 pub struct SlidingSync {
     /// Customize the homeserver for sliding sync onlye
     #[builder(setter(strip_option))]
@@ -261,37 +262,33 @@ pub struct SlidingSync {
 
 impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(&mut self) -> &mut Self {
-        let mut new = self;
-        let views = new.views.clone().unwrap_or_default();
+    pub fn add_fullsync_view(mut self) -> Self {
+        let views = self.views.clone().unwrap_or_default();
         views.lock_mut().push_cloned(
             SlidingSyncViewBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
         );
-        new.views = Some(views);
-        new
+        self.views = Some(views);
+        self
     }
 
     /// Reset the views to None
-    pub fn no_views(&mut self) -> &mut Self {
-        let mut new = self;
-        new.views = None;
-        new
+    pub fn no_views(mut self) -> Self {
+        self.views = None;
+        self
     }
 
     /// Add the given view to the list of views
-    pub fn add_view(&mut self, mut v: SlidingSyncView) -> &mut Self {
-        let mut new = self;
-
-        let rooms = new.rooms.clone().unwrap_or_default();
-        new.rooms = Some(rooms.clone());
+    pub fn add_view(mut self, mut v: SlidingSyncView) -> Self {
+        let rooms = self.rooms.clone().unwrap_or_default();
+        self.rooms = Some(rooms.clone());
         v.rooms = rooms;
 
-        let views = new.views.clone().unwrap_or_default();
+        let views = self.views.clone().unwrap_or_default();
         views.lock_mut().push_cloned(v);
-        new.views = Some(views);
-        new
+        self.views = Some(views);
+        self
     }
 }
 
@@ -299,7 +296,7 @@ impl SlidingSync {
     /// Generate a new SlidingSyncBuilder with the same inner settings and views
     /// but without the current state
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
-        let mut builder = SlidingSyncBuilder::default()
+        let builder = SlidingSyncBuilder::default()
             .client(self.client.clone())
             .views(Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(
                 self.views
@@ -313,13 +310,13 @@ impl SlidingSync {
             )))
             .subscriptions(Arc::new(futures_signals::signal_map::MutableBTreeMap::with_values(
                 self.subscriptions.lock_ref().to_owned(),
-            )))
-            .to_owned();
+            )));
 
         if let Some(h) = &self.homeserver {
-            builder.homeserver(h.clone());
+            builder.homeserver(h.clone())
+        } else {
+            builder
         }
-        builder
     }
 
     /// Subscribe to a given room.
@@ -482,18 +479,18 @@ impl SlidingSync {
 /// # })
 /// ```
 #[derive(Clone, Debug, Builder)]
-#[builder(build_fn(name = "finish_build"))]
+#[builder(build_fn(name = "finish_build"), pattern = "owned", derive(Clone, Debug))]
 pub struct SlidingSyncView {
     /// Which SyncMode to start this view under
-    #[builder(setter(name = "sync_mode_raw"), default)]
+    #[builder(setter(custom), default)]
     sync_mode: SyncMode,
 
     /// Sort the rooms list by this
-    #[builder(default = "self.default_sort()")]
+    #[builder(default = "SlidingSyncViewBuilder::default_sort()")]
     sort: Vec<String>,
 
     /// Required states to return per room
-    #[builder(default = "self.default_required_state()")]
+    #[builder(default = "SlidingSyncViewBuilder::default_required_state()")]
     required_state: Vec<(RoomEventType, String)>,
 
     /// How many rooms request at a time when doing a full-sync catch up
@@ -543,17 +540,17 @@ pub struct SlidingSyncView {
         futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
 }
 
-/// the default name for the full sync view
+// /// the default name for the full sync view
 pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 
 impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
-        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::FullSync).to_owned()
+        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::FullSync)
     }
 
     /// Build the view
-    pub fn build(&mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
+    pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
         let (sender, receiver) = futures_signals::signal::channel(());
         self.rooms_updated_signal = Some(sender);
         self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
@@ -561,11 +558,11 @@ impl SlidingSyncViewBuilder {
     }
 
     // defaults
-    fn default_sort(&self) -> Vec<String> {
+    fn default_sort() -> Vec<String> {
         vec!["by_recency".to_string(), "by_name".to_string()]
     }
 
-    fn default_required_state(&self) -> Vec<(RoomEventType, String)> {
+    fn default_required_state() -> Vec<(RoomEventType, String)> {
         vec![
             (RoomEventType::RoomEncryption, "".to_string()),
             (RoomEventType::RoomTombstone, "".to_string()),
@@ -573,46 +570,42 @@ impl SlidingSyncViewBuilder {
     }
 
     /// Set the Syncing mode
-    pub fn sync_mode(&mut self, sync_mode: SlidingSyncMode) -> &mut Self {
+    pub fn sync_mode(mut self, sync_mode: SlidingSyncMode) -> Self {
         self.sync_mode = Some(SyncMode::new(sync_mode));
         self
     }
 
     /// Set the ranges to fetch
-    pub fn ranges<U: Into<UInt>>(&mut self, range: Vec<(U, U)>) -> &mut Self {
-        let mut new = self;
-        new.ranges =
+    pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
+        self.ranges =
             Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
-        new
+        self
     }
 
     /// Set the ranges to fetch
-    pub fn add_range<U: Into<UInt>>(&mut self, from: U, to: U) -> &mut Self {
-        let new = self;
-        let r = new.ranges.get_or_insert_with(|| RangeState::new(Vec::new()));
+    pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
+        let r = self.ranges.get_or_insert_with(|| RangeState::new(Vec::new()));
         r.lock_mut().push((from.into(), to.into()));
-        new
+        self
     }
 
     /// Set the ranges to fetch
-    pub fn reset_ranges(&mut self) -> &mut Self {
-        let mut new = self;
-        new.ranges = None;
-        new
+    pub fn reset_ranges(mut self) -> Self {
+        self.ranges = None;
+        self
     }
+
     /// Set the limit of regular events to fetch for the timeline.
-    pub fn timeline_limit<U: Into<UInt>>(&mut self, timeline_limit: U) -> &mut Self {
-        let mut new = self;
-        new.timeline_limit = Some(Some(timeline_limit.into()));
-        new
+    pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
+        self.timeline_limit = Some(Some(timeline_limit.into()));
+        self
     }
 
     /// Reset the limit of regular events to fetch for the timeline. It is left
     /// to the server to decide how many to send back
-    pub fn no_timeline_limit(&mut self) -> &mut Self {
-        let mut new = self;
-        new.timeline_limit = None;
-        new
+    pub fn no_timeline_limit(mut self) -> Self {
+        self.timeline_limit = None;
+        self
     }
 }
 
@@ -710,12 +703,11 @@ impl SlidingSyncView {
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
         SlidingSyncViewBuilder::default()
             .name(&self.name)
-            .sync_mode_raw(self.sync_mode.clone())
+            .sync_mode(self.sync_mode.lock_ref().clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .batch_size(self.batch_size)
             .ranges(self.ranges.read_only().get_cloned())
-            .to_owned()
     }
 
     /// Set the ranges to fetch
@@ -934,7 +926,7 @@ impl Client {
         // ensure the version has been checked in before, as the proxy doesn't support
         // that
         let _ = self.server_versions().await;
-        SlidingSyncBuilder::default().client(self.clone()).to_owned()
+        SlidingSyncBuilder::default().client(self.clone())
     }
 
     #[tracing::instrument(skip(self, response))]

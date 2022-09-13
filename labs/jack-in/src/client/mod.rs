@@ -13,7 +13,7 @@ pub async fn run_client(
     tx: mpsc::Sender<state::SlidingSyncState>,
 ) -> Result<()> {
     warn!("Starting sliding sync now");
-    let mut builder = client.sliding_sync().await;
+    let builder = client.sliding_sync().await;
     let full_sync_view =
         SlidingSyncViewBuilder::default_with_fullsync().timeline_limit(10u32).build()?;
     let syncer = builder

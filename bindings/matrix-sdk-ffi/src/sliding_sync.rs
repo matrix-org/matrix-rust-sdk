@@ -247,19 +247,19 @@ impl SlidingSyncViewBuilder {
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.sync_mode(mode);
+        builder.inner = builder.inner.sync_mode(mode);
         Arc::new(builder)
     }
 
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.sort(sort);
+        builder.inner = builder.inner.sort(sort);
         Arc::new(builder)
     }
 
     pub fn required_state(self: Arc<Self>, required_state: Vec<RequiredState>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder
+        builder.inner = builder
             .inner
             .required_state(required_state.into_iter().map(|s| (s.key.into(), s.value)).collect());
         Arc::new(builder)
@@ -267,48 +267,48 @@ impl SlidingSyncViewBuilder {
 
     pub fn batch_size(self: Arc<Self>, batch_size: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.batch_size(batch_size);
+        builder.inner = builder.inner.batch_size(batch_size);
         Arc::new(builder)
     }
 
     pub fn timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.timeline_limit(limit);
+        builder.inner = builder.inner.timeline_limit(limit);
         Arc::new(builder)
     }
 
     pub fn no_timeline_limit(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.no_timeline_limit();
+        builder.inner = builder.inner.no_timeline_limit();
         Arc::new(builder)
     }
 
     pub fn name(self: Arc<Self>, name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.name(name);
+        builder.inner = builder.inner.name(name);
         Arc::new(builder)
     }
 
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.ranges(ranges);
+        builder.inner = builder.inner.ranges(ranges);
         Arc::new(builder)
     }
 
     pub fn add_range(self: Arc<Self>, from: u32, to: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.add_range(from, to);
+        builder.inner = builder.inner.add_range(from, to);
         Arc::new(builder)
     }
 
     pub fn reset_ranges(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.reset_ranges();
+        builder.inner = builder.inner.reset_ranges();
         Arc::new(builder)
     }
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncView>> {
-        let mut builder = unwrap_or_clone_arc(self);
+        let builder = unwrap_or_clone_arc(self);
         Ok(Arc::new(builder.inner.build()?.into()))
     }
 }
@@ -535,26 +535,26 @@ pub struct SlidingSyncBuilder {
 impl SlidingSyncBuilder {
     pub fn homeserver(self: Arc<Self>, url: String) -> anyhow::Result<Arc<Self>> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.homeserver(url.parse()?);
+        builder.inner = builder.inner.homeserver(url.parse()?);
         Ok(Arc::new(builder))
     }
 
     pub fn add_fullsync_view(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.add_fullsync_view();
+        builder.inner = builder.inner.add_fullsync_view();
         Arc::new(builder)
     }
 
     pub fn no_views(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner.no_views();
+        builder.inner = builder.inner.no_views();
         Arc::new(builder)
     }
 
     pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncView>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         let view = unwrap_or_clone_arc(v);
-        builder.inner.add_view(view.inner);
+        builder.inner = builder.inner.add_view(view.inner);
         Arc::new(builder)
     }
 
@@ -567,7 +567,7 @@ impl SlidingSyncBuilder {
 impl Client {
     pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
         RUNTIME.block_on(async move {
-            let mut builder = self.client.sliding_sync().await;
+            let builder = self.client.sliding_sync().await;
             let inner = builder.add_fullsync_view().build()?;
             Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
