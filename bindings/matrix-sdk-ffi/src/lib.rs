@@ -66,7 +66,5 @@ fn setup_tracing(configuration: String) {
 }
 
 mod uniffi_types {
-    pub use matrix_sdk::ruma::events::room::{
-        message::RoomMessageEventContent as MessageEventContent, MediaSource,
-    };
+    pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 }
