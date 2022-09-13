@@ -20,26 +20,6 @@ pub struct SlidingSyncState {
     pub selected_room: Mutable<Option<OwnedRoomId>>,
 }
 
-impl PartialOrd for SlidingSyncState {
-    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
-        None
-    }
-}
-
-impl Ord for SlidingSyncState {
-    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
-        std::cmp::Ordering::Equal
-    }
-}
-
-impl Eq for SlidingSyncState {}
-
-impl PartialEq for SlidingSyncState {
-    fn eq(&self, _other: &SlidingSyncState) -> bool {
-        false
-    }
-}
-
 impl SlidingSyncState {
     pub fn new(view: SlidingSyncView) -> Self {
         Self {

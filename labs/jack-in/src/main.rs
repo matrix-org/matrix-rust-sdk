@@ -33,10 +33,30 @@ pub enum Msg {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Eq, PartialEq, PartialOrd, Clone)]
+#[derive(Clone)]
 pub enum JackInEvent {
     Any, // match all
     SyncUpdate(client::state::SlidingSyncState),
+}
+
+impl PartialOrd for JackInEvent {
+    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
+        Some(std::cmp::Ordering::Equal)
+    }
+}
+
+impl Ord for JackInEvent {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for JackInEvent {}
+
+impl PartialEq for JackInEvent {
+    fn eq(&self, other: &JackInEvent) -> bool {
+        matches!((self, other), (JackInEvent::Any, JackInEvent::Any))
+    }
 }
 
 // Let's define the component ids for our application

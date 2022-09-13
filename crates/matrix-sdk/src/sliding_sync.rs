@@ -107,8 +107,8 @@ impl Default for RoomListEntry {
     }
 }
 
+/// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
-/// Room info as giving by the SlidingSync Feature
 pub struct SlidingSyncRoom {
     room_id: OwnedRoomId,
     inner: v4::SlidingSyncRoom,
@@ -366,7 +366,7 @@ impl SlidingSync {
             bail!("Received response for {} lists, yet we have {}", resp.lists.len(), views.len());
         }
 
-        for (view, updates) in views.iter().zip(resp.lists.iter()) {
+        for (view, updates) in std::iter::zip(views, &resp.lists) {
             let count: u32 =
                 updates.count.try_into().expect("the list total count convertible into u32");
             tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
