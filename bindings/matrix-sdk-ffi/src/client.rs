@@ -72,10 +72,8 @@ impl Client {
                 .client
                 .login_username(&username, &password)
                 .initial_device_display_name(&initial_device_name);
-            let device_id_temp;
-            if device_id.is_some() {
-                device_id_temp = device_id.unwrap();
-                builder = builder.device_id(&device_id_temp)
+            if let Some(device_id) = device_id.as_ref() {
+                builder = builder.device_id(device_id);
             }
             builder.send().await?;
             Ok(())
