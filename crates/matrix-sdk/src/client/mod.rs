@@ -139,15 +139,15 @@ pub struct Client {
 
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
-    pub(crate) homeserver: RwLock<Url>,
+    homeserver: RwLock<Url>,
     /// The OIDC Provider that is trusted by the homeserver.
     authentication_issuer: Option<RwLock<Url>>,
     /// The underlying HTTP client.
-    pub(crate) http_client: HttpClient,
+    http_client: HttpClient,
     /// User session data.
     base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    pub(crate) server_versions: OnceCell<Box<[MatrixVersion]>>,
+    server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]

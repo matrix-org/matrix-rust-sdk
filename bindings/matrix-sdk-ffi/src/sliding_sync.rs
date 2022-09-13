@@ -83,7 +83,7 @@ pub struct SlidingSyncRoom {
 
 impl SlidingSyncRoom {
     pub fn name(&self) -> Option<String> {
-        self.inner.name()
+        self.inner.name().map(ToOwned::to_owned)
     }
 
     pub fn room_id(&self) -> String {
@@ -109,6 +109,7 @@ impl SlidingSyncRoom {
         Arc::new(self.inner.unread_notifications.clone().into())
     }
 
+    #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<crate::messages::AnyMessage>> {
         let messages = self.inner.timeline();
         // room is having the latest events at the end,
@@ -445,8 +446,10 @@ impl SlidingSync {
         Ok(())
     }
 
+    #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
-        for s in self.inner.views.lock_ref().iter() {
+        let views = self.inner.views.lock_ref();
+        for s in views.iter() {
             if s.name == name {
                 return Some(Arc::new(SlidingSyncView { inner: s.clone() }));
             }

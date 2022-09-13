@@ -77,7 +77,7 @@ impl BaseClient {
 
         let mut new_rooms = Rooms::default();
 
-        for (room_id, room_data) in rooms.iter() {
+        for (room_id, room_data) in &rooms {
             if !room_data.invite_state.is_empty() {
                 let invite_states = &room_data.invite_state;
                 let room = store.get_or_create_stripped_room(room_id).await;

@@ -23,13 +23,13 @@ use ruma::{
     assign,
     events::{AnySyncTimelineEvent, RoomEventType},
     serde::Raw,
-    OwnedRoomId, UInt,
+    OwnedRoomId, RoomId, UInt,
 };
 use url::Url;
 
 use crate::{config::RequestConfig, Client, Result};
 
-/// Define the state the SlidingSync View is in
+/// The state the [`SlidingSyncView`] is in.
 ///
 /// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
 /// response for the first given number of Rooms, then switches into
@@ -56,8 +56,7 @@ impl Default for SlidingSyncState {
     }
 }
 
-#[allow(dead_code)]
-/// Define the mode by which the the SlidingSyncView is in fetching the data
+/// The mode by which the the [`SlidingSyncView`] is in fetching the data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlidingSyncMode {
     /// FullSync all rooms in the background, configured with batch size
@@ -87,22 +86,14 @@ pub enum RoomListEntry {
 impl RoomListEntry {
     /// Is this entry empty or invalidated?
     pub fn empty_or_invalidated(&self) -> bool {
-        matches! {&self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
+        matches! {self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
     }
 
     /// The inner room_id if given
-    pub fn room_id(&self) -> Option<OwnedRoomId> {
+    pub fn as_room_id(&self) -> Option<&RoomId> {
         match &self {
             RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.clone()),
-        }
-    }
-
-    /// Ref to the inner room id, if given
-    pub fn as_ref(&self) -> Option<&OwnedRoomId> {
-        match &self {
-            RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b),
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.as_ref()),
         }
     }
 }
@@ -161,8 +152,8 @@ impl SlidingSyncRoom {
     }
 
     /// This rooms name as calculated by the server, if any
-    pub fn name(&self) -> Option<String> {
-        self.inner.name.clone()
+    pub fn name(&self) -> Option<&str> {
+        self.inner.name.as_deref()
     }
 
     fn update(&mut self, room_data: &v4::SlidingSyncRoom) {
@@ -325,7 +316,7 @@ impl SlidingSync {
             )))
             .to_owned();
 
-        if let Some(ref h) = self.homeserver {
+        if let Some(h) = &self.homeserver {
             builder.homeserver(h.clone());
         }
         builder
@@ -427,23 +418,25 @@ impl SlidingSync {
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
-                let requests;
-                (requests, remaining_generators, remaining_views) = remaining_generators
-                    .into_iter()
-                    .zip(remaining_views)
-                    .fold(
-                    (Vec::new(), Vec::new(), Vec::new()), |mut c, (mut g, v)| {
-                        if let Some(r) = g.next() {
-                            c.0.push(r);
-                            c.1.push(g);
-                            c.2.push(v);
-                        }
-                        c
-                    });
+                let mut requests = Vec::new();
+                let mut new_remaining_generators = Vec::new();
+                let mut new_remaining_views = Vec::new();
 
-                if remaining_views.is_empty() {
+                for (mut generator, view) in  remaining_generators.into_iter().zip(remaining_views) {
+                    if let Some(request) = generator.next() {
+                        requests.push(request);
+                        new_remaining_generators.push(generator);
+                        new_remaining_views.push(view);
+                    }
+                }
+
+                if new_remaining_views.is_empty() {
                     return
                 }
+
+                remaining_views = new_remaining_views;
+                remaining_generators = new_remaining_generators;
+
                 let pos = self.pos.get_cloned();
                 let room_subscriptions = self.subscriptions.lock_ref().clone();
                 let unsubscribe_rooms = {
@@ -462,8 +455,7 @@ impl SlidingSync {
                 tracing::debug!("requesting");
                 let resp = client
                     .send(req, req_config.clone())
-                    .await
-                    ?;
+                    .await?;
                 tracing::debug!("received");
 
                 let updates = self.handle_response(resp, &remaining_views).await?;
@@ -781,7 +773,7 @@ impl SlidingSyncView {
         listing
             .iter()
             .skip(start)
-            .filter_map(|id| id.as_ref())
+            .filter_map(|id| id.as_room_id())
             .filter_map(|id| rooms.get(id))
             .map(|r| r.inner.clone())
             .take(count)
@@ -790,7 +782,7 @@ impl SlidingSyncView {
 
     /// Return the room_id at the given index
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.rooms_list.lock_ref().get(index).and_then(|e| e.room_id())
+        self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
     #[tracing::instrument(skip(self, ops))]

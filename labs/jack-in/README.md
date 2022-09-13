@@ -32,4 +32,4 @@ OPTIONS:
 
 ### Get the access token
 1. In [element.io](https://develop.element.org) navigate to `Settings` -> `Help & About`, under _Advanced_ (on the bottom) you can find your Access token
-2. Copy it and set as the `JACKIN_SYNC_PROXY` environment variable or as `--sliding-sync-proxy` cli-parameter on jack-in run
+2. Copy it and set as the `JACKIN_SYNC_TOKEN` environment variable or as `--token` cli-parameter on jack-in run
