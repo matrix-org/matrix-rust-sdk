@@ -104,6 +104,9 @@ interface Room {
 
     [Throws=ClientError]
     void send(MessageEventContent msg, string? txn_id);
+    
+    [Throws=ClientError]
+    void redact(string event_id, string? reason, string? txn_id);
 };
 
 interface BackwardsStream {
