@@ -44,6 +44,7 @@ struct RestoreToken {
     is_guest: bool,
     homeurl: String,
     session: Session,
+    #[serde(default)]
     is_soft_logout: bool,
 }
 

@@ -64,14 +64,14 @@ impl Client {
         &self,
         username: String,
         password: String,
-        initial_device_name: String,
+        initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let mut builder = self
-                .client
-                .login_username(&username, &password)
-                .initial_device_display_name(&initial_device_name);
+            let mut builder = self.client.login_username(&username, &password);
+            if let Some(initial_device_name) = initial_device_name.as_ref() {
+                builder = builder.initial_device_display_name(initial_device_name);
+            }
             if let Some(device_id) = device_id.as_ref() {
                 builder = builder.device_id(device_id);
             }
@@ -290,8 +290,10 @@ impl Client {
     /// Log out the current user
     pub fn logout(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            _ = self.client.logout().await;
-            Ok(())
+            match self.client.logout().await {
+                Ok(_) => Ok(()),
+                Err(error) => Err(anyhow!(error.to_string())),
+            }
         })
     }
 
@@ -302,19 +304,12 @@ impl Client {
             RumaApiError::ClientApi(error),
         )))) = sync_error
         {
-            if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                let is_soft_logout = match error.kind {
-                    ErrorKind::UnknownToken { soft_logout } => soft_logout,
-                    _ => unreachable!(),
-                };
-
-                self.state.write().unwrap().is_soft_logout = is_soft_logout;
-
+            if let ErrorKind::UnknownToken { soft_logout } = error.kind {
+                self.state.write().unwrap().is_soft_logout = soft_logout;
                 if let Some(delegate) = &*self.delegate.read().unwrap() {
                     delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(is_soft_logout);
+                    delegate.did_receive_auth_error(soft_logout);
                 }
-
                 control = LoopCtrl::Break
             }
         }

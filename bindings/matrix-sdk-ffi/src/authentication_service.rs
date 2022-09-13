@@ -96,7 +96,7 @@ impl AuthenticationService {
         &self,
         username: String,
         password: String,
-        initial_device_name: String,
+        initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> Result<Arc<Client>, AuthenticationError> {
         let client = match &*self.client.read().unwrap() {
