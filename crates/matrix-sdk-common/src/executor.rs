@@ -11,8 +11,6 @@ use std::{
 use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::spawn;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::spawn_local;
 
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
@@ -21,7 +19,7 @@ where
 {
     let fut = future.unit_error();
     let (fut, handle) = fut.remote_handle();
-    spawn_local(fut);
+    wasm_bindgen_futures::spawn_local(fut);
 
     JoinHandle { handle }
 }
