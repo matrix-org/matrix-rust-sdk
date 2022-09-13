@@ -86,7 +86,7 @@ pub enum RoomListEntry {
 impl RoomListEntry {
     /// Is this entry empty or invalidated?
     pub fn empty_or_invalidated(&self) -> bool {
-        matches! {self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
+        matches!(self, RoomListEntry::Empty | RoomListEntry::Invalidated(_))
     }
 
     /// The inner room_id if given
@@ -419,7 +419,7 @@ impl SlidingSync {
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
 
-                for (mut generator, view) in  remaining_generators.into_iter().zip(remaining_views) {
+                for (mut generator, view) in  std::iter::zip(remaining_generators, remaining_views) {
                     if let Some(request) = generator.next() {
                         requests.push(request);
                         new_remaining_generators.push(generator);

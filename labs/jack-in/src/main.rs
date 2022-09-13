@@ -41,21 +41,15 @@ pub enum JackInEvent {
 
 impl PartialOrd for JackInEvent {
     fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
-        Some(std::cmp::Ordering::Equal)
-    }
-}
-
-impl Ord for JackInEvent {
-    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
-        std::cmp::Ordering::Equal
+        None
     }
 }
 
 impl Eq for JackInEvent {}
 
 impl PartialEq for JackInEvent {
-    fn eq(&self, other: &JackInEvent) -> bool {
-        matches!((self, other), (JackInEvent::Any, JackInEvent::Any))
+    fn eq(&self, _other: &JackInEvent) -> bool {
+        false
     }
 }
 
