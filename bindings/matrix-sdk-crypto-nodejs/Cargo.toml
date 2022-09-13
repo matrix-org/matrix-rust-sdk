@@ -35,8 +35,7 @@ zeroize = "1.3.0"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "time", "smallvec", "fmt", "env-filter"], optional = true }
 
 [dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac/"
-rev = "ad1f098aff2a0b69aa5822c4e0679089a9fa4a86"
+version = "0.3.0"
 features = ["js"]
 
 [build-dependencies]
