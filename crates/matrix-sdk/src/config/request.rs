@@ -37,14 +37,13 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 ///     .disable_retry()
 ///     .timeout(Duration::from_secs(30));
 /// ```
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct RequestConfig {
     pub(crate) timeout: Duration,
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
     pub(crate) assert_identity: bool,
-    pub(crate) homeserver: Option<String>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -55,7 +54,6 @@ impl Debug for RequestConfig {
         res.field("timeout", &self.timeout)
             .field("retry_limit", &self.retry_limit)
             .field("retry_timeout", &self.retry_timeout)
-            .field("homeserver", &self.homeserver)
             .finish()
     }
 }
@@ -68,7 +66,6 @@ impl Default for RequestConfig {
             retry_timeout: Default::default(),
             force_auth: false,
             assert_identity: false,
-            homeserver: None,
         }
     }
 }
@@ -124,13 +121,6 @@ impl RequestConfig {
         self.force_auth = true;
         self
     }
-
-    /// Configure to use a custom homeserver for this request
-    #[must_use]
-    pub fn homeserver(mut self, homeserver: String) -> Self {
-        self.homeserver = Some(homeserver);
-        self
-    }
 }
 
 #[cfg(test)]
@@ -143,13 +133,11 @@ mod tests {
     fn smoketest() {
         let cfg = RequestConfig::new()
             .force_auth()
-            .homeserver("example.org".to_owned())
             .retry_timeout(Duration::from_secs(32))
             .retry_limit(4)
             .timeout(Duration::from_secs(600));
 
         assert!(cfg.force_auth);
-        assert_eq!(cfg.homeserver, Some("example.org".to_owned()));
         assert_eq!(cfg.retry_limit, Some(4));
         assert_eq!(cfg.retry_timeout, Some(Duration::from_secs(32)));
         assert_eq!(cfg.timeout, Duration::from_secs(600));

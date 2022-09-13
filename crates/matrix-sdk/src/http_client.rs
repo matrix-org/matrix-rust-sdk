@@ -121,7 +121,7 @@ impl HttpClient {
     {
         let config = match config {
             Some(config) => config,
-            None => self.request_config.clone(),
+            None => self.request_config,
         };
 
         let auth_scheme = Request::METADATA.authentication;

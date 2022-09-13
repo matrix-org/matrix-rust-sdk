@@ -92,7 +92,7 @@ impl Media {
             content_type: Some(content_type.essence_str()),
         });
 
-        let request_config = self.client.request_config().clone().timeout(timeout);
+        let request_config = self.client.request_config().timeout(timeout);
         Ok(self.client.send(request, Some(request_config)).await?)
     }
 
