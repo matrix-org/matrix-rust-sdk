@@ -16,12 +16,12 @@ use ruma::{
             redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedEventContent,
+        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedStateEventContent,
         StateEventContent, SyncStateEvent,
     },
     EventId, OwnedUserId, RoomVersionId,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::MinimalStateEvent;
 
@@ -233,7 +233,7 @@ trait OptionExt {
 impl<C> OptionExt for Option<MinimalStateEvent<C>>
 where
     C: StateEventContent + RedactContent,
-    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+    C::Redacted: RedactedStateEventContent,
 {
     fn has_event_id(&self, ev_id: &EventId) -> bool {
         self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)

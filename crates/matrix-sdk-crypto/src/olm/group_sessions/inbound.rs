@@ -42,12 +42,12 @@ use super::{
 use crate::{
     error::{EventError, MegolmResult},
     types::{
-        deserialize_curve_key, deserialize_curve_key_vec,
+        deserialize_curve_key,
         events::{
             forwarded_room_key::ForwardedMegolmV1AesSha2Content,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
-        serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, SigningKeys,
+        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
 
@@ -72,7 +72,6 @@ pub struct InboundGroupSession {
     pub signing_keys: Arc<SigningKeys<DeviceKeyAlgorithm>>,
     /// The Room this GroupSession belongs to
     pub room_id: Arc<RoomId>,
-    forwarding_chains: Arc<Vec<Curve25519PublicKey>>,
     imported: bool,
     algorithm: Arc<EventEncryptionAlgorithm>,
     backed_up: Arc<AtomicBool>,
@@ -120,7 +119,6 @@ impl InboundGroupSession {
             sender_key,
             signing_keys: keys.into(),
             room_id: room_id.into(),
-            forwarding_chains: Vec::new().into(),
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
@@ -153,9 +151,9 @@ impl InboundGroupSession {
             room_id: room_id.to_owned(),
             sender_key: backup.sender_key,
             session_id,
+            forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
-            forwarding_curve25519_key_chain: backup.forwarding_curve25519_key_chain,
         })
     }
 
@@ -169,7 +167,6 @@ impl InboundGroupSession {
     /// * `content` - A forwarded room key content that contains the session key
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
-        sender_key: Curve25519PublicKey,
         algorithm: &EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
@@ -178,8 +175,6 @@ impl InboundGroupSession {
         let session = InnerSession::import(&content.session_key, config);
 
         let first_known_index = session.first_known_index();
-        let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
-        forwarding_chains.push(sender_key);
 
         let mut sender_claimed_key = SigningKeys::new();
         sender_claimed_key.insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
@@ -192,7 +187,6 @@ impl InboundGroupSession {
             history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
             room_id: (*content.room_id).into(),
-            forwarding_chains: forwarding_chains.into(),
             imported: true,
             backed_up: AtomicBool::new(false).into(),
             algorithm: algorithm.to_owned().into(),
@@ -213,7 +207,6 @@ impl InboundGroupSession {
             sender_key: self.sender_key,
             signing_key: (*self.signing_keys).clone(),
             room_id: (*self.room_id).to_owned(),
-            forwarding_chains: self.forwarding_key_chain().to_vec(),
             imported: self.imported,
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
@@ -255,15 +248,6 @@ impl InboundGroupSession {
         &self.signing_keys
     }
 
-    /// Get the list of ed25519 keys that this session was forwarded through.
-    ///
-    /// Each ed25519 key represents a single device. If device A forwards the
-    /// session to device B and device B to C this list will contain the ed25519
-    /// keys of A and B.
-    pub fn forwarding_key_chain(&self) -> &[Curve25519PublicKey] {
-        &self.forwarding_chains
-    }
-
     /// Export this session at the given message index.
     pub async fn export_at_index(&self, message_index: u32) -> ExportedRoomKey {
         let message_index = std::cmp::max(self.first_known_index(), message_index);
@@ -276,7 +260,7 @@ impl InboundGroupSession {
             room_id: (*self.room_id).to_owned(),
             sender_key: self.sender_key,
             session_id: self.session_id().to_owned(),
-            forwarding_curve25519_key_chain: self.forwarding_key_chain().to_vec(),
+            forwarding_curve25519_key_chain: vec![],
             sender_claimed_keys: (*self.signing_keys).clone(),
             session_key,
         }
@@ -306,7 +290,6 @@ impl InboundGroupSession {
             first_known_index,
             signing_keys: pickle.signing_key.into(),
             room_id: (*pickle.room_id).into(),
-            forwarding_chains: pickle.forwarding_chains.into(),
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
             imported: pickle.imported,
@@ -463,14 +446,6 @@ pub struct PickledInboundGroupSession {
     pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
-    /// The list of claimed Curve25519 keys that forwarded us this key. Will be
-    /// empty if we directly received this session.
-    #[serde(
-        default,
-        deserialize_with = "deserialize_curve_key_vec",
-        serialize_with = "serialize_curve_key_vec"
-    )]
-    pub forwarding_chains: Vec<Curve25519PublicKey>,
     /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
@@ -504,7 +479,6 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             first_known_index,
             signing_keys: key.sender_claimed_keys.to_owned().into(),
             room_id: key.room_id.to_owned().into(),
-            forwarding_chains: key.forwarding_curve25519_key_chain.to_owned().into(),
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
