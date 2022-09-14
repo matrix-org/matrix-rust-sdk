@@ -142,7 +142,7 @@ impl DeviceKey {
         use matrix_sdk_crypto::types::DeviceKey::*;
 
         match &self.inner {
-            Curve25519(key) => Some(key.clone().into()),
+            Curve25519(key) => Some((*key).into()),
             _ => None,
         }
     }
@@ -153,7 +153,7 @@ impl DeviceKey {
         use matrix_sdk_crypto::types::DeviceKey::*;
 
         match &self.inner {
-            Ed25519(key) => Some(key.clone().into()),
+            Ed25519(key) => Some((*key).into()),
             _ => None,
         }
     }
