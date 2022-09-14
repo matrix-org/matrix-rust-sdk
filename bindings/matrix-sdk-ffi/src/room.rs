@@ -7,7 +7,10 @@ use anyhow::{bail, Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::Room as MatrixRoom,
-    ruma::{events::room::message::RoomMessageEventContent, EventId, UserId},
+    ruma::{
+        events::room::message::{RoomMessageEvent, RoomMessageEventContent},
+        EventId, UserId,
+    },
 };
 
 use super::{
