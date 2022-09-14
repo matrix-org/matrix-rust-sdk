@@ -103,8 +103,11 @@ interface Room {
     void stop_live_event_listener();
 
     [Throws=ClientError]
-    void send(MessageEventContent msg, string? txn_id);
-    
+    void send(RoomMessageEventContent msg, string? txn_id);
+
+    [Throws=ClientError]
+    void send_reply(string msg, string in_reply_to_event_id, string? txn_id);
+
     [Throws=ClientError]
     void redact(string event_id, string? reason, string? txn_id);
 };
@@ -113,7 +116,7 @@ interface BackwardsStream {
     sequence<AnyMessage> paginate_backwards(u64 count);
 };
 
-interface MessageEventContent {};
+interface RoomMessageEventContent {};
 
 interface AnyMessage {
     TextMessage? text_message();
