@@ -2421,10 +2421,11 @@ impl Client {
     ///   docs for [`Client::sync_once`] for more info.
     ///
     /// * `callback` - A callback that will be called every time after a
-    ///   response has been fetched from the server, or the fetch has been failed.
-    ///   The callback must return a boolean which signalizes if the method should stop syncing.
-    ///   If the callback returns `LoopCtrl::Continue` the sync will continue, if the
-    ///   callback returns `LoopCtrl::Break` the sync will be stopped.
+    ///   response has been fetched from the server, or the fetch has been
+    ///   failed. The callback must return a boolean which signalizes if the
+    ///   method should stop syncing. If the callback returns
+    ///   `LoopCtrl::Continue` the sync will continue, if the callback returns
+    ///   `LoopCtrl::Break` the sync will be stopped.
     ///
     /// # Examples
     ///
