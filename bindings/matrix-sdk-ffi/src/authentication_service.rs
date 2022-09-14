@@ -96,6 +96,8 @@ impl AuthenticationService {
         &self,
         username: String,
         password: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
     ) -> Result<Arc<Client>, AuthenticationError> {
         let client = match &*self.client.read().unwrap() {
             Some(client) => client.clone(),
@@ -104,7 +106,9 @@ impl AuthenticationService {
 
         // Login and ask the server for the full user ID as this could be different from
         // the username that was entered.
-        client.login(username, password).map_err(AuthenticationError::from)?;
+        client
+            .login(username, password, initial_device_name, device_id)
+            .map_err(AuthenticationError::from)?;
         let whoami = client.whoami()?;
 
         // Create a new client to setup the store path now the user ID is known.
