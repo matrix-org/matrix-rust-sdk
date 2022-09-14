@@ -154,7 +154,7 @@ impl Client {
             let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
 
             client
-                .sync_with_callback(sync_settings, |result| async {
+                .sync_with_result_callback(sync_settings, |result| async {
                     if let Ok(sync_response) = result {
                         if !state.read().unwrap().has_first_synced {
                             state.write().unwrap().has_first_synced = true;

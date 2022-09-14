@@ -2381,11 +2381,9 @@ impl Client {
     /// client
     ///     .sync_with_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
-    ///         if let Ok(sync_response) = response {
-    ///             for (room_id, room) in sync_response.rooms.join {
-    ///                 for event in room.timeline.events {
-    ///                     channel.send(event).await.unwrap();
-    ///                 }
+    ///         for (room_id, room) in response.rooms.join {
+    ///             for event in room.timeline.events {
+    ///                 channel.send(event).await.unwrap();
     ///             }
     ///         }
     ///
@@ -2396,6 +2394,79 @@ impl Client {
     /// ```
     #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
+        &self,
+        sync_settings: crate::config::SyncSettings<'_>,
+        callback: impl Fn(SyncResponse) -> C,
+    ) where
+        C: Future<Output = LoopCtrl>,
+    {
+        self.sync_with_result_callback(sync_settings, |result| async {
+            match result {
+                Ok(sync_response) => callback(sync_response).await,
+                _ => LoopCtrl::Continue,
+            }
+        })
+        .await;
+    }
+
+    /// Repeatedly call sync to synchronize the client state with the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call. *Note* that those
+    ///   settings will be only used for the first sync call. See the argument
+    ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// * `callback` - A callback that will be called every time after a
+    ///   response has been fetched from the server, or the fetch has been failed.
+    ///   The callback must return a boolean which signalizes if the method should stop syncing.
+    ///   If the callback returns `LoopCtrl::Continue` the sync will continue, if the
+    ///   callback returns `LoopCtrl::Break` the sync will be stopped.
+    ///
+    /// # Examples
+    ///
+    /// The following example demonstrates how to sync forever while sending all
+    /// the interesting events through a mpsc channel to another thread e.g. a
+    /// UI thread.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).await.unwrap();
+    ///
+    /// use tokio::sync::mpsc::channel;
+    ///
+    /// let (tx, rx) = channel(100);
+    ///
+    /// let sync_channel = &tx;
+    /// let sync_settings = SyncSettings::new()
+    ///     .timeout(Duration::from_secs(30));
+    ///
+    /// client
+    ///     .sync_with_result_callback(sync_settings, |response| async move {
+    ///         let channel = sync_channel;
+    ///         if let Ok(sync_response) = response {
+    ///             for (room_id, room) in sync_response.rooms.join {
+    ///                 for event in room.timeline.events {
+    ///                     channel.send(event).await.unwrap();
+    ///                 }
+    ///             }
+    ///
+    ///             LoopCtrl::Continue
+    ///         } else {
+    ///             // check whether the error is unrecoverable and choose loop control accordingly
+    ///             LoopCtrl::Break
+    ///         }
+    ///     })
+    ///     .await;
+    /// })
+    /// ```
+    #[instrument(skip(self, callback))]
+    pub async fn sync_with_result_callback<C>(
         &self,
         mut sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
@@ -2409,8 +2480,6 @@ impl Client {
         }
 
         loop {
-            // TODO we should abort the sync loop if the error is a storage error or
-            // the access token got invalid.
             let result = self.sync_loop_helper(&mut sync_settings).await;
 
             if callback(result).await == LoopCtrl::Break {
