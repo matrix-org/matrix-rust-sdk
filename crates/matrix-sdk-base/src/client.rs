@@ -564,7 +564,7 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
-    /// User has left a room
+    /// User has left a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
@@ -576,11 +576,30 @@ impl BaseClient {
         // needs to be updated first
         room.set_room_type(RoomType::Left);
         let room_info = room.clone_info();
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::default();
         changes.add_room(room_info);
         self.store.save_changes(&changes).await?;
 
         Ok(self.store.get_or_create_room(room_id, RoomType::Left).await)
+    }
+
+    /// User has joined a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
+        if room.room_type() == RoomType::Joined {
+            return Ok(room);
+        }
+
+        // needs to be updated first
+        room.set_room_type(RoomType::Joined);
+        let room_info = room.clone_info();
+        let mut changes = StateChanges::default();
+        changes.add_room(room_info);
+        self.store.save_changes(&changes).await?;
+
+        Ok(self.store.get_or_create_room(room_id, RoomType::Joined).await)
     }
 
     /// Receive a response from a sync call.

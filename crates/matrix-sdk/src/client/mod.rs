@@ -1577,8 +1577,7 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
         let response = self.send(request, None).await?;
-        let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 
@@ -1600,8 +1599,7 @@ impl Client {
             server_name: server_names,
         });
         let response = self.send(request, None).await?;
-        let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 
