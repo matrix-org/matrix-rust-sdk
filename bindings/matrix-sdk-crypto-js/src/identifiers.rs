@@ -3,6 +3,8 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::impl_from_to_inner;
+
 /// A Matrix [user ID].
 ///
 /// [user ID]: https://spec.matrix.org/v1.2/appendices/#user-identifiers
@@ -12,11 +14,7 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
-impl From<ruma::OwnedUserId> for UserId {
-    fn from(inner: ruma::OwnedUserId) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(ruma::OwnedUserId => UserId);
 
 #[wasm_bindgen]
 impl UserId {
@@ -66,11 +64,7 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
-impl From<ruma::OwnedDeviceId> for DeviceId {
-    fn from(inner: ruma::OwnedDeviceId) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(ruma::OwnedDeviceId => DeviceId);
 
 #[wasm_bindgen]
 impl DeviceId {
@@ -97,11 +91,7 @@ pub struct DeviceKeyId {
     pub(crate) inner: ruma::OwnedDeviceKeyId,
 }
 
-impl From<ruma::OwnedDeviceKeyId> for DeviceKeyId {
-    fn from(inner: ruma::OwnedDeviceKeyId) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(ruma::OwnedDeviceKeyId => DeviceKeyId);
 
 #[wasm_bindgen]
 impl DeviceKeyId {
@@ -138,11 +128,7 @@ pub struct DeviceKeyAlgorithm {
     pub(crate) inner: ruma::DeviceKeyAlgorithm,
 }
 
-impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithm {
-    fn from(inner: ruma::DeviceKeyAlgorithm) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(ruma::DeviceKeyAlgorithm => DeviceKeyAlgorithm);
 
 #[wasm_bindgen]
 impl DeviceKeyAlgorithm {
@@ -221,11 +207,7 @@ pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
 }
 
-impl From<ruma::OwnedRoomId> for RoomId {
-    fn from(inner: ruma::OwnedRoomId) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(ruma::OwnedRoomId => RoomId);
 
 #[wasm_bindgen]
 impl RoomId {

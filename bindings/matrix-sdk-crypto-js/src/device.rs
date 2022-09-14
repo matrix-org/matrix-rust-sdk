@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
-    types, verification, vodozemac,
+    impl_from_to_inner, types, verification, vodozemac,
 };
 
 /// A device represents a E2EE capable client of an user.
@@ -16,11 +16,7 @@ pub struct Device {
     pub(crate) inner: matrix_sdk_crypto::Device,
 }
 
-impl From<matrix_sdk_crypto::Device> for Device {
-    fn from(inner: matrix_sdk_crypto::Device) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::Device => Device);
 
 #[wasm_bindgen]
 impl Device {
@@ -228,11 +224,7 @@ pub struct UserDevices {
     pub(crate) inner: matrix_sdk_crypto::UserDevices,
 }
 
-impl From<matrix_sdk_crypto::UserDevices> for UserDevices {
-    fn from(inner: matrix_sdk_crypto::UserDevices) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::UserDevices => UserDevices);
 
 #[wasm_bindgen]
 impl UserDevices {

@@ -2,6 +2,8 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::impl_from_to_inner;
+
 /// Struct representing the state of our private cross signing keys,
 /// it shows which private cross signing keys we have locally stored.
 #[wasm_bindgen]
@@ -10,11 +12,7 @@ pub struct CrossSigningStatus {
     inner: matrix_sdk_crypto::olm::CrossSigningStatus,
 }
 
-impl From<matrix_sdk_crypto::olm::CrossSigningStatus> for CrossSigningStatus {
-    fn from(inner: matrix_sdk_crypto::olm::CrossSigningStatus) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::olm::CrossSigningStatus => CrossSigningStatus);
 
 #[wasm_bindgen]
 impl CrossSigningStatus {

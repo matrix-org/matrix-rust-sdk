@@ -2,6 +2,8 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::impl_from_to_inner;
+
 /// An Ed25519 public key, used to verify digital signatures.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -25,11 +27,7 @@ impl Ed25519PublicKey {
     }
 }
 
-impl From<vodozemac::Ed25519PublicKey> for Ed25519PublicKey {
-    fn from(inner: vodozemac::Ed25519PublicKey) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(vodozemac::Ed25519PublicKey => Ed25519PublicKey);
 
 /// An Ed25519 digital signature, can be used to verify the
 /// authenticity of a message.
@@ -39,11 +37,7 @@ pub struct Ed25519Signature {
     pub(crate) inner: vodozemac::Ed25519Signature,
 }
 
-impl From<vodozemac::Ed25519Signature> for Ed25519Signature {
-    fn from(inner: vodozemac::Ed25519Signature) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(vodozemac::Ed25519Signature => Ed25519Signature);
 
 #[wasm_bindgen]
 impl Ed25519Signature {
@@ -85,11 +79,7 @@ impl Curve25519PublicKey {
     }
 }
 
-impl From<vodozemac::Curve25519PublicKey> for Curve25519PublicKey {
-    fn from(inner: vodozemac::Curve25519PublicKey) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(vodozemac::Curve25519PublicKey => Curve25519PublicKey);
 
 /// Struct holding the two public identity keys of an account.
 #[wasm_bindgen(getter_with_clone)]
@@ -122,11 +112,7 @@ pub struct DeviceKey {
     inner: matrix_sdk_crypto::types::DeviceKey,
 }
 
-impl From<matrix_sdk_crypto::types::DeviceKey> for DeviceKey {
-    fn from(inner: matrix_sdk_crypto::types::DeviceKey) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::types::DeviceKey => DeviceKey);
 
 #[wasm_bindgen]
 impl DeviceKey {

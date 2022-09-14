@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     identifiers::{DeviceKeyId, UserId},
+    impl_from_to_inner,
     vodozemac::Ed25519Signature,
 };
 
@@ -15,11 +16,7 @@ pub struct Signatures {
     inner: matrix_sdk_crypto::types::Signatures,
 }
 
-impl From<matrix_sdk_crypto::types::Signatures> for Signatures {
-    fn from(inner: matrix_sdk_crypto::types::Signatures) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::types::Signatures => Signatures);
 
 #[wasm_bindgen]
 impl Signatures {
@@ -97,11 +94,7 @@ pub struct Signature {
     inner: matrix_sdk_crypto::types::Signature,
 }
 
-impl From<matrix_sdk_crypto::types::Signature> for Signature {
-    fn from(inner: matrix_sdk_crypto::types::Signature) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::types::Signature => Signature);
 
 #[wasm_bindgen]
 impl Signature {
@@ -129,11 +122,7 @@ pub struct MaybeSignature {
     inner: MaybeSignatureInner,
 }
 
-impl From<MaybeSignatureInner> for MaybeSignature {
-    fn from(inner: MaybeSignatureInner) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(MaybeSignatureInner => MaybeSignature);
 
 #[wasm_bindgen]
 impl MaybeSignature {

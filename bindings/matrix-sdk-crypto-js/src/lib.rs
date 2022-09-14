@@ -25,6 +25,7 @@ mod future;
 pub mod identifiers;
 pub mod machine;
 pub mod olm;
+mod macros;
 pub mod requests;
 pub mod responses;
 pub mod store;
