@@ -80,14 +80,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
             let client = &client_ref;
             let initial = &initial_ref;
 
-            if response.is_err() {
-                return LoopCtrl::Break;
-            }
-
-            let sync_response = response.ok().unwrap();
-
-            for event in sync_response.to_device.events.iter().filter_map(|e| e.deserialize().ok())
-            {
+            for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
                 match event {
                     AnyToDeviceEvent::KeyVerificationRequest(e) => {
                         let request = client
@@ -142,7 +135,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
             }
 
             if !initial.load(Ordering::SeqCst) {
-                for (_room_id, room_info) in sync_response.rooms.join {
+                for (_room_id, room_info) in response.rooms.join {
                     for event in
                         room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                     {
