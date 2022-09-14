@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::Room as MatrixRoom,
@@ -163,10 +163,9 @@ impl Room {
         };
 
         RUNTIME.block_on(async move {
-            room.send((*msg).to_owned(), txn_id.as_deref().map(Into::into)).await
-        })?;
-
-        Ok(())
+            room.send((*msg).to_owned(), txn_id.as_deref().map(Into::into)).await?;
+            Ok(())
+        })
     }
 
     pub fn send_reply(
@@ -180,26 +179,26 @@ impl Room {
             _ => bail!("Can't send to a room that isn't in joined state"),
         };
 
-        let event_id =
-            <&EventId>::try_from(in_reply_to_event_id.as_str()).expect("Failed to create EventId.");
+        let event_id: &EventId =
+            in_reply_to_event_id.as_str().try_into().context("Failed to create EventId.")?;
 
         RUNTIME.block_on(async move {
-            let timeline_event = room.event(event_id).await.expect("Couldn't find event.");
+            let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
 
             let event_content = timeline_event
                 .event
                 .deserialize_as::<RoomMessageEvent>()
-                .expect("Couldn't deserialise event");
+                .context("Couldn't deserialise event")?;
 
             let original_message =
-                event_content.as_original().expect("Couldn't retrieve original message.");
+                event_content.as_original().context("Couldn't retrieve original message.")?;
 
             let reply_content = RoomMessageEventContent::text_reply_plain(msg, original_message);
 
-            room.send(reply_content, txn_id.as_deref().map(Into::into)).await
-        })?;
+            room.send(reply_content, txn_id.as_deref().map(Into::into)).await?;
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 
