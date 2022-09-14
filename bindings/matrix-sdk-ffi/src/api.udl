@@ -107,6 +107,9 @@ interface Room {
 
     [Throws=ClientError]
     void send_reply(string msg, string in_reply_to_event_id, string? txn_id);
+
+    [Throws=ClientError]
+    void redact(string event_id, string? reason, string? txn_id);
 };
 
 interface BackwardsStream {

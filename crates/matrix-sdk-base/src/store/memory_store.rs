@@ -126,7 +126,9 @@ impl MemoryStore {
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
-            media: Arc::new(Mutex::new(LruCache::new(100))),
+            media: Arc::new(Mutex::new(LruCache::new(
+                100.try_into().expect("100 is a non-zero usize"),
+            ))),
             custom: DashMap::new().into(),
             #[cfg(feature = "experimental-timeline")]
             room_timeline: Default::default(),

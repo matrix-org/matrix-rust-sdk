@@ -60,12 +60,10 @@ version = "0.7.0"
 features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac/"
-rev = "ad1f098aff2a0b69aa5822c4e0679089a9fa4a86"
+version = "0.3.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac/"
-rev = "ad1f098aff2a0b69aa5822c4e0679089a9fa4a86"
+version = "0.3.0"
 features = ["js"]
 
 [dev-dependencies]
