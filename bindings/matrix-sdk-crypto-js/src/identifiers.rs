@@ -279,3 +279,42 @@ impl ServerName {
         self.inner.is_ip_literal()
     }
 }
+
+/// A Matrix [event ID].
+///
+/// An `EventId` is generated randomly or converted from a string
+/// slice, and can be converted back into a string as needed.
+///
+/// [event ID]: https://spec.matrix.org/v1.2/appendices/#room-ids-and-event-ids
+#[wasm_bindgen]
+pub struct EventId {
+    inner: ruma::OwnedEventId,
+}
+
+#[wasm_bindgen]
+impl EventId {
+    /// Parse/validate and create a new `EventId`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: &str) -> Result<EventId, JsError> {
+        Ok(Self { inner: <&ruma::EventId>::try_from(id)?.to_owned() })
+    }
+
+    /// Returns the event's localpart.
+    #[wasm_bindgen(getter)]
+    pub fn localpart(&self) -> String {
+        self.inner.localpart().to_owned()
+    }
+
+    /// Returns the server name of the event ID.
+    #[wasm_bindgen(getter, js_name = "serverName")]
+    pub fn server_name(&self) -> Option<ServerName> {
+        Some(ServerName { inner: self.inner.server_name()?.to_owned() })
+    }
+
+    /// Return the event ID as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.inner.as_str().to_owned()
+    }
+}
