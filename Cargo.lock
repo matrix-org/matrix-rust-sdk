@@ -3460,9 +3460,9 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43e1cf5ca37fd8088ac2070ee334915fcef6e158251edd2fff5e21cddf7bc93d"
+checksum = "3daa593bddbe225bc78760329afaba54d0c653e015f18ce6405fa723ec0f34d5"
 dependencies = [
  "assign",
  "js_int",
@@ -3503,9 +3503,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd9939e85b436ac77d90aa90c2b70753fd558c8bc7898509b8d4f7428ee11e73"
+checksum = "67dab5e934f2e280875cf3a863c14d876265bda169e4fd18334058e7307142d6"
 dependencies = [
  "base64",
  "bytes",
@@ -3556,9 +3556,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-macros"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "010a348310768bfb8f9e27c1f29684fba5a3f046909c697d22b938642c24e967"
+checksum = "3b3e5a61180840ebfdeb4bcc4dc4a0d0c21aa22f587360b16b785c79058d99f3"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
