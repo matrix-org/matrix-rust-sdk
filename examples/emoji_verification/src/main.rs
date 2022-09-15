@@ -121,66 +121,63 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
         }
     });
 
-    let mut initial_event_handler_handles = vec![
-        client.add_event_handler(|ev: OriginalSyncRoomMessageEvent, client: Client| async move {
-            if let MessageType::VerificationRequest(_) = &ev.content.msgtype {
-                let request = client
-                    .encryption()
-                    .get_verification_request(&ev.sender, &ev.event_id)
-                    .await
-                    .expect("Request object wasn't created");
+    client.add_event_handler(|ev: OriginalSyncRoomMessageEvent, client: Client| async move {
+        if let MessageType::VerificationRequest(_) = &ev.content.msgtype {
+            let request = client
+                .encryption()
+                .get_verification_request(&ev.sender, &ev.event_id)
+                .await
+                .expect("Request object wasn't created");
 
-                request.accept().await.expect("Can't accept verification request");
+            request.accept().await.expect("Can't accept verification request");
+        }
+    });
+
+    client.add_event_handler(
+        |ev: OriginalSyncKeyVerificationStartEvent, client: Client| async move {
+            if let Some(Verification::SasV1(sas)) = client
+                .encryption()
+                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
+                .await
+            {
+                println!(
+                    "Starting verification with {} {}",
+                    &sas.other_device().user_id(),
+                    &sas.other_device().device_id()
+                );
+                print_devices(&ev.sender, &client).await;
+                sas.accept().await.unwrap();
             }
-        }),
-        client.add_event_handler(
-            |ev: OriginalSyncKeyVerificationStartEvent, client: Client| async move {
-                if let Some(Verification::SasV1(sas)) = client
-                    .encryption()
-                    .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                    .await
-                {
-                    println!(
-                        "Starting verification with {} {}",
-                        &sas.other_device().user_id(),
-                        &sas.other_device().device_id()
-                    );
-                    print_devices(&ev.sender, &client).await;
-                    sas.accept().await.unwrap();
-                }
-            },
-        ),
-        client.add_event_handler(
-            |ev: OriginalSyncKeyVerificationKeyEvent, client: Client| async move {
-                if let Some(Verification::SasV1(sas)) = client
-                    .encryption()
-                    .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                    .await
-                {
-                    tokio::spawn(wait_for_confirmation(client.clone(), sas));
-                }
-            },
-        ),
-        client.add_event_handler(
-            |ev: OriginalSyncKeyVerificationDoneEvent, client: Client| async move {
-                if let Some(Verification::SasV1(sas)) = client
-                    .encryption()
-                    .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                    .await
-                {
-                    if sas.is_done() {
-                        print_result(&sas);
-                        print_devices(&ev.sender, &client).await;
-                    }
-                }
-            },
-        ),
-    ];
+        },
+    );
 
-    client.sync_once(SyncSettings::new()).await?;
-    for handle in initial_event_handler_handles.drain(..) {
-        client.remove_event_handler(handle);
-    }
+    client.add_event_handler(
+        |ev: OriginalSyncKeyVerificationKeyEvent, client: Client| async move {
+            if let Some(Verification::SasV1(sas)) = client
+                .encryption()
+                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
+                .await
+            {
+                tokio::spawn(wait_for_confirmation(client.clone(), sas));
+            }
+        },
+    );
+
+    client.add_event_handler(
+        |ev: OriginalSyncKeyVerificationDoneEvent, client: Client| async move {
+            if let Some(Verification::SasV1(sas)) = client
+                .encryption()
+                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
+                .await
+            {
+                if sas.is_done() {
+                    print_result(&sas);
+                    print_devices(&ev.sender, &client).await;
+                }
+            }
+        },
+    );
+
     client.sync(SyncSettings::new()).await;
 
     Ok(())
