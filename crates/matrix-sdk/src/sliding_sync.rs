@@ -557,13 +557,13 @@ impl SlidingSyncViewBuilder {
 
     // defaults
     fn default_sort() -> Vec<String> {
-        vec!["by_recency".to_string(), "by_name".to_string()]
+        vec!["by_recency".to_owned(), "by_name".to_owned()]
     }
 
     fn default_required_state() -> Vec<(RoomEventType, String)> {
         vec![
-            (RoomEventType::RoomEncryption, "".to_string()),
-            (RoomEventType::RoomTombstone, "".to_string()),
+            (RoomEventType::RoomEncryption, "".to_owned()),
+            (RoomEventType::RoomTombstone, "".to_owned()),
         ]
     }
 
