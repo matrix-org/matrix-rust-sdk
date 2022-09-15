@@ -25,4 +25,4 @@ tui-logger = "0.8.0"
 
 # file-logging specials
 tracing = { version = "0.1.35", features = ["log"] }
-log4rs = { version = " 1.1.1", features = ["file_appender"], optional = true }
+log4rs = { version = " 1.1.1", default-features = false, features = ["file_appender"], optional = true }
