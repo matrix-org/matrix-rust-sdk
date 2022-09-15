@@ -574,6 +574,9 @@ impl BaseClient {
         }
 
         // needs to be updated first
+        // FIXME: this might be racy. If we receive an update at the same time between
+        //        us checking and submitting the save_changes, we might be overwriting
+        //        some received state. See #1041
         room.set_room_type(RoomType::Left);
         let room_info = room.clone_info();
         let mut changes = StateChanges::default();
@@ -593,6 +596,9 @@ impl BaseClient {
         }
 
         // needs to be updated first
+        // FIXME: this might be racy. If we receive an update at the same time between
+        //        us checking and submitting the save_changes, we might be overwriting
+        //        some received state. See #1041
         room.set_room_type(RoomType::Joined);
         let room_info = room.clone_info();
         let mut changes = StateChanges::default();
