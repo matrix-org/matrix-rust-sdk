@@ -2448,12 +2448,13 @@ impl Client {
         C: Future<Output = LoopCtrl>,
     {
         self.sync_with_result_callback(sync_settings, |result| async {
-            if let Ok(sync_response) = result {
-                callback(sync_response).await
-            } else {
-                warn!("Error from sync with result: {}", result.err().unwrap());
-                // do not make a decision about control loop by default
-                LoopCtrl::Continue
+            match result {
+                Ok(sync_response) => callback(sync_response).await,
+                Err(e) => {
+                    warn!("Error from sync with result: {e}");
+                    // continue the loop in case of error
+                    LoopCtrl::Continue
+                }
             }
         })
         .await;
