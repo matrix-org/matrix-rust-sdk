@@ -161,7 +161,7 @@ impl Room {
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
-        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
+        self.inner.read().unwrap().members_synced
     }
 
     /// Check if the room states have been synced
@@ -170,9 +170,9 @@ impl Room {
     /// so far, for example as the response for a `create_room` request without
     /// being synced yet.
     ///
-    /// Returns true if the state is synced, false otherwise.
-    pub fn is_state_synced(&self) -> bool {
-        self.inner.read().unwrap().sync_info != SyncInfo::NoState
+    /// Returns true if the state is fully synced, false otherwise.
+    pub fn is_state_fully_synced(&self) -> bool {
+        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
@@ -655,11 +655,13 @@ pub struct RoomInfo {
     pub(crate) notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
     pub(crate) summary: RoomSummary,
+    /// Flag remembering if the room members are synced.
+    pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
     /// How much we know about this room.
-    #[serde(default = "SyncInfo::incomplete")]
-    pub(crate) sync_info: SyncInfo, // FIXME: Serialization change!
+    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
+    pub(crate) sync_info: SyncInfo,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
@@ -674,16 +676,21 @@ pub(crate) enum SyncInfo {
     /// because of a request we've done, like a room creation event.
     NoState,
 
-    /// We know the basic room state, but don't have the full member list.
-    IncompleteMembers,
+    /// Some states have been synced, but they might have been filtered or is
+    /// stale, as it is from a room we've left.
+    PartiallySynced,
 
-    /// We have all the latest state events, including the full member list.
+    /// We have all the latest state events
     FullySynced,
 }
 
 impl SyncInfo {
-    fn incomplete() -> Self {
-        SyncInfo::IncompleteMembers
+    // The sync_info field introduced a new field in the database schema, but to
+    // avoid a database migration, we let serde assume that if the room is in
+    // the database, yet the field isn't, we have synced it before this field
+    // was introduce - which was a a full sync.
+    fn complete() -> Self {
+        SyncInfo::FullySynced
     }
 }
 
@@ -696,6 +703,7 @@ impl RoomInfo {
             notification_counts: Default::default(),
             summary: Default::default(),
             sync_info: SyncInfo::NoState,
+            members_synced: false,
             last_prev_batch: None,
             base_info: BaseRoomInfo::new(),
         }
@@ -718,12 +726,27 @@ impl RoomInfo {
 
     /// Mark this Room as having all the members synced
     pub fn mark_members_synced(&mut self) {
-        self.sync_info = SyncInfo::FullySynced;
+        self.members_synced = true;
     }
 
     /// Mark this Room still missing member information
     pub fn mark_members_missing(&mut self) {
-        self.sync_info = SyncInfo::IncompleteMembers;
+        self.members_synced = false;
+    }
+
+    /// Mark this Room still missing some state information
+    pub fn mark_state_partially_synced(&mut self) {
+        self.sync_info = SyncInfo::PartiallySynced;
+    }
+
+    /// Mark this Room still having all state synced
+    pub fn mark_state_fully_synced(&mut self) {
+        self.sync_info = SyncInfo::FullySynced;
+    }
+
+    /// Mark this Room still having no state synced
+    pub fn mark_state_not_synced(&mut self) {
+        self.sync_info = SyncInfo::NoState;
     }
 
     /// Set the `prev_batch`-token.
