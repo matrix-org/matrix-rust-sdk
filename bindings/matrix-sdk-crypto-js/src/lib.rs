@@ -18,6 +18,7 @@
 #![allow(clippy::drop_non_drop)] // triggered by wasm_bindgen code
 
 pub mod attachment;
+pub mod device;
 pub mod encryption;
 pub mod events;
 mod future;
@@ -26,9 +27,11 @@ pub mod machine;
 pub mod olm;
 pub mod requests;
 pub mod responses;
+pub mod store;
 pub mod sync_events;
 mod tracing;
 pub mod types;
+pub mod verification;
 pub mod vodozemac;
 
 use js_sys::{Object, Reflect};

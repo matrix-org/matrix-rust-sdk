@@ -135,7 +135,7 @@ impl DeviceKeyId {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct DeviceKeyAlgorithm {
-    inner: ruma::DeviceKeyAlgorithm,
+    pub(crate) inner: ruma::DeviceKeyAlgorithm,
 }
 
 impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithm {
@@ -178,6 +178,25 @@ pub enum DeviceKeyAlgorithmName {
 
     /// An unknown device key algorithm.
     Unknown,
+}
+
+impl TryFrom<DeviceKeyAlgorithmName> for ruma::DeviceKeyAlgorithm {
+    type Error = JsError;
+
+    fn try_from(value: DeviceKeyAlgorithmName) -> Result<Self, Self::Error> {
+        use DeviceKeyAlgorithmName::*;
+
+        Ok(match value {
+            Ed25519 => Self::Ed25519,
+            Curve25519 => Self::Curve25519,
+            SignedCurve25519 => Self::SignedCurve25519,
+            Unknown => {
+                return Err(JsError::new(
+                    "The `DeviceKeyAlgorithmName.Unknown` variant cannot be converted",
+                ))
+            }
+        })
+    }
 }
 
 impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithmName {
