@@ -127,7 +127,6 @@ async fn main() -> Result<()> {
                 config::{Appender, Config, Logger, Root},
                 encode::pattern::PatternEncoder,
             };
-            use tracing::level_filters::LevelFilter;
 
             let file = FileAppender::builder()
                 .encoder(Box::new(PatternEncoder::default()))
@@ -156,8 +155,7 @@ async fn main() -> Result<()> {
                 .build(Root::builder().build(LevelFilter::Error))
                 .unwrap();
 
-            let handle =
-                log4rs::init_config(config).expect("Logging with log4rs failed to initialize");
+            log4rs::init_config(config).expect("Logging with log4rs failed to initialize");
         }
         #[cfg(not(feature = "file-logging"))]
         {
