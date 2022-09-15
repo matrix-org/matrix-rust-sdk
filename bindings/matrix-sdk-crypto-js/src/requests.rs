@@ -276,7 +276,7 @@ pub struct SigningKeysUploadRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```json
-    /// {"master_key", …, "self_signing_key": …, "user_signing_key": …}
+    /// {"master_key": …, "self_signing_key": …, "user_signing_key": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,

@@ -191,7 +191,7 @@ pub enum LocalTrust {
     /// The trust state of the device is being ignored.
     Ignored,
 
-    /// The trust stte is unset.
+    /// The trust state is unset.
     Unset,
 }
 
