@@ -8,12 +8,12 @@ use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    downcast, encryption,
+    device, downcast, encryption,
     future::future_to_promise,
     identifiers, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events, types, vodozemac,
+    store, sync_events, types, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -353,6 +353,66 @@ impl OlmMachine {
         })
     }
 
+    /// Export all the private cross signing keys we have.
+    ///
+    /// The export will contain the seed for the ed25519 keys as a
+    /// unpadded base64 encoded string.
+    ///
+    /// This method returns None if we don’t have any private cross
+    /// signing keys.
+    #[wasm_bindgen(js_name = "exportCrossSigningKeys")]
+    pub fn export_cross_signing_keys(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(me.export_cross_signing_keys().await.map(store::CrossSigningKeyExport::from))
+        })
+    }
+
+    /// Import our private cross signing keys.
+    ///
+    /// The export needs to contain the seed for the ed25519 keys as
+    /// an unpadded base64 encoded string.
+    #[wasm_bindgen(js_name = "importCrossSigningKeys")]
+    pub fn import_cross_signing_keys(&self, export: store::CrossSigningKeyExport) -> Promise {
+        let me = self.inner.clone();
+        let export = export.inner;
+
+        future_to_promise(async move {
+            Ok(me.import_cross_signing_keys(export).await.map(olm::CrossSigningStatus::from)?)
+        })
+    }
+
+    /// Create a new cross signing identity and get the upload request
+    /// to push the new public keys to the server.
+    ///
+    /// Warning: This will delete any existing cross signing keys that
+    /// might exist on the server and thus will reset the trust
+    /// between all the devices.
+    ///
+    /// Uploading these keys will require user interactive auth.
+    #[wasm_bindgen(js_name = "bootstrapCrossSigning")]
+    pub fn bootstrap_cross_signing(&self, reset: bool) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let (upload_signing_keys_request, upload_signatures_request) =
+                me.bootstrap_cross_signing(reset).await?;
+
+            let tuple = Array::new();
+            tuple.set(
+                0,
+                requests::SigningKeysUploadRequest::try_from(&upload_signing_keys_request)?.into(),
+            );
+            tuple.set(
+                1,
+                requests::SignatureUploadRequest::try_from(&upload_signatures_request)?.into(),
+            );
+
+            Ok(tuple)
+        })
+    }
+
     /// Sign the given message using our device key and if available
     /// cross-signing master key.
     pub fn sign(&self, message: String) -> Promise {
@@ -451,6 +511,106 @@ impl OlmMachine {
 
                 None => Ok(JsValue::NULL),
             }
+        }))
+    }
+
+    /// Get a map holding all the devices of a user.
+    ///
+    /// `user_id` represents the unique ID of the user that the
+    /// devices belong to.
+    #[wasm_bindgen(js_name = "getUserDevices")]
+    pub fn get_user_devices(&self, user_id: &identifiers::UserId) -> Promise {
+        let user_id = user_id.inner.clone();
+
+        let me = self.inner.clone();
+
+        future_to_promise::<_, device::UserDevices>(async move {
+            Ok(me.get_user_devices(&user_id, None).await.map(Into::into)?)
+        })
+    }
+
+    /// Get a specific device of a user if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// `user_id` represents the unique ID of the user that the
+    /// identity belongs to. `device_id` represents the unique ID of
+    /// the device.
+    #[wasm_bindgen(js_name = "getDevice")]
+    pub fn get_device(
+        &self,
+        user_id: &identifiers::UserId,
+        device_id: &identifiers::DeviceId,
+    ) -> Promise {
+        let user_id = user_id.inner.clone();
+        let device_id = device_id.inner.clone();
+
+        let me = self.inner.clone();
+
+        future_to_promise::<_, Option<device::Device>>(async move {
+            Ok(me.get_device(&user_id, &device_id, None).await?.map(Into::into))
+        })
+    }
+
+    /// Get a verification object for the given user ID with the given
+    /// flow ID (a to-device request ID if the verification has been
+    /// requested by a to-device request, or a room event ID if the
+    /// verification has been requested by a room event).
+    ///
+    /// It returns a “`Verification` object”, which is either a `Sas`
+    /// or `Qr` object.
+    #[wasm_bindgen(js_name = "getVerification")]
+    pub fn get_verification(
+        &self,
+        user_id: &identifiers::UserId,
+        flow_id: &str,
+    ) -> Result<JsValue, JsError> {
+        self.inner
+            .get_verification(&user_id.inner, flow_id)
+            .map(verification::Verification)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(JsValue::from)
+    }
+
+    /// Get a verification request object with the given flow ID.
+    #[wasm_bindgen(js_name = "getVerificationRequest")]
+    pub fn get_verification_request(
+        &self,
+        user_id: &identifiers::UserId,
+        flow_id: &str,
+    ) -> Option<verification::VerificationRequest> {
+        self.inner.get_verification_request(&user_id.inner, flow_id).map(Into::into)
+    }
+
+    /// Get all the verification requests of a given user.
+    #[wasm_bindgen(js_name = "getVerificationRequests")]
+    pub fn get_verification_requests(&self, user_id: &identifiers::UserId) -> Array {
+        self.inner
+            .get_verification_requests(&user_id.inner)
+            .into_iter()
+            .map(verification::VerificationRequest::from)
+            .map(JsValue::from)
+            .collect()
+    }
+
+    /// Receive an unencrypted verification event.
+    ///
+    /// This method can be used to pass verification events that are
+    /// happening in unencrypted rooms to the `OlmMachine`.
+    ///
+    /// Note: This does not need to be called for encrypted events
+    /// since those will get passed to the `OlmMachine` during
+    /// decryption.
+    #[wasm_bindgen(js_name = "receiveUnencryptedVerificationEvent")]
+    pub fn receive_unencrypted_verification_event(&self, event: &str) -> Result<Promise, JsError> {
+        let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            Ok(me
+                .receive_unencrypted_verification_event(&event)
+                .await
+                .map(|_| JsValue::UNDEFINED)?)
         }))
     }
 }

@@ -38,6 +38,7 @@ pub struct ClientState {
     has_first_synced: bool,
     is_syncing: bool,
     should_stop_syncing: bool,
+    is_soft_logout: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -45,6 +46,8 @@ struct RestoreToken {
     is_guest: bool,
     homeurl: String,
     session: Session,
+    #[serde(default)]
+    is_soft_logout: bool,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -68,7 +71,5 @@ fn setup_tracing(configuration: String) {
 }
 
 mod uniffi_types {
-    pub use matrix_sdk::ruma::events::room::{
-        message::RoomMessageEventContent as MessageEventContent, MediaSource,
-    };
+    pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 }

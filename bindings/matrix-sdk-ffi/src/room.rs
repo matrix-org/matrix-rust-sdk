@@ -1,10 +1,16 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    convert::TryFrom,
+    sync::{Arc, RwLock},
+};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::Room as MatrixRoom,
-    ruma::{events::room::message::RoomMessageEventContent, UserId},
+    ruma::{
+        events::room::message::{RoomMessageEvent, RoomMessageEventContent},
+        EventId, UserId,
+    },
 };
 
 use super::{
@@ -157,10 +163,71 @@ impl Room {
         };
 
         RUNTIME.block_on(async move {
-            room.send((*msg).to_owned(), txn_id.as_deref().map(Into::into)).await
-        })?;
+            room.send((*msg).to_owned(), txn_id.as_deref().map(Into::into)).await?;
+            Ok(())
+        })
+    }
 
-        Ok(())
+    pub fn send_reply(
+        &self,
+        msg: String,
+        in_reply_to_event_id: String,
+        txn_id: Option<String>,
+    ) -> Result<()> {
+        let room = match &self.room {
+            MatrixRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send to a room that isn't in joined state"),
+        };
+
+        let event_id: &EventId =
+            in_reply_to_event_id.as_str().try_into().context("Failed to create EventId.")?;
+
+        RUNTIME.block_on(async move {
+            let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
+
+            let event_content = timeline_event
+                .event
+                .deserialize_as::<RoomMessageEvent>()
+                .context("Couldn't deserialise event")?;
+
+            let original_message =
+                event_content.as_original().context("Couldn't retrieve original message.")?;
+
+            let reply_content =
+                RoomMessageEventContent::text_markdown(msg).make_reply_to(original_message);
+
+            room.send(reply_content, txn_id.as_deref().map(Into::into)).await?;
+
+            Ok(())
+        })
+    }
+
+    /// Redacts an event from the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to redact
+    ///
+    /// * `reason` - The reason for the event being redacted (optional).
+    ///
+    /// * `txn_id` - A unique ID that can be attached to this event as
+    /// its transaction ID (optional). If not given one is created.
+    pub fn redact(
+        &self,
+        event_id: String,
+        reason: Option<String>,
+        txn_id: Option<String>,
+    ) -> Result<()> {
+        let room = match &self.room {
+            MatrixRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't redact in a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            let event_id = EventId::parse(event_id)?;
+            room.redact(&event_id, reason.as_deref(), txn_id.map(Into::into)).await?;
+            Ok(())
+        })
     }
 }
 

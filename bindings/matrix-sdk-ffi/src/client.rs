@@ -5,17 +5,21 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
     ruma::{
-        api::client::{
-            account::whoami,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-            session::get_login_types,
-            sync::sync_events::v3::Filter,
+        api::{
+            client::{
+                account::whoami,
+                error::ErrorKind,
+                filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+                session::get_login_types,
+                sync::sync_events::v3::Filter,
+            },
+            error::{FromHttpResponseError, ServerError},
         },
         events::room::MediaSource,
         serde::Raw,
         TransactionId,
     },
-    Client as MatrixClient, LoopCtrl, Session,
+    Client as MatrixClient, Error, HttpError, LoopCtrl, RumaApiError, Session,
 };
 
 use super::{
@@ -32,6 +36,8 @@ impl std::ops::Deref for Client {
 
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
+    fn did_receive_auth_error(&self, is_soft_logout: bool);
+    fn did_update_restore_token(&self);
 }
 
 #[derive(Clone)]
@@ -54,17 +60,33 @@ impl Client {
     }
 
     /// Login using a username and password.
-    pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
+    pub fn login(
+        &self,
+        username: String,
+        password: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
+    ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.login_username(&username, &password).send().await?;
+            let mut builder = self.client.login_username(&username, &password);
+            if let Some(initial_device_name) = initial_device_name.as_ref() {
+                builder = builder.initial_device_display_name(initial_device_name);
+            }
+            if let Some(device_id) = device_id.as_ref() {
+                builder = builder.device_id(device_id);
+            }
+            builder.send().await?;
             Ok(())
         })
     }
 
     /// Restores the client from a `RestoreToken`.
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
-        let RestoreToken { session, homeurl: _, is_guest: _ } =
+        let RestoreToken { session, homeurl: _, is_guest: _, is_soft_logout } =
             serde_json::from_str(&restore_token)?;
+
+        // update soft logout state
+        self.state.write().unwrap().is_soft_logout = is_soft_logout;
 
         self.restore_session(session)
     }
@@ -112,6 +134,7 @@ impl Client {
         let state = self.state.clone();
         let delegate = self.delegate.clone();
         let session_verification_controller = self.session_verification_controller.clone();
+        let local_self = self.clone();
         RUNTIME.spawn(async move {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
@@ -131,31 +154,35 @@ impl Client {
             let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
 
             client
-                .sync_with_callback(sync_settings, |sync_response| async {
-                    if !state.read().unwrap().has_first_synced {
-                        state.write().unwrap().has_first_synced = true;
-                    }
+                .sync_with_result_callback(sync_settings, |result| async {
+                    if let Ok(sync_response) = result {
+                        if !state.read().unwrap().has_first_synced {
+                            state.write().unwrap().has_first_synced = true;
+                        }
 
-                    if state.read().unwrap().should_stop_syncing {
-                        state.write().unwrap().is_syncing = false;
-                        return LoopCtrl::Break;
-                    } else if !state.read().unwrap().is_syncing {
-                        state.write().unwrap().is_syncing = true;
-                    }
+                        if state.read().unwrap().should_stop_syncing {
+                            state.write().unwrap().is_syncing = false;
+                            return LoopCtrl::Break;
+                        } else if !state.read().unwrap().is_syncing {
+                            state.write().unwrap().is_syncing = true;
+                        }
 
-                    if let Some(delegate) = &*delegate.read().unwrap() {
-                        delegate.did_receive_sync_update()
-                    }
+                        if let Some(delegate) = &*delegate.read().unwrap() {
+                            delegate.did_receive_sync_update()
+                        }
 
-                    if let Some(session_verification_controller) =
-                        &*session_verification_controller.read().await
-                    {
-                        session_verification_controller
-                            .process_to_device_messages(sync_response.to_device)
-                            .await;
-                    }
+                        if let Some(session_verification_controller) =
+                            &*session_verification_controller.read().await
+                        {
+                            session_verification_controller
+                                .process_to_device_messages(sync_response.to_device)
+                                .await;
+                        }
 
-                    LoopCtrl::Continue
+                        LoopCtrl::Continue
+                    } else {
+                        local_self.process_sync_error(result.err().unwrap())
+                    }
                 })
                 .await;
         });
@@ -169,6 +196,7 @@ impl Client {
                 session,
                 homeurl,
                 is_guest: self.state.read().unwrap().is_guest,
+                is_soft_logout: self.state.read().unwrap().is_soft_logout,
             })?)
         })
     }
@@ -258,6 +286,35 @@ impl Client {
             Ok(Arc::new(session_verification_controller))
         })
     }
+
+    /// Log out the current user
+    pub fn logout(&self) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            match self.client.logout().await {
+                Ok(_) => Ok(()),
+                Err(error) => Err(anyhow!(error.to_string())),
+            }
+        })
+    }
+
+    /// Process a sync error and return loop control accordingly
+    fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
+        let mut control = LoopCtrl::Continue;
+        if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+            RumaApiError::ClientApi(error),
+        )))) = sync_error
+        {
+            if let ErrorKind::UnknownToken { soft_logout } = error.kind {
+                self.state.write().unwrap().is_soft_logout = soft_logout;
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_update_restore_token();
+                    delegate.did_receive_auth_error(soft_logout);
+                }
+                control = LoopCtrl::Break
+            }
+        }
+        control
+    }
 }
 
 #[uniffi::export]
@@ -281,6 +338,11 @@ impl Client {
     /// Is this a guest account?
     pub fn is_guest(&self) -> bool {
         self.state.read().unwrap().is_guest
+    }
+
+    /// Flag indicating whether the session is in soft logout mode
+    pub fn is_soft_logout(&self) -> bool {
+        self.state.read().unwrap().is_soft_logout
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
