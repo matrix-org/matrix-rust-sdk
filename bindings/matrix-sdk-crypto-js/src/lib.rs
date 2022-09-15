@@ -23,6 +23,7 @@ pub mod encryption;
 pub mod events;
 mod future;
 pub mod identifiers;
+pub mod identities;
 pub mod machine;
 pub mod olm;
 mod macros;

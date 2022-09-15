@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::{
     device, downcast, encryption,
     future::future_to_promise,
-    identifiers, olm, requests,
+    identifiers, identities, olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
     store, sync_events, types, verification, vodozemac,
@@ -410,6 +410,17 @@ impl OlmMachine {
             );
 
             Ok(tuple)
+        })
+    }
+
+    /// Get the cross signing user identity of a user.
+    #[wasm_bindgen(js_name = "getIdentity")]
+    pub fn get_identity(&self, user_id: &identifiers::UserId) -> Promise {
+        let me = self.inner.clone();
+        let user_id = user_id.inner.clone();
+
+        future_to_promise(async move {
+            Ok(me.get_identity(user_id.as_ref(), None).await?.map(identities::UserIdentities::from))
         })
     }
 
