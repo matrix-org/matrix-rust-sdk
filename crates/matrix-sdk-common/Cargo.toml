@@ -17,7 +17,7 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
 futures-core = "0.3.21"
-ruma = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065", features = ["client-api-c"] }
+ruma = { version = "0.7.0", features = ["client-api-c"] }
 serde = "1.0.136"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

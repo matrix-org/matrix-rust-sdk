@@ -37,7 +37,7 @@ use ruma::{
         },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
-        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
@@ -540,7 +540,9 @@ impl Common {
         if let Some(mutex) =
             self.client.inner.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
-            mutex.lock().await;
+            // If a member request is already going on, await the release of
+            // the lock.
+            _ = mutex.lock().await;
 
             Ok(None)
         } else {
@@ -756,7 +758,7 @@ impl Common {
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent,
     {
         Ok(self.client.store().get_state_events_static(self.room_id()).await?)
     }
@@ -795,7 +797,7 @@ impl Common {
     pub async fn get_state_event_static<C>(&self) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
     }
@@ -824,7 +826,7 @@ impl Common {
     where
         C: StaticEventContent + StateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self.client.store().get_state_event_static_for_key(self.room_id(), state_key).await?)

@@ -6,21 +6,7 @@ interactive verification using [QR codes] in Matrix.
 This is probably not the crate you are looking for, it's used internally in the
 [matrix-sdk].
 
-If you still want to play with QR codes, here are a couple of helpful examples.
-
-### Decode an image
-
-```rust,no_run
-use image;
-use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
-
-fn main() -> Result<(), DecodingError> {
-    let image = image::open("/path/to/my/image.png").unwrap();
-    let result = QrVerificationData::from_image(image)?;
-
-    Ok(())
-}
-```
+If you still want to play with QR codes, here is a helpful example.
 
 ### Encode into a QR code
 

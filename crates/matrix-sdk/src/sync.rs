@@ -17,6 +17,14 @@ impl Client {
         response: sync_events::v3::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().receive_sync_response(response).await?;
+        self.handle_sync_response(response).await
+    }
+
+    #[tracing::instrument(skip(self, response))]
+    pub(crate) async fn handle_sync_response(
+        &self,
+        response: SyncResponse,
+    ) -> Result<SyncResponse> {
         let SyncResponse {
             next_batch: _,
             rooms,

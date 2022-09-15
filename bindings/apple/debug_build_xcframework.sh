@@ -49,7 +49,7 @@ lipo -create \
 # Generate uniffi files
 uniffi-bindgen generate \
   --language swift \
-  --cdylib "${TARGET_DIR}/$TARGET/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+  --lib-file "${TARGET_DIR}/$TARGET/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   --out-dir ${GENERATED_DIR} \
   "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl"
 

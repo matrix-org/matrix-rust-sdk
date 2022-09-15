@@ -251,8 +251,6 @@ pub fn migrate(
             InboundGroupSession::from_libolm_pickle(&session.pickle, &data.pickle_key)?.pickle();
 
         let sender_key = Curve25519PublicKey::from_base64(&session.sender_key)?;
-        let forwarding_chains: Result<Vec<Curve25519PublicKey>, _> =
-            session.forwarding_chains.iter().map(|k| Curve25519PublicKey::from_base64(k)).collect();
 
         let pickle = matrix_sdk_crypto::olm::PickledInboundGroupSession {
             pickle,
@@ -268,7 +266,6 @@ pub fn migrate(
                 })
                 .collect::<anyhow::Result<_>>()?,
             room_id: RoomId::parse(session.room_id)?,
-            forwarding_chains: forwarding_chains?,
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,

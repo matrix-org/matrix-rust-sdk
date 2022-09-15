@@ -83,7 +83,7 @@ pub enum AnyDecryptedOlmEvent {
     /// The `m.secret.send` decrypted to-device event.
     SecretSend(DecryptedSecretSendEvent),
     /// A decrypted to-device event of an unknown or custom type.
-    Custom(ToDeviceCustomEvent),
+    Custom(Box<ToDeviceCustomEvent>),
 }
 
 impl AnyDecryptedOlmEvent {

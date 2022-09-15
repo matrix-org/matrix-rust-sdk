@@ -17,10 +17,6 @@ use thiserror::Error;
 /// Error type describing errors that happen while QR data is being decoded.
 #[derive(Error, Debug)]
 pub enum DecodingError {
-    /// Error decoding the QR code.
-    #[cfg(feature = "decode_image")]
-    #[error(transparent)]
-    Qr(#[from] rqrr::DeQRError),
     /// The QR code data is missing the mandatory Matrix header.
     #[error("the decoded QR code is missing the Matrix header")]
     Header,
@@ -30,9 +26,6 @@ pub enum DecodingError {
     /// The QR code data is using an unsupported or invalid verification mode.
     #[error("the QR code contains an invalid verification mode: {0}")]
     Mode(u8),
-    /// The flow id is not a valid event ID.
-    #[error(transparent)]
-    Identifier(#[from] ruma_common::IdParseError),
     #[error(transparent)]
     /// The QR code data does not contain all the necessary fields.
     Read(#[from] std::io::Error),

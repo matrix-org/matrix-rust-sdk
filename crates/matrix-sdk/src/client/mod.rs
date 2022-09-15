@@ -52,7 +52,9 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
-            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider},
+            session::{
+                get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
+            },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
@@ -1424,6 +1426,8 @@ impl Client {
 
                     self.base_client().set_session_tokens(session_tokens);
 
+                    // TODO: Let ffi client to know that tokens have changed
+
                     Ok(Some(res))
                 }
                 Err(error) => {
@@ -1816,7 +1820,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config).await;
+        let res = self.send_inner(request.clone(), config, None).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1839,7 +1843,52 @@ impl Client {
                             }
                         }
                     } else {
-                        return self.send_inner(request, config).await;
+                        return self.send_inner(request, config, None).await;
+                    }
+                }
+            }
+        }
+
+        res
+    }
+
+    #[cfg(feature = "sliding-sync")]
+    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
+    // anymore
+    pub(crate) async fn send_with_homeserver<Request>(
+        &self,
+        request: Request,
+        config: Option<RequestConfig>,
+        homeserver: Option<String>,
+    ) -> HttpResult<Request::IncomingResponse>
+    where
+        Request: OutgoingRequest + Clone + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
+        let res = self.send_inner(request.clone(), config, homeserver.clone()).await;
+
+        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
+        // try to refresh the token and retry the request.
+        if self.inner.handle_refresh_tokens {
+            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+                RumaApiError::ClientApi(error),
+            )))) = &res
+            {
+                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                    let refresh_res = self.refresh_access_token().await;
+
+                    if let Err(refresh_error) = refresh_res {
+                        match &refresh_error {
+                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                                // Refreshing access tokens is not supported by
+                                // this `Session`, ignore.
+                            }
+                            _ => {
+                                return Err(refresh_error);
+                            }
+                        }
+                    } else {
+                        return self.send_inner(request, config, homeserver).await;
                     }
                 }
             }
@@ -1852,17 +1901,20 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        homeserver: Option<String>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
+        let homeserver =
+            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
         self.inner
             .http_client
             .send(
                 request,
                 config,
-                self.homeserver().await.to_string(),
+                homeserver,
                 self.access_token().as_deref(),
                 self.user_id(),
                 self.server_versions().await?,
@@ -2106,7 +2158,6 @@ impl Client {
             set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
-
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
             request_config.timeout += timeout;
@@ -2220,7 +2271,6 @@ impl Client {
     /// client
     ///     .sync_with_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
-    ///
     ///         for (room_id, room) in response.rooms.join {
     ///             for event in room.timeline.events {
     ///                 channel.send(event).await.unwrap();
@@ -2235,8 +2285,85 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings<'_>,
+        sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
+    ) where
+        C: Future<Output = LoopCtrl>,
+    {
+        self.sync_with_result_callback(sync_settings, |result| async {
+            if let Ok(sync_response) = result {
+                callback(sync_response).await
+            } else {
+                warn!("Error from sync with result: {}", result.err().unwrap());
+                // do not make a decision about control loop by default
+                LoopCtrl::Continue
+            }
+        })
+        .await;
+    }
+
+    /// Repeatedly call sync to synchronize the client state with the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call. *Note* that those
+    ///   settings will be only used for the first sync call. See the argument
+    ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// * `callback` - A callback that will be called every time after a
+    ///   response has been fetched from the server, or the fetch has been
+    ///   failed. The callback must return a boolean which signalizes if the
+    ///   method should stop syncing. If the callback returns
+    ///   `LoopCtrl::Continue` the sync will continue, if the callback returns
+    ///   `LoopCtrl::Break` the sync will be stopped.
+    ///
+    /// # Examples
+    ///
+    /// The following example demonstrates how to sync forever while sending all
+    /// the interesting events through a mpsc channel to another thread e.g. a
+    /// UI thread.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).await.unwrap();
+    ///
+    /// use tokio::sync::mpsc::channel;
+    ///
+    /// let (tx, rx) = channel(100);
+    ///
+    /// let sync_channel = &tx;
+    /// let sync_settings = SyncSettings::new()
+    ///     .timeout(Duration::from_secs(30));
+    ///
+    /// client
+    ///     .sync_with_result_callback(sync_settings, |response| async move {
+    ///         let channel = sync_channel;
+    ///         if let Ok(sync_response) = response {
+    ///             for (room_id, room) in sync_response.rooms.join {
+    ///                 for event in room.timeline.events {
+    ///                     channel.send(event).await.unwrap();
+    ///                 }
+    ///             }
+    ///
+    ///             LoopCtrl::Continue
+    ///         } else {
+    ///             // check whether the error is unrecoverable and choose loop control accordingly
+    ///             LoopCtrl::Break
+    ///         }
+    ///     })
+    ///     .await;
+    /// })
+    /// ```
+    #[instrument(skip(self, callback))]
+    pub async fn sync_with_result_callback<C>(
+        &self,
+        mut sync_settings: crate::config::SyncSettings<'_>,
+        callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
     {
@@ -2247,12 +2374,10 @@ impl Client {
         }
 
         loop {
-            // TODO we should abort the sync loop if the error is a storage error or
-            // the access token got invalid.
-            if let Ok(r) = self.sync_loop_helper(&mut sync_settings).await {
-                if callback(r).await == LoopCtrl::Break {
-                    return;
-                }
+            let result = self.sync_loop_helper(&mut sync_settings).await;
+
+            if callback(result).await == LoopCtrl::Break {
+                return;
             }
 
             Client::delay_sync(&mut last_sync_time).await
@@ -2330,6 +2455,12 @@ impl Client {
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Log out the current user
+    pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
+        let request = logout::v3::Request::new();
         self.send(request, None).await
     }
 }
