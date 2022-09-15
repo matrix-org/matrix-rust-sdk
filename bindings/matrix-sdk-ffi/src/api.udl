@@ -1,5 +1,12 @@
 namespace matrix_sdk_ffi {};
 
+
+/// Cancels on drop
+interface StoppableSpawn {
+    boolean is_cancelled();
+    void cancel();
+};
+
 [Error]
 interface ClientError {
     Generic(string msg);
@@ -9,6 +16,176 @@ callback interface ClientDelegate {
     void did_receive_sync_update();
     void did_receive_auth_error(boolean is_soft_logout);
     void did_update_restore_token();
+};
+
+dictionary RequiredState {
+    string key;
+    string value;
+};
+
+dictionary RoomSubscription {
+    sequence<RequiredState>? required_state;
+    u32? timeline_limit;
+};
+
+dictionary UpdateSummary {
+    sequence<string> views;
+    sequence<string> rooms;
+};
+
+
+callback interface SlidingSyncObserver {
+    void did_receive_sync_update(UpdateSummary summary);
+};
+
+enum SlidingSyncState {
+    /// Hasn't started yet
+    "Cold",
+    /// We are quickly preloading a preview of the most important rooms
+    "Preload",
+    /// We are trying to load all remaining rooms, might be in batches
+    "CatchingUp",
+    /// We are all caught up and now only sync the live responses.
+    "Live",
+};
+
+enum SlidingSyncMode {
+    /// Sync up the entire room list first
+    "FullSync",
+    /// Only ever sync the currently selected window
+    "Selective",
+};
+
+callback interface SlidingSyncViewStateObserver {
+    void did_receive_update(SlidingSyncState new_state);
+};
+
+[Enum]
+interface RoomListEntry {
+    Empty();
+    Invalidated(string room_id);
+    Filled(string room_id);
+};
+
+[Enum]
+interface SlidingSyncViewRoomsListDiff {
+    Replace(sequence<RoomListEntry> values);
+    InsertAt(
+        u32 index,
+        RoomListEntry value
+    );
+    UpdateAt(
+        u32 index,
+        RoomListEntry value
+    );
+    RemoveAt(u32 index);
+    Move(
+        u32 old_index,
+        u32 new_index
+    );
+    Push(RoomListEntry value);
+    // The following are supported by the generic VecDiff-type but
+    // in sliding sync effectively do not happen and thus aren't exposed
+    // to not pollute the API: Pop(); Clear();
+};
+
+callback interface SlidingSyncViewRoomListObserver {
+    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+};
+
+callback interface SlidingSyncViewRoomsCountObserver {
+    void did_receive_update(u32 count);
+};
+
+callback interface SlidingSyncViewRoomItemsObserver {
+    void did_receive_update();
+};
+
+interface SlidingSyncViewBuilder {
+    constructor();
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder timeline_limit(u32 limit);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder batch_size(u32 size);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder name(string name);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder sort(sequence<string> sort);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder add_range(u32 from, u32 to);
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder reset_ranges();
+
+    [Self=ByArc]
+    SlidingSyncViewBuilder required_state(sequence<RequiredState> required_state);
+
+    [Throws=ClientError, Self=ByArc]
+    SlidingSyncView build();
+};
+
+interface SlidingSyncView {
+    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver observer);
+    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
+    StoppableSpawn observe_state(SlidingSyncViewStateObserver observer);
+    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
+
+    u32? current_room_count();
+    sequence<RoomListEntry> current_rooms_list();
+
+    void add_range(u32 from, u32 to);
+    void reset_ranges();
+    void set_range(u32 from, u32 to);
+};
+
+interface UnreadNotificationsCount {
+    boolean has_notifications();
+
+    u32 highlight_count();
+    u32 notification_count();
+};
+
+interface SlidingSyncRoom {
+    string? name();
+    string room_id();
+
+    Room? full_room();
+    
+    boolean? is_dm();
+    boolean? is_initial();
+
+    boolean has_unread_notifications();
+    UnreadNotificationsCount unread_notifications();
+
+    // aliveness
+    boolean is_loading_more();
+
+    AnyMessage? latest_room_message();
+};
+
+interface SlidingSync {
+    void set_observer(SlidingSyncObserver? observer);
+
+    StoppableSpawn sync();
+
+    [Throws=ClientError]
+    void subscribe(string room_id, RoomSubscription? settings);
+    [Throws=ClientError]
+    void unsubscribe(string room_id);
+
+    SlidingSyncView? get_view(string name);
+    [Throws=ClientError]
+    SlidingSyncRoom? get_room(string room_id);
+    [Throws=ClientError]
+    sequence<SlidingSyncRoom?> get_rooms(sequence<string> room_ids);
 };
 
 interface ClientBuilder {
@@ -25,6 +202,23 @@ interface ClientBuilder {
 
     [Throws=ClientError, Self=ByArc]
     Client build();
+};
+
+interface SlidingSyncBuilder {
+    [Throws=ClientError, Self=ByArc]
+    SlidingSyncBuilder homeserver(string url);
+
+    [Self=ByArc]
+    SlidingSyncBuilder add_fullsync_view();
+
+    [Self=ByArc]
+    SlidingSyncBuilder no_views();
+
+    [Self=ByArc]
+    SlidingSyncBuilder add_view(SlidingSyncView view);
+
+    [Throws=ClientError, Self=ByArc]
+    SlidingSync build();
 };
 
 interface Client {
@@ -65,6 +259,11 @@ interface Client {
     [Throws=ClientError]
     SessionVerificationController get_session_verification_controller();
 
+    [Throws=ClientError]
+    SlidingSync full_sliding_sync();
+
+    SlidingSyncBuilder sliding_sync();
+    
     [Throws=ClientError]
     void logout();
 };

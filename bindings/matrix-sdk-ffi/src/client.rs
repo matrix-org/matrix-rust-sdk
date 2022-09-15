@@ -42,7 +42,7 @@ pub trait ClientDelegate: Sync + Send {
 
 #[derive(Clone)]
 pub struct Client {
-    client: MatrixClient,
+    pub(crate) client: MatrixClient,
     state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:

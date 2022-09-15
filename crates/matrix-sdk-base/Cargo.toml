@@ -20,6 +20,7 @@ default = []
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 experimental-timeline = []
+sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
 testing = ["dep:http"]

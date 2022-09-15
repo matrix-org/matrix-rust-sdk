@@ -47,6 +47,11 @@ experimental-timeline = [
     "matrix-sdk-sled?/experimental-timeline",
 ]
 
+sliding-sync = [
+    "matrix-sdk-base/sliding-sync",
+    "anyhow",
+]
+
 docsrs = [
     "e2e-encryption",
     "sled",
@@ -80,6 +85,9 @@ thiserror = "1.0.30"
 tracing = "0.1.34"
 url = "2.2.2"
 zeroize = "1.3.0"
+
+# sliding sync
+derive_builder = "0.10.2"
 
 [dependencies.image]
 version = "0.24.2"

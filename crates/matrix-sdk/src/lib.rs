@@ -12,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
@@ -40,6 +39,9 @@ pub mod room;
 pub mod store;
 mod sync;
 
+#[cfg(feature = "sliding-sync")]
+mod sliding_sync;
+
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 
@@ -52,6 +54,11 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use media::Media;
+#[cfg(feature = "sliding-sync")]
+pub use sliding_sync::{
+    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
+    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+};
 
 #[cfg(test)]
 mod test_utils;

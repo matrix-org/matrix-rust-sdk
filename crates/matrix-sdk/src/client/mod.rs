@@ -1977,7 +1977,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config).await;
+        let res = self.send_inner(request.clone(), config, None).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -2000,7 +2000,52 @@ impl Client {
                             }
                         }
                     } else {
-                        return self.send_inner(request, config).await;
+                        return self.send_inner(request, config, None).await;
+                    }
+                }
+            }
+        }
+
+        res
+    }
+
+    #[cfg(feature = "sliding-sync")]
+    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
+    // anymore
+    pub(crate) async fn send_with_homeserver<Request>(
+        &self,
+        request: Request,
+        config: Option<RequestConfig>,
+        homeserver: Option<String>,
+    ) -> HttpResult<Request::IncomingResponse>
+    where
+        Request: OutgoingRequest + Clone + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
+        let res = self.send_inner(request.clone(), config, homeserver.clone()).await;
+
+        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
+        // try to refresh the token and retry the request.
+        if self.inner.handle_refresh_tokens {
+            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+                RumaApiError::ClientApi(error),
+            )))) = &res
+            {
+                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                    let refresh_res = self.refresh_access_token().await;
+
+                    if let Err(refresh_error) = refresh_res {
+                        match &refresh_error {
+                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                                // Refreshing access tokens is not supported by
+                                // this `Session`, ignore.
+                            }
+                            _ => {
+                                return Err(refresh_error);
+                            }
+                        }
+                    } else {
+                        return self.send_inner(request, config, homeserver).await;
                     }
                 }
             }
@@ -2013,17 +2058,20 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        homeserver: Option<String>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
+        let homeserver =
+            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
         self.inner
             .http_client
             .send(
                 request,
                 config,
-                self.homeserver().await.to_string(),
+                homeserver,
                 self.access_token().as_deref(),
                 self.user_id(),
                 self.server_versions().await?,
@@ -2267,7 +2315,6 @@ impl Client {
             set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
-
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
             request_config.timeout += timeout;

@@ -25,8 +25,8 @@ fn init_logging() {
 /// read the test configuration from the environment
 pub fn test_server_conf() -> (String, String) {
     (
-        option_env!("HOMSERVER_URL").unwrap_or("http://localhost:8228").to_owned(),
-        option_env!("HOMSERVER_DOMAIN").unwrap_or("matrix-sdk.rs").to_owned(),
+        option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned(),
+        option_env!("HOMESERVER_DOMAIN").unwrap_or("matrix-sdk.rs").to_owned(),
     )
 }
 
