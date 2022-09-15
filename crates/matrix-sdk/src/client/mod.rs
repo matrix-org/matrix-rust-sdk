@@ -71,7 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
