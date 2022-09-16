@@ -25,6 +25,9 @@ impl From<UserIdentities> for JsValue {
     }
 }
 
+/// Struct representing a cross signing identity of a user.
+///
+/// This is the user identity of a user that is our own.
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct OwnUserIdentity {
@@ -33,6 +36,65 @@ pub struct OwnUserIdentity {
 
 impl_from_to_inner!(matrix_sdk_crypto::OwnUserIdentity => OwnUserIdentity);
 
+#[wasm_bindgen]
+impl OwnUserIdentity {
+    /// Mark our user identity as verified.
+    ///
+    /// This will mark the identity locally as verified and sign it with our own
+    /// device.
+    ///
+    /// Returns a signature upload request that needs to be sent out.
+    pub fn verify(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(requests::SignatureUploadRequest::try_from(&me.verify().await?)?)
+        })
+    }
+
+    /// Send a verification request to our other devices.
+    #[wasm_bindgen(js_name = "requestVerification")]
+    pub fn request_verification(&self, methods: Option<Array>) -> Result<Promise, JsError> {
+        let methods =
+            methods.map(try_array_to_vec::<verification::VerificationMethod, _>).transpose()?;
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            let tuple = Array::new();
+            let (verification_request, outgoing_verification_request) = match methods {
+                Some(methods) => me.request_verification_with_methods(methods).await?,
+                None => me.request_verification().await?,
+            };
+
+            tuple.set(0, verification::VerificationRequest::from(verification_request).into());
+            tuple.set(
+                1,
+                verification::OutgoingVerificationRequest::from(outgoing_verification_request)
+                    .try_into()?,
+            );
+
+            Ok(tuple)
+        }))
+    }
+
+    /// Does our user identity trust our own device, i.e. have we signed our own
+    /// device keys with our self-signing key.
+    #[wasm_bindgen(js_name = "trustsOurOwnDevice")]
+    pub fn trusts_our_own_device(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move { Ok(me.trusts_our_own_device().await?) })
+    }
+}
+
+/// Struct representing a cross signing identity of a user.
+///
+/// This is the user identity of a user that isn't our own. Other users will
+/// only contain a master key and a self signing key, meaning that only device
+/// signatures can be checked with this identity.
+///
+/// This struct wraps a read-only version of the struct and allows verifications
+/// to be requested to verify our own device with the user identity.
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct UserIdentity {
@@ -87,6 +149,24 @@ impl UserIdentity {
                 .request_verification(room_id.as_ref(), request_event_id.as_ref(), methods)
                 .await
                 .into())
+        }))
+    }
+
+    /// Send a verification request to the given user.
+    ///
+    /// The returned content needs to be sent out into a DM room with the given
+    /// user.
+    ///
+    /// After the content has been sent out a VerificationRequest can be started
+    /// with the `request_verification` method.
+    #[wasm_bindgen(js_name = "verificationRequestContent")]
+    pub fn verification_request_content(&self, methods: Option<Array>) -> Result<Promise, JsError> {
+        let me = self.inner.clone();
+        let methods =
+            methods.map(try_array_to_vec::<verification::VerificationMethod, _>).transpose()?;
+
+        Ok(future_to_promise(async move {
+            Ok(serde_json::to_string(&me.verification_request_content(methods).await)?)
         }))
     }
 }
