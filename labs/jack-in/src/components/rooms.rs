@@ -64,7 +64,7 @@ impl MockComponent for Rooms {
         let mut paras = vec![];
 
         for r in self.sstate.view().get_rooms(None, None) {
-            let mut cells = vec![Cell::from(r.name.unwrap_or_else(|| "unknown".to_string()))];
+            let mut cells = vec![Cell::from(r.name.unwrap_or_else(|| "unknown".to_owned()))];
             if let Some(c) = r.unread_notifications.notification_count {
                 let count: u32 = c.try_into().unwrap_or_default();
                 if count > 0 {
