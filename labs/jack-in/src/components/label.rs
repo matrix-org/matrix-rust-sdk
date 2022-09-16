@@ -31,7 +31,7 @@ impl Label {
     where
         S: AsRef<str>,
     {
-        self.attr(Attribute::Text, AttrValue::String(s.as_ref().to_string()));
+        self.attr(Attribute::Text, AttrValue::String(s.as_ref().to_owned()));
         self
     }
 
