@@ -78,7 +78,7 @@ impl OwnUserIdentity {
     }
 
     /// Does our user identity trust our own device, i.e. have we signed our own
-    /// device keys with our self-signing key.
+    /// device keys with our self-signing key?
     #[wasm_bindgen(js_name = "trustsOurOwnDevice")]
     pub fn trusts_our_own_device(&self) -> Promise {
         let me = self.inner.clone();
