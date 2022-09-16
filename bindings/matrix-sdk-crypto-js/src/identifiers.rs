@@ -287,6 +287,7 @@ impl ServerName {
 ///
 /// [event ID]: https://spec.matrix.org/v1.2/appendices/#room-ids-and-event-ids
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct EventId {
     pub(crate) inner: ruma::OwnedEventId,
 }

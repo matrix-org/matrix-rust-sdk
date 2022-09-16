@@ -6,7 +6,9 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
-    impl_from_to_inner, types, verification, vodozemac,
+    impl_from_to_inner,
+    js::try_array_to_vec,
+    types, verification, vodozemac,
 };
 
 /// A device represents a E2EE capable client of an user.
@@ -23,16 +25,8 @@ impl Device {
     /// Request an interactive verification with this device.
     #[wasm_bindgen(js_name = "requestVerification")]
     pub fn request_verification(&self, methods: Option<Array>) -> Result<Promise, JsError> {
-        let methods = methods
-            .map(|array| {
-                array
-                    .iter()
-                    .map(|method| {
-                        verification::VerificationMethod::try_from(method).map(Into::into)
-                    })
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+        let methods =
+            methods.map(try_array_to_vec::<verification::VerificationMethod, _>).transpose()?;
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {

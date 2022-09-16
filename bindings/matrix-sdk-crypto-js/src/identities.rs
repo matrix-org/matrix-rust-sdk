@@ -1,10 +1,12 @@
 //! User identities.
 
 use js_sys::{Array, Promise};
-use ruma::events::key::verification::VerificationMethod as RumaVerificationMethod;
 use wasm_bindgen::prelude::*;
 
-use crate::{future::future_to_promise, identifiers, impl_from_to_inner, requests, verification};
+use crate::{
+    future::future_to_promise, identifiers, impl_from_to_inner, js::try_array_to_vec, requests,
+    verification,
+};
 
 pub(crate) struct UserIdentities {
     inner: matrix_sdk_crypto::UserIdentities,
@@ -77,16 +79,8 @@ impl UserIdentity {
         let me = self.inner.clone();
         let room_id = room_id.inner.clone();
         let request_event_id = request_event_id.inner.clone();
-        let methods: Option<Vec<RumaVerificationMethod>> = methods
-            .map(|array| {
-                array
-                    .iter()
-                    .map(|method| {
-                        verification::VerificationMethod::try_from(method).map(Into::into)
-                    })
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+        let methods =
+            methods.map(try_array_to_vec::<verification::VerificationMethod, _>).transpose()?;
 
         Ok(future_to_promise::<_, verification::VerificationRequest>(async move {
             Ok(me

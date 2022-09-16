@@ -8,9 +8,11 @@ use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    device, downcast, encryption,
+    device, encryption,
     future::future_to_promise,
-    identifiers, identities, olm, requests,
+    identifiers, identities,
+    js::downcast,
+    olm, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
     store, sync_events, types, verification, vodozemac,

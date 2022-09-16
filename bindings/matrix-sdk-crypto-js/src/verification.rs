@@ -14,7 +14,9 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{DeviceId, RoomId, UserId},
-    impl_from_to_inner, requests,
+    impl_from_to_inner,
+    js::try_array_to_vec,
+    requests,
 };
 
 /// List of available verification methods.
@@ -788,14 +790,7 @@ impl VerificationRequest {
         other_user_id: &UserId,
         methods: Option<Array>,
     ) -> Result<String, JsError> {
-        let methods: Option<Vec<RumaVerificationMethod>> = methods
-            .map(|array| {
-                array
-                    .iter()
-                    .map(|method| VerificationMethod::try_from(method).map(Into::into))
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+        let methods = methods.map(try_array_to_vec::<VerificationMethod, _>).transpose()?;
 
         Ok(serde_json::to_string(&matrix_sdk_crypto::VerificationRequest::request(
             &own_user_id.inner,
@@ -936,10 +931,7 @@ impl VerificationRequest {
     /// or `undefined`.
     #[wasm_bindgen(js_name = "acceptWithMethods")]
     pub fn accept_with_methods(&self, methods: Array) -> Result<JsValue, JsError> {
-        let methods: Vec<RumaVerificationMethod> = methods
-            .iter()
-            .map(|method| VerificationMethod::try_from(method).map(Into::into))
-            .collect::<Result<_, _>>()?;
+        let methods = try_array_to_vec::<VerificationMethod, _>(methods)?;
 
         self.inner
             .accept_with_methods(methods)
