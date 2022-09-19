@@ -257,6 +257,9 @@ interface Client {
     sequence<u8> get_media_content(MediaSource source);
 
     [Throws=ClientError]
+    sequence<u8> get_media_thumbnail(MediaSource source, u64 width, u64 height);
+
+    [Throws=ClientError]
     SessionVerificationController get_session_verification_controller();
 
     [Throws=ClientError]
