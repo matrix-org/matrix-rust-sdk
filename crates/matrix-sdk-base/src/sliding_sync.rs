@@ -198,7 +198,7 @@ impl BaseClient {
                         timeline,
                         v3::State::with_events(room_data.required_state.clone()),
                         room_account_data.unwrap_or_default(),
-                        Default::default(),                    // room_info.ephemeral,
+                        Default::default(), // room_info.ephemeral,
                         notification_count,
                     ),
                 );

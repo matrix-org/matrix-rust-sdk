@@ -558,6 +558,12 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
+    pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.with_common_extensions();
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSync>> {
         let builder = unwrap_or_clone_arc(self);
         Ok(Arc::new(SlidingSync::new(builder.inner.build()?, builder.client)))
