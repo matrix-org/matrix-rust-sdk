@@ -63,8 +63,13 @@
 //!     ",
 //! )?;
 //!
-//! let mut appservice =
-//!     AppService::new(homeserver_url, server_name, registration).await?;
+//! let mut appservice = AppService::builder(
+//!     homeserver_url.try_into()?,
+//!     server_name.try_into()?,
+//!     registration,
+//! )
+//! .build()
+//! .await?;
 //! appservice.virtual_user(None).await?.add_event_handler(
 //!     |_ev: SyncRoomMemberEvent| async {
 //!         // do stuff
@@ -103,9 +108,10 @@ use ruma::{
     },
     assign,
     events::{room::member::MembershipState, AnyStateEvent, AnyTimelineEvent},
-    DeviceId, IdParseError, OwnedRoomId, OwnedServerName,
+    DeviceId, OwnedRoomId, OwnedServerName,
 };
 use serde::Deserialize;
+use thiserror::Error;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
@@ -137,14 +143,17 @@ pub struct AppService {
     event_handler: event_handler::EventHandler,
 }
 
-impl AppService {
-    /// Create a new AppService.
-    ///
-    /// This will also construct a [`virtual_user()`][Self::virtual_user] for
-    /// the `sender_localpart` of the given registration. This virtual user can
-    /// be used to register an event handler for all incoming events. Other
-    /// virtual users only receive events if they're known to be a member of a
-    /// room.
+/// Builder for an AppService
+#[derive(Debug, Clone)]
+pub struct AppServiceBuilder {
+    homeserver_url: Url,
+    server_name: OwnedServerName,
+    registration: AppServiceRegistration,
+    client_builder: Option<ClientBuilder>,
+}
+
+impl AppServiceBuilder {
+    /// Create a new AppService builder.
     ///
     /// # Arguments
     ///
@@ -155,29 +164,31 @@ impl AppService {
     ///   with the homeserver.
     ///
     /// [AppService Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
-    pub async fn new(
-        homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<OwnedServerName, Error = IdParseError>,
+    pub fn new(
+        homeserver_url: Url,
+        server_name: OwnedServerName,
         registration: AppServiceRegistration,
-    ) -> Result<Self> {
-        let appservice =
-            Self::with_client_builder(homeserver_url, server_name, registration, Client::builder())
-                .await?;
-
-        Ok(appservice)
+    ) -> Self {
+        AppServiceBuilder { homeserver_url, server_name, registration, client_builder: None }
     }
 
-    /// Same as [`new()`][Self::new] but lets you provide a [`ClientBuilder`]
-    /// for the virtual user that gets constructed for the `sender_localpart`.
-    pub async fn with_client_builder(
-        homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<OwnedServerName, Error = IdParseError>,
-        registration: AppServiceRegistration,
-        builder: ClientBuilder,
-    ) -> Result<Self> {
-        let homeserver_url = homeserver_url.try_into()?;
-        let server_name = server_name.try_into()?;
-        let registration = Arc::new(registration);
+    /// Set the client builder to use for the virtual user.
+    pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
+        self.client_builder = Some(client_builder);
+        self
+    }
+
+    /// Build the AppService.
+    ///
+    /// This will also construct a [`virtual_user()`][AppService::virtual_user]
+    /// for the `sender_localpart` of the given registration. This virtual
+    /// user can be used to register an event handler for all incoming
+    /// events. Other virtual users only receive events if they're known to
+    /// be a member of a room.
+    pub async fn build(self) -> Result<AppService> {
+        let homeserver_url = self.homeserver_url;
+        let server_name = self.server_name;
+        let registration = Arc::new(self.registration);
         let namespaces = Arc::new(NamespaceCache::from_registration(&registration)?);
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
@@ -191,10 +202,27 @@ impl AppService {
             clients,
             event_handler,
         };
-
-        appservice.virtual_user_builder(&sender_localpart).client_builder(builder).build().await?;
-
+        if let Some(client_builder) = self.client_builder {
+            appservice
+                .virtual_user_builder(&sender_localpart)
+                .client_builder(client_builder)
+                .build()
+                .await?;
+        } else {
+            appservice.virtual_user_builder(&sender_localpart).build().await?;
+        }
         Ok(appservice)
+    }
+}
+
+impl AppService {
+    /// Create a new [`AppServiceBuilder`].
+    pub fn builder(
+        homeserver_url: Url,
+        server_name: OwnedServerName,
+        registration: AppServiceRegistration,
+    ) -> AppServiceBuilder {
+        AppServiceBuilder::new(homeserver_url, server_name, registration)
     }
 
     /// Create a virtual user client.
@@ -566,13 +594,10 @@ mod tests {
             .request_config(RequestConfig::default().disable_retry())
             .server_versions([MatrixVersion::V1_0]);
 
-        AppService::with_client_builder(
-            homeserver_url.as_ref(),
-            server_name,
-            registration,
-            client_builder,
-        )
-        .await
+        AppServiceBuilder::new(homeserver_url.parse()?, server_name.parse()?, registration)
+            .client_builder(client_builder)
+            .build()
+            .await
     }
 
     #[async_test]
