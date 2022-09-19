@@ -19,6 +19,7 @@ pub async fn run_client(
     let syncer = builder
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
+        .with_common_extensions()
         .build()?;
     let stream = syncer.stream().await.expect("we can build the stream");
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
@@ -27,7 +28,10 @@ pub async fn run_client(
     tx.send(ssync_state.clone()).await?;
 
     pin_mut!(stream);
-    let _first_poll = stream.next().await;
+    if let Some(Err(e)) = stream.next().await {
+        error!("Initial Query on sliding sync failed: {:#?}", e);
+        return Ok(());
+    }
     let view_state = state.read_only().get_cloned();
     if view_state != SlidingSyncState::CatchingUp {
         warn!("Sliding Query failed: {:#?}", view_state);
@@ -44,19 +48,20 @@ pub async fn run_client(
         match stream.next().await {
             Some(Ok(_)) => {
                 // we are switching into live updates mode next. ignoring
+                let state = state.read_only().get_cloned();
 
-                if state.read_only().get_cloned() == SlidingSyncState::Live {
+                if state == SlidingSyncState::Live {
                     warn!("Reached live sync");
                     break;
                 }
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
-                warn!("Error: {:}", e);
+                error!("Error: {:}", e);
                 break;
             }
             None => {
-                warn!("Never reached live state");
+                error!("Never reached live state");
                 break;
             }
         }

@@ -2586,7 +2586,7 @@ dependencies = [
  "byteorder",
  "image 0.23.14",
  "qrcode",
- "ruma-common 0.10.1",
+ "ruma-common",
  "thiserror",
  "vodozemac",
 ]
@@ -3642,23 +3642,23 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.7.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "assign",
  "js_int",
  "js_option",
  "ruma-appservice-api",
  "ruma-client-api",
- "ruma-common 0.10.3",
+ "ruma-common",
  "ruma-federation-api",
 ]
 
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
- "ruma-common 0.10.3",
+ "ruma-common",
  "serde",
  "serde_json",
 ]
@@ -3666,7 +3666,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.15.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "assign",
  "bytes",
@@ -3674,39 +3674,15 @@ dependencies = [
  "js_int",
  "maplit",
  "percent-encoding",
- "ruma-common 0.10.3",
+ "ruma-common",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "ruma-common"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67dab5e934f2e280875cf3a863c14d876265bda169e4fd18334058e7307142d6"
-dependencies = [
- "base64",
- "bytes",
- "form_urlencoded",
- "indexmap",
- "itoa 1.0.3",
- "js_int",
- "js_option",
- "percent-encoding",
- "regex",
- "ruma-identifiers-validation 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ruma-macros 0.10.1",
- "serde",
- "serde_json",
- "tracing",
- "url",
- "wildmatch",
 ]
 
 [[package]]
 name = "ruma-common"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "base64",
  "bytes",
@@ -3722,8 +3698,8 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.8.5",
  "regex",
- "ruma-identifiers-validation 0.9.0 (git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync)",
- "ruma-macros 0.10.3",
+ "ruma-identifiers-validation",
+ "ruma-macros",
  "serde",
  "serde_json",
  "thiserror",
@@ -3736,10 +3712,10 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "js_int",
- "ruma-common 0.10.3",
+ "ruma-common",
  "serde",
  "serde_json",
 ]
@@ -3747,48 +3723,22 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabac62d16465a87435579c779d74dceabb93b09e44c766af6085050f3cc4275"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "js_int",
  "thiserror",
-]
-
-[[package]]
-name = "ruma-identifiers-validation"
-version = "0.9.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
-dependencies = [
- "js_int",
- "thiserror",
-]
-
-[[package]]
-name = "ruma-macros"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3e5a61180840ebfdeb4bcc4dc4a0d0c21aa22f587360b16b785c79058d99f3"
-dependencies = [
- "once_cell",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "ruma-identifiers-validation 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "syn",
- "toml",
 ]
 
 [[package]]
 name = "ruma-macros"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#999a70f6964798942dae3b28c4b2b01216683e35"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#347c050ade4fb02d0897e10c769c8a7f0a7d19c6"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "ruma-identifiers-validation 0.9.0 (git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync)",
+ "ruma-identifiers-validation",
  "serde",
  "syn",
  "toml",

@@ -81,8 +81,8 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        if let Some(account_data) = &account_data {
-            self.handle_account_data(&account_data.global, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
+            self.handle_account_data(&global_data, &mut changes).await;
         }
 
         let push_rules = self.get_push_rules(&changes).await?;
@@ -151,17 +151,14 @@ impl BaseClient {
                     None
                 };
 
-                let limited = room_data.limited.unwrap_or(false);
-
-                // FIXME not yet supported by sliding sync.
-                if limited {
+                if room_data.limited {
                     room_info.mark_members_missing();
                 }
 
                 let timeline = self
                     .handle_timeline(
                         &room,
-                        limited,
+                        room_data.limited,
                         room_data.timeline,
                         room_data.prev_batch,
                         &push_rules,
@@ -200,7 +197,7 @@ impl BaseClient {
                     JoinedRoom::new(
                         timeline,
                         v3::State::with_events(room_data.required_state.clone()),
-                        room_account_data.unwrap_or_default(), // room_info.account_data,
+                        room_account_data.unwrap_or_default(),
                         Default::default(),                    // room_info.ephemeral,
                         notification_count,
                     ),
@@ -214,8 +211,8 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        if let Some(account_data) = &account_data {
-            self.handle_account_data(&account_data.global, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
+            self.handle_account_data(&global_data, &mut changes).await;
         }
 
         // FIXME not yet supported by sliding sync.
