@@ -175,7 +175,7 @@ impl Client {
                             &*session_verification_controller.read().await
                         {
                             session_verification_controller
-                                .process_to_device_messages(sync_response.to_device)
+                                .process_to_device_messages(sync_response.to_device_events)
                                 .await;
                         }
 

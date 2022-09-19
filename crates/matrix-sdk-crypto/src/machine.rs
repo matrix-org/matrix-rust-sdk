@@ -31,13 +31,12 @@ use ruma::{
             upload_keys,
             upload_signatures::v3::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::{
-            v3::ToDevice, DeviceLists
-        }
+        sync::sync_events::DeviceLists,
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId,
@@ -865,11 +864,11 @@ impl OlmMachine {
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     pub async fn receive_sync_changes(
         &self,
-        to_device_events: ToDevice,
+        to_device_events: Vec<Raw<AnyToDeviceEvent>>,
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
-    ) -> OlmResult<ToDevice> {
+    ) -> OlmResult<Vec<Raw<AnyToDeviceEvent>>> {
         // Remove verification objects that have expired or are done.
         let mut events = self.verification_machine.garbage_collect();
 
@@ -886,7 +885,7 @@ impl OlmMachine {
             }
         }
 
-        for mut raw_event in to_device_events.events {
+        for mut raw_event in to_device_events {
             let event: ToDeviceEvents = match raw_event.deserialize_as() {
                 Ok(e) => e,
                 Err(e) => {
@@ -976,10 +975,7 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        let mut to_device = ToDevice::new();
-        to_device.events = events;
-
-        Ok(to_device)
+        Ok(events)
     }
 
     /// Request a room key from our devices.

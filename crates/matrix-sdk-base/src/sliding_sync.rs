@@ -30,36 +30,47 @@ impl BaseClient {
             // next_batch,
             rooms,
             lists,
+            extensions,
             // FIXME: missing compared to v3::Response
             //presence,
-            //account_data,
-            //to_device,
-            //device_lists,
-            //device_one_time_keys_count,
-            //device_unused_fallback_key_types,
             ..
         } = response;
 
-        // FIXME not yet supported by sliding sync. see
-        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-        // #[cfg(feature = "encryption")]
-        // let to_device = {
-        //     if let Some(o) = self.olm_machine().await {
-        //         // Let the crypto machine handle the sync response, this
-        //         // decrypts to-device events, but leaves room events alone.
-        //         // This makes sure that we have the decryption keys for the room
-        //         // events at hand.
-        //         o.receive_sync_changes(
-        //             to_device,
-        //             &device_lists,
-        //             &device_one_time_keys_count,
-        //             device_unused_fallback_key_types.as_deref(),
-        //         )
-        //         .await?
-        //     } else {
-        //         to_device
-        //     }
-        // };
+        let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
+
+        let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
+
+        //#[cfg(feature = "encryption")]
+        let to_device_events = {
+            if let Some(e2ee) = &e2ee {
+                if let Some(o) = self.olm_machine() {
+                    // Let the crypto machine handle the sync response, this
+                    // decrypts to-device events, but leaves room events alone.
+                    // This makes sure that we have the decryption keys for the room
+                    // events at hand.
+                    o.receive_sync_changes(
+                        to_device_events,
+                        &e2ee.device_lists,
+                        &e2ee.device_one_time_keys_count,
+                        e2ee.device_unused_fallback_key_types.as_deref(),
+                    )
+                    .await?
+                } else {
+                    to_device_events
+                }
+            } else {
+                to_device_events
+            }
+        };
+
+        let (device_lists, device_one_time_keys_count) = if let Some(e2ee) = e2ee {
+            (
+                e2ee.device_lists,
+                e2ee.device_one_time_keys_count.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            )
+        } else {
+            Default::default()
+        };
 
         if rooms.is_empty() {
             // nothing for us to handle here
@@ -70,8 +81,9 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        // FIXME not yet supported by sliding sync.
-        // self.handle_account_data(&account_data.events, &mut changes).await;
+        if let Some(account_data) = &account_data {
+            self.handle_account_data(&account_data.global, &mut changes).await;
+        }
 
         let _push_rules = self.get_push_rules(&changes).await?;
 
@@ -130,9 +142,16 @@ impl BaseClient {
                 //     changes.add_receipts(&room_id, event);
                 // }
 
-                // FIXME not yet supported by sliding sync.
-                // self.handle_room_account_data(&room_id, &room_data.account_data.events, &mut
-                // changes)     .await;
+                let room_account_data = if let Some(inner_account_data) = &account_data {
+                    if let Some(events) = inner_account_data.rooms.get(room_id) {
+                        self.handle_room_account_data(&room_id, events, &mut changes).await;
+                        Some(events.to_vec())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 // FIXME not yet supported by sliding sync.
                 // if room_data.timeline.limited {
@@ -189,8 +208,8 @@ impl BaseClient {
                     JoinedRoom::new(
                         Default::default(), //timeline,
                         v3::State::with_events(room_data.required_state.clone()),
-                        Default::default(), // room_info.account_data,
-                        Default::default(), // room_info.ephemeral,
+                        room_account_data.unwrap_or_default(), // room_info.account_data,
+                        Default::default(),                    // room_info.ephemeral,
                         notification_count,
                     ),
                 );
@@ -199,9 +218,13 @@ impl BaseClient {
             }
         }
 
-        // FIXME not yet supported by sliding sync. see
-        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-        // self.handle_account_data(&account_data.events, &mut changes).await;
+        // TODO remove this, we're processing account data events here again
+        // because we want to have the push rules in place before we process
+        // rooms and their events, but we want to create the rooms before we
+        // process the `m.direct` account data event.
+        if let Some(account_data) = &account_data {
+            self.handle_account_data(&account_data.global, &mut changes).await;
+        }
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
@@ -228,10 +251,10 @@ impl BaseClient {
             notifications: changes.notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
-            account_data: Default::default(),
-            to_device: Default::default(),
-            device_lists: Default::default(),
-            device_one_time_keys_count: Default::default(),
+            account_data: account_data.map(|a| a.global).unwrap_or_default(),
+            to_device_events,
+            device_lists,
+            device_one_time_keys_count,
         })
     }
 }

@@ -502,7 +502,7 @@ impl BaseClient {
         Ok(user_ids)
     }
 
-    async fn handle_room_account_data(
+    pub(crate) async fn handle_room_account_data(
         &self,
         room_id: &RoomId,
         events: &[Raw<AnyRoomAccountDataEvent>],
@@ -515,7 +515,7 @@ impl BaseClient {
         }
     }
 
-    async fn handle_account_data(
+    pub(crate) async fn handle_account_data(
         &self,
         events: &[Raw<AnyGlobalAccountDataEvent>],
         changes: &mut StateChanges,
@@ -589,22 +589,24 @@ impl BaseClient {
 
         let now = Instant::now();
 
+        let to_device_events = to_device.events;
+
         #[cfg(feature = "e2e-encryption")]
-        let to_device = {
+        let to_device_events = {
             if let Some(o) = self.olm_machine() {
                 // Let the crypto machine handle the sync response, this
                 // decrypts to-device events, but leaves room events alone.
                 // This makes sure that we have the decryption keys for the room
                 // events at hand.
                 o.receive_sync_changes(
-                    to_device,
+                    to_device_events,
                     &device_lists,
                     &device_one_time_keys_count,
                     device_unused_fallback_key_types.as_deref(),
                 )
                 .await?
             } else {
-                to_device
+                to_device_events
             }
         };
 
@@ -701,7 +703,7 @@ impl BaseClient {
                 JoinedRoom::new(
                     timeline,
                     new_info.state,
-                    new_info.account_data,
+                    new_info.account_data.events,
                     new_info.ephemeral,
                     notification_count,
                 ),
@@ -789,8 +791,8 @@ impl BaseClient {
             next_batch,
             rooms: new_rooms,
             presence,
-            account_data,
-            to_device,
+            account_data: account_data.events,
+            to_device_events,
             device_lists,
             device_one_time_keys_count: device_one_time_keys_count
                 .into_iter()
