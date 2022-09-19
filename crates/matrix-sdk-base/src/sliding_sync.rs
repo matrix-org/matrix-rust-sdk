@@ -85,17 +85,17 @@ impl BaseClient {
             self.handle_account_data(&account_data.global, &mut changes).await;
         }
 
-        let _push_rules = self.get_push_rules(&changes).await?;
+        let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
-        for (room_id, room_data) in &rooms {
+        for (room_id, room_data) in rooms.into_iter() {
             if !room_data.invite_state.is_empty() {
                 let invite_states = &room_data.invite_state;
-                let room = store.get_or_create_stripped_room(room_id).await;
+                let room = store.get_or_create_stripped_room(&room_id).await;
                 let mut room_info = room.clone_info();
 
-                if let Some(r) = store.get_room(room_id) {
+                if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     changes.add_room(room_info);
@@ -108,7 +108,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
 
@@ -117,18 +117,16 @@ impl BaseClient {
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-                let user_ids = if room_data.required_state.is_empty() {
-                    None
-                } else {
-                    Some(
-                        self.handle_state(
-                            &room_data.required_state,
-                            &mut room_info,
-                            &mut changes,
-                            &mut ambiguity_cache,
-                        )
-                        .await?,
+                let mut user_ids = if !room_data.required_state.is_empty() {
+                    self.handle_state(
+                        &room_data.required_state,
+                        &mut room_info,
+                        &mut changes,
+                        &mut ambiguity_cache,
                     )
+                    .await?
+                } else {
+                    Default::default()
                 };
 
                 // FIXME not yet supported by sliding sync. see
@@ -143,7 +141,7 @@ impl BaseClient {
                 // }
 
                 let room_account_data = if let Some(inner_account_data) = &account_data {
-                    if let Some(events) = inner_account_data.rooms.get(room_id) {
+                    if let Some(events) = inner_account_data.rooms.get(&room_id) {
                         self.handle_room_account_data(&room_id, events, &mut changes).await;
                         Some(events.to_vec())
                     } else {
@@ -153,32 +151,26 @@ impl BaseClient {
                     None
                 };
 
+                let limited = room_data.limited.unwrap_or(false);
+
                 // FIXME not yet supported by sliding sync.
-                // if room_data.timeline.limited {
-                //     room_info.mark_members_missing();
-                // }
+                if limited {
+                    room_info.mark_members_missing();
+                }
 
-                // let timeline = self
-                //     .handle_timeline(
-                //         &room,
-                //         room_data.timeline,
-                //         &push_rules,
-                //         &mut room_info,
-                //         &mut changes,
-                //         &mut ambiguity_cache,
-                //         &mut user_ids,
-                //     )
-                //     .await?;
-
-                // let timeline_slice = TimelineSlice::new(
-                //     timeline.events.clone(),
-                //     next_batch.clone(),
-                //     timeline.prev_batch.clone(),
-                //     timeline.limited,
-                //     true,
-                // );
-
-                // changes.add_timeline(&room_id, timeline_slice);
+                let timeline = self
+                    .handle_timeline(
+                        &room,
+                        limited,
+                        room_data.timeline,
+                        room_data.prev_batch,
+                        &push_rules,
+                        &mut user_ids,
+                        &mut room_info,
+                        &mut changes,
+                        &mut ambiguity_cache,
+                    )
+                    .await?;
 
                 #[cfg(feature = "e2e-encryption")]
                 if room_info.is_encrypted() {
@@ -187,15 +179,15 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
-                            let joined = store.get_joined_user_ids(room_id).await?;
-                            let invited = store.get_invited_user_ids(room_id).await?;
+                            let joined = store.get_joined_user_ids(&room_id).await?;
+                            let invited = store.get_invited_user_ids(&room_id).await?;
 
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
                             o.update_tracked_users(user_ids).await
                         }
 
-                        if let Some(user_ids) = user_ids {
+                        if !user_ids.is_empty() {
                             o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
                         }
                     }
@@ -206,7 +198,7 @@ impl BaseClient {
                 new_rooms.join.insert(
                     room_id.clone(),
                     JoinedRoom::new(
-                        Default::default(), //timeline,
+                        timeline,
                         v3::State::with_events(room_data.required_state.clone()),
                         room_account_data.unwrap_or_default(), // room_info.account_data,
                         Default::default(),                    // room_info.ephemeral,

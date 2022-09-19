@@ -255,10 +255,12 @@ impl BaseClient {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn handle_timeline(
+    pub(crate) async fn handle_timeline(
         &self,
         room: &Room,
-        ruma_timeline: api::sync::sync_events::v3::Timeline,
+        limited: bool,
+        events: Vec<Raw<AnySyncTimelineEvent>>,
+        prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
@@ -267,10 +269,10 @@ impl BaseClient {
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
-        let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
+        let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
-        for event in ruma_timeline.events {
+        for event in events {
             #[allow(unused_mut)]
             let mut event: SyncTimelineEvent = event.into();
 
@@ -652,7 +654,9 @@ impl BaseClient {
             let timeline = self
                 .handle_timeline(
                     &room,
-                    new_info.timeline,
+                    new_info.timeline.limited,
+                    new_info.timeline.events,
+                    new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
                     &mut room_info,
@@ -729,7 +733,9 @@ impl BaseClient {
             let timeline = self
                 .handle_timeline(
                     &room,
-                    new_info.timeline,
+                    new_info.timeline.limited,
+                    new_info.timeline.events,
+                    new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
                     &mut room_info,
