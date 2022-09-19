@@ -31,7 +31,9 @@ use ruma::{
             upload_keys,
             upload_signatures::v3::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::v3::{DeviceLists, ToDevice},
+        sync::sync_events::{
+            v3::ToDevice, DeviceLists
+        }
     },
     assign,
     events::{

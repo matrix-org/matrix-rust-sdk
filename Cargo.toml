@@ -29,3 +29,7 @@ debug = 0
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
+
+[patch.crates-io]
+ruma = { git = "https://github.com/gnunicorn/ruma", branch = "ben-update-sliding-sync"}
+ruma-common = { git = "https://github.com/gnunicorn/ruma", branch = "ben-update-sliding-sync"}

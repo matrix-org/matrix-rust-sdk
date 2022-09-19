@@ -5,10 +5,10 @@ use ruma::{
         push::get_notifications::v3::Notification,
         sync::sync_events::{
             v3::{
-                DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
+                Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
                 State, ToDevice,
             },
-            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+            UnreadNotificationsCount as RumaUnreadNotificationsCount, DeviceLists, 
         },
     },
     events::{
