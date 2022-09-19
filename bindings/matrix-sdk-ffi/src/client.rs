@@ -3,13 +3,14 @@ use std::sync::{Arc, RwLock};
 use anyhow::anyhow;
 use matrix_sdk::{
     config::SyncSettings,
-    media::{MediaFormat, MediaRequest},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::{
             client::{
                 account::whoami,
                 error::ErrorKind,
                 filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+                media::get_content_thumbnail::v3::Method,
                 session::get_login_types,
                 sync::sync_events::v3::Filter,
             },
@@ -17,7 +18,7 @@ use matrix_sdk::{
         },
         events::room::MediaSource,
         serde::Raw,
-        TransactionId,
+        TransactionId, UInt,
     },
     Client as MatrixClient, Error, HttpError, LoopCtrl, RumaApiError, Session,
 };
@@ -256,6 +257,32 @@ impl Client {
         RUNTIME.block_on(async move {
             Ok(l.media()
                 .get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
+                .await?)
+        })
+    }
+
+    pub fn get_media_thumbnail(
+        &self,
+        media_source: Arc<MediaSource>,
+        width: u64,
+        height: u64,
+    ) -> anyhow::Result<Vec<u8>> {
+        let l = self.client.clone();
+        let source = (*media_source).clone();
+
+        RUNTIME.block_on(async move {
+            Ok(l.media()
+                .get_media_content(
+                    &MediaRequest {
+                        source,
+                        format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                            method: Method::Scale,
+                            width: UInt::new(width).unwrap(),
+                            height: UInt::new(height).unwrap(),
+                        }),
+                    },
+                    true,
+                )
                 .await?)
         })
     }
