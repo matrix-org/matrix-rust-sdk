@@ -516,6 +516,11 @@ impl SlidingSync {
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                #[cfg(feature = "e2e-encryption")]
+                if let Err(e) = client.send_outgoing_requests().await {
+                    tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
+                }
+
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();

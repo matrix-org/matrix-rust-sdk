@@ -40,7 +40,7 @@ impl BaseClient {
 
         let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
 
-        //#[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let to_device_events = {
             if let Some(e2ee) = &e2ee {
                 if let Some(o) = self.olm_machine() {
