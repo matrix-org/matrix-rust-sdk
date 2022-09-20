@@ -310,14 +310,6 @@ impl Client {
         handle
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn event_handler_drop_guard(
-        &self,
-        handle: EventHandlerHandle,
-    ) -> EventHandlerDropGuard {
-        EventHandlerDropGuard { client: self.clone(), handle }
-    }
-
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: HandlerKind,
@@ -444,10 +436,20 @@ impl Client {
     }
 }
 
+/// A guard type that removes an event handler when it drops (goes out of
+/// scope).
+///
+/// Created with [`Client::event_handler_drop_guard`].
 #[derive(Debug)]
-pub(crate) struct EventHandlerDropGuard {
+pub struct EventHandlerDropGuard {
     handle: EventHandlerHandle,
     client: Client,
+}
+
+impl EventHandlerDropGuard {
+    pub(crate) fn new(handle: EventHandlerHandle, client: Client) -> Self {
+        Self { handle, client }
+    }
 }
 
 impl Drop for EventHandlerDropGuard {
