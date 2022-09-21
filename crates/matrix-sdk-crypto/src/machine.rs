@@ -1338,10 +1338,10 @@ impl OlmMachine {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-    /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
     /// # });
     /// ```
-    pub async fn import_keys(
+    pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
         #[allow(unused_variables)] from_backup: bool,

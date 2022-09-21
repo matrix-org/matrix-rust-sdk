@@ -86,7 +86,7 @@ pub enum KeyExportError {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-/// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
+/// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
 /// # });
 /// ```
 pub fn decrypt_key_export(
@@ -332,7 +332,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
-        let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
+        let export = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
@@ -344,7 +344,7 @@ mod tests {
         }
 
         assert_eq!(
-            machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
+            machine.import_room_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
     }
@@ -369,17 +369,17 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
 
         let export = vec![session.export_at_index(10).await];
         assert_eq!(
-            machine.import_keys(export, false, |_, _| {}).await?,
+            machine.import_room_keys(export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
 
         let better_export = vec![session.export().await];
 
-        assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(better_export, false, |_, _| {}).await?, keys);
 
         let another_session = machine.create_inbound_session(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
@@ -396,7 +396,7 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
 
         Ok(())
     }

@@ -360,7 +360,7 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     string export_room_keys([ByRef] string passphrase, i32 rounds);
     [Throws=KeyImportError]
-    KeysImportResult import_keys(
+    KeysImportResult import_room_keys(
         [ByRef] string keys,
         [ByRef] string passphrase,
         ProgressListener progress_listener

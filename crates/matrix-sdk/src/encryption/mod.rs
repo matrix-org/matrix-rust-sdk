@@ -783,7 +783,7 @@ impl Encryption {
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// let result =
-    ///     client.encryption().import_keys(path, "secret-passphrase").await?;
+    ///     client.encryption().import_room_keys(path, "secret-passphrase").await?;
     ///
     /// println!(
     ///     "Imported {} room keys out of {}",
@@ -792,7 +792,7 @@ impl Encryption {
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn import_keys(
+    pub async fn import_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -808,7 +808,7 @@ impl Encryption {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.import_keys(import, false, |_, _| {}).await?)
+        Ok(olm.import_room_keys(import, false, |_, _| {}).await?)
     }
 }
 
