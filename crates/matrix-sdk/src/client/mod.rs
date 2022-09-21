@@ -36,9 +36,6 @@ use matrix_sdk_common::{
     instant::Instant,
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
-#[cfg(feature = "appservice")]
-use ruma::TransactionId;
-use mime::{self, Mime};
 use ruma::{
     api::{
         client::{
