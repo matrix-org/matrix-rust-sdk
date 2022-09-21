@@ -1,4 +1,4 @@
-namespace olm {
+namespace matrix_sdk_crypto_ffi {
     void set_logger(Logger logger);
     [Throws=MigrationError]
     void migrate(
