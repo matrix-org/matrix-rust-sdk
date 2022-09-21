@@ -658,6 +658,9 @@ impl OlmMachine {
     /// `exported_keys` is a list of previously exported keys that should be
     /// imported into our store. If we already have a better version of a key,
     /// the key will _not_ be imported.
+    ///
+    /// `progress_listener` is a closure that takes 2 arguments: `progress` and
+    /// `total`, and returns nothing.
     #[wasm_bindgen(js_name = "importRoomKeys")]
     pub fn import_room_keys(
         &self,
