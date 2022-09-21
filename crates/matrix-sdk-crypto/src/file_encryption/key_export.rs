@@ -334,7 +334,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
-        let export = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
+        let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
