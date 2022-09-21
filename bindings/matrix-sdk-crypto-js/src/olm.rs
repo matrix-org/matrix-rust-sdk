@@ -42,6 +42,7 @@ impl CrossSigningStatus {
 /// Inbound group sessions are used to exchange room messages between a group of
 /// participants. Inbound group sessions are used to decrypt the room messages.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct InboundGroupSession {
     inner: matrix_sdk_crypto::olm::InboundGroupSession,
 }
