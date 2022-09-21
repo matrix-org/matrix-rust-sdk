@@ -1434,7 +1434,7 @@ impl OlmMachine {
     /// # Examples
     ///
     /// ```no_run
-    /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
+    /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
     /// # use ruma::{device_id, user_id, room_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
@@ -1442,7 +1442,7 @@ impl OlmMachine {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
-    /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
+    /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
     /// # });
     /// ```
     pub async fn export_room_keys(

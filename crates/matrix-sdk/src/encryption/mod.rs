@@ -743,7 +743,7 @@ impl Encryption {
 
         let encrypt = move || -> Result<()> {
             let export: String =
-                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
+                matrix_sdk_base::crypto::encrypt_room_key_export(&keys, &passphrase, 500_000)?;
             let mut file = std::fs::File::create(path)?;
             file.write_all(&export.into_bytes())?;
             Ok(())

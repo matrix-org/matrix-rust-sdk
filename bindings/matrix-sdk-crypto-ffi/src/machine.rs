@@ -10,7 +10,7 @@ use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_key_export,
+    backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_room_key_export,
     matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
     EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
     Verification as RustVerification,
@@ -665,7 +665,7 @@ impl OlmMachine {
     ) -> Result<String, CryptoStoreError> {
         let keys = self.runtime.block_on(self.inner.export_room_keys(|_| true))?;
 
-        let encrypted = encrypt_key_export(&keys, passphrase, rounds as u32)
+        let encrypted = encrypt_room_key_export(&keys, passphrase, rounds as u32)
             .map_err(CryptoStoreError::Serialization)?;
 
         Ok(encrypted)

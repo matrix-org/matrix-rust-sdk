@@ -135,7 +135,7 @@ pub fn decrypt_key_export(
 ///
 /// # Examples
 /// ```no_run
-/// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
+/// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
 /// # use ruma::{device_id, user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
@@ -143,10 +143,10 @@ pub fn decrypt_key_export(
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
-/// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
+/// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```
-pub fn encrypt_key_export(
+pub fn encrypt_room_key_export(
     keys: &[ExportedRoomKey],
     passphrase: &str,
     rounds: u32,
@@ -283,7 +283,9 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
+    use super::{
+        decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_room_key_export,
+    };
     use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
     const PASSPHRASE: &str = "1234";
@@ -336,7 +338,7 @@ mod tests {
 
         assert!(!export.is_empty());
 
-        let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
+        let encrypted = encrypt_room_key_export(&export, "1234", 1).unwrap();
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
