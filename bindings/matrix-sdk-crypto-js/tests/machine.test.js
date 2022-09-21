@@ -5,6 +5,7 @@ const {
     DeviceKeyId,
     DeviceLists,
     EncryptionSettings,
+    InboundGroupSession,
     KeysClaimRequest,
     KeysQueryRequest,
     KeysUploadRequest,
@@ -19,6 +20,7 @@ const {
     VerificationRequest,
     VerificationState,
 } = require('../pkg/matrix_sdk_crypto_js');
+const { addMachineToMachine } = require('./helper');
 require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
@@ -490,5 +492,30 @@ describe(OlmMachine.name, () => {
         const isTrusted = await identity.trustsOurOwnDevice();
 
         expect(isTrusted).toStrictEqual(false);
+    });
+
+    test('can export room keys', async () => {
+        const m = await machine();
+        await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings());
+
+        const exportedRoomKeys = JSON.parse(await m.exportRoomKeys(session => {
+            expect(session).toBeInstanceOf(InboundGroupSession);
+            expect(session.roomId.toString()).toStrictEqual(room.toString());
+
+            return true;
+        }));
+
+        expect(exportedRoomKeys).toHaveLength(1);
+        expect(exportedRoomKeys[0]).toMatchObject({
+            algorithm: expect.any(String),
+            room_id: room.toString(),
+            sender_key: expect.any(String),
+            session_id: expect.any(String),
+            session_key: expect.any(String),
+            sender_claimed_keys: {
+                ed25519: expect.any(String),
+            },
+            forwarding_curve25519_key_chain: [],
+        });
     });
 });

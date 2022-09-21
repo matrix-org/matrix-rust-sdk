@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use js_sys::{Array, Map, Promise, Set};
+use js_sys::{Array, Function, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
@@ -625,5 +625,25 @@ impl OlmMachine {
                 .await
                 .map(|_| JsValue::UNDEFINED)?)
         }))
+    }
+
+    #[wasm_bindgen(js_name = "exportRoomKeys")]
+    pub fn export_room_keys(&self, predicate: Function) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(serde_json::to_string(
+                &me.export_room_keys(|session| {
+                    let session = session.clone();
+
+                    predicate
+                        .call1(&JsValue::NULL, &olm::InboundGroupSession::from(session).into())
+                        .expect("Predicate function passed to `export_room_keys` failed")
+                        .as_bool()
+                        .unwrap_or(false)
+                })
+                .await?,
+            )?)
+        })
     }
 }
