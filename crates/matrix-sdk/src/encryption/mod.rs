@@ -716,7 +716,7 @@ impl Encryption {
     /// // Export all room keys.
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |_| true)
+    ///     .export_room_keys(path, "secret-passphrase", |_| true)
     ///     .await?;
     ///
     /// // Export only the room keys for a certain room.
@@ -725,12 +725,12 @@ impl Encryption {
     ///
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
+    ///     .export_room_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_keys(
+    pub async fn export_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -738,12 +738,12 @@ impl Encryption {
     ) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
-        let keys = olm.export_keys(predicate).await?;
+        let keys = olm.export_room_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
         let encrypt = move || -> Result<()> {
             let export: String =
-                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
+                matrix_sdk_base::crypto::encrypt_room_key_export(&keys, &passphrase, 500_000)?;
             let mut file = std::fs::File::create(path)?;
             file.write_all(&export.into_bytes())?;
             Ok(())
@@ -783,7 +783,7 @@ impl Encryption {
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// let result =
-    ///     client.encryption().import_keys(path, "secret-passphrase").await?;
+    ///     client.encryption().import_room_keys(path, "secret-passphrase").await?;
     ///
     /// println!(
     ///     "Imported {} room keys out of {}",
@@ -792,7 +792,7 @@ impl Encryption {
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn import_keys(
+    pub async fn import_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -802,13 +802,13 @@ impl Encryption {
 
         let decrypt = move || {
             let file = std::fs::File::open(path)?;
-            matrix_sdk_base::crypto::decrypt_key_export(file, &passphrase)
+            matrix_sdk_base::crypto::decrypt_room_key_export(file, &passphrase)
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.import_keys(import, false, |_, _| {}).await?)
+        Ok(olm.import_room_keys(import, false, |_, _| {}).await?)
     }
 }
 

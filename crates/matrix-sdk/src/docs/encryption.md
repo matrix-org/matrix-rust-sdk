@@ -84,10 +84,10 @@ comes first.
 
 Since room keys get relatively often rotated, each room key will need to be
 stored, otherwise we won't be able to decrypt historical messages. The SDK
-stores all room keys locally in a encrypted manner.
+stores all room keys locally in an encrypted manner.
 
 Besides storing them as part of the SDK store, users can export room keys
-using the [`Encryption::export_keys`] method.
+using the [`Encryption::export_room_keys`] method.
 
 # Verification
 
