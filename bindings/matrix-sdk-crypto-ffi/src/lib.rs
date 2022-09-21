@@ -467,6 +467,10 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
+mod uniffi_types {
+    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
+}
+
 #[allow(warnings)]
 mod generated {
     use super::*;

@@ -256,10 +256,6 @@ interface OlmMachine {
         string? passphrase
     );
 
-    record<DOMString, string> identity_keys();
-    string user_id();
-    string device_id();
-
     [Throws=CryptoStoreError]
     string receive_sync_changes([ByRef] string events,
                               DeviceLists device_changes,
@@ -438,8 +434,6 @@ interface BackupRecoveryKey {
     constructor(string key);
     [Name=from_base58, Throws=DecodeError]
     constructor(string key);
-    string to_base58();
-    string to_base64();
     MegolmV1BackupKey megolm_v1_public_key();
     [Throws=PkDecryptionError]
     string decrypt_v1(string ephemeral_key, string mac, string ciphertext);
