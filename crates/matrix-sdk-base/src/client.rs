@@ -625,7 +625,6 @@ impl BaseClient {
     }
 
     /// Processes everything from the `/sync` `join` timeline.
-    #[allow(unused_variables)]
     async fn process_joined_rooms(
         &self,
         joined_rooms: BTreeMap<OwnedRoomId, api::sync::sync_events::v3::JoinedRoom>,
