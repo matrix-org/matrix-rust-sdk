@@ -494,28 +494,51 @@ describe(OlmMachine.name, () => {
         expect(isTrusted).toStrictEqual(false);
     });
 
-    test('can export room keys', async () => {
-        const m = await machine();
-        await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings());
+    describe('can export/import room keys', () => {
+        let m;
+        let exportedRoomKeys;
 
-        const exportedRoomKeys = JSON.parse(await m.exportRoomKeys(session => {
-            expect(session).toBeInstanceOf(InboundGroupSession);
-            expect(session.roomId.toString()).toStrictEqual(room.toString());
+        test('can export room keys', async () => {
+            m = await machine();
+            await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings());
 
-            return true;
-        }));
+            exportedRoomKeys = JSON.parse(await m.exportRoomKeys(session => {
+                expect(session).toBeInstanceOf(InboundGroupSession);
+                expect(session.roomId.toString()).toStrictEqual(room.toString());
 
-        expect(exportedRoomKeys).toHaveLength(1);
-        expect(exportedRoomKeys[0]).toMatchObject({
-            algorithm: expect.any(String),
-            room_id: room.toString(),
-            sender_key: expect.any(String),
-            session_id: expect.any(String),
-            session_key: expect.any(String),
-            sender_claimed_keys: {
-                ed25519: expect.any(String),
-            },
-            forwarding_curve25519_key_chain: [],
+                return true;
+            }));
+
+            expect(exportedRoomKeys).toHaveLength(1);
+            expect(exportedRoomKeys[0]).toMatchObject({
+                algorithm: expect.any(String),
+                room_id: room.toString(),
+                sender_key: expect.any(String),
+                session_id: expect.any(String),
+                session_key: expect.any(String),
+                sender_claimed_keys: {
+                    ed25519: expect.any(String),
+                },
+                forwarding_curve25519_key_chain: [],
+            });
+        });
+
+        test('can import room keys', async () => {
+            const progressListener = (progress, total) => {
+                expect(progress).toBeLessThan(total);
+
+                // Since it's called only once, let's be crazy.
+                expect(progress).toStrictEqual(0n);
+                expect(total).toStrictEqual(1n);
+            };
+
+            const result = JSON.parse(await m.importRoomKeys(JSON.stringify(exportedRoomKeys), progressListener));
+
+            expect(result).toMatchObject({
+                imported_count: expect.any(Number),
+                total_count: expect.any(Number),
+                keys: expect.any(Object),
+            });
         });
     });
 });
