@@ -366,7 +366,7 @@ interface OlmMachine {
         ProgressListener progress_listener
     );
     [Throws=KeyImportError]
-    KeysImportResult import_decrypted_keys(
+    KeysImportResult import_decrypted_room_keys(
         [ByRef] string keys,
         ProgressListener progress_listener
     );
