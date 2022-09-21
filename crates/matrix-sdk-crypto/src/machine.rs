@@ -1330,14 +1330,14 @@ impl OlmMachine {
     /// # Examples
     /// ```no_run
     /// # use std::io::Cursor;
-    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
+    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
-    /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
+    /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
     /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
     /// # });
     /// ```

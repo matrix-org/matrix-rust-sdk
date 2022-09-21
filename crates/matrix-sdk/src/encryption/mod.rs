@@ -802,7 +802,7 @@ impl Encryption {
 
         let decrypt = move || {
             let file = std::fs::File::open(path)?;
-            matrix_sdk_base::crypto::decrypt_key_export(file, &passphrase)
+            matrix_sdk_base::crypto::decrypt_room_key_export(file, &passphrase)
         };
 
         let task = tokio::task::spawn_blocking(decrypt);

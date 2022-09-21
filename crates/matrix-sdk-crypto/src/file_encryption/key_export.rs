@@ -78,18 +78,18 @@ pub enum KeyExportError {
 /// # Examples
 /// ```no_run
 /// # use std::io::Cursor;
-/// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
+/// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
 /// # use ruma::{device_id, user_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
 /// # block_on(async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
-/// let exported_keys = decrypt_key_export(export, "1234").unwrap();
+/// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
 /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
 /// # });
 /// ```
-pub fn decrypt_key_export(
+pub fn decrypt_room_key_export(
     mut input: impl Read,
     passphrase: &str,
 ) -> Result<Vec<ExportedRoomKey>, KeyExportError> {
@@ -284,7 +284,7 @@ mod tests {
     use ruma::room_id;
 
     use super::{
-        decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_room_key_export,
+        decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
     };
     use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
@@ -339,7 +339,7 @@ mod tests {
         assert!(!export.is_empty());
 
         let encrypted = encrypt_room_key_export(&export, "1234", 1).unwrap();
-        let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
+        let decrypted = decrypt_room_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
             assert_eq!(exported.session_key.to_base64(), decrypted.session_key.to_base64());
@@ -406,7 +406,8 @@ mod tests {
     #[test]
     fn test_real_decrypt() {
         let reader = Cursor::new(TEST_EXPORT);
-        let imported = decrypt_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
+        let imported =
+            decrypt_room_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
         assert!(!imported.is_empty())
     }
 }
