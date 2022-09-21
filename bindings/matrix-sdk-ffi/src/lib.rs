@@ -13,6 +13,8 @@ pub mod session_verification;
 pub mod sliding_sync;
 mod uniffi_api;
 
+use std::io;
+
 use client::Client;
 use client_builder::ClientBuilder;
 use matrix_sdk::Session;
@@ -66,7 +68,7 @@ impl From<anyhow::Error> for ClientError {
 fn setup_tracing(configuration: String) {
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(false))
+        .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
         .init();
 }
 
