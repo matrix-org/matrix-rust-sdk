@@ -36,6 +36,12 @@ impl BaseClient {
             ..
         } = response;
 
+        if rooms.is_empty() && extensions.is_empty() {
+            // we received a room reshuffling event only, there won't be anything for us to
+            // process. stop early
+            return Ok(SyncResponse::default());
+        };
+
         let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
 
         let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
@@ -70,11 +76,6 @@ impl BaseClient {
             )
         } else {
             Default::default()
-        };
-
-        if rooms.is_empty() {
-            // nothing for us to handle here
-            return Ok(SyncResponse::default());
         };
 
         let store = self.store.clone();

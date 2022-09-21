@@ -3642,7 +3642,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.7.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "assign",
  "js_int",
@@ -3656,7 +3656,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "ruma-common",
  "serde",
@@ -3666,7 +3666,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.15.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "assign",
  "bytes",
@@ -3682,7 +3682,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "base64",
  "bytes",
@@ -3712,7 +3712,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3723,7 +3723,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "js_int",
  "thiserror",
@@ -3732,7 +3732,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#939ecfede5d1c05f94658affd6d34509e765e89d"
+source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
