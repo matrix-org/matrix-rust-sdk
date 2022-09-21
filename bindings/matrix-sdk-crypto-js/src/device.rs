@@ -6,6 +6,8 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
+    impl_from_to_inner,
+    js::try_array_to_vec,
     types, verification, vodozemac,
 };
 
@@ -16,27 +18,15 @@ pub struct Device {
     pub(crate) inner: matrix_sdk_crypto::Device,
 }
 
-impl From<matrix_sdk_crypto::Device> for Device {
-    fn from(inner: matrix_sdk_crypto::Device) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::Device => Device);
 
 #[wasm_bindgen]
 impl Device {
     /// Request an interactive verification with this device.
     #[wasm_bindgen(js_name = "requestVerification")]
     pub fn request_verification(&self, methods: Option<Array>) -> Result<Promise, JsError> {
-        let methods = methods
-            .map(|array| {
-                array
-                    .iter()
-                    .map(|method| {
-                        verification::VerificationMethod::try_from(method).map(Into::into)
-                    })
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+        let methods =
+            methods.map(try_array_to_vec::<verification::VerificationMethod, _>).transpose()?;
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
@@ -228,11 +218,7 @@ pub struct UserDevices {
     pub(crate) inner: matrix_sdk_crypto::UserDevices,
 }
 
-impl From<matrix_sdk_crypto::UserDevices> for UserDevices {
-    fn from(inner: matrix_sdk_crypto::UserDevices) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::UserDevices => UserDevices);
 
 #[wasm_bindgen]
 impl UserDevices {

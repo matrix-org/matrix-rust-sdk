@@ -14,6 +14,8 @@ use wasm_bindgen::prelude::*;
 use crate::{
     future::future_to_promise,
     identifiers::{DeviceId, RoomId, UserId},
+    impl_from_to_inner,
+    js::try_array_to_vec,
     requests,
 };
 
@@ -136,11 +138,7 @@ pub struct Sas {
     inner: matrix_sdk_crypto::Sas,
 }
 
-impl From<matrix_sdk_crypto::Sas> for Sas {
-    fn from(inner: matrix_sdk_crypto::Sas) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::Sas => Sas);
 
 #[wasm_bindgen]
 impl Sas {
@@ -376,11 +374,7 @@ pub struct Qr {
 }
 
 #[cfg(feature = "qrcode")]
-impl From<matrix_sdk_crypto::QrVerification> for Qr {
-    fn from(inner: matrix_sdk_crypto::QrVerification) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::QrVerification => Qr);
 
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
@@ -555,11 +549,7 @@ pub struct CancelInfo {
     inner: matrix_sdk_crypto::CancelInfo,
 }
 
-impl From<matrix_sdk_crypto::CancelInfo> for CancelInfo {
-    fn from(inner: matrix_sdk_crypto::CancelInfo) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::CancelInfo => CancelInfo);
 
 #[wasm_bindgen]
 impl CancelInfo {
@@ -694,11 +684,7 @@ pub struct Emoji {
     inner: matrix_sdk_crypto::Emoji,
 }
 
-impl From<matrix_sdk_crypto::Emoji> for Emoji {
-    fn from(inner: matrix_sdk_crypto::Emoji) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::Emoji => Emoji);
 
 #[wasm_bindgen]
 impl Emoji {
@@ -731,11 +717,7 @@ impl fmt::Debug for QrCode {
 }
 
 #[cfg(feature = "qrcode")]
-impl From<matrix_sdk_qrcode::qrcode::QrCode> for QrCode {
-    fn from(inner: matrix_sdk_qrcode::qrcode::QrCode) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_qrcode::qrcode::QrCode => QrCode);
 
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
@@ -762,11 +744,7 @@ pub struct QrCodeScan {
 }
 
 #[cfg(feature = "qrcode")]
-impl From<matrix_sdk_qrcode::QrVerificationData> for QrCodeScan {
-    fn from(inner: matrix_sdk_qrcode::QrVerificationData) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_qrcode::QrVerificationData => QrCodeScan);
 
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
@@ -797,11 +775,7 @@ pub struct VerificationRequest {
     inner: matrix_sdk_crypto::VerificationRequest,
 }
 
-impl From<matrix_sdk_crypto::VerificationRequest> for VerificationRequest {
-    fn from(inner: matrix_sdk_crypto::VerificationRequest) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::VerificationRequest => VerificationRequest);
 
 #[wasm_bindgen]
 impl VerificationRequest {
@@ -816,14 +790,7 @@ impl VerificationRequest {
         other_user_id: &UserId,
         methods: Option<Array>,
     ) -> Result<String, JsError> {
-        let methods: Option<Vec<RumaVerificationMethod>> = methods
-            .map(|array| {
-                array
-                    .iter()
-                    .map(|method| VerificationMethod::try_from(method).map(Into::into))
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+        let methods = methods.map(try_array_to_vec::<VerificationMethod, _>).transpose()?;
 
         Ok(serde_json::to_string(&matrix_sdk_crypto::VerificationRequest::request(
             &own_user_id.inner,
@@ -964,10 +931,7 @@ impl VerificationRequest {
     /// or `undefined`.
     #[wasm_bindgen(js_name = "acceptWithMethods")]
     pub fn accept_with_methods(&self, methods: Array) -> Result<JsValue, JsError> {
-        let methods: Vec<RumaVerificationMethod> = methods
-            .iter()
-            .map(|method| VerificationMethod::try_from(method).map(Into::into))
-            .collect::<Result<_, _>>()?;
+        let methods = try_array_to_vec::<VerificationMethod, _>(methods)?;
 
         self.inner
             .accept_with_methods(methods)
@@ -1078,15 +1042,11 @@ impl VerificationRequest {
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hiding everything behind a
 // `JsValue`.
-pub(crate) struct OutgoingVerificationRequest(
-    pub(crate) matrix_sdk_crypto::OutgoingVerificationRequest,
-);
-
-impl From<matrix_sdk_crypto::OutgoingVerificationRequest> for OutgoingVerificationRequest {
-    fn from(inner: matrix_sdk_crypto::OutgoingVerificationRequest) -> Self {
-        Self(inner)
-    }
+pub(crate) struct OutgoingVerificationRequest {
+    pub(crate) inner: matrix_sdk_crypto::OutgoingVerificationRequest,
 }
+
+impl_from_to_inner!(matrix_sdk_crypto::OutgoingVerificationRequest => OutgoingVerificationRequest);
 
 impl TryFrom<OutgoingVerificationRequest> for JsValue {
     type Error = serde_json::Error;
@@ -1094,9 +1054,9 @@ impl TryFrom<OutgoingVerificationRequest> for JsValue {
     fn try_from(outgoing_request: OutgoingVerificationRequest) -> Result<Self, Self::Error> {
         use matrix_sdk_crypto::OutgoingVerificationRequest::*;
 
-        let request_id = outgoing_request.0.request_id().to_string();
+        let request_id = outgoing_request.inner.request_id().to_string();
 
-        Ok(match outgoing_request.0 {
+        Ok(match outgoing_request.inner {
             ToDevice(request) => {
                 JsValue::from(requests::ToDeviceRequest::try_from((request_id, &request))?)
             }

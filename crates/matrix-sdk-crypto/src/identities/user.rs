@@ -86,7 +86,7 @@ impl From<UserIdentity> for UserIdentities {
 
 /// Struct representing a cross signing identity of a user.
 ///
-/// This is the user identity of a user that isn't our own. Other users will
+/// This is the user identity of a user that is our own. Other users will
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 ///
