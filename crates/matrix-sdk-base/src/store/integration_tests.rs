@@ -799,7 +799,7 @@ macro_rules! statestore_integration_tests {
                     false,
                     true,
                 );
-                let mut changes = StateChanges::new(sync.next_batch.clone());
+                let mut changes = StateChanges::new(Some(sync.next_batch.clone()));
                 changes.add_timeline(room_id, timeline_slice);
                 store.save_changes(&changes).await.expect("Saving room timeline failed");
 
@@ -902,7 +902,7 @@ macro_rules! statestore_integration_tests {
                     false,
                     true,
                 );
-                let mut changes = StateChanges::new(sync.next_batch.clone());
+                let mut changes = StateChanges::new(Some(sync.next_batch.clone()));
                 changes.add_timeline(room_id, timeline_slice);
                 store.save_changes(&changes).await.expect("Saving room update timeline 3 failed");
 
