@@ -690,4 +690,42 @@ impl OlmMachine {
             }))?)
         }))
     }
+
+    /// Encrypt the list of exported room keys using the given passphrase.
+    ///
+    /// `exported_room_keys` is a list of sessions that should be encrypted
+    /// (it's generally returned by `export_room_keys`). `passphrase` is the
+    /// passphrase that will be used to encrypt the exported room keys. And
+    /// `rounds` is the number of rounds that should be used for the key
+    /// derivation when the passphrase gets turned into an AES key. More rounds
+    /// are increasingly computationnally intensive and as such help against
+    /// brute-force attacks. Should be at least `10_000`, while values in the
+    /// `100_000` ranges should be preferred.
+    #[wasm_bindgen(js_name = "encryptExportedRoomKeys")]
+    pub fn encrypt_exported_room_keys(
+        exported_room_keys: &str,
+        passphrase: &str,
+        rounds: u32,
+    ) -> Result<String, JsError> {
+        let exported_room_keys: Vec<matrix_sdk_crypto::olm::ExportedRoomKey> =
+            serde_json::from_str(exported_room_keys)?;
+
+        Ok(matrix_sdk_crypto::encrypt_room_key_export(&exported_room_keys, passphrase, rounds)?)
+    }
+
+    /// Try to decrypt a reader into a list of exported room keys.
+    ///
+    /// `encrypted_exported_room_keys` is the result from
+    /// `encrypt_exported_room_keys`. `passphrase` is the passphrase that was
+    /// used when calling `encrypt_exported_room_keys`.
+    #[wasm_bindgen(js_name = "decryptExportedRoomKeys")]
+    pub fn decrypt_exported_room_keys(
+        encrypted_exported_room_keys: &str,
+        passphrase: &str,
+    ) -> Result<String, JsError> {
+        Ok(serde_json::to_string(&matrix_sdk_crypto::decrypt_room_key_export(
+            encrypted_exported_room_keys.as_bytes(),
+            passphrase,
+        )?)?)
+    }
 }
