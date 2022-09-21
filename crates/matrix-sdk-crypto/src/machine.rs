@@ -1441,11 +1441,11 @@ impl OlmMachine {
     /// # block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
-    /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
+    /// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
     /// # });
     /// ```
-    pub async fn export_keys(
+    pub async fn export_room_keys(
         &self,
         mut predicate: impl FnMut(&InboundGroupSession) -> bool,
     ) -> StoreResult<Vec<ExportedRoomKey>> {

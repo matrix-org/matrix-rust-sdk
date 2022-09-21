@@ -125,7 +125,7 @@ pub fn decrypt_key_export(
 /// * `rounds` - The number of rounds that should be used for the key
 /// derivation when the passphrase gets turned into an AES key. More rounds are
 /// increasingly computationally intensive and as such help against brute-force
-/// attacks. Should be at least `10000`, while values in the `100000` ranges
+/// attacks. Should be at least `10_000`, while values in the `100_000` ranges
 /// should be preferred.
 ///
 /// # Panics
@@ -142,7 +142,7 @@ pub fn decrypt_key_export(
 /// # block_on(async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
-/// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
+/// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```
@@ -332,7 +332,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
-        let export = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
+        let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 

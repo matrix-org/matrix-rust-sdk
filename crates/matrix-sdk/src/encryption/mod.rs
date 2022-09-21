@@ -716,7 +716,7 @@ impl Encryption {
     /// // Export all room keys.
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |_| true)
+    ///     .export_room_keys(path, "secret-passphrase", |_| true)
     ///     .await?;
     ///
     /// // Export only the room keys for a certain room.
@@ -725,12 +725,12 @@ impl Encryption {
     ///
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
+    ///     .export_room_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_keys(
+    pub async fn export_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -738,7 +738,7 @@ impl Encryption {
     ) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
-        let keys = olm.export_keys(predicate).await?;
+        let keys = olm.export_room_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
         let encrypt = move || -> Result<()> {

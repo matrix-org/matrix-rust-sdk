@@ -658,8 +658,12 @@ impl OlmMachine {
     ///
     /// * `rounds` - The number of rounds that should be used when expanding the
     /// passphrase into an key.
-    pub fn export_keys(&self, passphrase: &str, rounds: i32) -> Result<String, CryptoStoreError> {
-        let keys = self.runtime.block_on(self.inner.export_keys(|_| true))?;
+    pub fn export_room_keys(
+        &self,
+        passphrase: &str,
+        rounds: i32,
+    ) -> Result<String, CryptoStoreError> {
+        let keys = self.runtime.block_on(self.inner.export_room_keys(|_| true))?;
 
         let encrypted = encrypt_key_export(&keys, passphrase, rounds as u32)
             .map_err(CryptoStoreError::Serialization)?;
