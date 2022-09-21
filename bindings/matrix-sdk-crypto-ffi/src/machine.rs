@@ -67,6 +67,28 @@ pub struct KeyRequestPair {
     pub key_request: Request,
 }
 
+#[uniffi::export]
+impl OlmMachine {
+    /// Get the user ID of the owner of this `OlmMachine`.
+    pub fn user_id(&self) -> String {
+        self.inner.user_id().to_string()
+    }
+
+    /// Get the device ID of the device of this `OlmMachine`.
+    pub fn device_id(&self) -> String {
+        self.inner.device_id().to_string()
+    }
+
+    /// Get our own identity keys.
+    pub fn identity_keys(&self) -> HashMap<String, String> {
+        let identity_keys = self.inner.identity_keys();
+        let curve_key = identity_keys.curve25519.to_base64();
+        let ed25519_key = identity_keys.ed25519.to_base64();
+
+        HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
+    }
+}
+
 impl OlmMachine {
     /// Create a new `OlmMachine`
     ///
@@ -114,16 +136,6 @@ impl OlmMachine {
             inner: runtime.block_on(InnerMachine::with_store(&user_id, device_id, store))?,
             runtime,
         })
-    }
-
-    /// Get the user ID of the owner of this `OlmMachine`.
-    pub fn user_id(&self) -> String {
-        self.inner.user_id().to_string()
-    }
-
-    /// Get the device ID of the device of this `OlmMachine`.
-    pub fn device_id(&self) -> String {
-        self.inner.device_id().to_string()
     }
 
     /// Get the display name of our own device.
@@ -311,15 +323,6 @@ impl OlmMachine {
             .devices()
             .map(|d| d.into())
             .collect())
-    }
-
-    /// Get our own identity keys.
-    pub fn identity_keys(&self) -> HashMap<String, String> {
-        let identity_keys = self.inner.identity_keys();
-        let curve_key = identity_keys.curve25519.to_base64();
-        let ed25519_key = identity_keys.ed25519.to_base64();
-
-        HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
     }
 
     /// Get the list of outgoing requests that need to be sent to the
