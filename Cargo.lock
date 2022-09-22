@@ -3641,8 +3641,9 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.7.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc348e3a4a18abc4e97fffa5e2e623f6edd50ba3a1dd5f47eb249fea713b69f"
 dependencies = [
  "assign",
  "js_int",
@@ -3656,7 +3657,8 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4f8cecdd4e2729656fc4126b6b5b218834d4025e0ed0e5063087a0231098a5c"
 dependencies = [
  "ruma-common",
  "serde",
@@ -3665,8 +3667,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.15.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bcfd3a3853ffdd151fc228441dd9c9e3d835ac85560dface7abda50b3888791"
 dependencies = [
  "assign",
  "bytes",
@@ -3682,7 +3685,8 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1e629a01f359234798531a99ba83997abd4c15a65b5bcb8354c4171b59c25be"
 dependencies = [
  "base64",
  "bytes",
@@ -3712,7 +3716,8 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f905d12f6144c7a754bd0339fa6893698c03d03a908abb20cc6eeb4ec7f9466"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3723,7 +3728,8 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eabac62d16465a87435579c779d74dceabb93b09e44c766af6085050f3cc4275"
 dependencies = [
  "js_int",
  "thiserror",
@@ -3732,7 +3738,8 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.10.3"
-source = "git+https://github.com/gnunicorn/ruma?branch=ben-update-sliding-sync#1dd3714edb236dfdc621513b0a47f65eabff74b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7cd8cf8771aaca36042fb7659f4647b05e74a2058d843474dde5e51a56cd85"
 dependencies = [
  "once_cell",
  "proc-macro-crate",

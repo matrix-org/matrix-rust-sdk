@@ -119,7 +119,7 @@ version = "0.11.10"
 default_features = false
 
 [dependencies.ruma]
-version = "0.7.0"
+version = "0.7.4"
 features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2965"]
 
 [dependencies.tokio-stream]
