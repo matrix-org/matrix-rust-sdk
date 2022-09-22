@@ -502,15 +502,16 @@ describe(OlmMachine.name, () => {
             m = await machine();
             await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings());
 
-            exportedRoomKeys = JSON.parse(await m.exportRoomKeys(session => {
+            exportedRoomKeys = await m.exportRoomKeys(session => {
                 expect(session).toBeInstanceOf(InboundGroupSession);
                 expect(session.roomId.toString()).toStrictEqual(room.toString());
 
                 return true;
-            }));
+            });
 
-            expect(exportedRoomKeys).toHaveLength(1);
-            expect(exportedRoomKeys[0]).toMatchObject({
+            const roomKeys = JSON.parse(exportedRoomKeys);
+            expect(roomKeys).toHaveLength(1);
+            expect(roomKeys[0]).toMatchObject({
                 algorithm: expect.any(String),
                 room_id: room.toString(),
                 sender_key: expect.any(String),
@@ -523,6 +524,28 @@ describe(OlmMachine.name, () => {
             });
         });
 
+        let encryptedExportedRoomKeys;
+        let encryptionPassphrase = 'Hello, Matrix!';
+
+        test('can encrypt the exported room keys', () => {
+            encryptedExportedRoomKeys = OlmMachine.encryptExportedRoomKeys(
+                exportedRoomKeys,
+                encryptionPassphrase,
+                100_000,
+            );
+
+            expect(encryptedExportedRoomKeys).toMatch(/^-----BEGIN MEGOLM SESSION DATA-----/);
+        });
+
+        test('can decrypt the exported room keys', () => {
+            const decryptedExportedRoomKeys = OlmMachine.decryptExportedRoomKeys(
+                encryptedExportedRoomKeys,
+                encryptionPassphrase,
+            );
+
+            expect(decryptedExportedRoomKeys).toStrictEqual(exportedRoomKeys);
+        });
+
         test('can import room keys', async () => {
             const progressListener = (progress, total) => {
                 expect(progress).toBeLessThan(total);
@@ -532,7 +555,7 @@ describe(OlmMachine.name, () => {
                 expect(total).toStrictEqual(1n);
             };
 
-            const result = JSON.parse(await m.importRoomKeys(JSON.stringify(exportedRoomKeys), progressListener));
+            const result = JSON.parse(await m.importRoomKeys(exportedRoomKeys, progressListener));
 
             expect(result).toMatchObject({
                 imported_count: expect.any(Number),
