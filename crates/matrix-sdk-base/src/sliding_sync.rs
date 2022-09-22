@@ -69,14 +69,17 @@ impl BaseClient {
             }
         };
 
-        let (device_lists, device_one_time_keys_count) = if let Some(e2ee) = e2ee {
-            (
-                e2ee.device_lists,
-                e2ee.device_one_time_keys_count.into_iter().map(|(k, v)| (k, v.into())).collect(),
-            )
-        } else {
-            Default::default()
-        };
+        let (device_lists, device_one_time_keys_count) = e2ee
+            .map(|e2ee| {
+                (
+                    e2ee.device_lists,
+                    e2ee.device_one_time_keys_count
+                        .into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
 
         let store = self.store.clone();
         let mut changes = StateChanges::default();
