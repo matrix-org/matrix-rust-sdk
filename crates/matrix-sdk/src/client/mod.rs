@@ -1582,7 +1582,7 @@ impl Client {
         let request = join_room_by_id::v3::Request::new(room_id);
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(room::Joined::new(self, base_room).unwrap())
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join a room by `RoomId`.
@@ -1604,7 +1604,7 @@ impl Client {
         });
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(room::Joined::new(self, base_room).unwrap())
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Search the homeserver's directory of public rooms.

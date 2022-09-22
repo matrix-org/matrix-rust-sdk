@@ -110,7 +110,7 @@ impl Common {
         self.client.send(request, None).await?;
 
         let base_room = self.client.base_client().room_left(self.room_id()).await?;
-        Ok(Left::new(&self.client, base_room).unwrap())
+        Left::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join this room.
