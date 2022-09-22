@@ -37,9 +37,9 @@ impl Client {
             notifications,
         } = &response;
 
-        self.handle_sync_events(HandlerKind::GlobalAccountData, &None, &account_data).await?;
+        self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
-        self.handle_sync_events(HandlerKind::ToDevice, &None, &to_device_events).await?;
+        self.handle_sync_events(HandlerKind::ToDevice, &None, to_device_events).await?;
 
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
@@ -53,7 +53,7 @@ impl Client {
 
             self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, &ephemeral.events)
                 .await?;
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, &account_data).await?;
+            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
             self.handle_sync_state_events(&room, &state.events).await?;
             self.handle_sync_timeline_events(&room, &timeline.events).await?;
         }

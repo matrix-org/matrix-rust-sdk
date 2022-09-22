@@ -1568,10 +1568,7 @@ pub(crate) mod tests {
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
-            client::{
-                keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::ToDevice,
-            },
+            client::keys::{claim_keys, get_keys, upload_keys},
             IncomingResponse,
         },
         device_id,
@@ -1986,15 +1983,12 @@ pub(crate) mod tests {
         let alice_session =
             alice.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
-
         let decrypted = bob
-            .receive_sync_changes(to_device, &Default::default(), &Default::default(), None)
+            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
             .await
             .unwrap();
 
-        let event = decrypted.events[0].deserialize().unwrap();
+        let event = decrypted[0].deserialize().unwrap();
 
         if let AnyToDeviceEvent::RoomKey(event) = event {
             assert_eq!(&event.sender, alice.user_id());
