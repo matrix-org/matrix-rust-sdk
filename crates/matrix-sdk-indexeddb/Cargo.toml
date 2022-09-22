@@ -18,7 +18,6 @@ default = ["e2e-encryption"]
 e2e-encryption = ["matrix-sdk-base/e2e-encryption", "dep:matrix-sdk-crypto", "dashmap"]
 experimental-timeline = ["matrix-sdk-base/experimental-timeline", "dep:futures-util"]
 
-
 [dependencies]
 anyhow = "1.0.57"
 async-trait = "0.1.53"
@@ -28,8 +27,8 @@ derive_builder = "0.11.2"
 futures-util = { version = " 0.3.21", default-features = false, features = ["alloc"], optional = true }
 indexed_db_futures = { git = "https://github.com/Hywan/rust-indexed-db", branch = "feat-factory-nodejs" }
 js-sys = { version = "0.3.58" }
-matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base" }
-matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", optional = true }
+matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base", features = ["js"] }
+matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", features = ["js"], optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", path = "../matrix-sdk-store-encryption" }
 ruma = "0.7.0"
 serde = "1.0.136"
@@ -45,8 +44,8 @@ getrandom = { version = "0.2.6", features = ["js"] }
 
 [dev-dependencies]
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
-matrix-sdk-common = { path = "../matrix-sdk-common" }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
+matrix-sdk-common = { path = "../matrix-sdk-common", features = ["js"] }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["js", "testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 uuid = "1.0.0"
 wasm-bindgen-test = "0.3.30"

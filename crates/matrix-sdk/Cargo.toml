@@ -27,6 +27,7 @@ e2e-encryption = [
     "matrix-sdk-sled?/crypto-store",          # activate crypto-store on sled if given
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
+js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
 indexeddb = ["dep:matrix-sdk-indexeddb"]

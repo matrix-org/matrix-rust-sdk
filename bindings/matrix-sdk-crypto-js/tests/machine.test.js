@@ -1,4 +1,24 @@
-const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState, CrossSigningStatus, MaybeSignature } = require('../pkg/matrix_sdk_crypto_js');
+const {
+    CrossSigningStatus,
+    DecryptedRoomEvent,
+    DeviceId,
+    DeviceKeyId,
+    DeviceLists,
+    EncryptionSettings,
+    KeysClaimRequest,
+    KeysQueryRequest,
+    KeysUploadRequest,
+    MaybeSignature,
+    OlmMachine,
+    OwnUserIdentity,
+    RequestType,
+    RoomId,
+    SignatureUploadRequest,
+    ToDeviceRequest,
+    UserId,
+    VerificationRequest,
+    VerificationState,
+} = require('../pkg/matrix_sdk_crypto_js');
 require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
@@ -450,5 +470,25 @@ describe(OlmMachine.name, () => {
             expect(signatures.get(new UserId('@hello:example.org'))).toBeUndefined();
             expect(signatures.getSignature(user, new DeviceKeyId('world:foobar'))).toBeUndefined();
         }
+    });
+
+    test('can get a user identities', async () => {
+        const m = await machine();
+        let _ = m.bootstrapCrossSigning(true);
+
+        const identity = await m.getIdentity(user);
+
+        expect(identity).toBeInstanceOf(OwnUserIdentity);
+
+        const signatureUploadRequest = await identity.verify();
+        expect(signatureUploadRequest).toBeInstanceOf(SignatureUploadRequest);
+
+        const [verificationRequest, outgoingVerificationRequest] = await identity.requestVerification();
+        expect(verificationRequest).toBeInstanceOf(VerificationRequest);
+        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+
+        const isTrusted = await identity.trustsOurOwnDevice();
+
+        expect(isTrusted).toStrictEqual(false);
     });
 });

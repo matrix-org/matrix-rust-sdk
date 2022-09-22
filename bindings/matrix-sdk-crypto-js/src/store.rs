@@ -2,6 +2,8 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::impl_from_to_inner;
+
 /// A struct containing private cross signing keys that can be backed
 /// up or uploaded to the secret store.
 #[wasm_bindgen]
@@ -10,11 +12,7 @@ pub struct CrossSigningKeyExport {
     pub(crate) inner: matrix_sdk_crypto::store::CrossSigningKeyExport,
 }
 
-impl From<matrix_sdk_crypto::store::CrossSigningKeyExport> for CrossSigningKeyExport {
-    fn from(inner: matrix_sdk_crypto::store::CrossSigningKeyExport) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::store::CrossSigningKeyExport => CrossSigningKeyExport);
 
 #[wasm_bindgen]
 impl CrossSigningKeyExport {

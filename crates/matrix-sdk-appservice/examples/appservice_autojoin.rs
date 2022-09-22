@@ -10,7 +10,7 @@ use matrix_sdk_appservice::{
         },
         HttpError,
     },
-    AppService, AppServiceRegistration, Result,
+    AppService, AppServiceBuilder, AppServiceRegistration, Result,
 };
 use ruma::api::{
     client::{error::ErrorKind, uiaa::UiaaResponse},
@@ -57,8 +57,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let homeserver_url = "http://localhost:8008";
     let server_name = "localhost";
     let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
-
-    let appservice = AppService::new(homeserver_url, server_name, registration).await?;
+    let appservice =
+        AppServiceBuilder::new(homeserver_url.parse()?, server_name.parse()?, registration)
+            .build()
+            .await?;
     appservice.register_user_query(Box::new(|_, _| Box::pin(async { true }))).await;
 
     let virtual_user = appservice.virtual_user(None).await?;

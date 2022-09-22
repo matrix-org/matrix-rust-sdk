@@ -1,4 +1,13 @@
-const { UserId, DeviceId, DeviceKeyId, DeviceKeyAlgorithm, DeviceKeyAlgorithmName, RoomId, ServerName } = require('../pkg/matrix_sdk_crypto_js');
+const {
+    DeviceId,
+    DeviceKeyAlgorithm,
+    DeviceKeyAlgorithmName,
+    DeviceKeyId,
+    EventId,
+    RoomId,
+    ServerName,
+    UserId,
+} = require('../pkg/matrix_sdk_crypto_js');
 
 describe(UserId.name, () => {
     test('cannot be invalid', () => {
@@ -116,3 +125,57 @@ describe(ServerName.name, () => {
         expect(new ServerName('foo.org').isIpLiteral()).toStrictEqual(false);
     });
 });
+
+describe(EventId.name, () => {
+    test('cannot be invalid', () => {
+        expect(() => { new EventId('%foo') }).toThrow();
+    });
+
+    describe('Versions 1 & 2', () => {
+        const room = new EventId('$h29iv0s8:foo.org');
+
+        test('localpart is present', () => {
+            expect(room.localpart).toStrictEqual('h29iv0s8');
+        });
+
+        test('server name is present', () => {
+            expect(room.serverName).toBeInstanceOf(ServerName);
+        });
+
+        test('can read the room ID as string', () => {
+            expect(room.toString()).toStrictEqual('$h29iv0s8:foo.org');
+        });
+    });
+
+    describe('Version 3', () => {
+        const room = new EventId('$acR1l0raoZnm60CBwAVgqbZqoO/mYU81xysh1u7XcJk');
+
+        test('localpart is present', () => {
+            expect(room.localpart).toStrictEqual('acR1l0raoZnm60CBwAVgqbZqoO/mYU81xysh1u7XcJk');
+        });
+
+        test('server name is present', () => {
+            expect(room.serverName).toBeUndefined();
+        });
+
+        test('can read the room ID as string', () => {
+            expect(room.toString()).toStrictEqual('$acR1l0raoZnm60CBwAVgqbZqoO/mYU81xysh1u7XcJk');
+        });
+    });
+
+    describe('Version 4', () => {
+        const room = new EventId('$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg');
+
+        test('localpart is present', () => {
+            expect(room.localpart).toStrictEqual('Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg');
+        });
+
+        test('server name is present', () => {
+            expect(room.serverName).toBeUndefined();
+        });
+
+        test('can read the room ID as string', () => {
+            expect(room.toString()).toStrictEqual('$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg');
+        });
+    });
+})

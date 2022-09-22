@@ -583,7 +583,7 @@ mod test {
             "JGgPQRuYj3ScMdPS+A0P+k/1qS9Hr3qeKXLscI+hS78"
         );
 
-        let room_keys = machine.runtime.block_on(machine.inner.export_keys(|_| true))?;
+        let room_keys = machine.runtime.block_on(machine.inner.export_room_keys(|_| true))?;
         assert_eq!(room_keys.len(), 2);
 
         let cross_signing_status = machine.cross_signing_status();

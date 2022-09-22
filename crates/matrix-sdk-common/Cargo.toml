@@ -15,21 +15,23 @@ version = "0.5.0"
 default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
+[features]
+js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
+
 [dependencies]
 futures-core = "0.3.21"
+instant = "0.1.12"
 ruma = { version = "0.7.0", features = ["client-api-c"] }
 serde = "1.0.136"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-lock = "2.5.0"
-instant = { version = "0.1.12", features = ["wasm-bindgen", "inaccurate"] }
 futures-util = { version = "0.3.21", default-features = false, features = ["channel"] }
-wasm-bindgen-futures = "0.4.30"
+wasm-bindgen-futures = { version = "0.4.30", optional = true }
 wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.17.0", default-features = false, features = ["rt", "sync", "time"] }
-instant = { version = "0.1.12", features = ["now"] }
 
 [dev-dependencies]
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version="0.5.0" }
