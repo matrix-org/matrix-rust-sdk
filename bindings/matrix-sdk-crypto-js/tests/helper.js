@@ -11,14 +11,14 @@ function* zip(...arrays) {
 // Add a machine to another machine, i.e. be sure a machine knows
 // another exists.
 async function addMachineToMachine(machineToAdd, machine) {
-    const toDeviceEvents = JSON.stringify({});
+    const toDeviceEvents = JSON.stringify([]);
     const changedDevices = new DeviceLists();
     const oneTimeKeyCounts = new Map();
     const unusedFallbackKeys = new Set();
 
     const receiveSyncChanges = JSON.parse(await machineToAdd.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
 
-    expect(receiveSyncChanges).toEqual({});
+    expect(receiveSyncChanges).toEqual([]);
 
     const outgoingRequests = await machineToAdd.outgoingRequests();
 
