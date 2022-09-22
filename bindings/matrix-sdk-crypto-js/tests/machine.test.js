@@ -505,6 +505,8 @@ describe(OlmMachine.name, () => {
             exportedRoomKeys = await m.exportRoomKeys(session => {
                 expect(session).toBeInstanceOf(InboundGroupSession);
                 expect(session.roomId.toString()).toStrictEqual(room.toString());
+                expect(session.sessionId).toBeDefined();
+                expect(session.hasBeenImported()).toStrictEqual(false);
 
                 return true;
             });
