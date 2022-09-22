@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 use super::{get_client_for_user, Store};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Flaky because of the race of #1041; Also membership updates aren't fully supported yet"]
 async fn test_repeated_join_leave() -> Result<()> {
     let peter = get_client_for_user(Store::Memory, "peter".to_owned()).await?;
     // FIXME: Run once with memory, once with sled
