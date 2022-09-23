@@ -170,8 +170,7 @@ impl OwnUserIdentity {
             .store
             .get_user_devices(self.user_id())
             .await?
-            .into_iter()
-            .map(|(d, _)| d)
+            .into_keys()
             .filter(|d| &**d != self.verification_machine.own_device_id())
             .collect();
 
