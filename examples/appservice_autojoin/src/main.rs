@@ -2,6 +2,7 @@ use std::env;
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
+        self,
         event_handler::Ctx,
         room::Room,
         ruma::{
@@ -10,11 +11,11 @@ use matrix_sdk_appservice::{
         },
         HttpError,
     },
+    ruma::api::{
+        client::{error::ErrorKind, uiaa::UiaaResponse},
+        error::{FromHttpResponseError, ServerError},
+    },
     AppService, AppServiceBuilder, AppServiceRegistration, Result,
-};
-use ruma::api::{
-    client::{error::ErrorKind, uiaa::UiaaResponse},
-    error::{FromHttpResponseError, ServerError},
 };
 use tracing::trace;
 
@@ -50,17 +51,19 @@ pub fn error_if_user_not_in_use(error: matrix_sdk_appservice::Error) -> Result<(
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> anyhow::Result<()> {
     env::set_var("RUST_LOG", "matrix_sdk=debug,matrix_sdk_appservice=debug");
     tracing_subscriber::fmt::init();
 
     let homeserver_url = "http://localhost:8008";
     let server_name = "localhost";
-    let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
+    let registration =
+        AppServiceRegistration::try_from_yaml_file("./appservice-registration.yaml")?;
     let appservice =
         AppServiceBuilder::new(homeserver_url.parse()?, server_name.parse()?, registration)
             .build()
             .await?;
+
     appservice.register_user_query(Box::new(|_, _| Box::pin(async { true }))).await;
 
     let virtual_user = appservice.virtual_user(None).await?;
