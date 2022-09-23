@@ -49,18 +49,8 @@
 //!
 //! let homeserver_url = "http://127.0.0.1:8008";
 //! let server_name = "localhost";
-//! let registration = AppServiceRegistration::try_from_yaml_str(
-//!     r"
-//!         id: appservice
-//!         url: http://127.0.0.1:9009
-//!         as_token: as_token
-//!         hs_token: hs_token
-//!         sender_localpart: _appservice
-//!         namespaces:
-//!           users:
-//!           - exclusive: true
-//!             regex: '@_appservice_.*'
-//!     ",
+//! let registration = AppServiceRegistration::try_from_yaml_file(
+//!     "./tests/registration.yaml",
 //! )?;
 //!
 //! let mut appservice = AppService::builder(
