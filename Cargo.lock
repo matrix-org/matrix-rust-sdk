@@ -1247,6 +1247,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
+name = "example-appservice-autojoin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "matrix-sdk-appservice",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "example-autojoin"
 version = "0.1.0"
 dependencies = [
@@ -1261,18 +1272,6 @@ name = "example-command-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "matrix-sdk",
- "tokio",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "example-create-rooms"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2301,7 +2300,6 @@ dependencies = [
  "event-listener",
  "eyre",
  "futures",
- "futures-channel",
  "futures-core",
  "futures-signals",
  "futures-util",

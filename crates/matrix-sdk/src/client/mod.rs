@@ -24,10 +24,8 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use futures_channel::mpsc;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, StateStore, SyncOutsideWasm,
@@ -64,16 +62,9 @@ use ruma::{
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::{
-        room::{
-            create::RoomCreateEventContent,
-            member::{MembershipState, RoomMemberEventContent},
-        },
-        SyncStateEvent,
-    },
     presence::PresenceState,
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
-    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1581,65 +1572,25 @@ impl Client {
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
-    /// if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Returns a `join_room_by_id::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
+    pub async fn join_room_by_id(
+        &self,
+        room_id: &RoomId,
+    ) -> HttpResult<join_room_by_id::v3::Response> {
         let request = join_room_by_id::v3::Request::new(room_id);
-
-        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_room_event_handler(room_id, {
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if *event.membership() == MembershipState::Join
-                        && *event.state_key() == user_id
-                        && event.origin_server_ts() > now
-                    {
-                        debug!("received RoomMemberEvent corresponding to requested join");
-
-                        let joined_result = if let room::Room::Joined(joined_room) = room {
-                            Ok(joined_room)
-                        } else {
-                            warn!("Corresponding Room not in state: joined");
-                            Err(Error::InconsistentState)
-                        };
-
-                        if let Err(e) = tx.send(joined_result).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        self.send(request, None).await?;
-
-        let option = TryStreamExt::try_next(&mut rx).await?;
-
-        Ok(option.expect("receive joined room result from event handler"))
+        self.send(request, None).await
     }
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
-    /// if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
@@ -1648,61 +1599,11 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> Result<room::Joined> {
+    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-
-        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if *event.membership() == MembershipState::Join
-                        && *event.state_key() == user_id
-                        && event.origin_server_ts() > now
-                    {
-                        if let Err(e) = tx.send(room).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        let response = self.send(request, None).await?;
-        let room_id = response.room_id;
-
-        loop {
-            let room = StreamExt::next(&mut rx)
-                .await
-                .expect("receive joined room result from event handler");
-
-            if room.room_id() != room_id {
-                continue;
-            }
-
-            debug!("received RoomMemberEvent corresponding to requested join");
-
-            if let room::Room::Joined(joined_room) = room {
-                return Ok(joined_room);
-            } else {
-                warn!("Corresponding Room not in state: joined");
-                return Err(Error::InconsistentState);
-            };
-        }
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1754,9 +1655,9 @@ impl Client {
 
     /// Create a room using the `RoomBuilder` and send the request.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a [`Result`]
-    /// containing an instance of [`Joined`][room::Joined] if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
+    /// `create_room::Response`, this is an empty response.
+    ///
     /// # Arguments
     ///
     /// * `room` - The easiest way to create this request is using the
@@ -1782,111 +1683,9 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> Result<room::Joined> {
+    ) -> HttpResult<create_room::v3::Response> {
         let request = room.into();
-
-        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if event.origin_server_ts() <= now {
-                        return;
-                    }
-
-                    let event_content = if let Some(original_event) = event.as_original() {
-                        &original_event.content
-                    } else {
-                        // return from handler since the create room event we received is
-                        // redacted and not the one we are looking
-                        // for
-                        return;
-                    };
-
-                    if event_content.creator == user_id {
-                        if let Err(e) = tx.send(room).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        let response = self.send(request, None).await?;
-        let room_id = response.room_id;
-
-        loop {
-            let room = StreamExt::next(&mut rx)
-                .await
-                .expect("receive joined room result from event handler");
-
-            if room.room_id() != room_id {
-                continue;
-            }
-
-            debug!(
-                "received RoomCreateEvent corresponding \
-                 to requested to create room"
-            );
-
-            if let room::Room::Joined(joined_room) = room {
-                return Ok(joined_room);
-            } else {
-                warn!("Corresponding Room not in state: joined");
-                return Err(Error::InconsistentState);
-            };
-        }
-    }
-
-    /// Create a direct message room with the specified user.
-    pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
-        };
-
-        // First we create the DM room, where we invite the user and tell the
-        // invitee that the room should be a DM.
-        let invite = &[user_id.to_owned()];
-
-        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
-            invite,
-            is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        });
-
-        let room = self.create_room(request).await?;
-
-        // Now we need to mark the room as a DM for ourselves, we fetch the
-        // existing `m.direct` event and append the room to the list of DMs we
-        // have with this user.
-        let mut content = self
-            .account()
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .unwrap_or_default();
-
-        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
-
-        // TODO We should probably save the fact that we need to send this out
-        // because otherwise we might end up in a state where we have a DM that
-        // isn't marked as one.
-        self.account().set_account_data(content).await?;
-
-        Ok(room)
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
