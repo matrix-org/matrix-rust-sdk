@@ -25,11 +25,8 @@ pub struct Room {
     room: MatrixRoom,
 }
 
+#[uniffi::export]
 impl Room {
-    pub fn new(room: MatrixRoom) -> Self {
-        Room { room }
-    }
-
     pub fn id(&self) -> String {
         self.room.room_id().to_string()
     }
@@ -38,17 +35,43 @@ impl Room {
         self.room.name()
     }
 
-    pub fn display_name(&self) -> Result<String> {
-        let r = self.room.clone();
-        RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
-    }
-
     pub fn topic(&self) -> Option<String> {
         self.room.topic()
     }
 
     pub fn avatar_url(&self) -> Option<String> {
         self.room.avatar_url().map(|m| m.to_string())
+    }
+
+    pub fn is_direct(&self) -> bool {
+        self.room.is_direct()
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.room.is_public()
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.room.is_encrypted()
+    }
+
+    pub fn is_space(&self) -> bool {
+        self.room.is_space()
+    }
+
+    pub fn is_tombstoned(&self) -> bool {
+        self.room.is_tombstoned()
+    }
+}
+
+impl Room {
+    pub fn new(room: MatrixRoom) -> Self {
+        Room { room }
+    }
+
+    pub fn display_name(&self) -> Result<String> {
+        let r = self.room.clone();
+        RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {
@@ -79,26 +102,6 @@ impl Room {
             MatrixRoom::Joined(_) => Membership::Joined,
             MatrixRoom::Left(_) => Membership::Left,
         }
-    }
-
-    pub fn is_direct(&self) -> bool {
-        self.room.is_direct()
-    }
-
-    pub fn is_public(&self) -> bool {
-        self.room.is_public()
-    }
-
-    pub fn is_encrypted(&self) -> bool {
-        self.room.is_encrypted()
-    }
-
-    pub fn is_space(&self) -> bool {
-        self.room.is_space()
-    }
-
-    pub fn is_tombstoned(&self) -> bool {
-        self.room.is_tombstoned()
     }
 
     pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {

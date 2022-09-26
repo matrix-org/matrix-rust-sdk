@@ -130,66 +130,6 @@ impl Client {
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
-    pub fn start_sync(&self, timeline_limit: Option<u16>) {
-        let client = self.client.clone();
-        let state = self.state.clone();
-        let delegate = self.delegate.clone();
-        let session_verification_controller = self.session_verification_controller.clone();
-        let local_self = self.clone();
-        RUNTIME.spawn(async move {
-            let mut filter = FilterDefinition::default();
-            let mut room_filter = RoomFilter::default();
-            let mut event_filter = RoomEventFilter::default();
-            let mut timeline_filter = RoomEventFilter::default();
-
-            event_filter.lazy_load_options =
-                LazyLoadOptions::Enabled { include_redundant_members: false };
-            room_filter.state = event_filter;
-            filter.room = room_filter;
-
-            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
-            filter.room.timeline = timeline_filter;
-
-            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
-
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
-
-            client
-                .sync_with_result_callback(sync_settings, |result| async {
-                    Ok(if let Ok(sync_response) = result {
-                        if !state.read().unwrap().has_first_synced {
-                            state.write().unwrap().has_first_synced = true;
-                        }
-
-                        if state.read().unwrap().should_stop_syncing {
-                            state.write().unwrap().is_syncing = false;
-                            return Ok(LoopCtrl::Break);
-                        } else if !state.read().unwrap().is_syncing {
-                            state.write().unwrap().is_syncing = true;
-                        }
-
-                        if let Some(delegate) = &*delegate.read().unwrap() {
-                            delegate.did_receive_sync_update()
-                        }
-
-                        if let Some(session_verification_controller) =
-                            &*session_verification_controller.read().await
-                        {
-                            session_verification_controller
-                                .process_to_device_messages(sync_response.to_device)
-                                .await;
-                        }
-
-                        LoopCtrl::Continue
-                    } else {
-                        local_self.process_sync_error(result.err().unwrap())
-                    })
-                })
-                .await
-                .unwrap();
-        });
-    }
-
     pub fn restore_token(&self) -> anyhow::Result<String> {
         RUNTIME.block_on(async move {
             let session = self.client.session().expect("Missing session");
@@ -375,6 +315,66 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+
+    pub fn start_sync(&self, timeline_limit: Option<u16>) {
+        let client = self.client.clone();
+        let state = self.state.clone();
+        let delegate = self.delegate.clone();
+        let session_verification_controller = self.session_verification_controller.clone();
+        let local_self = self.clone();
+        RUNTIME.spawn(async move {
+            let mut filter = FilterDefinition::default();
+            let mut room_filter = RoomFilter::default();
+            let mut event_filter = RoomEventFilter::default();
+            let mut timeline_filter = RoomEventFilter::default();
+
+            event_filter.lazy_load_options =
+                LazyLoadOptions::Enabled { include_redundant_members: false };
+            room_filter.state = event_filter;
+            filter.room = room_filter;
+
+            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
+            filter.room.timeline = timeline_filter;
+
+            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
+
+            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
+
+            client
+                .sync_with_result_callback(sync_settings, |result| async {
+                    Ok(if let Ok(sync_response) = result {
+                        if !state.read().unwrap().has_first_synced {
+                            state.write().unwrap().has_first_synced = true;
+                        }
+
+                        if state.read().unwrap().should_stop_syncing {
+                            state.write().unwrap().is_syncing = false;
+                            return Ok(LoopCtrl::Break);
+                        } else if !state.read().unwrap().is_syncing {
+                            state.write().unwrap().is_syncing = true;
+                        }
+
+                        if let Some(delegate) = &*delegate.read().unwrap() {
+                            delegate.did_receive_sync_update()
+                        }
+
+                        if let Some(session_verification_controller) =
+                            &*session_verification_controller.read().await
+                        {
+                            session_verification_controller
+                                .process_to_device_messages(sync_response.to_device)
+                                .await;
+                        }
+
+                        LoopCtrl::Continue
+                    } else {
+                        local_self.process_sync_error(result.err().unwrap())
+                    })
+                })
+                .await
+                .unwrap();
+        });
     }
 }
 
