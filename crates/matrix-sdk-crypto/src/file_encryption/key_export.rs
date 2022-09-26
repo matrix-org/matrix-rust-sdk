@@ -78,18 +78,18 @@ pub enum KeyExportError {
 /// # Examples
 /// ```no_run
 /// # use std::io::Cursor;
-/// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
+/// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
 /// # use ruma::{device_id, user_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
 /// # block_on(async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
-/// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-/// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
+/// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
+/// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
 /// # });
 /// ```
-pub fn decrypt_key_export(
+pub fn decrypt_room_key_export(
     mut input: impl Read,
     passphrase: &str,
 ) -> Result<Vec<ExportedRoomKey>, KeyExportError> {
@@ -125,7 +125,7 @@ pub fn decrypt_key_export(
 /// * `rounds` - The number of rounds that should be used for the key
 /// derivation when the passphrase gets turned into an AES key. More rounds are
 /// increasingly computationally intensive and as such help against brute-force
-/// attacks. Should be at least `10000`, while values in the `100000` ranges
+/// attacks. Should be at least `10_000`, while values in the `100_000` ranges
 /// should be preferred.
 ///
 /// # Panics
@@ -135,18 +135,18 @@ pub fn decrypt_key_export(
 ///
 /// # Examples
 /// ```no_run
-/// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
+/// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
 /// # use ruma::{device_id, user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
 /// # block_on(async {
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
-/// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
-/// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
+/// let exported_keys = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
+/// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```
-pub fn encrypt_key_export(
+pub fn encrypt_room_key_export(
     keys: &[ExportedRoomKey],
     passphrase: &str,
     rounds: u32,
@@ -283,7 +283,9 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
+    use super::{
+        decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
+    };
     use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
     const PASSPHRASE: &str = "1234";
@@ -332,19 +334,19 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
-        let export = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
+        let export = machine.export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
-        let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
-        let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
+        let encrypted = encrypt_room_key_export(&export, "1234", 1).unwrap();
+        let decrypted = decrypt_room_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
             assert_eq!(exported.session_key.to_base64(), decrypted.session_key.to_base64());
         }
 
         assert_eq!(
-            machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
+            machine.import_room_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
     }
@@ -369,17 +371,17 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
 
         let export = vec![session.export_at_index(10).await];
         assert_eq!(
-            machine.import_keys(export, false, |_, _| {}).await?,
+            machine.import_room_keys(export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
 
         let better_export = vec![session.export().await];
 
-        assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(better_export, false, |_, _| {}).await?, keys);
 
         let another_session = machine.create_inbound_session(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
@@ -396,7 +398,7 @@ mod tests {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
+        assert_eq!(machine.import_room_keys(export, false, |_, _| {}).await?, keys);
 
         Ok(())
     }
@@ -404,7 +406,8 @@ mod tests {
     #[test]
     fn test_real_decrypt() {
         let reader = Cursor::new(TEST_EXPORT);
-        let imported = decrypt_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
+        let imported =
+            decrypt_room_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
         assert!(!imported.is_empty())
     }
 }

@@ -22,8 +22,8 @@ use ruma::{
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
         GlobalAccountDataEventContent, MessageLikeEventContent, RedactContent,
-        RedactedEventContent, RoomAccountDataEventContent, StateEventContent, StaticEventContent,
-        ToDeviceEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, RoomAccountDataEventContent,
+        StateEventContent, StaticEventContent, ToDeviceEventContent,
     },
     serde::Raw,
 };
@@ -57,7 +57,7 @@ where
 impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
 where
     C: StaticEventContent + MessageLikeEventContent + RedactContent,
-    C::Redacted: MessageLikeEventContent + RedactedEventContent,
+    C::Redacted: RedactedMessageLikeEventContent,
 {
     const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
@@ -73,7 +73,7 @@ where
 
 impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
 where
-    C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
+    C: StaticEventContent + RedactedMessageLikeEventContent,
 {
     const KIND: HandlerKind = HandlerKind::RedactedMessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
@@ -100,7 +100,7 @@ impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
 impl<C> SyncEvent for events::SyncStateEvent<C>
 where
     C: StaticEventContent + StateEventContent + RedactContent,
-    C::Redacted: StateEventContent + RedactedEventContent,
+    C::Redacted: RedactedStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = Some(C::TYPE);
@@ -116,7 +116,7 @@ where
 
 impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
 where
-    C: StaticEventContent + StateEventContent + RedactedEventContent,
+    C: StaticEventContent + RedactedStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::RedactedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);

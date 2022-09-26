@@ -475,8 +475,12 @@ impl OtherUserIdentity {
                 room.invite_user_by_id(self.inner.user_id()).await?;
             }
             room.clone()
+        } else if let Some(room) =
+            self.client.create_dm_room(self.inner.user_id().to_owned()).await?
+        {
+            room
         } else {
-            self.client.create_dm_room(self.inner.user_id()).await?
+            return Err(RequestVerificationError::RoomCreation(self.inner.user_id().to_owned()));
         };
 
         let response = room

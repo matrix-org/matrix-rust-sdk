@@ -1,10 +1,11 @@
+
 use std::{collections::HashMap, option_env};
 
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
-    config::RequestConfig,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
+    store::make_store_config,
     Client,
 };
 use once_cell::sync::Lazy;
@@ -25,19 +26,12 @@ fn init_logging() {
 /// read the test configuration from the environment
 pub fn test_server_conf() -> (String, String) {
     (
-        option_env!("HOMSERVER_URL").unwrap_or("http://localhost:8228").to_owned(),
-        option_env!("HOMSERVER_DOMAIN").unwrap_or("matrix-sdk.rs").to_owned(),
+        option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned(),
+        option_env!("HOMESERVER_DOMAIN").unwrap_or("matrix-sdk.rs").to_owned(),
     )
 }
 
-/// The StateStore to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Store {
-    Memory,
-    Sled,
-}
-
-pub async fn get_client_for_user(store: Store, username: String) -> Result<Client> {
+pub async fn get_client_for_user(username: String) -> Result<Client> {
     let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
         return Ok(client.clone());
@@ -47,15 +41,12 @@ pub async fn get_client_for_user(store: Store, username: String) -> Result<Clien
 
     let tmp_dir = tempdir()?;
 
-    let mut builder = Client::builder()
+    let client = Client::builder()
         .user_agent("matrix-sdk-integation-tests")
+        .store_config(make_store_config(tmp_dir.path(), None)?)
         .homeserver_url(homeserver_url)
-        .request_config(RequestConfig::new().disable_retry());
-    builder = match store {
-        Store::Memory => builder,
-        Store::Sled => builder.sled_store(tmp_dir.path(), None)?,
-    };
-    let client = builder.build().await?;
+        .build()
+        .await?;
     // safe to assume we have not registered this user yet, but ignore if we did
 
     if let Err(resp) = client.register(RegistrationRequest::new()).await {

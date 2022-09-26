@@ -68,9 +68,6 @@ pub enum AlgorithmInfo {
         /// decrypt this session. This map will usually contain a single ed25519
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
-        /// Chain of curve25519 keys through which this session was forwarded,
-        /// via m.forwarded_room_key events.
-        forwarding_curve25519_key_chain: Vec<String>,
     },
 }
 

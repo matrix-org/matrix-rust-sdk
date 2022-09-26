@@ -358,15 +358,15 @@ interface OlmMachine {
     KeyRequestPair request_room_key([ByRef] string event, [ByRef] string room_id);
 
     [Throws=CryptoStoreError]
-    string export_keys([ByRef] string passphrase, i32 rounds);
+    string export_room_keys([ByRef] string passphrase, i32 rounds);
     [Throws=KeyImportError]
-    KeysImportResult import_keys(
+    KeysImportResult import_room_keys(
         [ByRef] string keys,
         [ByRef] string passphrase,
         ProgressListener progress_listener
     );
     [Throws=KeyImportError]
-    KeysImportResult import_decrypted_keys(
+    KeysImportResult import_decrypted_room_keys(
         [ByRef] string keys,
         ProgressListener progress_listener
     );

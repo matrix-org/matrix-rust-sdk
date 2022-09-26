@@ -1,14 +1,24 @@
 [default-config]
 debug = false
 verbose = false
-exclude-files = ["examples/*"]
+exclude-files = [
+    "examples/*",
+    "testing/*",
+    "**/tests/*",
+]
 workspace = true
 exclude = [
+    # bindings
     "matrix-sdk-crypto-ffi",
     "matrix-sdk-crypto-js",
     "matrix-sdk-crypto-nodejs",
     "matrix-sdk-ffi",
+    # wasm only, can't get coverage
     "matrix-sdk-indexeddb",
+    # testing
     "matrix-sdk-test",
     "matrix-sdk-test-macros",
+    # labs
+    "jack-in",
+    "sled-state-inspector",
 ]

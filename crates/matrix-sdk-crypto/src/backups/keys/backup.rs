@@ -112,9 +112,9 @@ impl MegolmV1BackupKey {
     pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
         let pk = OlmPkEncryption::new(&self.to_base64());
 
-        // It's ok to truncate here, there's a semantic difference only between
-        // 0 and 1+ anyways.
-        let forwarded_count = (session.forwarding_key_chain().len() as u32).into();
+        // The forwarding chains don't mean much, we only care whether we received the
+        // session directly from the creator of the session or not.
+        let forwarded_count = (session.has_been_imported() as u8).into();
         let first_message_index = session.first_known_index().into();
 
         // Convert our key to the backup representation.

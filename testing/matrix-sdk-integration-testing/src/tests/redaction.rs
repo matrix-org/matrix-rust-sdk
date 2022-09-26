@@ -160,7 +160,7 @@ async fn test_redacting_name_static_memory_store() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name_sled_store() -> Result<()> {
-    let tamatoa = get_client_for_user(Store::Sled, "tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,

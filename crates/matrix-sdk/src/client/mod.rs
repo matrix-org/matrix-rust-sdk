@@ -24,10 +24,8 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use futures_channel::mpsc;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, StateStore, SyncOutsideWasm,
@@ -54,7 +52,9 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
-            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider},
+            session::{
+                get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
+            },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
@@ -62,23 +62,16 @@ use ruma::{
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::{
-        room::{
-            create::RoomCreateEventContent,
-            member::{MembershipState, RoomMemberEventContent},
-        },
-        SyncStateEvent,
-    },
     presence::PresenceState,
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId,
-    RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -1433,6 +1426,8 @@ impl Client {
 
                     self.base_client().set_session_tokens(session_tokens);
 
+                    // TODO: Let ffi client to know that tokens have changed
+
                     Ok(Some(res))
                 }
                 Err(error) => {
@@ -1577,65 +1572,25 @@ impl Client {
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
-    /// if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Returns a `join_room_by_id::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
+    pub async fn join_room_by_id(
+        &self,
+        room_id: &RoomId,
+    ) -> HttpResult<join_room_by_id::v3::Response> {
         let request = join_room_by_id::v3::Request::new(room_id);
-
-        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_room_event_handler(room_id, {
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if *event.membership() == MembershipState::Join
-                        && *event.state_key() == user_id
-                        && event.origin_server_ts() > now
-                    {
-                        debug!("received RoomMemberEvent corresponding to requested join");
-
-                        let joined_result = if let room::Room::Joined(joined_room) = room {
-                            Ok(joined_room)
-                        } else {
-                            warn!("Corresponding Room not in state: joined");
-                            Err(Error::InconsistentState)
-                        };
-
-                        if let Err(e) = tx.send(joined_result).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        self.send(request, None).await?;
-
-        let option = TryStreamExt::try_next(&mut rx).await?;
-
-        Ok(option.expect("receive joined room result from event handler"))
+        self.send(request, None).await
     }
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
-    /// if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
@@ -1644,61 +1599,11 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> Result<room::Joined> {
+    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-
-        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if *event.membership() == MembershipState::Join
-                        && *event.state_key() == user_id
-                        && event.origin_server_ts() > now
-                    {
-                        if let Err(e) = tx.send(room).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        let response = self.send(request, None).await?;
-        let room_id = response.room_id;
-
-        loop {
-            let room = StreamExt::next(&mut rx)
-                .await
-                .expect("receive joined room result from event handler");
-
-            if room.room_id() != room_id {
-                continue;
-            }
-
-            debug!("received RoomMemberEvent corresponding to requested join");
-
-            if let room::Room::Joined(joined_room) = room {
-                return Ok(joined_room);
-            } else {
-                warn!("Corresponding Room not in state: joined");
-                return Err(Error::InconsistentState);
-            };
-        }
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1750,9 +1655,9 @@ impl Client {
 
     /// Create a room using the `RoomBuilder` and send the request.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a [`Result`]
-    /// containing an instance of [`Joined`][room::Joined] if successful.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
+    /// `create_room::Response`, this is an empty response.
+    ///
     /// # Arguments
     ///
     /// * `room` - The easiest way to create this request is using the
@@ -1778,111 +1683,9 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> Result<room::Joined> {
+    ) -> HttpResult<create_room::v3::Response> {
         let request = room.into();
-
-        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
-
-        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
-                let mut tx = tx.clone();
-                let user_id = user_id.clone();
-
-                async move {
-                    if event.origin_server_ts() <= now {
-                        return;
-                    }
-
-                    let event_content = if let Some(original_event) = event.as_original() {
-                        &original_event.content
-                    } else {
-                        // return from handler since the create room event we received is
-                        // redacted and not the one we are looking
-                        // for
-                        return;
-                    };
-
-                    if event_content.creator == user_id {
-                        if let Err(e) = tx.send(room).await {
-                            debug!(
-                                "Sending event from event_handler failed, \
-                                 receiver not ready: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        let _guard = self.event_handler_drop_guard(handle);
-
-        let response = self.send(request, None).await?;
-        let room_id = response.room_id;
-
-        loop {
-            let room = StreamExt::next(&mut rx)
-                .await
-                .expect("receive joined room result from event handler");
-
-            if room.room_id() != room_id {
-                continue;
-            }
-
-            debug!(
-                "received RoomCreateEvent corresponding \
-                 to requested to create room"
-            );
-
-            if let room::Room::Joined(joined_room) = room {
-                return Ok(joined_room);
-            } else {
-                warn!("Corresponding Room not in state: joined");
-                return Err(Error::InconsistentState);
-            };
-        }
-    }
-
-    /// Create a direct message room with the specified user.
-    pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
-        };
-
-        // First we create the DM room, where we invite the user and tell the
-        // invitee that the room should be a DM.
-        let invite = &[user_id.to_owned()];
-
-        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
-            invite,
-            is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        });
-
-        let room = self.create_room(request).await?;
-
-        // Now we need to mark the room as a DM for ourselves, we fetch the
-        // existing `m.direct` event and append the room to the list of DMs we
-        // have with this user.
-        let mut content = self
-            .account()
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .unwrap_or_default();
-
-        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
-
-        // TODO We should probably save the fact that we need to send this out
-        // because otherwise we might end up in a state where we have a DM that
-        // isn't marked as one.
-        self.account().set_account_data(content).await?;
-
-        Ok(room)
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
@@ -1973,7 +1776,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config).await;
+        let res = self.send_inner(request.clone(), config, None).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1996,7 +1799,52 @@ impl Client {
                             }
                         }
                     } else {
-                        return self.send_inner(request, config).await;
+                        return self.send_inner(request, config, None).await;
+                    }
+                }
+            }
+        }
+
+        res
+    }
+
+    #[cfg(feature = "sliding-sync")]
+    // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
+    // anymore
+    pub(crate) async fn send_with_homeserver<Request>(
+        &self,
+        request: Request,
+        config: Option<RequestConfig>,
+        homeserver: Option<String>,
+    ) -> HttpResult<Request::IncomingResponse>
+    where
+        Request: OutgoingRequest + Clone + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
+        let res = self.send_inner(request.clone(), config, homeserver.clone()).await;
+
+        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
+        // try to refresh the token and retry the request.
+        if self.inner.handle_refresh_tokens {
+            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+                RumaApiError::ClientApi(error),
+            )))) = &res
+            {
+                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                    let refresh_res = self.refresh_access_token().await;
+
+                    if let Err(refresh_error) = refresh_res {
+                        match &refresh_error {
+                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                                // Refreshing access tokens is not supported by
+                                // this `Session`, ignore.
+                            }
+                            _ => {
+                                return Err(refresh_error);
+                            }
+                        }
+                    } else {
+                        return self.send_inner(request, config, homeserver).await;
                     }
                 }
             }
@@ -2010,17 +1858,20 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        homeserver: Option<String>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
+        let homeserver =
+            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
         self.inner
             .http_client
             .send(
                 request,
                 config,
-                self.homeserver().await.to_string(),
+                homeserver,
                 self.access_token().as_deref(),
                 self.user_id(),
                 self.server_versions().await?,
@@ -2264,7 +2115,6 @@ impl Client {
             set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
-
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
             request_config.timeout += timeout;
@@ -2285,16 +2135,19 @@ impl Client {
 
     /// Repeatedly synchronize the client state with the server.
     ///
-    /// This method will never return, if cancellation is needed the method
-    /// should be wrapped in a cancelable task or the
-    /// [`Client::sync_with_callback`] method can be used.
+    /// This method will only return on error, if cancellation is needed
+    /// the method should be wrapped in a cancelable task or the
+    /// [`Client::sync_with_callback`] method can be used or
+    /// [`Client::sync_with_result_callback`] if you want to handle error
+    /// cases in the loop, too.
     ///
     /// This method will internally call [`Client::sync_once`] in a loop.
     ///
     /// This method can be used with the [`Client::add_event_handler`]
     /// method to react to individual events. If you instead wish to handle
-    /// events in a bulk manner the [`Client::sync_with_callback`] and
-    /// [`Client::sync_stream`] methods can be used instead. Those two methods
+    /// events in a bulk manner the [`Client::sync_with_callback`],
+    /// [`Client::sync_with_result_callback`] and
+    /// [`Client::sync_stream`] methods can be used instead. Those methods
     /// repeatedly return the whole sync response.
     ///
     /// # Arguments
@@ -2302,6 +2155,11 @@ impl Client {
     /// * `sync_settings` - Settings for the sync call. *Note* that those
     ///   settings will be only used for the first sync call. See the argument
     ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs, returning with `Err(Error)`. It is
+    /// up to the user of the API to check the error and decide whether the sync
+    /// should continue or not.
     ///
     /// # Examples
     ///
@@ -2328,13 +2186,13 @@ impl Client {
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
-    /// client.sync(SyncSettings::default()).await;
+    /// client.sync(SyncSettings::default()).await?;
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [argument docs]: #method.sync_once
     /// [`sync_with_callback`]: #method.sync_with_callback
-    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) {
+    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) -> Result<(), Error> {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
     }
 
@@ -2351,6 +2209,12 @@ impl Client {
     ///   boolean which signalizes if the method should stop syncing. If the
     ///   callback returns `LoopCtrl::Continue` the sync will continue, if the
     ///   callback returns `LoopCtrl::Break` the sync will be stopped.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs or the
+    /// callback indicates that the Loop should stop. If the callback asked for
+    /// a regular stop, the result will be `Ok(())` otherwise the
+    /// `Err(Error)` is returned.
     ///
     /// # Examples
     ///
@@ -2378,7 +2242,6 @@ impl Client {
     /// client
     ///     .sync_with_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
-    ///
     ///         for (room_id, room) in response.rooms.join {
     ///             for event in room.timeline.events {
     ///                 channel.send(event).await.unwrap();
@@ -2393,10 +2256,92 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings<'_>,
+        sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
-    ) where
+    ) -> Result<(), Error>
+    where
         C: Future<Output = LoopCtrl>,
+    {
+        self.sync_with_result_callback(sync_settings, |result| async {
+            Ok(callback(result?).await)
+        })
+        .await
+    }
+
+    /// Repeatedly call sync to synchronize the client state with the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call. *Note* that those
+    ///   settings will be only used for the first sync call. See the argument
+    ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// * `callback` - A callback that will be called every time after a
+    ///   response has been received, failure or not. The callback returns a
+    ///   `Result<LoopCtrl, Error>, too. When returning `Ok(LoopCtrl::Continue)`
+    ///   the sync will continue, if the callback returns `Ok(LoopCtrl::Break)`
+    ///   the sync will be stopped and the function returns `Ok(())`. In case
+    ///   the callback can't handle the `Error` or has a different malfunction,
+    ///   it can return an `Err(Error)`, which results in the sync ending and
+    ///   the `Err(Error)` being returned.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs that the callback can't handle or
+    /// the callback indicates that the Loop should stop. If the callback
+    /// asked for a regular stop, the result will be `Ok(())` otherwise the
+    /// `Err(Error)` is returned.
+    ///
+    /// _Note_: Lower-level configuration (e.g. for retries) are not changed by
+    /// this, and are handled first without sending the result to the
+    /// callback. Only after they have exceeded is the `Result` handed to
+    /// the callback.
+    ///
+    /// # Examples
+    ///
+    /// The following example demonstrates how to sync forever while sending all
+    /// the interesting events through a mpsc channel to another thread e.g. a
+    /// UI thread.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).await.unwrap();
+    ///
+    /// use tokio::sync::mpsc::channel;
+    ///
+    /// let (tx, rx) = channel(100);
+    ///
+    /// let sync_channel = &tx;
+    /// let sync_settings = SyncSettings::new()
+    ///     .timeout(Duration::from_secs(30));
+    ///
+    /// client
+    ///     .sync_with_result_callback(sync_settings, |response| async move {
+    ///         let channel = sync_channel;
+    ///         let sync_response = response?;
+    ///         for (room_id, room) in sync_response.rooms.join {
+    ///              for event in room.timeline.events {
+    ///                  channel.send(event).await.unwrap();
+    ///               }
+    ///         }
+    ///
+    ///         Ok(LoopCtrl::Continue)
+    ///     })
+    ///     .await;
+    /// })
+    /// ```
+    #[instrument(skip(self, callback))]
+    pub async fn sync_with_result_callback<C>(
+        &self,
+        mut sync_settings: crate::config::SyncSettings<'_>,
+        callback: impl Fn(Result<SyncResponse, Error>) -> C,
+    ) -> Result<(), Error>
+    where
+        C: Future<Output = Result<LoopCtrl, Error>>,
     {
         let mut last_sync_time: Option<Instant> = None;
 
@@ -2405,16 +2350,16 @@ impl Client {
         }
 
         loop {
-            // TODO we should abort the sync loop if the error is a storage error or
-            // the access token got invalid.
-            if let Ok(r) = self.sync_loop_helper(&mut sync_settings).await {
-                if callback(r).await == LoopCtrl::Break {
-                    return;
-                }
+            let result = self.sync_loop_helper(&mut sync_settings).await;
+
+            if callback(result).await? == LoopCtrl::Break {
+                break;
             }
 
             Client::delay_sync(&mut last_sync_time).await
         }
+
+        Ok(())
     }
 
     //// Repeatedly synchronize the client state with the server.
@@ -2488,6 +2433,12 @@ impl Client {
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Log out the current user
+    pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
+        let request = logout::v3::Request::new();
         self.send(request, None).await
     }
 }

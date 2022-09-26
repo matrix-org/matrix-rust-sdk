@@ -38,6 +38,7 @@ pub use matrix_sdk_base::crypto::{
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
+use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::OwnedDeviceId;
 use ruma::{
@@ -56,13 +57,14 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
+pub use crate::error::RoomKeyImportError;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
     },
-    error::{HttpResult, RoomKeyImportError},
+    error::HttpResult,
     room, Client, Error, Result,
 };
 
@@ -222,6 +224,57 @@ impl Client {
                 message::MessageType::File(content)
             }
         })
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn create_dm_room(
+        &self,
+        user_id: OwnedUserId,
+    ) -> Result<Option<room::Joined>> {
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
+
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.clone()];
+
+        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
+            invite,
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        });
+
+        let response = self.send(request, None).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .account()
+            .account_data::<DirectEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+
+        content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.account().set_account_data(content).await?;
+
+        // If the room is already in our store, fetch it, otherwise wait for a
+        // sync to be done which should put the room into our store.
+        if let Some(room) = self.get_joined_room(&response.room_id) {
+            Ok(Some(room))
+        } else {
+            self.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            Ok(self.get_joined_room(&response.room_id))
+        }
     }
 
     /// Claim one-time keys creating new Olm sessions.
@@ -715,7 +768,7 @@ impl Encryption {
     /// // Export all room keys.
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |_| true)
+    ///     .export_room_keys(path, "secret-passphrase", |_| true)
     ///     .await?;
     ///
     /// // Export only the room keys for a certain room.
@@ -724,12 +777,12 @@ impl Encryption {
     ///
     /// client
     ///     .encryption()
-    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
+    ///     .export_room_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_keys(
+    pub async fn export_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -737,12 +790,12 @@ impl Encryption {
     ) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
-        let keys = olm.export_keys(predicate).await?;
+        let keys = olm.export_room_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
         let encrypt = move || -> Result<()> {
             let export: String =
-                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
+                matrix_sdk_base::crypto::encrypt_room_key_export(&keys, &passphrase, 500_000)?;
             let mut file = std::fs::File::create(path)?;
             file.write_all(&export.into_bytes())?;
             Ok(())
@@ -782,7 +835,7 @@ impl Encryption {
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// let result =
-    ///     client.encryption().import_keys(path, "secret-passphrase").await?;
+    ///     client.encryption().import_room_keys(path, "secret-passphrase").await?;
     ///
     /// println!(
     ///     "Imported {} room keys out of {}",
@@ -791,7 +844,7 @@ impl Encryption {
     /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn import_keys(
+    pub async fn import_room_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
@@ -801,13 +854,13 @@ impl Encryption {
 
         let decrypt = move || {
             let file = std::fs::File::open(path)?;
-            matrix_sdk_base::crypto::decrypt_key_export(file, &passphrase)
+            matrix_sdk_base::crypto::decrypt_room_key_export(file, &passphrase)
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.import_keys(import, false, |_, _| {}).await?)
+        Ok(olm.import_room_keys(import, false, |_, _| {}).await?)
     }
 }
 

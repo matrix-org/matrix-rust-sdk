@@ -493,14 +493,13 @@ impl QrVerification {
     ) -> Self {
         let secret = Self::generate_secret();
 
-        let event_id = if let FlowId::InRoom(_, e) = &flow_id {
-            e.to_owned()
-        } else {
-            panic!("A verification between users is only valid in a room");
-        };
-
-        let inner: QrVerificationData =
-            VerificationData::new(event_id, own_master_key, other_master_key, secret).into();
+        let inner: QrVerificationData = VerificationData::new(
+            flow_id.as_str().to_owned(),
+            own_master_key,
+            other_master_key,
+            secret,
+        )
+        .into();
 
         Self::new_helper(flow_id, inner, identities, we_started, request_handle)
     }

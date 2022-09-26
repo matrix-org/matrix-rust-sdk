@@ -95,7 +95,7 @@ async fn sync_loop(client: Client) -> anyhow::Result<()> {
     client.add_event_handler(on_ping_event);
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
-    client.sync(settings).await; // this essentially loops until we kill the bot
+    client.sync(settings).await?; // this essentially loops until we kill the bot
 
     Ok(())
 }

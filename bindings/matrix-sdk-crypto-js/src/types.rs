@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     identifiers::{DeviceKeyId, UserId},
+    impl_from_to_inner,
     vodozemac::Ed25519Signature,
 };
 
@@ -15,11 +16,7 @@ pub struct Signatures {
     inner: matrix_sdk_crypto::types::Signatures,
 }
 
-impl From<matrix_sdk_crypto::types::Signatures> for Signatures {
-    fn from(inner: matrix_sdk_crypto::types::Signatures) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::types::Signatures => Signatures);
 
 #[wasm_bindgen]
 impl Signatures {
@@ -77,7 +74,7 @@ impl Signatures {
 
     /// Do we hold any signatures or is our collection completely
     /// empty.
-    #[wasm_bindgen(getter, js_name = "isEmpty")]
+    #[wasm_bindgen(js_name = "isEmpty")]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
@@ -97,11 +94,7 @@ pub struct Signature {
     inner: matrix_sdk_crypto::types::Signature,
 }
 
-impl From<matrix_sdk_crypto::types::Signature> for Signature {
-    fn from(inner: matrix_sdk_crypto::types::Signature) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(matrix_sdk_crypto::types::Signature => Signature);
 
 #[wasm_bindgen]
 impl Signature {
@@ -129,22 +122,18 @@ pub struct MaybeSignature {
     inner: MaybeSignatureInner,
 }
 
-impl From<MaybeSignatureInner> for MaybeSignature {
-    fn from(inner: MaybeSignatureInner) -> Self {
-        Self { inner }
-    }
-}
+impl_from_to_inner!(MaybeSignatureInner => MaybeSignature);
 
 #[wasm_bindgen]
 impl MaybeSignature {
     /// Check whether the signature has been successfully decoded.
-    #[wasm_bindgen(getter, js_name = "isValid")]
+    #[wasm_bindgen(js_name = "isValid")]
     pub fn is_valid(&self) -> bool {
         self.inner.is_ok()
     }
 
     /// Check whether the signature could not be successfully decoded.
-    #[wasm_bindgen(getter, js_name = "isInvalid")]
+    #[wasm_bindgen(js_name = "isInvalid")]
     pub fn is_invalid(&self) -> bool {
         self.inner.is_err()
     }

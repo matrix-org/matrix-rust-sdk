@@ -70,7 +70,7 @@ async fn login_and_sync(
 
     client.add_event_handler(on_stripped_state_member);
 
-    client.sync(SyncSettings::default()).await;
+    client.sync(SyncSettings::default()).await?;
 
     Ok(())
 }

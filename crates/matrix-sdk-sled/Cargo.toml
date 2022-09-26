@@ -39,7 +39,7 @@ matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base", optional = t
 matrix-sdk-common = { version = "0.5.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", path = "../matrix-sdk-store-encryption" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "c745d3baf720b38a254e640a526717864e87a065" }
+ruma = "0.7.0"
 serde = "1.0.136"
 serde_json = "1.0.79"
 sled = "0.34.7"

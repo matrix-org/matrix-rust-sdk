@@ -523,11 +523,7 @@ impl Room {
         {
             TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
         } else {
-            TimelineStreamBackward::new(
-                event_ids.clone(),
-                Some(sync_token.clone().expect("Sync token exists")),
-                None,
-            )
+            TimelineStreamBackward::new(event_ids.clone(), sync_token.clone(), None)
         };
 
         backward_timeline_streams.push(backward_sender);
@@ -840,18 +836,16 @@ mod test {
     use std::sync::Arc;
 
     use assign::assign;
+    use matrix_sdk_test::async_test;
     use ruma::{
         event_id,
-        events::{
-            room::{
-                canonical_alias::RoomCanonicalAliasEventContent,
-                member::{
-                    MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                    StrippedRoomMemberEvent, SyncRoomMemberEvent,
-                },
-                name::RoomNameEventContent,
+        events::room::{
+            canonical_alias::RoomCanonicalAliasEventContent,
+            member::{
+                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                RoomMemberUnsigned, StrippedRoomMemberEvent, SyncRoomMemberEvent,
             },
-            StateUnsigned,
+            name::RoomNameEventContent,
         },
         room_alias_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
     };
@@ -889,11 +883,11 @@ mod test {
             state_key: user_id.to_owned(),
             event_id: event_id!("$h29iv0s1:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
-            unsigned: StateUnsigned::default(),
+            unsigned: RoomMemberUnsigned::default(),
         })
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_default() {
         let _ = env_logger::try_init();
         let (_, room) = make_room(RoomType::Joined);
@@ -931,7 +925,7 @@ mod test {
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_invited() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
@@ -954,7 +948,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_invited_no_heroes() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
@@ -973,7 +967,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_joined() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
@@ -1005,7 +999,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_display_name_dm_joined_no_heroes() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
@@ -1031,7 +1025,8 @@ mod test {
             DisplayName::Calculated("Matthew".to_owned())
         );
     }
-    #[tokio::test]
+
+    #[async_test]
     async fn test_display_name_dm_alone() {
         let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);

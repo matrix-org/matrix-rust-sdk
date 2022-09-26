@@ -52,13 +52,14 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
+        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+use serde::de::DeserializeOwned;
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
@@ -397,7 +398,7 @@ pub trait StateStoreExt: StateStore {
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent + DeserializeOwned,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
     }
@@ -415,7 +416,7 @@ pub trait StateStoreExt: StateStore {
     where
         C: StaticEventContent + StateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), state_key.as_ref()).await?.map(Raw::cast))
@@ -432,7 +433,7 @@ pub trait StateStoreExt: StateStore {
     ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
         C: StaticEventContent + StateEventContent + RedactContent,
-        C::Redacted: StateEventContent + RedactedEventContent,
+        C::Redacted: RedactedStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self

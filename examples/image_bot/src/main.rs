@@ -59,7 +59,7 @@ async fn login_and_sync(
     client.add_event_handler(move |ev, room| on_room_message(ev, room, image.clone()));
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
-    client.sync(settings).await;
+    client.sync(settings).await?;
 
     Ok(())
 }

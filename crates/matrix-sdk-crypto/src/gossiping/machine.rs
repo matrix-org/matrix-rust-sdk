@@ -879,7 +879,7 @@ impl GossipMachine {
         algorithm: EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match InboundGroupSession::from_forwarded_key(sender_key, &algorithm, content) {
+        match InboundGroupSession::from_forwarded_key(&algorithm, content) {
             Ok(session) => {
                 let old_session = self
                     .store
