@@ -18,8 +18,8 @@ pub use matrix_sdk::{
 };
 use tokio::task::JoinHandle;
 
-use super::{Client, RUNTIME};
-use crate::helpers::unwrap_or_clone_arc;
+use super::{Client, Room, RUNTIME};
+use crate::{helpers::unwrap_or_clone_arc, messages::AnyMessage};
 
 pub struct StoppableSpawn {
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
@@ -33,7 +33,10 @@ impl StoppableSpawn {
     fn with_handle_ref(handle: Arc<RwLock<Option<JoinHandle<()>>>>) -> StoppableSpawn {
         StoppableSpawn { handle }
     }
+}
 
+#[uniffi::export]
+impl StoppableSpawn {
     pub fn cancel(&self) {
         if let Some(handle) = self.handle.write().unwrap().take() {
             handle.abort();
@@ -44,11 +47,13 @@ impl StoppableSpawn {
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct UnreadNotificationsCount {
     highlight_count: u32,
     notification_count: u32,
 }
 
+#[uniffi::export]
 impl UnreadNotificationsCount {
     pub fn highlight_count(&self) -> u32 {
         self.highlight_count
@@ -81,6 +86,7 @@ pub struct SlidingSyncRoom {
     client: Client,
 }
 
+#[uniffi::export]
 impl SlidingSyncRoom {
     pub fn name(&self) -> Option<String> {
         self.inner.name().map(ToOwned::to_owned)
@@ -110,7 +116,7 @@ impl SlidingSyncRoom {
     }
 
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn latest_room_message(&self) -> Option<Arc<crate::messages::AnyMessage>> {
+    pub fn latest_room_message(&self) -> Option<Arc<AnyMessage>> {
         let messages = self.inner.timeline();
         // room is having the latest events at the end,
         let lock = messages.lock_ref();
@@ -122,8 +128,8 @@ impl SlidingSyncRoom {
         None
     }
 
-    pub fn full_room(&self) -> Option<Arc<super::Room>> {
-        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(super::Room::new(room)))
+    pub fn full_room(&self) -> Option<Arc<Room>> {
+        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(Room::new(room)))
     }
 }
 
@@ -381,6 +387,13 @@ impl SlidingSyncView {
         })))
     }
 
+    pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
+        self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
+    }
+}
+
+#[uniffi::export]
+impl SlidingSyncView {
     /// Reset the ranges to a particular set
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
@@ -403,10 +416,6 @@ impl SlidingSyncView {
 
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
-    }
-
-    pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
-        self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
     }
 }
 
@@ -481,7 +490,10 @@ impl SlidingSync {
             })
             .collect())
     }
+}
 
+#[uniffi::export]
+impl SlidingSync {
     pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
         let observer = self.observer.clone();
@@ -572,7 +584,10 @@ impl Client {
             Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
     }
+}
 
+#[uniffi::export]
+impl Client {
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
         RUNTIME.block_on(async move {
             let inner = self.client.sliding_sync().await;

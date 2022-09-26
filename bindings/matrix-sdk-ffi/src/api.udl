@@ -2,10 +2,7 @@ namespace matrix_sdk_ffi {};
 
 
 /// Cancels on drop
-interface StoppableSpawn {
-    boolean is_cancelled();
-    void cancel();
-};
+interface StoppableSpawn {};
 
 [Error]
 interface ClientError {
@@ -138,43 +135,13 @@ interface SlidingSyncView {
     StoppableSpawn observe_state(SlidingSyncViewStateObserver observer);
     StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
 
-    u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
-
-    void add_range(u32 from, u32 to);
-    void reset_ranges();
-    void set_range(u32 from, u32 to);
 };
 
-interface UnreadNotificationsCount {
-    boolean has_notifications();
-
-    u32 highlight_count();
-    u32 notification_count();
-};
-
-interface SlidingSyncRoom {
-    string? name();
-    string room_id();
-
-    Room? full_room();
-    
-    boolean? is_dm();
-    boolean? is_initial();
-
-    boolean has_unread_notifications();
-    UnreadNotificationsCount unread_notifications();
-
-    // aliveness
-    boolean is_loading_more();
-
-    AnyMessage? latest_room_message();
-};
+interface SlidingSyncRoom {};
 
 interface SlidingSync {
     void set_observer(SlidingSyncObserver? observer);
-
-    StoppableSpawn sync();
 
     [Throws=ClientError]
     void subscribe(string room_id, RoomSubscription? settings);
@@ -233,8 +200,6 @@ interface Client {
     [Throws=ClientError]
     void restore_login(string restore_token);
 
-    void start_sync(u16? timeline_limit);
-
     [Throws=ClientError]
     string restore_token();
 
@@ -268,8 +233,6 @@ interface Client {
     [Throws=ClientError]
     SlidingSync full_sliding_sync();
 
-    SlidingSyncBuilder sliding_sync();
-    
     [Throws=ClientError]
     void logout();
 };
@@ -285,18 +248,7 @@ enum Membership {
 };
 
 interface Room {
-    string id();
-    string? name();
-    string? topic();
-    string? avatar_url();
-
     Membership membership();
-
-    boolean is_direct();
-    boolean is_public();
-    boolean is_space();
-    boolean is_encrypted();
-    boolean is_tombstoned();
 
     [Throws=ClientError]
     string display_name();
@@ -372,16 +324,8 @@ enum AuthenticationError {
     "Generic",
 };
 
-interface HomeserverLoginDetails {
-    string url();
-    string? authentication_issuer();
-    boolean supports_password_login();
-};
-
 interface AuthenticationService {
     constructor(string base_path);
-
-    HomeserverLoginDetails? homeserver_details();
 
     [Throws=AuthenticationError]
     void configure_homeserver(string server_name);
@@ -393,10 +337,7 @@ interface AuthenticationService {
     Client restore_with_access_token(string token, string device_id);
 };
 
-interface SessionVerificationEmoji {
-    string symbol();
-    string description();
-};
+interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
     void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
