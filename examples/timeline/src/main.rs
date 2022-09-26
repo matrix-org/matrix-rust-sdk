@@ -94,7 +94,8 @@ async fn main() -> anyhow::Result<()> {
                 }
                 LoopCtrl::Continue
             })
-            .await;
+            .await
+            .unwrap();
     });
 
     // Wait for the first sync response

@@ -41,7 +41,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
         .initial_device_display_name("rust-sdk")
         .send()
         .await?;
-    client.sync(SyncSettings::new()).await;
+    client.sync(SyncSettings::new()).await?;
 
     Ok(())
 }

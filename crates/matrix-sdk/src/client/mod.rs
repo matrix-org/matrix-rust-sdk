@@ -71,7 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -2134,16 +2134,19 @@ impl Client {
 
     /// Repeatedly synchronize the client state with the server.
     ///
-    /// This method will never return, if cancellation is needed the method
-    /// should be wrapped in a cancelable task or the
-    /// [`Client::sync_with_callback`] method can be used.
+    /// This method will only return on error, if cancellation is needed
+    /// the method should be wrapped in a cancelable task or the
+    /// [`Client::sync_with_callback`] method can be used or
+    /// [`Client::sync_with_result_callback`] if you want to handle error
+    /// cases in the loop, too.
     ///
     /// This method will internally call [`Client::sync_once`] in a loop.
     ///
     /// This method can be used with the [`Client::add_event_handler`]
     /// method to react to individual events. If you instead wish to handle
-    /// events in a bulk manner the [`Client::sync_with_callback`] and
-    /// [`Client::sync_stream`] methods can be used instead. Those two methods
+    /// events in a bulk manner the [`Client::sync_with_callback`],
+    /// [`Client::sync_with_result_callback`] and
+    /// [`Client::sync_stream`] methods can be used instead. Those methods
     /// repeatedly return the whole sync response.
     ///
     /// # Arguments
@@ -2151,6 +2154,11 @@ impl Client {
     /// * `sync_settings` - Settings for the sync call. *Note* that those
     ///   settings will be only used for the first sync call. See the argument
     ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs, returning with `Err(Error)`. It is
+    /// up to the user of the API to check the error and decide whether the sync
+    /// should continue or not.
     ///
     /// # Examples
     ///
@@ -2177,13 +2185,13 @@ impl Client {
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
-    /// client.sync(SyncSettings::default()).await;
+    /// client.sync(SyncSettings::default()).await?;
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [argument docs]: #method.sync_once
     /// [`sync_with_callback`]: #method.sync_with_callback
-    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) {
+    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) -> Result<(), Error> {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
     }
 
@@ -2200,6 +2208,12 @@ impl Client {
     ///   boolean which signalizes if the method should stop syncing. If the
     ///   callback returns `LoopCtrl::Continue` the sync will continue, if the
     ///   callback returns `LoopCtrl::Break` the sync will be stopped.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs or the
+    /// callback indicates that the Loop should stop. If the callback asked for
+    /// a regular stop, the result will be `Ok(())` otherwise the
+    /// `Err(Error)` is returned.
     ///
     /// # Examples
     ///
@@ -2243,20 +2257,14 @@ impl Client {
         &self,
         sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
-    ) where
+    ) -> Result<(), Error>
+    where
         C: Future<Output = LoopCtrl>,
     {
         self.sync_with_result_callback(sync_settings, |result| async {
-            match result {
-                Ok(sync_response) => callback(sync_response).await,
-                Err(e) => {
-                    warn!("Error from sync with result: {e}");
-                    // continue the loop in case of error
-                    LoopCtrl::Continue
-                }
-            }
+            Ok(callback(result?).await)
         })
-        .await;
+        .await
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.
@@ -2268,11 +2276,24 @@ impl Client {
     ///   docs for [`Client::sync_once`] for more info.
     ///
     /// * `callback` - A callback that will be called every time after a
-    ///   response has been fetched from the server, or the fetch has been
-    ///   failed. The callback must return a boolean which signalizes if the
-    ///   method should stop syncing. If the callback returns
-    ///   `LoopCtrl::Continue` the sync will continue, if the callback returns
-    ///   `LoopCtrl::Break` the sync will be stopped.
+    ///   response has been received, failure or not. The callback returns a
+    ///   `Result<LoopCtrl, Error>, too. When returning `Ok(LoopCtrl::Continue)`
+    ///   the sync will continue, if the callback returns `Ok(LoopCtrl::Break)`
+    ///   the sync will be stopped and the function returns `Ok(())`. In case
+    ///   the callback can't handle the `Error` or has a different malfunction,
+    ///   it can return an `Err(Error)`, which results in the sync ending and
+    ///   the `Err(Error)` being returned.
+    ///
+    /// # Return
+    /// The sync runs until an error occurs that the callback can't handle or
+    /// the callback indicates that the Loop should stop. If the callback
+    /// asked for a regular stop, the result will be `Ok(())` otherwise the
+    /// `Err(Error)` is returned.
+    ///
+    /// _Note_: Lower-level configuration (e.g. for retries) are not changed by
+    /// this, and are handled first without sending the result to the
+    /// callback. Only after they have exceeded is the `Result` handed to
+    /// the callback.
     ///
     /// # Examples
     ///
@@ -2300,18 +2321,14 @@ impl Client {
     /// client
     ///     .sync_with_result_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
-    ///         if let Ok(sync_response) = response {
-    ///             for (room_id, room) in sync_response.rooms.join {
-    ///                 for event in room.timeline.events {
-    ///                     channel.send(event).await.unwrap();
-    ///                 }
-    ///             }
-    ///
-    ///             LoopCtrl::Continue
-    ///         } else {
-    ///             // check whether the error is unrecoverable and choose loop control accordingly
-    ///             LoopCtrl::Break
+    ///         let sync_response = response?;
+    ///         for (room_id, room) in sync_response.rooms.join {
+    ///              for event in room.timeline.events {
+    ///                  channel.send(event).await.unwrap();
+    ///               }
     ///         }
+    ///
+    ///         Ok(LoopCtrl::Continue)
     ///     })
     ///     .await;
     /// })
@@ -2321,8 +2338,9 @@ impl Client {
         &self,
         mut sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
-    ) where
-        C: Future<Output = LoopCtrl>,
+    ) -> Result<(), Error>
+    where
+        C: Future<Output = Result<LoopCtrl, Error>>,
     {
         let mut last_sync_time: Option<Instant> = None;
 
@@ -2333,12 +2351,14 @@ impl Client {
         loop {
             let result = self.sync_loop_helper(&mut sync_settings).await;
 
-            if callback(result).await == LoopCtrl::Break {
-                return;
+            if callback(result).await? == LoopCtrl::Break {
+                break;
             }
 
             Client::delay_sync(&mut last_sync_time).await
         }
+
+        Ok(())
     }
 
     //// Repeatedly synchronize the client state with the server.

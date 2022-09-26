@@ -104,7 +104,7 @@ async fn login_and_sync(
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     // this keeps state from the server streaming in to the bot via the
     // EventHandler trait
-    client.sync(settings).await; // this essentially loops until we kill the bot
+    client.sync(settings).await?; // this essentially loops until we kill the bot
 
     Ok(())
 }

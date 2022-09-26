@@ -156,14 +156,14 @@ impl Client {
 
             client
                 .sync_with_result_callback(sync_settings, |result| async {
-                    if let Ok(sync_response) = result {
+                    Ok(if let Ok(sync_response) = result {
                         if !state.read().unwrap().has_first_synced {
                             state.write().unwrap().has_first_synced = true;
                         }
 
                         if state.read().unwrap().should_stop_syncing {
                             state.write().unwrap().is_syncing = false;
-                            return LoopCtrl::Break;
+                            return Ok(LoopCtrl::Break);
                         } else if !state.read().unwrap().is_syncing {
                             state.write().unwrap().is_syncing = true;
                         }
@@ -183,9 +183,10 @@ impl Client {
                         LoopCtrl::Continue
                     } else {
                         local_self.process_sync_error(result.err().unwrap())
-                    }
+                    })
                 })
-                .await;
+                .await
+                .unwrap();
         });
     }
 
