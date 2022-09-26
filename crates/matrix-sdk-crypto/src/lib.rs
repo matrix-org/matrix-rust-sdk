@@ -70,7 +70,7 @@ impl RoomKeyImportResult {
 
 pub use error::{EventError, MegolmError, OlmError, SessionCreationError, SignatureError};
 pub use file_encryption::{
-    decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
+    decrypt_room_key_export, encrypt_room_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
 };
 pub use gossiping::GossipRequest;

@@ -9,6 +9,7 @@ use matrix_sdk::{
 use sanitize_filename_reader_friendly::sanitize;
 
 use super::{client::Client, ClientState, RUNTIME};
+use crate::helpers::unwrap_or_clone_arc;
 
 #[derive(Clone)]
 pub struct ClientBuilder {
@@ -94,8 +95,4 @@ impl Default for ClientBuilder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn unwrap_or_clone_arc<T: Clone>(arc: Arc<T>) -> T {
-    Arc::try_unwrap(arc).unwrap_or_else(|x| (*x).clone())
 }

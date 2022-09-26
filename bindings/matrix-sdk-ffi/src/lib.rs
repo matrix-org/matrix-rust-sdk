@@ -6,10 +6,14 @@ pub mod authentication_service;
 pub mod backward_stream;
 pub mod client;
 pub mod client_builder;
+mod helpers;
 pub mod messages;
 pub mod room;
 pub mod session_verification;
+pub mod sliding_sync;
 mod uniffi_api;
+
+use std::io;
 
 use client::Client;
 use client_builder::ClientBuilder;
@@ -27,7 +31,7 @@ pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
 pub use self::{
     authentication_service::*, backward_stream::*, client::*, messages::*, room::*,
-    session_verification::*,
+    session_verification::*, sliding_sync::*,
 };
 
 #[derive(Default, Debug)]
@@ -64,7 +68,7 @@ impl From<anyhow::Error> for ClientError {
 fn setup_tracing(configuration: String) {
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(false))
+        .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
         .init();
 }
 

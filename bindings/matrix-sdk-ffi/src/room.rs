@@ -193,7 +193,8 @@ impl Room {
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            let reply_content = RoomMessageEventContent::text_reply_plain(msg, original_message);
+            let reply_content =
+                RoomMessageEventContent::text_markdown(msg).make_reply_to(original_message);
 
             room.send(reply_content, txn_id.as_deref().map(Into::into)).await?;
 

@@ -2,10 +2,7 @@ use std::ops::Deref;
 
 use ruma::api::client::membership::forget_room;
 
-use crate::{
-    room::{Common, Joined},
-    BaseRoom, Client, Result, RoomType,
-};
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 /// A room in the left state.
 ///
@@ -34,8 +31,7 @@ impl Left {
     }
 
     /// Join this room.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
-    pub async fn join(&self) -> Result<Joined> {
+    pub async fn join(&self) -> Result<()> {
         self.inner.join().await
     }
 

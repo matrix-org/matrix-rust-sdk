@@ -3,6 +3,7 @@ generated
 master.zip
 emsdk-*
 .idea/
+.env
 
 ## User settings
 xcuserdata/

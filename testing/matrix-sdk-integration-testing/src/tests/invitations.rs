@@ -1,17 +1,15 @@
-use std::time::Duration;
-
 use anyhow::{bail, Result};
 use assign::assign;
 use matrix_sdk::{
     room::Room, ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
 };
 
-use super::{get_client_for_user, Store};
+use super::get_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
-    let tamatoa = get_client_for_user(Store::Sled, "tamatoa".to_owned()).await?;
-    let sebastian = get_client_for_user(Store::Sled, "sebastian".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let sebastian = get_client_for_user("sebastian".to_owned()).await?;
 
     let invites = [sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;
@@ -20,19 +18,12 @@ async fn test_invitation_details() -> Result<()> {
         is_direct: true,
     });
 
-    let tamatoa_clone = tamatoa.clone();
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        tamatoa_clone.sync_once(Default::default()).await
-    });
-
-    let created_room = tamatoa.create_room(request).await?;
+    let response = tamatoa.create_room(request).await?;
+    let room_id = response.room_id;
 
     // the actual test
     sebastian.sync_once(Default::default()).await?;
-    let room =
-        sebastian.get_room(created_room.room_id()).expect("Sebstian doesn't know about the room");
+    let room = sebastian.get_room(&room_id).expect("Sebstian doesn't know about the room");
 
     if let Room::Invited(iv) = room {
         let details = iv.invite_details().await?;

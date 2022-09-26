@@ -10,7 +10,7 @@ use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_key_export,
+    backups::MegolmV1BackupKey as RustBackupKey, decrypt_room_key_export, encrypt_room_key_export,
     matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
     EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
     Verification as RustVerification,
@@ -658,16 +658,20 @@ impl OlmMachine {
     ///
     /// * `rounds` - The number of rounds that should be used when expanding the
     /// passphrase into an key.
-    pub fn export_keys(&self, passphrase: &str, rounds: i32) -> Result<String, CryptoStoreError> {
-        let keys = self.runtime.block_on(self.inner.export_keys(|_| true))?;
+    pub fn export_room_keys(
+        &self,
+        passphrase: &str,
+        rounds: i32,
+    ) -> Result<String, CryptoStoreError> {
+        let keys = self.runtime.block_on(self.inner.export_room_keys(|_| true))?;
 
-        let encrypted = encrypt_key_export(&keys, passphrase, rounds as u32)
+        let encrypted = encrypt_room_key_export(&keys, passphrase, rounds as u32)
             .map_err(CryptoStoreError::Serialization)?;
 
         Ok(encrypted)
     }
 
-    fn import_keys_helper(
+    fn import_room_keys_helper(
         &self,
         keys: Vec<ExportedRoomKey>,
         from_backup: bool,
@@ -677,7 +681,8 @@ impl OlmMachine {
             progress_listener.on_progress(progress as i32, total as i32)
         };
 
-        let result = self.runtime.block_on(self.inner.import_keys(keys, from_backup, listener))?;
+        let result =
+            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
 
         Ok(KeysImportResult {
             imported: result.imported_count as i64,
@@ -705,20 +710,20 @@ impl OlmMachine {
     ///
     /// * `progress_listener` - A callback that can be used to introspect the
     /// progress of the key import.
-    pub fn import_keys(
+    pub fn import_room_keys(
         &self,
         keys: &str,
         passphrase: &str,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys = Cursor::new(keys);
-        let keys = decrypt_key_export(keys, passphrase)?;
-        self.import_keys_helper(keys, false, progress_listener)
+        let keys = decrypt_room_key_export(keys, passphrase)?;
+        self.import_room_keys_helper(keys, false, progress_listener)
     }
 
     /// Import room keys from the given serialized unencrypted key export.
     ///
-    /// This method is the same as [`OlmMachine::import_keys`] but the
+    /// This method is the same as [`OlmMachine::import_room_keys`] but the
     /// decryption step is skipped and should be performed by the caller. This
     /// should be used if the room keys are coming from the server-side backup,
     /// the method will mark all imported room keys as backed up.
@@ -729,7 +734,7 @@ impl OlmMachine {
     ///
     /// * `progress_listener` - A callback that can be used to introspect the
     /// progress of the key import.
-    pub fn import_decrypted_keys(
+    pub fn import_decrypted_room_keys(
         &self,
         keys: &str,
         progress_listener: Box<dyn ProgressListener>,
@@ -738,7 +743,7 @@ impl OlmMachine {
 
         let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
 
-        self.import_keys_helper(keys, true, progress_listener)
+        self.import_room_keys_helper(keys, true, progress_listener)
     }
 
     /// Discard the currently active room key for the given room if there is

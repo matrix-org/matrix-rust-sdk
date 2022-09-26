@@ -523,11 +523,7 @@ impl Room {
         {
             TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
         } else {
-            TimelineStreamBackward::new(
-                event_ids.clone(),
-                Some(sync_token.clone().expect("Sync token exists")),
-                None,
-            )
+            TimelineStreamBackward::new(event_ids.clone(), sync_token.clone(), None)
         };
 
         backward_timeline_streams.push(backward_sender);

@@ -24,7 +24,7 @@ use ruma::{
     assign, device_id,
     directory::Filter,
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
-    mxc_uri, room_id, server_name, uint, user_id, RoomOrAliasId,
+    mxc_uri, room_id, uint, user_id,
 };
 use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
@@ -391,31 +391,17 @@ async fn join_room_by_id() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
         .mount(&server)
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
-
-    let client_clone = client.clone();
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        client_clone.sync_once(SyncSettings::default()).await
-    });
-
-    let joined = client.join_room_by_id(room_id).await.unwrap();
+    let room_id = room_id!("!testroom:example.org");
 
     assert_eq!(
-        // this is the `Joined` room but since no PartialEq we check the RoomId
+        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        joined.room_id(),
-        *test_json::DEFAULT_SYNC_ROOM_ID
+        client.join_room_by_id(room_id).await.unwrap().room_id,
+        room_id
     );
 }
 
@@ -426,34 +412,21 @@ async fn join_room_by_id_or_alias() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/join/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
         .mount(&server)
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let room_id_or_alias = <&RoomOrAliasId>::try_from(*test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
-
-    let client_clone = client.clone();
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        client_clone.sync_once(SyncSettings::default()).await
-    });
-
-    let joined = client
-        .join_room_by_id_or_alias(room_id_or_alias, &[server_name!("server.com").to_owned()])
-        .await
-        .unwrap();
+    let room_id = room_id!("!testroom:example.org").into();
 
     assert_eq!(
-        // this is the `Joined` room but since no PartialEq we check the RoomId
+        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        joined.room_id(),
-        *test_json::DEFAULT_SYNC_ROOM_ID
+        client
+            .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
+            .await
+            .unwrap()
+            .room_id,
+        room_id!("!testroom:example.org")
     );
 }
 

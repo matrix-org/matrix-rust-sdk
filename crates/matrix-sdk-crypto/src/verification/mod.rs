@@ -417,44 +417,52 @@ impl Cancelled {
     }
 }
 
+/// A key verification can be requested and started by a to-device
+/// request or a room event. `FlowId` helps to represent both
+/// usecases.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum FlowId {
+    /// The flow ID comes from a to-device request.
     ToDevice(OwnedTransactionId),
+
+    /// The flow ID comes from a room event.
     InRoom(OwnedRoomId, OwnedEventId),
 }
 
 impl FlowId {
+    /// Get the room ID if the flow ID comes from a room event.
     pub fn room_id(&self) -> Option<&RoomId> {
-        if let FlowId::InRoom(room_id, _) = &self {
+        if let Self::InRoom(room_id, _) = &self {
             Some(room_id)
         } else {
             None
         }
     }
 
+    /// Get the ID a string.
     pub fn as_str(&self) -> &str {
         match self {
-            FlowId::InRoom(_, event_id) => event_id.as_str(),
-            FlowId::ToDevice(transaction_id) => transaction_id.as_str(),
+            Self::InRoom(_, event_id) => event_id.as_str(),
+            Self::ToDevice(transaction_id) => transaction_id.as_str(),
         }
     }
 }
 
 impl From<OwnedTransactionId> for FlowId {
     fn from(transaction_id: OwnedTransactionId) -> Self {
-        FlowId::ToDevice(transaction_id)
+        Self::ToDevice(transaction_id)
     }
 }
 
 impl From<(OwnedRoomId, OwnedEventId)> for FlowId {
     fn from(ids: (OwnedRoomId, OwnedEventId)) -> Self {
-        FlowId::InRoom(ids.0, ids.1)
+        Self::InRoom(ids.0, ids.1)
     }
 }
 
 impl From<(&RoomId, &EventId)> for FlowId {
     fn from(ids: (&RoomId, &EventId)) -> Self {
-        FlowId::InRoom(ids.0.to_owned(), ids.1.to_owned())
+        Self::InRoom(ids.0.to_owned(), ids.1.to_owned())
     }
 }
 

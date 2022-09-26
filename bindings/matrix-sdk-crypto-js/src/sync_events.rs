@@ -3,7 +3,7 @@
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
-use crate::{downcast, identifiers};
+use crate::{identifiers, js::downcast};
 
 /// Information on E2E device updates.
 #[wasm_bindgen]

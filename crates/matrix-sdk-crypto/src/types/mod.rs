@@ -150,7 +150,7 @@ impl Signatures {
 
     /// How many signatures do we currently hold.
     pub fn signature_count(&self) -> usize {
-        self.0.iter().map(|(_, u)| u.len()).sum()
+        self.0.values().map(|u| u.len()).sum()
     }
 }
 
