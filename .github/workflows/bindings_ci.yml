@@ -162,7 +162,7 @@ jobs:
         with:
           command: install
           # keep in sync with uniffi dependency in Cargo.toml's
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev 091c3561656e72e1a4160412c83b36d98e556d06
+          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev 17ee82b50ab01182b09a3597b3a340baeca1c9a8
 
       - name: Generate .xcframework
         working-directory: bindings/apple
