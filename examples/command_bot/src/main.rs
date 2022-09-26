@@ -73,7 +73,7 @@ async fn login_and_sync(
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     // this keeps state from the server streaming in to CommandBot via the
     // EventHandler trait
-    client.sync(settings).await;
+    client.sync(settings).await?;
 
     Ok(())
 }
