@@ -38,6 +38,7 @@ pub use matrix_sdk_base::crypto::{
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
+use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::OwnedDeviceId;
 use ruma::{
@@ -223,6 +224,57 @@ impl Client {
                 message::MessageType::File(content)
             }
         })
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn create_dm_room(
+        &self,
+        user_id: OwnedUserId,
+    ) -> Result<Option<room::Joined>> {
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
+
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.clone()];
+
+        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
+            invite,
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        });
+
+        let response = self.send(request, None).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .account()
+            .account_data::<DirectEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+
+        content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.account().set_account_data(content).await?;
+
+        // If the room is already in our store, fetch it, otherwise wait for a
+        // sync to be done which should put the room into our store.
+        if let Some(room) = self.get_joined_room(&response.room_id) {
+            Ok(Some(room))
+        } else {
+            self.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            Ok(self.get_joined_room(&response.room_id))
+        }
     }
 
     /// Claim one-time keys creating new Olm sessions.
