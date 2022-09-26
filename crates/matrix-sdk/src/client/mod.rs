@@ -71,7 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -2289,6 +2289,11 @@ impl Client {
     /// the callback indicates that the Loop should stop. If the callback
     /// asked for a regular stop, the result will be `Ok(())` otherwise the
     /// `Err(Error)` is returned.
+    ///
+    /// _Note_: Lower-level configuration (e.g. for retries) are not changed by
+    /// this, and are handled first without sending the result to the
+    /// callback. Only after they have exceeded is the `Result` handed to
+    /// the callback.
     ///
     /// # Examples
     ///
