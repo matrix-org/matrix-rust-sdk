@@ -80,7 +80,8 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerHandle, EventHandlerResult, EventHandlerStore, SyncEvent,
+        EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerResult,
+        EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
     room, Account, Error, Media, RefreshTokenError, Result, RumaApiError,
@@ -721,6 +722,14 @@ impl Client {
     /// ```
     pub fn remove_event_handler(&self, handle: EventHandlerHandle) {
         self.inner.event_handlers.remove(handle);
+    }
+
+    /// Create an [`EventHandlerDropGuard`] for the event handler identified by
+    /// the given handle.
+    ///
+    /// When the returned value is dropped, the event handler will be removed.
+    pub fn event_handler_drop_guard(&self, handle: EventHandlerHandle) -> EventHandlerDropGuard {
+        EventHandlerDropGuard::new(handle, self.clone())
     }
 
     /// Add an arbitrary value for use as event handler context.
