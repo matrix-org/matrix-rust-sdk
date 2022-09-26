@@ -36,10 +36,8 @@ use tracing::debug;
 use tracing::instrument;
 
 use crate::{
-    attachment::AttachmentConfig,
-    error::HttpResult,
-    room::{Common, Left},
-    BaseRoom, Client, Result, RoomType,
+    attachment::AttachmentConfig, error::HttpResult, room::Common, BaseRoom, Client, Result,
+    RoomType,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -85,7 +83,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    pub async fn leave(&self) -> Result<Left> {
+    pub async fn leave(&self) -> Result<()> {
         self.inner.leave().await
     }
 

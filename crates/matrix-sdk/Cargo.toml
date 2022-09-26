@@ -70,10 +70,9 @@ bytes = "1.1.0"
 dashmap = "5.2.0"
 event-listener = "2.5.2"
 eyre = { version = "0.6.8", optional = true }
-futures-channel = { version = "0.3.21", features = ["sink"] }
 futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
-futures-util = { version = "0.3.21", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3.21", default-features = false }
 http = "0.2.6"
 matrix-sdk-common = { version = "0.5.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.1.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }

@@ -2300,7 +2300,6 @@ dependencies = [
  "event-listener",
  "eyre",
  "futures",
- "futures-channel",
  "futures-core",
  "futures-signals",
  "futures-util",
