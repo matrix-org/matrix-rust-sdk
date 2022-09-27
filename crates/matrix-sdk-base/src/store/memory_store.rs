@@ -26,15 +26,8 @@ use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
-#[cfg(feature = "experimental-timeline")]
 use ruma::{
-    canonical_json::redact_in_place,
-    events::{
-        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
-    CanonicalJsonObject, RoomVersionId,
-};
-use ruma::{
+    canonical_json::redact,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptType},
@@ -43,20 +36,28 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    RoomVersionId, UserId,
 };
-use tracing::info;
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
+};
+use tracing::{info, warn};
 
 #[cfg(feature = "experimental-timeline")]
 use super::BoxStream;
-use super::{Result, RoomInfo, StateChanges, StateStore};
+use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+#[cfg(feature = "experimental-timeline")]
+use crate::deserialized_responses::SyncTimelineEvent;
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     MinimalRoomMemberEvent,
 };
-#[cfg(feature = "experimental-timeline")]
-use crate::{deserialized_responses::SyncTimelineEvent, StoreError};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -353,10 +354,18 @@ impl MemoryStore {
             }
         }
 
+        let make_room_version = |room_id| {
+            self.room_info
+                .get(room_id)
+                .and_then(|info| info.room_version().cloned())
+                .unwrap_or_else(|| {
+                    warn!(%room_id, "Unable to find the room version, assuming version 9");
+                    RoomVersionId::V9
+                })
+        };
+
         #[cfg(feature = "experimental-timeline")]
         for (room_id, timeline) in &changes.timeline {
-            use tracing::warn;
-
             if timeline.sync {
                 info!(%room_id, "Saving new timeline batch from sync response");
             } else {
@@ -407,16 +416,6 @@ impl MemoryStore {
                     ..Default::default()
                 });
 
-            let make_room_version = || {
-                self.room_info
-                    .get(room_id)
-                    .and_then(|info| info.room_version().cloned())
-                    .unwrap_or_else(|| {
-                        warn!(%room_id, "Unable to find the room version, assuming version 9");
-                        RoomVersionId::V9
-                    })
-            };
-
             if timeline.sync {
                 let mut room_version = None;
                 for event in &timeline.events {
@@ -433,7 +432,8 @@ impl MemoryStore {
                             if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
                                 let mut event_json: CanonicalJsonObject =
                                     full_event.event.deserialize_as()?;
-                                let v = room_version.get_or_insert_with(make_room_version);
+                                let v =
+                                    room_version.get_or_insert_with(|| make_room_version(room_id));
 
                                 redact_in_place(&mut event_json, v)
                                     .map_err(StoreError::Redaction)?;
@@ -459,6 +459,27 @@ impl MemoryStore {
                         data.event_id_to_position.insert(event_id, end_position);
                     }
                     data.events.insert(end_position, event.clone());
+                }
+            }
+        }
+
+        for (room_id, redactions) in &changes.redactions {
+            let mut room_version = None;
+            if let Some(room) = self.room_state.get_mut(room_id) {
+                for mut ref_room_mu in room.iter_mut() {
+                    for mut ref_evt_mu in ref_room_mu.value_mut().iter_mut() {
+                        let raw_evt = ref_evt_mu.value_mut();
+                        if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
+                            if redactions.get(&event_id).is_some() {
+                                let redacted = redact(
+                                    &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                    room_version.get_or_insert_with(|| make_room_version(room_id)),
+                                )
+                                .map_err(StoreError::Redaction)?;
+                                *raw_evt = Raw::new(&redacted)?.cast();
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -327,10 +327,7 @@ impl BaseClient {
                             ),
                         ) => {
                             room_info.handle_redaction(r);
-                            // FIXME: Find the event in self.store (needs
-                            // something like a get_event_by_id), redact it and
-                            // put it back via StateChanges. See
-                            // https://github.com/matrix-org/matrix-rust-sdk/issues/607
+                            changes.add_redaction(room_id, r.clone());
                         }
 
                         #[cfg(feature = "e2e-encryption")]

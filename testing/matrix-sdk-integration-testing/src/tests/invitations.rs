@@ -4,7 +4,7 @@ use matrix_sdk::{
     room::Room, ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
 };
 
-use super::get_client_for_user;
+use crate::helpers::get_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {

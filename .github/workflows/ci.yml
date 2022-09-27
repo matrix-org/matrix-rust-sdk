@@ -441,12 +441,11 @@ jobs:
         with:
           python-version: 3.8
 
-      - uses: gnunicorn/setup-matrix-synapse@main
+      - uses: michaelkaye/setup-matrix-synapse@main
         with:
           uploadLogs: true
           httpPort: 8228
           disableRateLimiting: true
-          serverName: "matrix-sdk.rs"
 
       - name: Test
         uses: actions-rs/cargo@v1

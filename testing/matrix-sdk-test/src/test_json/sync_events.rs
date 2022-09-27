@@ -739,6 +739,7 @@ pub static TOPIC: Lazy<JsonValue> = Lazy::new(|| {
         "origin_server_ts": 151957878,
         "sender": "@example:localhost",
         "state_key": "",
+        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
         "type": "m.room.topic",
         "prev_content": {
             "topic": "test"
@@ -761,5 +762,20 @@ pub static TYPING: Lazy<JsonValue> = Lazy::new(|| {
         },
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
         "type": "m.typing"
+    })
+});
+
+pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {},
+        "redacts": "$151957878228ssqrJ:localhost",
+        "event_id": "$151957878228ssqrJ_REDACTION:localhost",
+        "origin_server_ts": 151957879,
+        "sender": "@example:localhost",
+        "type": "m.room.redaction",
+        "unsigned": {
+          "age": 1392990,
+          "prev_sender": "@example:localhost",
+        }
     })
 });

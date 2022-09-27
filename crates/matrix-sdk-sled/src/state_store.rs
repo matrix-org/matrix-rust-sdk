@@ -34,15 +34,8 @@ use matrix_sdk_base::{
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
-#[cfg(feature = "experimental-timeline")]
 use ruma::{
-    canonical_json::redact_in_place,
-    events::{
-        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
-    CanonicalJsonObject, RoomVersionId,
-};
-use ruma::{
+    canonical_json::redact,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptType},
@@ -51,7 +44,15 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+    CanonicalJsonObject, EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId,
+    RoomVersionId, UserId,
+};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
 };
 #[cfg(feature = "experimental-timeline")]
 use serde::Deserialize;
@@ -61,7 +62,7 @@ use sled::{
     Config, Db, Transactional, Tree,
 };
 use tokio::task::spawn_blocking;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
@@ -773,6 +774,54 @@ impl SledStateStore {
 
         ret?;
 
+        if !changes.redactions.is_empty() {
+            let mut redactions_found = false;
+            let mut redactions_batch = sled::Batch::default();
+
+            let make_room_version = |room_id| {
+                self.room_info
+                    .get(&self.encode_key(ROOM_INFO, room_id))
+                    .ok()
+                    .flatten()
+                    .map(|r| self.deserialize_value::<RoomInfo>(&r))
+                    .transpose()
+                    .ok()
+                    .flatten()
+                    .and_then(|info| info.room_version().cloned())
+                    .unwrap_or_else(|| {
+                        warn!(%room_id, "Unable to find the room version, assume version 9");
+                        RoomVersionId::V9
+                    })
+            };
+
+            for (room_id, redactions) in &changes.redactions {
+                let key_prefix = self.encode_key(ROOM_STATE, room_id);
+                let mut room_version = None;
+
+                // iterate through all saved state events and check whether they are among the
+                // redacted, if so apply redaction and save that to the batch
+                // applied all at once after.
+                for (key, evt) in self.room_state.scan_prefix(key_prefix).filter_map(|r| r.ok()) {
+                    let raw_evt = self.deserialize_value::<Raw<AnySyncStateEvent>>(&evt)?;
+                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
+                        if redactions.contains_key(&event_id) {
+                            let redacted = redact(
+                                &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                room_version.get_or_insert_with(|| make_room_version(room_id)),
+                            )
+                            .map_err(StoreError::Redaction)?;
+                            redactions_found = true;
+                            redactions_batch.insert(key, self.serialize_value(&redacted)?);
+                        }
+                    }
+                }
+            }
+
+            if redactions_found {
+                self.room_state.apply_batch(redactions_batch)?;
+            }
+        }
+
         let ret: Result<(), TransactionError<SledStoreError>> =
             (&self.room_user_receipts, &self.room_event_receipts, &self.presence).transaction(
                 |(room_user_receipts, room_event_receipts, presence)| {
@@ -1414,8 +1463,6 @@ impl SledStateStore {
 
     #[cfg(feature = "experimental-timeline")]
     async fn save_room_timeline(&self, changes: &StateChanges) -> Result<()> {
-        use tracing::warn;
-
         let mut timeline_batch = sled::Batch::default();
         let mut event_id_to_position_batch = sled::Batch::default();
         let mut timeline_metadata_batch = sled::Batch::default();

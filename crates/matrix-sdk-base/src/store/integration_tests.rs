@@ -59,6 +59,7 @@ macro_rules! statestore_integration_tests {
                         },
                         power_levels::RoomPowerLevelsEventContent,
                         MediaSource,
+                        topic::{RoomTopicEventContent, OriginalRoomTopicEvent, RedactedRoomTopicEvent},
                     },
                     AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent,
                     AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
@@ -78,7 +79,7 @@ macro_rules! statestore_integration_tests {
             };
             use $crate::{
                 media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-                store::{Result as StoreResult, StateChanges, StateStore},
+                store::{Result as StoreResult, StateChanges, StateStore, StateStoreExt},
                 RoomInfo, RoomType,
             };
 
@@ -147,8 +148,8 @@ macro_rules! statestore_integration_tests {
 
                 let topic_json: &JsonValue = &test_json::TOPIC;
                 let topic_raw =
-                    serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone()).unwrap();
-                let topic_event = topic_raw.deserialize().unwrap();
+                    serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone()).expect("can create sync-state-event for topic");
+                let topic_event = topic_raw.deserialize().expect("can deserialize raw topic");
                 room.handle_state_event(&topic_event);
                 changes.add_state_event(room_id, topic_event, topic_raw);
 
@@ -282,6 +283,55 @@ macro_rules! statestore_integration_tests {
                     state_key: user_id.to_owned(),
                     unsigned: RoomMemberUnsigned::default(),
                 })
+            }
+
+            #[async_test]
+            async fn test_topic_redaction() -> StoreResult<()> {
+                let room_id = room_id();
+                let inner_store = get_store().await?;
+
+                let store = Arc::new(inner_store);
+                populate_store(store.clone()).await?;
+
+                assert!(store.get_sync_token().await?.is_some());
+                assert_eq!(
+                    store
+                        .get_state_event_static::<RoomTopicEventContent>(room_id)
+                        .await?
+                        .expect("room topic found before redaction")
+                        .deserialize_as::<OriginalRoomTopicEvent>()
+                        .expect("can deserialize room topic before redaction")
+                        .content
+                        .topic,
+                    "😀"
+                );
+
+                let mut changes = StateChanges::default();
+
+                let redaction_json: &JsonValue = &test_json::TOPIC_REDACTION;
+                let redaction_evt = serde_json::from_value(redaction_json.clone()).expect("topic redaction event making works");
+
+                changes.add_redaction(room_id, redaction_evt);
+                store.save_changes(&changes).await?;
+
+                match store
+                        .get_state_event_static::<RoomTopicEventContent>(room_id)
+                        .await?
+                        .expect("room topic found before redaction")
+                        .deserialize_as::<OriginalRoomTopicEvent>()
+                {
+                    Err(_) => { } // as expected
+                    Ok(_) => panic!("Topic has not been redacted")
+                }
+
+                let _ = store
+                    .get_state_event_static::<RoomTopicEventContent>(room_id)
+                    .await?
+                    .expect("room topic found after redaction")
+                    .deserialize_as::<RedactedRoomTopicEvent>()
+                    .expect("can deserialize room topic after redaction");
+
+                Ok(())
             }
 
             #[async_test]

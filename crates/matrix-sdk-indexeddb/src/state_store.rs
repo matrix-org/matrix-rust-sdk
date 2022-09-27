@@ -36,15 +36,8 @@ use matrix_sdk_base::{
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
-#[cfg(feature = "experimental-timeline")]
 use ruma::{
-    canonical_json::redact_in_place,
-    events::{
-        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
-    CanonicalJsonObject, RoomVersionId,
-};
-use ruma::{
+    canonical_json::redact,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptType},
@@ -53,11 +46,19 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{
+        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(feature = "experimental-timeline")]
-use tracing::{info, warn};
+use tracing::info;
+use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -582,6 +583,10 @@ impl IndexeddbStateStore {
             stores.extend([KEYS::ROOM_STATE, KEYS::STRIPPED_ROOM_STATE]);
         }
 
+        if !changes.redactions.is_empty() {
+            stores.extend([KEYS::ROOM_STATE, KEYS::ROOM_INFOS]);
+        }
+
         if !changes.room_infos.is_empty() || !changes.stripped_room_infos.is_empty() {
             stores.extend([KEYS::ROOM_INFOS, KEYS::STRIPPED_ROOM_INFOS]);
         }
@@ -858,6 +863,53 @@ impl IndexeddbStateStore {
                             )?;
                         }
                     }
+                }
+            }
+        }
+
+        if !changes.redactions.is_empty() {
+            let state = tx.object_store(KEYS::ROOM_STATE)?;
+            let room_info = tx.object_store(KEYS::ROOM_INFOS)?;
+
+            for (room_id, redactions) in &changes.redactions {
+                let range = self.encode_to_range(KEYS::ROOM_STATE, room_id)?;
+                let cursor = match state.open_cursor_with_range(&range)?.await? {
+                    Some(c) => c,
+                    _ => continue,
+                };
+
+                let mut room_version = None;
+
+                while let Some(key) = cursor.key() {
+                    let raw_evt =
+                        self.deserialize_event::<Raw<AnySyncStateEvent>>(cursor.value())?;
+                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
+                        if redactions.contains_key(&event_id) {
+                            let version = {
+                                if room_version.is_none() {
+                                    room_version.replace(room_info
+                                        .get(&self.encode_key(KEYS::ROOM_INFOS, room_id))?
+                                        .await?
+                                        .and_then(|f| self.deserialize_event::<RoomInfo>(f).ok())
+                                        .and_then(|info| info.room_version().cloned())
+                                        .unwrap_or_else(|| {
+                                            warn!(%room_id, "Unable to find the room version, assume version 9");
+                                            RoomVersionId::V9
+                                        })
+                                    );
+                                }
+                                room_version.as_ref().unwrap()
+                            };
+
+                            let redacted =
+                                redact(&raw_evt.deserialize_as::<CanonicalJsonObject>()?, version)
+                                    .map_err(StoreError::Redaction)?;
+                            state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
+                        }
+                    }
+
+                    // move forward.
+                    cursor.advance(1)?.await?;
                 }
             }
         }
