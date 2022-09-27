@@ -1723,6 +1723,7 @@ pub(crate) mod tests {
             sender: alice.user_id().to_owned(),
             content: content.deserialize_as().unwrap(),
             other: Default::default(),
+            event_type: Default::default(),
         };
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
@@ -1939,17 +1940,16 @@ pub(crate) mod tests {
         let bob_device =
             alice.get_device(&bob.user_id, &bob.device_id, None).await.unwrap().unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice.user_id().to_owned(),
-            content: bob_device
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            bob_device
                 .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
                 .await
                 .unwrap()
                 .1
                 .deserialize_as()
                 .unwrap(),
-            other: Default::default(),
-        };
+        );
 
         let event = bob
             .decrypt_to_device_event(&event)
@@ -1978,11 +1978,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice.user_id().to_owned(),
-            content: to_device_requests_to_content(to_device_requests),
-            other: Default::default(),
-        };
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(to_device_requests),
+        );
         let event = json_convert(&event).unwrap();
 
         let alice_session =
@@ -2027,11 +2026,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice.user_id().to_owned(),
-            content: to_device_requests_to_content(to_device_requests),
-            other: Default::default(),
-        };
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(to_device_requests),
+        );
 
         let group_session =
             bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;

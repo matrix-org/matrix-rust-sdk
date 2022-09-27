@@ -240,7 +240,7 @@ pub struct ToDeviceCustomEvent {
 }
 
 /// Generic to-device event with a known type and content.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ToDeviceEvent<C>
 where
     C: EventType + Debug + Sized + Serialize,
@@ -252,32 +252,16 @@ where
     /// Any other unknown data of the to-device event.
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
+    /// The type of the to-device event.
+    #[serde(rename = "type")]
+    pub(crate) event_type: String,
 }
 
-impl<C> Serialize for ToDeviceEvent<C>
-where
-    C: EventType + Debug + Sized + Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        #[derive(Serialize)]
-        struct Helper<'a, C> {
-            sender: &'a UserId,
-            content: &'a C,
-            #[serde(rename = "type")]
-            event_type: &'a str,
-            #[serde(flatten)]
-            other: &'a BTreeMap<String, Value>,
-        }
-
-        let event_type = self.content.event_type();
-
-        let helper =
-            Helper { sender: &self.sender, content: &self.content, event_type, other: &self.other };
-
-        helper.serialize(serializer)
+impl<C: EventType + Debug + Sized + Serialize> ToDeviceEvent<C> {
+    /// Create a new `ToDeviceEvent`.
+    pub fn new(sender: OwnedUserId, content: C) -> ToDeviceEvent<C> {
+        let event_type = content.event_type().to_owned();
+        ToDeviceEvent { sender, content, event_type, other: Default::default() }
     }
 }
 
@@ -479,6 +463,53 @@ mod test {
 
             // Unknown event
             custom_event => Custom,
+
+            // `m.key.verification.request`
+            key_verification_event => KeyVerificationRequest,
+
+            // `m.dummy`
+            dummy_event => Dummy,
+
+            // `m.room.encrypted`
+            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn zeroized_deserialization() -> Result<(), serde_json::Error> {
+        use ruma::events::AnyToDeviceEvent;
+
+        macro_rules! assert_serialization_roundtrip {
+            ( $( $json:path => $to_device_events:ident ),* $(,)? ) => {
+                $(
+                    let json = $json();
+                    let event: ToDeviceEvents = serde_json::from_value(json.clone())?;
+                    let zeroized = event.serialize_zeroized()?;
+
+                    let ruma_event: AnyToDeviceEvent = zeroized.deserialize_as()?;
+
+                    assert_matches!(ruma_event, AnyToDeviceEvent::$to_device_events(_));
+                )*
+            }
+        }
+
+        assert_serialization_roundtrip!(
+            // `m.room_key
+            crate::types::events::room_key::test::json => RoomKey,
+
+            // `m.forwarded_room_key`
+            forwarded_room_key_event => ForwardedRoomKey,
+
+            // `m.room_key_request`
+            room_key_request_event => RoomKeyRequest,
+
+            // `m.secret.send`
+            crate::types::events::secret_send::test::json => SecretSend,
+
+            // `m.secret.request`
+            secret_request_event => SecretRequest,
 
             // `m.key.verification.request`
             key_verification_event => KeyVerificationRequest,
