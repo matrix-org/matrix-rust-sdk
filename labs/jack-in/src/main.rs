@@ -4,15 +4,21 @@
 
 use std::path::{Path, PathBuf};
 
+use app_dirs2::{app_root, AppDataType, AppInfo};
+use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
 use matrix_sdk::{
-    ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
-    Client, Session,
+    ruma::{OwnedRoomId, OwnedUserId},
+    store::make_store_config,
+    Client,
 };
+use sanitize_filename_reader_friendly::sanitize;
 use tracing::{log::LevelFilter, warn};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
+
+const APP_INFO: AppInfo = AppInfo { name: "jack-in", author: "Matrix-Rust-SDK Core Team" };
 
 // -- internal
 mod app;
@@ -76,12 +82,16 @@ struct Opt {
     sliding_sync_proxy: String,
 
     /// Your access token to connect via the
-    #[structopt(short, long, env = "JACKIN_TOKEN")]
-    token: String,
+    #[structopt(short, long, env = "JACKIN_PASSWORD")]
+    password: Option<String>,
 
     /// The userID associated with this access token
     #[structopt(short, long, env = "JACKIN_USER")]
     user: String,
+
+    /// The userID associated with this access token
+    #[structopt(long, env = "JACKIN_STORE_PASSWORD")]
+    store_pass: Option<String>,
 
     #[structopt(long)]
     /// Activate tracing and write the flamegraph to the specified file
@@ -112,7 +122,6 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let user_id: OwnedUserId = opt.user.clone().parse()?;
-    let device_id: OwnedDeviceId = "XdftAsd".into();
 
     if let Some(ref p) = opt.flames {
         setup_flames(p.as_path());
@@ -165,14 +174,43 @@ async fn main() -> Result<()> {
         }
     }
 
-    let client = Client::builder().server_name(user_id.server_name()).build().await?;
-    let session = Session {
-        access_token: opt.token.clone(),
-        refresh_token: None,
-        user_id: user_id.clone(),
-        device_id,
-    };
-    client.restore_login(session).await?;
+    let data_path =
+        PathBuf::from(app_root(AppDataType::UserData, &APP_INFO)?).join(sanitize(user_id.as_str()));
+    std::fs::create_dir_all(&data_path)?;
+    let store_config = make_store_config(&data_path, opt.store_pass.as_deref())?;
+
+    let client = Client::builder()
+        .user_agent("jack-in")
+        .server_name(user_id.server_name())
+        .store_config(store_config)
+        .build()
+        .await?;
+
+    let session_key = b"jackin::session_token";
+
+    if let Some(session) = client
+        .store()
+        .get_custom_value(session_key)
+        .await?
+        .map(|v| serde_json::from_slice(&v))
+        .transpose()?
+    {
+        client.restore_login(session).await?;
+    } else {
+        let theme = ColorfulTheme::default();
+        let password = match opt.password {
+            Some(ref pw) => pw.clone(),
+            _ => Password::with_theme(&theme)
+                .with_prompt(format!("Password for {:} :", user_id))
+                .interact()?,
+        };
+        client.login_username(&user_id, &password).send().await?;
+    }
+
+    if let Some(session) = client.session() {
+        client.store().set_custom_value(session_key, serde_json::to_vec(&session)?).await?;
+    }
+
     let sliding_client = client.clone();
     let proxy = opt.sliding_sync_proxy.clone();
 
