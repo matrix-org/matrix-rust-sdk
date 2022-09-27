@@ -2,7 +2,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::impl_from_to_inner;
+use crate::{identifiers, impl_from_to_inner};
 
 /// Struct representing the state of our private cross signing keys,
 /// it shows which private cross signing keys we have locally stored.
@@ -34,5 +34,39 @@ impl CrossSigningStatus {
     #[wasm_bindgen(getter, js_name = "hasUserSigning")]
     pub fn has_user_signing(&self) -> bool {
         self.inner.has_user_signing
+    }
+}
+
+/// Inbound group session.
+///
+/// Inbound group sessions are used to exchange room messages between a group of
+/// participants. Inbound group sessions are used to decrypt the room messages.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct InboundGroupSession {
+    inner: matrix_sdk_crypto::olm::InboundGroupSession,
+}
+
+impl_from_to_inner!(matrix_sdk_crypto::olm::InboundGroupSession => InboundGroupSession);
+
+#[wasm_bindgen]
+impl InboundGroupSession {
+    /// The room where this session is used in.
+    #[wasm_bindgen(getter, js_name = "roomId")]
+    pub fn room_id(&self) -> identifiers::RoomId {
+        self.inner.room_id().to_owned().into()
+    }
+
+    /// Returns the unique identifier for this session.
+    #[wasm_bindgen(getter, js_name = "sessionId")]
+    pub fn session_id(&self) -> String {
+        self.inner.session_id().to_owned()
+    }
+
+    /// Has the session been imported from a file or server-side backup? As
+    /// opposed to being directly received as an `m.room_key` event.
+    #[wasm_bindgen(js_name = "hasBeenImported")]
+    pub fn has_been_imported(&self) -> bool {
+        self.inner.has_been_imported()
     }
 }

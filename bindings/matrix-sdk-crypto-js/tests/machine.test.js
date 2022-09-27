@@ -5,6 +5,7 @@ const {
     DeviceKeyId,
     DeviceLists,
     EncryptionSettings,
+    InboundGroupSession,
     KeysClaimRequest,
     KeysQueryRequest,
     KeysUploadRequest,
@@ -19,6 +20,7 @@ const {
     VerificationRequest,
     VerificationState,
 } = require('../pkg/matrix_sdk_crypto_js');
+const { addMachineToMachine } = require('./helper');
 require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
@@ -490,5 +492,78 @@ describe(OlmMachine.name, () => {
         const isTrusted = await identity.trustsOurOwnDevice();
 
         expect(isTrusted).toStrictEqual(false);
+    });
+
+    describe('can export/import room keys', () => {
+        let m;
+        let exportedRoomKeys;
+
+        test('can export room keys', async () => {
+            m = await machine();
+            await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings());
+
+            exportedRoomKeys = await m.exportRoomKeys(session => {
+                expect(session).toBeInstanceOf(InboundGroupSession);
+                expect(session.roomId.toString()).toStrictEqual(room.toString());
+                expect(session.sessionId).toBeDefined();
+                expect(session.hasBeenImported()).toStrictEqual(false);
+
+                return true;
+            });
+
+            const roomKeys = JSON.parse(exportedRoomKeys);
+            expect(roomKeys).toHaveLength(1);
+            expect(roomKeys[0]).toMatchObject({
+                algorithm: expect.any(String),
+                room_id: room.toString(),
+                sender_key: expect.any(String),
+                session_id: expect.any(String),
+                session_key: expect.any(String),
+                sender_claimed_keys: {
+                    ed25519: expect.any(String),
+                },
+                forwarding_curve25519_key_chain: [],
+            });
+        });
+
+        let encryptedExportedRoomKeys;
+        let encryptionPassphrase = 'Hello, Matrix!';
+
+        test('can encrypt the exported room keys', () => {
+            encryptedExportedRoomKeys = OlmMachine.encryptExportedRoomKeys(
+                exportedRoomKeys,
+                encryptionPassphrase,
+                100_000,
+            );
+
+            expect(encryptedExportedRoomKeys).toMatch(/^-----BEGIN MEGOLM SESSION DATA-----/);
+        });
+
+        test('can decrypt the exported room keys', () => {
+            const decryptedExportedRoomKeys = OlmMachine.decryptExportedRoomKeys(
+                encryptedExportedRoomKeys,
+                encryptionPassphrase,
+            );
+
+            expect(decryptedExportedRoomKeys).toStrictEqual(exportedRoomKeys);
+        });
+
+        test('can import room keys', async () => {
+            const progressListener = (progress, total) => {
+                expect(progress).toBeLessThan(total);
+
+                // Since it's called only once, let's be crazy.
+                expect(progress).toStrictEqual(0n);
+                expect(total).toStrictEqual(1n);
+            };
+
+            const result = JSON.parse(await m.importRoomKeys(exportedRoomKeys, progressListener));
+
+            expect(result).toMatchObject({
+                imported_count: expect.any(Number),
+                total_count: expect.any(Number),
+                keys: expect.any(Object),
+            });
+        });
     });
 });

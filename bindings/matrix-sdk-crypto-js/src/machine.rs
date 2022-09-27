@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use js_sys::{Array, Map, Promise, Set};
+use js_sys::{Array, Function, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -625,5 +625,107 @@ impl OlmMachine {
                 .await
                 .map(|_| JsValue::UNDEFINED)?)
         }))
+    }
+
+    /// Export the keys that match the given predicate.
+    ///
+    /// `predicate` is a closure that will be called for every known
+    /// `InboundGroupSession`, which represents a room key. If the closure
+    /// returns `true`, the `InboundGroupSession` will be included in the
+    /// export, otherwise it won't.
+    #[wasm_bindgen(js_name = "exportRoomKeys")]
+    pub fn export_room_keys(&self, predicate: Function) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(serde_json::to_string(
+                &me.export_room_keys(|session| {
+                    let session = session.clone();
+
+                    predicate
+                        .call1(&JsValue::NULL, &olm::InboundGroupSession::from(session).into())
+                        .expect("Predicate function passed to `export_room_keys` failed")
+                        .as_bool()
+                        .unwrap_or(false)
+                })
+                .await?,
+            )?)
+        })
+    }
+
+    /// Import the given room keys into our store.
+    ///
+    /// `exported_keys` is a list of previously exported keys that should be
+    /// imported into our store. If we already have a better version of a key,
+    /// the key will _not_ be imported.
+    ///
+    /// `progress_listener` is a closure that takes 2 arguments: `progress` and
+    /// `total`, and returns nothing.
+    #[wasm_bindgen(js_name = "importRoomKeys")]
+    pub fn import_room_keys(
+        &self,
+        exported_room_keys: &str,
+        progress_listener: Function,
+    ) -> Result<Promise, JsError> {
+        let me = self.inner.clone();
+        let exported_room_keys: Vec<matrix_sdk_crypto::olm::ExportedRoomKey> =
+            serde_json::from_str(exported_room_keys)?;
+
+        Ok(future_to_promise(async move {
+            let matrix_sdk_crypto::RoomKeyImportResult { imported_count, total_count, keys } = me
+                .import_room_keys(exported_room_keys, false, |progress, total| {
+                    let progress: u64 = progress.try_into().unwrap();
+                    let total: u64 = total.try_into().unwrap();
+
+                    progress_listener
+                        .call2(&JsValue::NULL, &JsValue::from(progress), &JsValue::from(total))
+                        .expect("Progress listener passed to `import_room_keys` failed");
+                })
+                .await?;
+
+            Ok(serde_json::to_string(&json!({
+                "imported_count": imported_count,
+                "total_count": total_count,
+                "keys": keys,
+            }))?)
+        }))
+    }
+
+    /// Encrypt the list of exported room keys using the given passphrase.
+    ///
+    /// `exported_room_keys` is a list of sessions that should be encrypted
+    /// (it's generally returned by `export_room_keys`). `passphrase` is the
+    /// passphrase that will be used to encrypt the exported room keys. And
+    /// `rounds` is the number of rounds that should be used for the key
+    /// derivation when the passphrase gets turned into an AES key. More rounds
+    /// are increasingly computationnally intensive and as such help against
+    /// brute-force attacks. Should be at least `10_000`, while values in the
+    /// `100_000` ranges should be preferred.
+    #[wasm_bindgen(js_name = "encryptExportedRoomKeys")]
+    pub fn encrypt_exported_room_keys(
+        exported_room_keys: &str,
+        passphrase: &str,
+        rounds: u32,
+    ) -> Result<String, JsError> {
+        let exported_room_keys: Vec<matrix_sdk_crypto::olm::ExportedRoomKey> =
+            serde_json::from_str(exported_room_keys)?;
+
+        Ok(matrix_sdk_crypto::encrypt_room_key_export(&exported_room_keys, passphrase, rounds)?)
+    }
+
+    /// Try to decrypt a reader into a list of exported room keys.
+    ///
+    /// `encrypted_exported_room_keys` is the result from
+    /// `encrypt_exported_room_keys`. `passphrase` is the passphrase that was
+    /// used when calling `encrypt_exported_room_keys`.
+    #[wasm_bindgen(js_name = "decryptExportedRoomKeys")]
+    pub fn decrypt_exported_room_keys(
+        encrypted_exported_room_keys: &str,
+        passphrase: &str,
+    ) -> Result<String, JsError> {
+        Ok(serde_json::to_string(&matrix_sdk_crypto::decrypt_room_key_export(
+            encrypted_exported_room_keys.as_bytes(),
+            passphrase,
+        )?)?)
     }
 }
