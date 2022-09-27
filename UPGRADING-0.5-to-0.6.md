@@ -79,7 +79,7 @@ Boolean flags like `verified`, `deleted`, `blacklisted`, etc have been renamed w
 
  ### unresolved import `matrix_sdk::ruma::events::AnySyncRoomEvent`
 
- Ruma has been updated to `0.7.0`, you will find some ruma Events names have changed, most notably, the `AnySyncRoomEvent` is now split into more specific `AnySyncStateEvent`s (which cargo suggests, unfortunately, wrong in most cases) and the `AnySyncTimelineEvent`. Usually it is the latter that is now to be used. But check the ruma changelog for your specific case!
+ Ruma has been updated to `0.7.0`, you will find some ruma Events names have changed, most notably, the `AnySyncRoomEvent` is now named `AnySyncTimelineEvent` (and not `AnySyncStateEvent`, which cargo wrongly suggests). Just rename the important and usage of it.
 
 ### `std::option::Option<&matrix_sdk::ruma::UserId>` is not a future
 
@@ -97,7 +97,7 @@ help: remove the `.await`
 19 +     if room_member.state_key != client.user_id().unwrap() {
 ```
 
-You are using `client.user_id().await` but `user_id()` now returns an `Option` right away. Just follow the cargo suggestion and remove the `.await`, it is not necessary any longer.
+You are using `client.user_id().await` but `user_id()` is no longer `async`. Just follow the cargo suggestion and remove the `.await`, it is not necessary any longer.
 
 
  [matrix-channel]: https://matrix.to/#/#matrix-rust-sdk:matrix.org
