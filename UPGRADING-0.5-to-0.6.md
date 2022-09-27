@@ -1,4 +1,4 @@
-# Upgrades 0.5 -> 0.6 
+# Upgrades 0.5 ➜ 0.6 
 
 This is a rough migration guide to help you upgrade your code using matrix-sdk 0.5 to the newly released matrix-sdk 0.6 . While it won't cover all edge cases and problems, we are trying to get the most common issues covered. If you experience any other difficulties in upgrade or need support with using the matrix-sdk in general, please approach us in our [matrix-sdk channel on matrix.org][matrix-channel].
 
@@ -8,6 +8,9 @@ We have updated the minimal rust version you need in order to build `matrix-sdk`
 
 >  These crates are built with the Rust language version 2021 and require a minimum compiler version of 1.60
 
+## Dependencies
+
+Many dependencies have been upgraded. Most notably, we are using `ruma`  at version `0.7.0` now. It has seen some renamings and restructurings since our last release, so you might find that some Types have new names now.
 
 ## Repo Structure Updates
 
@@ -29,11 +32,13 @@ Most have fallback (though maybe with deprecation warning) support for an existi
 
 In an effort to declutter the `Client` API dedicated types have been created dealing with specfic concerns in one place. In `0.5` we introduced `client.account()`, and `client.encryption()`, we are doing the same with `client.media()` to manage media and attachments in one place with the [`media::Media` type][media typ]  now.
 
+The signatures of media uploads, have also changed slightly: rather than expecting a reader `R: Read + Seek`, it now is a simple `&[u8]`. Which also means no more unnecessary `seek(0)` to reset the cursor, as we are just taking an immutable reference now.
+
 ### Event Handling & sync updaes
 
-If you are using the `client.register_event_handler` function to receive updates on uncoming sync events, you'll find yourself with a deprecation warning now. That is because we've refactored and redsigned the event handler logic to allowing `removing` of event handlers on the fly, too. For that the new `add_event_handler()` (and `add_room_event_handler`) will hand you an `EventHandlerHandle` (pardon the pun), which you can pass to `remove_event_handler`. While the code still works, we recommend you switch to the new one, as we will be removing the `register_event_handler` and `register_event_handler_context` in a coming release.
+If you are using the `client.register_event_handler` function to receive updates on uncoming sync events, you'll find yourself with a deprecation warning now. That is because we've refactored and redsigned the event handler logic to allowing `removing` of event handlers on the fly, too. For that the new `add_event_handler()` (and `add_room_event_handler`) will hand you an `EventHandlerHandle` (pardon the pun), which you can pass to `remove_event_handler`, or by using the convinient `client.event_handler_drop_guard` to create a `DropGuard` that will remove the handler when the guard is dropped. While the code still works, we recommend you switch to the new one, as we will be removing the `register_event_handler` and `register_event_handler_context` in a coming release.
 
-Secondly, you will find a new [`sync_with_result_callback` sync function][sync with result]. Other than the previous sync functions, this will pass the entire `Result` to your callback, allowing you to handle errors or even raise some yourself to stop the loop. Further more, it will propagate any unhandled errors (it still handles retries as before) to the outer caller, allowing the higher level to decide how to handle that (e.g. in case of a network failure).
+Secondly, you will find a new [`sync_with_result_callback` sync function][sync with result]. Other than the previous sync functions, this will pass the entire `Result` to your callback, allowing you to handle errors or even raise some yourself to stop the loop. Further more, it will propagate any unhandled errors (it still handles retries as before) to the outer caller, allowing the higher level to decide how to handle that (e.g. in case of a network failure). This result-returning-behavior also punshes through the existing `sync` and `sync_with_callback`-API, allowing you to handle them on a higher level now (rather than the futures just resolving). If you find that warning, just adding a `?` to the `.await` of the call is probably the quickest way to  move forward.
 
 ### Refresh Tokens
 
@@ -41,14 +46,60 @@ This release now [supports `refresh_token`s][refresh tokens PR] as part of the [
 
 You can stay informed about updates on the access token by listening to `client.session_tokens_signal()`.
 
+### Further changes
+
+ - `client.user_id()` is not a `future` anymore. Remove any `.await` you had behind it.
+ - `verified()`, `blacklisted()` and `deleted()` on `matrix_sdk::encryption::identities::Device` have been renamed with a `is_` prefix.
+
 
 ## Quick Troubleshooting
 
 You find yourself focussed with any of these, here are the steps to follow to upgrade your code accordingly:
 
+### warning: use of deprecated associated function `matrix_sdk::Client::register_event_handler`: Use [`Client::add_event_handler`](#method.add_event_handler) instead
+
+As it says on the tin: we have deprecated this function in favor of the newer removable handler approach (see above). You can still continue to use this `fn` for now, but it will be removed in a future release.
+
+### warning: use of deprecated associated function `matrix_sdk::Client::login`: Replaced by [`Client::login_username`](#method.login_username)
+
+We have replaced the login facilities with a `LoginBuilder` and recommend you use that from now on. This isn't an error yet, but the function will be removed in a future release. 
+
+### expected slice `[u8]`, found struct ...
+
+We've updated the `send_attachment` and `Media` signatures to use `&[u8]` rather than `reader: Read + Seek` as it is more convinient and common place for most architectures anyways. If you are using `File::open(path)?` to get that handler, you can just replace that with `std::fs::read(path)?`
+
+### no method named `verified` found for struct `matrix_sdk::encryption::identities::Device` in the current scope
+
+Boolean flags like `verified`, `deleted`, `blacklisted`, etc have been renamed with a `is_` prefix. So, just follow the cargo suggestion:
+```
+   |
+69 |             device.verified()
+   |                    ^^^^^^^^ help: there is an associated function with a similar name: `is_verified`
+ ```
+
+ ### unresolved import `matrix_sdk::ruma::events::AnySyncRoomEvent`
+
+ Ruma has been updated to `0.7.0`, you will find some ruma Events names have changed, most notably, the `AnySyncRoomEvent` is now split into more specific `AnySyncStateEvent`s (which cargo suggests, unfortunately, wrong in most cases) and the `AnySyncTimelineEvent`. Usually it is the latter that is now to be used. But check the ruma changelog for your specific case!
+
+### `std::option::Option<&matrix_sdk::ruma::UserId>` is not a future
+
+You are seeing something along the lines of:
+```
+19 |     if room_member.state_key != client.user_id().await.unwrap() {
+   |                                                 ^^^^^^ `std::option::Option<&matrix_sdk::ruma::UserId>` is not a future
+   |
+   = help: the trait `Future` is not implemented for `std::option::Option<&matrix_sdk::ruma::UserId>`
+   = note: std::option::Option<&matrix_sdk::ruma::UserId> must be a future or must implement `IntoFuture` to be awaited
+   = note: required because of the requirements on the impl of `IntoFuture` for `std::option::Option<&matrix_sdk::ruma::UserId>`
+help: remove the `.await`
+   |
+19 -     if room_member.state_key != client.user_id().await.unwrap() {
+19 +     if room_member.state_key != client.user_id().unwrap() {
+```
+
+You are using `client.user_id().await` but `user_id()` now returns an `Option` right away. Just follow the cargo suggestion and remove the `.await`, it is not necessary any longer.
 
 
- 
  [matrix-channel]: https://matrix.to/#/#matrix-rust-sdk:matrix.org
  [builder pattern]: https://doc.rust-lang.org/1.0.0/style/ownership/builders.html
  [login builder]: https://docs.rs/matrix-sdk/latest/matrix_sdk/struct.LoginBuilder.html
