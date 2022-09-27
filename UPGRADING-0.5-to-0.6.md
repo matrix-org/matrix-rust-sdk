@@ -50,6 +50,7 @@ You can stay informed about updates on the access token by listening to `client.
 
  - `client.user_id()` is not a `future` anymore. Remove any `.await` you had behind it.
  - `verified()`, `blacklisted()` and `deleted()` on `matrix_sdk::encryption::identities::Device` have been renamed with a `is_` prefix.
+ - `verified()` on `matrix_sdk::encryption::identities::UserIdentity`, too has been prefixed with `is_` and thus is onw called `is_verified()`.
 
 
 ## Quick Troubleshooting
@@ -79,7 +80,7 @@ Boolean flags like `verified`, `deleted`, `blacklisted`, etc have been renamed w
 
  ### unresolved import `matrix_sdk::ruma::events::AnySyncRoomEvent`
 
- Ruma has been updated to `0.7.0`, you will find some ruma Events names have changed, most notably, the `AnySyncRoomEvent` is now named `AnySyncTimelineEvent` (and not `AnySyncStateEvent`, which cargo wrongly suggests). Just rename the important and usage of it.
+ Ruma has been updated to `0.7.0`, you will find some ruma Events names have changed, most notably, the `AnySyncRoomEvent` is now named `AnySyncTimelineEvent` (and not `AnySyncStateEvent`, which cargo wrongly suggests). Just rename the import and usage of it.
 
 ### `std::option::Option<&matrix_sdk::ruma::UserId>` is not a future
 
