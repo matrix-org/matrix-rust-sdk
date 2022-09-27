@@ -1219,7 +1219,7 @@ mod tests {
             .deserialize_as()
             .expect("We can always deserialize the to-device event content");
 
-        ToDeviceEvent { sender: sender.to_owned(), content, other: Default::default() }
+        ToDeviceEvent::new(sender.to_owned(), content)
     }
 
     #[async_test]
