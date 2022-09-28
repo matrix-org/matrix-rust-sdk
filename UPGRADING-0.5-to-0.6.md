@@ -48,9 +48,15 @@ You can stay informed about updates on the access token by listening to `client.
 
 ### Further changes
 
+ - [`MessageOptions`][message options] has been upated to Matrix 1.3 by making the `from` parameter optional (and function signatures have been updated, too). You can now request the server sends you messages from the first one you are allowed to have received.
  - `client.user_id()` is not a `future` anymore. Remove any `.await` you had behind it.
  - `verified()`, `blacklisted()` and `deleted()` on `matrix_sdk::encryption::identities::Device` have been renamed with a `is_` prefix.
  - `verified()` on `matrix_sdk::encryption::identities::UserIdentity`, too has been prefixed with `is_` and thus is onw called `is_verified()`.
+ - The top-level crypto and state-store types of Indexeddb and Sled have been renamed to unique types>
+ - `state_store` and `crypto_store` do not need to be boxed anymore when passed to the [`StoreConfig`][store config]
+ - Indexeddb's `SerializationError` is now `IndexedDBStoreError`
+ - Javascript specific features are now behind the `js` feature-gate
+ - The new experimental next generation of sync ("sliding sync"), with a totally revamped api, can be found behind the optional `sliding-sync`-feature-gate
 
 
 ## Quick Troubleshooting
@@ -111,3 +117,5 @@ You are using `client.user_id().await` but `user_id()` is no longer `async`. Jus
  [sync with result]: https://docs.rs/matrix-sdk/latest/matrix_sdk/struct.Client.html#method.sync_with_result_callback
  [session]: https://docs.rs/matrix-sdk/latest/matrix_sdk/struct.Session.html
  [refresh tokens PR]: https://github.com/matrix-org/matrix-rust-sdk/pull/892
+ [store config]:  https://docs.rs/matrix-sdk-base/latest/matrix_sdk_base/store/struct.StoreConfig.html
+ [message options]: https://docs.rs/matrix-sdk/latest/matrix_sdk/room/struct.MessagesOptions.html
