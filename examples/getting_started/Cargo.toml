@@ -16,3 +16,4 @@ tracing-subscriber = "0.3.15"
 
 [dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
+version = "0.6.0"
