@@ -10,8 +10,8 @@ file-logging = ["dep:log4rs"]
 
 [dependencies]
 tuirealm = "~1.7.1"
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"] }
-matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"] ,  version = "0.6.0" }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common" ,  version = "0.6.0" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 futures = { version = "0.3.1" }

@@ -2298,7 +2298,7 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "matrix-sdk"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "assign",
  "async-stream",
@@ -2402,7 +2402,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-lock",
  "futures-core",
@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aes",
  "async-trait",
@@ -2507,7 +2507,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto-nodejs"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "http",
  "matrix-sdk-common",
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "extension-trait",
@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2594,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "byteorder",
@@ -2607,7 +2607,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sled"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2635,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "http",
  "matrix-sdk-test-macros",
@@ -2668,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",

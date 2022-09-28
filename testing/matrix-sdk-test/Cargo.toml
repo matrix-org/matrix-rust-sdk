@@ -9,7 +9,7 @@ name = "matrix-sdk-test"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
-version = "0.5.0"
+version = "0.6.0"
 
 [lib]
 test = false
@@ -20,7 +20,7 @@ appservice = []
 
 [dependencies]
 http = "0.2.6"
-matrix-sdk-test-macros = { version = "0.2.0", path = "../matrix-sdk-test-macros" }
+matrix-sdk-test-macros = { version = "0.3.0", path = "../matrix-sdk-test-macros" }
 once_cell = "1.10.0"
 ruma = { version = "0.7.0", features = ["client-api-c"] }
 serde = "1.0.136"
