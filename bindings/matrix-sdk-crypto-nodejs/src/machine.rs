@@ -100,8 +100,7 @@ impl OlmMachine {
     /// constructor because building an `OlmMachine` is
     /// asynchronous. Please use the `finalize` method.
     #[napi(constructor)]
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> napi::Result<()> {
+    pub fn new() -> napi::Result<Self> {
         Err(napi::Error::from_reason(
             "To build an `OldMachine`, please use the `initialize` method",
         ))
