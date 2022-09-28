@@ -1,10 +1,9 @@
 [package]
 name = "jack-in"
+publish = false
 description = "an experimental sliding sync/syncv3 terminal client to jack into the matrix"
 version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 file-logging = ["dep:log4rs"]

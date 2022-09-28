@@ -9,6 +9,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-appservice"
 version = "0.1.0"
 rust-version = "1.60"
+publish = false
 
 [features]
 default = ["native-tls"]
