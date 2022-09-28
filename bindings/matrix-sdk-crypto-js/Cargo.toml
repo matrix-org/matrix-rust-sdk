@@ -10,6 +10,7 @@ readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
 version = "0.1.0-alpha.0"
+publish = false
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
