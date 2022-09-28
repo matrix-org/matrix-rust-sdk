@@ -2748,9 +2748,11 @@ dependencies = [
 
 [[package]]
 name = "napi"
-version = "2.6.3"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "2.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fece4c26c5132f8559080145fde9ba88700c0f1aa30a1ab3e057ab105814d"
 dependencies = [
+ "bitflags",
  "ctor",
  "napi-sys",
  "once_cell",
@@ -2766,8 +2768,9 @@ checksum = "882a73d9ef23e8dc2ebbffb6a6ae2ef467c0f18ac10711e4cc59c5485d41df0e"
 
 [[package]]
 name = "napi-derive"
-version = "2.6.0"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "2.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39f3d8b02ef355898ea98f69082d9a183c8701c836942c2daf3e92364e88a0fa"
 dependencies = [
  "convert_case",
  "napi-derive-backend",
@@ -2778,8 +2781,9 @@ dependencies = [
 
 [[package]]
 name = "napi-derive-backend"
-version = "1.0.34"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c35640513eb442fcbd1653a1c112fb6b2cc12b54d82f9c141f5859c721cab36"
 dependencies = [
  "convert_case",
  "once_cell",
@@ -2792,7 +2796,8 @@ dependencies = [
 [[package]]
 name = "napi-sys"
 version = "2.2.2"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "529671ebfae679f2ce9630b62dd53c72c56b3eb8b2c852e7e2fa91704ff93d67"
 dependencies = [
  "libloading",
 ]
