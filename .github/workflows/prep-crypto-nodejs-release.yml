@@ -61,7 +61,7 @@ jobs:
         uses: orhun/git-cliff-action@v1
         with:
           config: "${{ env.PKG_PATH }}/cliff.toml"
-          args: "${{ inputs.previous_version }}..HEAD"
+          args: "${{env.TAG_PREFIX}}${{ inputs.previous_version }}..HEAD"
         env:
           GIT_CLIFF_TAG: "${{ inputs.version }}"
           GIT_CLIFF_PREPEND: "${{ env.PKG_PATH }}/CHANGELOG.md"
