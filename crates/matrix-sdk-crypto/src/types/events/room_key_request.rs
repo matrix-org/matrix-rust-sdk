@@ -33,7 +33,6 @@ impl Clone for RoomKeyRequestEvent {
             sender: self.sender.clone(),
             content: self.content.clone(),
             other: self.other.clone(),
-            event_type: self.event_type.clone(),
         }
     }
 }
