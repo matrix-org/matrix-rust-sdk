@@ -240,7 +240,7 @@ pub struct ToDeviceCustomEvent {
 }
 
 /// Generic to-device event with a known type and content.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
 pub struct ToDeviceEvent<C>
 where
     C: EventType + Debug + Sized + Serialize,
@@ -250,18 +250,74 @@ where
     /// The content of the to-device event.
     pub content: C,
     /// Any other unknown data of the to-device event.
-    #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
-    /// The type of the to-device event.
-    #[serde(rename = "type")]
-    pub(crate) event_type: String,
 }
 
 impl<C: EventType + Debug + Sized + Serialize> ToDeviceEvent<C> {
     /// Create a new `ToDeviceEvent`.
     pub fn new(sender: OwnedUserId, content: C) -> ToDeviceEvent<C> {
-        let event_type = content.event_type().to_owned();
-        ToDeviceEvent { sender, content, event_type, other: Default::default() }
+        ToDeviceEvent { sender, content, other: Default::default() }
+    }
+}
+
+impl<C> Serialize for ToDeviceEvent<C>
+where
+    C: EventType + Debug + Sized + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct Helper<'a, C> {
+            sender: &'a UserId,
+            content: &'a C,
+            #[serde(rename = "type")]
+            event_type: &'a str,
+            #[serde(flatten)]
+            other: &'a BTreeMap<String, Value>,
+        }
+
+        let event_type = self.content.event_type();
+
+        let helper =
+            Helper { sender: &self.sender, content: &self.content, event_type, other: &self.other };
+
+        helper.serialize(serializer)
+    }
+}
+
+impl<'de, C> Deserialize<'de> for ToDeviceEvent<C>
+where
+    C: EventType + Debug + Sized + Deserialize<'de> + Serialize,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            sender: OwnedUserId,
+            content: C,
+            // We're deserializing the `type` field here so it doesn't end up in `other`.
+            #[allow(dead_code)]
+            #[serde(rename = "type")]
+            event_type: String,
+            #[serde(flatten)]
+            other: BTreeMap<String, Value>,
+        }
+
+        let helper: Helper<C> = Helper::deserialize(deserializer)?;
+
+        if helper.event_type == helper.content.event_type() {
+            Ok(Self { sender: helper.sender, content: helper.content, other: helper.other })
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Mismatched event type, got {}, expected {}",
+                helper.event_type,
+                helper.content.event_type()
+            )))
+        }
     }
 }
 

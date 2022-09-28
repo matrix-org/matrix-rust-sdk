@@ -1719,12 +1719,8 @@ pub(crate) mod tests {
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice.user_id().to_owned(),
-            content: content.deserialize_as().unwrap(),
-            other: Default::default(),
-            event_type: Default::default(),
-        };
+        let event =
+            ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as().unwrap());
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
         bob.store.save_sessions(&[decrypted.session.session()]).await.unwrap();
