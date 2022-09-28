@@ -17,7 +17,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::indexed_db_futures::prelude::*;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use matrix_sdk_base::locks::Mutex;
@@ -37,7 +36,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::safe_encode::SafeEncode;
+use crate::{indexed_db_futures::prelude::*, safe_encode::SafeEncode};
 
 #[allow(non_snake_case)]
 mod KEYS {

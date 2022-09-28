@@ -20,7 +20,6 @@ use std::{
     },
 };
 
-use crate::indexed_db_futures::prelude::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
@@ -62,7 +61,7 @@ use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::safe_encode::SafeEncode;
+use crate::{indexed_db_futures::prelude::*, safe_encode::SafeEncode};
 
 #[derive(Clone, Serialize, Deserialize)]
 struct StoreKeyWrapper(Vec<u8>);
@@ -1779,7 +1778,6 @@ mod encrypted_tests {
 mod migration_tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use crate::indexed_db_futures::prelude::*;
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
@@ -1788,6 +1786,7 @@ mod migration_tests {
         IndexeddbStateStore, IndexeddbStateStoreError, MigrationConflictStrategy, Result,
         ALL_STORES,
     };
+    use crate::indexed_db_futures::prelude::*;
 
     pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, version)?;

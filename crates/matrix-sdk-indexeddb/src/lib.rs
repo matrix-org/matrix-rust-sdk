@@ -18,7 +18,6 @@ pub use state_store::{
 mod indexed_db_futures {
     #[cfg(not(feature = "experimental-nodejs"))]
     pub use indexed_db_futures::*;
-
     #[cfg(feature = "experimental-nodejs")]
     pub use indexed_db_futures_nodejs::*;
 }
