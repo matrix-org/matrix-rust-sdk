@@ -4,7 +4,7 @@ This is a rough migration guide to help you upgrade your code using matrix-sdk 0
 
 ## Minimum Supported Rust Version Update: `1.60`
 
-We have updated the minimal rust version you need in order to build `matrix-sdk`, as we require some new depencency resolving features from it: 
+We have updated the minimal rust version you need in order to build `matrix-sdk`, as we require some new dependency resolving features from it:
 
 >  These crates are built with the Rust language version 2021 and require a minimum compiler version of 1.60
 
@@ -26,11 +26,11 @@ We are moving to the [builder pattern][] (familiar from e.g. `std::io:process:Co
  - [`SledStore` configuratiion][sled-store builder]
  - [`Indexeddb` configuration][indexeddb builder]
 
-Most have fallback (though maybe with deprecation warning) support for an existing code path, but these are likley to be removed in upcoming releases.
+Most have fallback (though maybe with deprecation warning) support for an existing code path, but these are likely to be removed in upcoming releases.
 
 ### Splitting of concerns: Media
 
-In an effort to declutter the `Client` API dedicated types have been created dealing with specfic concerns in one place. In `0.5` we introduced `client.account()`, and `client.encryption()`, we are doing the same with `client.media()` to manage media and attachments in one place with the [`media::Media` type][media typ]  now.
+In an effort to declutter the `Client` API dedicated types have been created dealing with specific concerns in one place. In `0.5` we introduced `client.account()`, and `client.encryption()`, we are doing the same with `client.media()` to manage media and attachments in one place with the [`media::Media` type][media typ]  now.
 
 The signatures of media uploads, have also changed slightly: rather than expecting a reader `R: Read + Seek`, it now is a simple `&[u8]`. Which also means no more unnecessary `seek(0)` to reset the cursor, as we are just taking an immutable reference now.
 
@@ -42,13 +42,13 @@ Secondly, you will find a new [`sync_with_result_callback` sync function][sync w
 
 ### Refresh Tokens
 
-This release now [supports `refresh_token`s][refresh tokens PR] as part of the [`Session`][session]. It is implemented with a default-flag in serde so deserializing a previously serialized Session (e.g. in a store) will work as before. As part of `refresh_token` support, you can now configure the client via `ClientBuilder.request_refresh_token()` to refresh the access token automagicaly on certain failures or do it manually by calling `client.refresh_access_token()` yourself. Auto-refresh is _off_ by default.
+This release now [supports `refresh_token`s][refresh tokens PR] as part of the [`Session`][session]. It is implemented with a default-flag in serde so deserializing a previously serialized Session (e.g. in a store) will work as before. As part of `refresh_token` support, you can now configure the client via `ClientBuilder.request_refresh_token()` to refresh the access token automagically on certain failures or do it manually by calling `client.refresh_access_token()` yourself. Auto-refresh is _off_ by default.
 
 You can stay informed about updates on the access token by listening to `client.session_tokens_signal()`.
 
 ### Further changes
 
- - [`MessageOptions`][message options] has been upated to Matrix 1.3 by making the `from` parameter optional (and function signatures have been updated, too). You can now request the server sends you messages from the first one you are allowed to have received.
+ - [`MessageOptions`][message options] has been updated to Matrix 1.3 by making the `from` parameter optional (and function signatures have been updated, too). You can now request the server sends you messages from the first one you are allowed to have received.
  - `client.user_id()` is not a `future` anymore. Remove any `.await` you had behind it.
  - `verified()`, `blacklisted()` and `deleted()` on `matrix_sdk::encryption::identities::Device` have been renamed with a `is_` prefix.
  - `verified()` on `matrix_sdk::encryption::identities::UserIdentity`, too has been prefixed with `is_` and thus is onw called `is_verified()`.
@@ -73,7 +73,7 @@ We have replaced the login facilities with a `LoginBuilder` and recommend you us
 
 ### expected slice `[u8]`, found struct ...
 
-We've updated the `send_attachment` and `Media` signatures to use `&[u8]` rather than `reader: Read + Seek` as it is more convinient and common place for most architectures anyways. If you are using `File::open(path)?` to get that handler, you can just replace that with `std::fs::read(path)?`
+We've updated the `send_attachment` and `Media` signatures to use `&[u8]` rather than `reader: Read + Seek` as it is more convenient and common place for most architectures anyways. If you are using `File::open(path)?` to get that handler, you can just replace that with `std::fs::read(path)?`
 
 ### no method named `verified` found for struct `matrix_sdk::encryption::identities::Device` in the current scope
 
