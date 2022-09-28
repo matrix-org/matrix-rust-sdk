@@ -28,7 +28,7 @@ tracing = []
 [dependencies]
 matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
 matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto", features = ["js"] }
-matrix-sdk-indexeddb = { version = "0.1.0", path = "../../crates/matrix-sdk-indexeddb" }
+matrix-sdk-indexeddb = { version = "0.1.0", path = "../../crates/matrix-sdk-indexeddb", features = ["experimental-nodejs"] }
 matrix-sdk-qrcode = { version = "0.3.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
 ruma = { version = "0.7.0", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
 vodozemac = { version = "0.3.0", features = ["js"] }
