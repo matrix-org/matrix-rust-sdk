@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     match Xtask::parse().cmd {
         Command::Ci(ci) => ci.run(),
         Command::Fixup(cfg) => cfg.run(),
-        Command::Doc { open } => build_docs(open.then(|| "--open"), DenyWarnings::No),
+        Command::Doc { open } => build_docs(open.then_some("--open"), DenyWarnings::No),
     }
 }
 
