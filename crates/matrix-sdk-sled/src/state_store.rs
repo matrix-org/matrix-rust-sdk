@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -350,7 +350,6 @@ impl std::fmt::Debug for SledStateStore {
     }
 }
 
-#[allow(deprecated)]
 impl SledStateStore {
     fn open_helper(
         db: Db,
@@ -427,25 +426,6 @@ impl SledStateStore {
     /// Generate a SledStateStoreBuilder with default parameters
     pub fn builder() -> SledStateStoreBuilder {
         SledStateStoreBuilder::default()
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open() -> StoreResult<Self> {
-        SledStateStore::builder().build().map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
-        SledStateStore::builder()
-            .path(path.as_ref().into())
-            .passphrase(passphrase.to_owned())
-            .build()
-            .map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
-        SledStateStore::builder().path(path.as_ref().into()).build().map_err(StoreError::backend)
     }
 
     fn drop_tables(self) -> StoreResult<()> {
