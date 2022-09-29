@@ -200,6 +200,9 @@ interface ClientBuilder {
     [Self=ByArc]
     ClientBuilder homeserver_url(string url);
 
+    [Self=ByArc]
+    ClientBuilder user_agent(string user_agent);
+
     [Throws=ClientError, Self=ByArc]
     Client build();
 };

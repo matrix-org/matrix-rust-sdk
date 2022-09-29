@@ -17,6 +17,7 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
+    user_agent: Option<String>,
     inner: MatrixClientBuilder,
 }
 
@@ -27,7 +28,8 @@ impl ClientBuilder {
             username: None,
             server_name: None,
             homeserver_url: None,
-            inner: MatrixClient::builder().user_agent("rust-sdk-ios"),
+            user_agent: None,
+            inner: MatrixClient::builder(),
         }
     }
 
@@ -52,6 +54,12 @@ impl ClientBuilder {
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_url = Some(url);
+        Arc::new(builder)
+    }
+
+    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.user_agent = Some(user_agent);
         Arc::new(builder)
     }
 
@@ -81,6 +89,10 @@ impl ClientBuilder {
             return Err(anyhow!(
                 "Failed to build: One of homeserver_url, server_name or username must be called."
             ));
+        }
+
+        if let Some(user_agent) = builder.user_agent {
+            inner_builder = inner_builder.user_agent(user_agent);
         }
 
         RUNTIME.block_on(async move {
