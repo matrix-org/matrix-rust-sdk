@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 
 IS_CI=false
 ACTIVE_ARCH="arm64"
+PLATFORM=${PLATFORM-iossimulator}
 
 if [ $# -eq 2 ]; then
   echo "Running CI build"
@@ -34,17 +35,17 @@ REL_TYPE_DIR="debug"
 
 # iOS Simulator arm64
 if [ "$ACTIVE_ARCH" = "arm64" ]; then
-  TARGET="aarch64-apple-ios-sim"
+  TARGET="aarch64-apple-${PLATFORM/iossimulator/ios-sim}"
 # iOS Simulator intel
 else
-  TARGET="x86_64-apple-ios"
+  TARGET="x86_64-apple-${PLATFORM/iossimulator/ios}"
 fi
 
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "$TARGET"
 
 lipo -create \
   "${TARGET_DIR}/$TARGET/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
+  -output "${GENERATED_DIR}/libmatrix_sdk_ffi_${PLATFORM}.a"
 
 # Generate uniffi files
 uniffi-bindgen generate \
@@ -72,13 +73,13 @@ mv ${GENERATED_DIR}/*.swift ${SWIFT_DIR}
 if [ -d "${GENERATED_DIR}/MatrixSDKFFI.xcframework" ]; then rm -rf "${GENERATED_DIR}/MatrixSDKFFI.xcframework"; fi
 
 xcodebuild -create-xcframework \
-  -library "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" \
+  -library "${GENERATED_DIR}/libmatrix_sdk_ffi_${PLATFORM}.a" \
   -headers ${HEADERS_DIR} \
   -output "${GENERATED_DIR}/MatrixSDKFFI.xcframework"
 
 # Cleanup
 
-if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
+if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_${PLATFORM}.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_${PLATFORM}.a"; fi
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
 if [ "$IS_CI" = false ] ; then
