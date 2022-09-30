@@ -247,6 +247,13 @@ enum RequestType {
     "RoomMessage",
 };
 
+enum LocalTrust {
+    "Verified",
+    "BlackListed",
+    "Ignored",
+    "Unset",
+};
+
 interface OlmMachine {
     [Throws=CryptoStoreError]
     constructor(
@@ -282,7 +289,7 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     Device? get_device([ByRef] string user_id, [ByRef] string device_id, u32 timeout);
     [Throws=CryptoStoreError]
-    void mark_device_as_trusted([ByRef] string user_id, [ByRef] string device_id);
+    void set_local_trust([ByRef] string user_id, [ByRef] string device_id, LocalTrust trust_state);
     [Throws=SignatureError]
     SignatureUploadRequest verify_device([ByRef] string user_id, [ByRef] string device_id);
     [Throws=CryptoStoreError]
