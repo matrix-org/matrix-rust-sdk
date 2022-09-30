@@ -118,16 +118,16 @@ impl<'a> SyncSettings<'a> {
 
     /// Set the presence state
     ///  
-    /// `PresenceState::Online` - the client is marked as being online. It's the
-    /// default preset.
+    /// `PresenceState::Online` - The client is marked as being online. This is
+    /// the default preset.
     ///
-    /// `PresenceState::Offline` - the client is not marked as being online
+    /// `PresenceState::Offline` - The client is not marked as being online.
     ///
-    /// `PresenceState::Unavailable` - the client is marked as being idle
+    /// `PresenceState::Unavailable` - The client is marked as being idle.
     ///
     /// # Arguments
-    /// * `set_presence` - user's presence state to tell the server the user's
-    ///   status
+    /// * `set_presence` - The `PresenceState` that the server should set for
+    ///   the client.
     #[must_use]
     pub fn set_presence(mut self, presence: PresenceState) -> Self {
         self.set_presence = presence;

@@ -2055,7 +2055,8 @@ impl Client {
     ///       and where we wish to continue syncing.
     ///     * [`full_state`] - To tell the server that we wish to receive all
     ///       state events, regardless of our configured [`token`].
-    ///     * [`set_presence`] - To tell the server which it's the user's state.
+    ///     * [`set_presence`] - To tell the server to set the presence and to
+    ///       which state.
     ///
     /// # Examples
     ///
