@@ -16,7 +16,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["e2e-encryption"]
 e2e-encryption = ["matrix-sdk-base/e2e-encryption", "dep:matrix-sdk-crypto", "dashmap"]
-experimental-timeline = ["matrix-sdk-base/experimental-timeline", "dep:futures-util"]
 experimental-nodejs = ["indexed_db_futures_nodejs"]
 
 [dependencies]
@@ -25,7 +24,6 @@ async-trait = "0.1.53"
 base64 = "0.13.0"
 dashmap = { version = "5.2.0", optional = true }
 derive_builder = "0.11.2"
-futures-util = { version = " 0.3.21", default-features = false, features = ["alloc"], optional = true }
 js-sys = { version = "0.3.58" }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", features = ["js"] }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", features = ["js"], optional = true }

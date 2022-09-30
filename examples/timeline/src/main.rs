@@ -1,6 +1,5 @@
 use std::{env, process::exit, sync::Mutex, time::Duration};
 
-use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
     self,
     config::SyncSettings,
@@ -35,7 +34,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
     client
 }
 
-fn event_content(event: AnySyncTimelineEvent) -> Option<String> {
+fn _event_content(event: AnySyncTimelineEvent) -> Option<String> {
     if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
         SyncMessageLikeEvent::Original(event),
     )) = event
@@ -46,17 +45,8 @@ fn event_content(event: AnySyncTimelineEvent) -> Option<String> {
     }
 }
 
-async fn print_timeline(room: Room) {
-    let backward_stream = room.timeline_backward().await.unwrap();
-
-    pin_mut!(backward_stream);
-
-    while let Some(event) = backward_stream.next().await {
-        let event = event.unwrap();
-        if let Some(content) = event_content(event.event.deserialize().unwrap()) {
-            println!("{content}");
-        }
-    }
+async fn print_timeline(_room: Room) {
+    // TODO
 }
 
 #[tokio::main]
