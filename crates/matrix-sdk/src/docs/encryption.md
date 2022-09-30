@@ -165,10 +165,8 @@ unverified devices, verifying devices is **not** necessary for encryption
 to work.
 
 1. Make sure the `encryption` feature is enabled.
-2. To persist the encryption keys, you can use one of the provided backend
-constructors as described in the documentation of the [`store`] module or you
-can provide your own backend that implements [`CryptoStore`] in a
-[`StoreConfig`] or via [`ClientBuilder::crypto_store()`].
+2. To persist the encryption keys, you can use [`ClientBuilder::store_config`]
+   or of the other `_store` methods on [`ClientBuilder`].
 
 ## Restoring a client
 
@@ -176,6 +174,7 @@ Restoring a Client is relatively easy, still some things need to be kept in
 mind before doing so.
 
 There are two ways one might wish to restore a [`Client`]:
+
 1. Using an access token
 2. Using the password
 
@@ -189,8 +188,7 @@ have been uploaded and tied to a device ID.
 
 ### Using an access token
 
-1. Log in with the password using [`Client::login()`] setting the
-   `device_id` argument to `None`.
+1. Log in with the password using [`Client::login_username()`].
 2. Store the access token, preferably somewhere secure.
 3. Use [`Client::restore_login()`] the next time the client starts.
 
@@ -201,13 +199,13 @@ the device ID.
 
 ### Using a password.
 
-1. Log in using [`Client::login()`] setting the `device_id` argument to `None`.
+1. Log in using [`Client::login_username()`].
 2. Store the `device_id` that was returned in the login response from the
-server.
-3. Use [`Client::login()`] the next time the client starts, make sure to
-**set** `device_id` this time to the stored `device_id` from the previous
-step. This will replace the access token from the previous login call but
-won't create a new device.
+   server.
+3. Use [`Client::login_username()`] the next time the client starts, make sure
+   to set `device_id` to the stored `device_id` from the previous step. This
+   will replace the access token from the previous login call, but won't create
+   a new device.
 
 **Note** that the default store supports only a single device, logging in
 with a different device ID (either `None` or a device ID of another client)
@@ -233,4 +231,5 @@ is **not** supported using the default store.
 [`store`]: crate::store
 [`CryptoStore`]: matrix_sdk_base::crypto::store::CryptoStore
 [`StoreConfig`]: crate::config::StoreConfig
-[`ClientBuilder::crypto_store()`]: crate::ClientBuilder::crypto_store()
+[`ClientBuilder`]: crate::ClientBuilder
+[`ClientBuilder::store_config`]: crate::ClientBuilder::store_config

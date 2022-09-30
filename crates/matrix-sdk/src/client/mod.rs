@@ -1185,7 +1185,7 @@ impl Client {
     /// ```
     ///
     /// The `Session` object can also be created from the response the
-    /// [`Client::login()`] method returns:
+    /// [`LoginBuilder::send()`] method returns:
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, Session};
@@ -1197,7 +1197,7 @@ impl Client {
     /// let client = Client::new(homeserver).await?;
     ///
     /// let session: Session =
-    ///     client.login("example", "my-password", None, None).await?.into();
+    ///     client.login_username("example", "my-password").send().await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
@@ -2085,7 +2085,7 @@ impl Client {
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(&username, &password).send().await?;
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
@@ -2296,7 +2296,7 @@ impl Client {
     /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(&username, &password).send().await?;
     ///
     /// let mut sync_stream =
     ///     Box::pin(client.sync_stream(SyncSettings::default()).await);
