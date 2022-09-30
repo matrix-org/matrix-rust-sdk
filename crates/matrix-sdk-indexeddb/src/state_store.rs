@@ -456,31 +456,6 @@ impl IndexeddbStateStore {
             .and_then(|c| c.value().as_string()))
     }
 
-    #[allow(dead_code)]
-    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
-    pub async fn open() -> StoreResult<Self> {
-        IndexeddbStateStore::builder()
-            .name("state".to_owned())
-            .build()
-            .await
-            .map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
-    pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
-        IndexeddbStateStore::builder()
-            .name(name)
-            .passphrase(passphrase.to_owned())
-            .build()
-            .await
-            .map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
-    pub async fn open_with_name(name: String) -> StoreResult<Self> {
-        IndexeddbStateStore::builder().name(name).build().await.map_err(StoreError::backend)
-    }
-
     fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue> {
         Ok(match &self.store_cipher {
             Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,

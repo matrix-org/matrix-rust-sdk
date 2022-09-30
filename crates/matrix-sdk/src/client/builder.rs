@@ -20,11 +20,11 @@ use async_once_cell::OnceCell;
 use matrix_sdk_base::{
     locks::{Mutex, RwLock},
     store::StoreConfig,
-    BaseClient, StateStore,
+    BaseClient,
 };
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
-    OwnedServerName, ServerName, UserId,
+    OwnedServerName, ServerName,
 };
 use thiserror::Error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,24 +106,12 @@ impl ClientBuilder {
 
     /// Set the homeserver URL to use.
     ///
-    /// This method is mutually exclusive with [`user_id()`][Self::user_id], if
-    /// you set both whatever was set last will be used.
+    /// This method is mutually exclusive with
+    /// [`server_name()`][Self::server_name], if you set both whatever was set
+    /// last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
         self
-    }
-
-    /// Set the user ID to discover the homeserver from.
-    ///
-    /// `builder.user_id(id)` is a shortcut for
-    /// <code>builder.[server_name](Self::server_name)(id.server_name())</code>.
-    ///
-    /// This method is mutually exclusive with
-    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
-    /// set last will be used.
-    #[deprecated = "Use `server_name(user_id.server_name())` instead"]
-    pub fn user_id(self, user_id: &UserId) -> Self {
-        self.server_name(user_id.server_name())
     }
 
     /// Set the server name to discover the homeserver from.
@@ -188,36 +176,6 @@ impl ClientBuilder {
     /// [`store`]: crate::store
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
         self.store_config = store_config;
-        self
-    }
-
-    /// Set a custom implementation of a `StateStore`.
-    ///
-    /// The state store should be opened before being set.
-    #[deprecated = "\
-        Use [`store_config`](#method.store_config), \
-        [`sled_store`](#method.sled_store) or \
-        [`indexeddb_store`](#method.indexeddb_store) instead
-    "]
-    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
-        self.store_config = self.store_config.state_store(store);
-        self
-    }
-
-    /// Set a custom implementation of a `CryptoStore`.
-    ///
-    /// The crypto store should be opened before being set.
-    #[deprecated = "\
-        Use [`store_config`](#method.store_config), \
-        [`sled_store`](#method.sled_store) or \
-        [`indexeddb_store`](#method.indexeddb_store) instead
-    "]
-    #[cfg(feature = "e2e-encryption")]
-    pub fn crypto_store(
-        mut self,
-        store: impl matrix_sdk_base::crypto::store::CryptoStore + 'static,
-    ) -> Self {
-        self.store_config = self.store_config.crypto_store(store);
         self
     }
 

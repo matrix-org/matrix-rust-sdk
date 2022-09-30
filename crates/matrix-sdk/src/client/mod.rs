@@ -650,18 +650,6 @@ impl Client {
         self.add_event_handler_impl(handler, Some(room_id.to_owned()))
     }
 
-    #[allow(missing_docs)]
-    #[deprecated = "Use [`Client::add_event_handler`](#method.add_event_handler) instead"]
-    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
-    where
-        Ev: SyncEvent + DeserializeOwned + Send + 'static,
-        H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
-    {
-        self.add_event_handler(handler);
-        self
-    }
-
     /// Remove the event handler associated with the handle.
     ///
     /// Note that you **must not** call `remove_event_handler` from the
@@ -778,16 +766,6 @@ impl Client {
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handlers.add_context(ctx);
-    }
-
-    #[allow(missing_docs)]
-    #[deprecated = "Use [`Client::add_event_handler_context`](#method.add_event_handler_context) instead"]
-    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        self.add_event_handler_context(ctx);
-        self
     }
 
     /// Register a handler for a notification.
@@ -1148,84 +1126,6 @@ impl Client {
         SsoLoginBuilder::new(self.clone(), use_sso_login_url)
     }
 
-    /// Login to the server with a username and password.
-    #[deprecated = "Replaced by [`Client::login_username`](#method.login_username)"]
-    #[instrument(skip(self, user, password))]
-    pub async fn login(
-        &self,
-        user: impl AsRef<str>,
-        password: &str,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-    ) -> Result<login::v3::Response> {
-        let mut builder = self.login_username(&user, password);
-        if let Some(value) = device_id {
-            builder = builder.device_id(value);
-        }
-        if let Some(value) = initial_device_display_name {
-            builder = builder.initial_device_display_name(value);
-        }
-
-        builder.send().await
-    }
-
-    /// Login to the server via Single Sign-On.
-    #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
-    #[cfg(feature = "sso-login")]
-    #[deny(clippy::future_not_send)]
-    pub async fn login_with_sso<C>(
-        &self,
-        use_sso_login_url: impl FnOnce(String) -> C + Send,
-        server_url: Option<&str>,
-        server_response: Option<&str>,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-        idp_id: Option<&str>,
-    ) -> Result<login::v3::Response>
-    where
-        C: Future<Output = Result<()>> + Send,
-    {
-        let mut builder = self.login_sso(use_sso_login_url);
-        if let Some(value) = server_url {
-            builder = builder.server_url(value);
-        }
-        if let Some(value) = server_response {
-            builder = builder.server_response(value);
-        }
-        if let Some(value) = device_id {
-            builder = builder.device_id(value);
-        }
-        if let Some(value) = initial_device_display_name {
-            builder = builder.initial_device_display_name(value);
-        }
-        if let Some(value) = idp_id {
-            builder = builder.identity_provider_id(value);
-        }
-
-        builder.send().await
-    }
-
-    /// Login to the server with a token.
-    #[deprecated = "Replaced by [`Client::login_token`](#method.login_token)"]
-    #[instrument(skip(self, token))]
-    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
-    pub async fn login_with_token(
-        &self,
-        token: &str,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-    ) -> Result<login::v3::Response> {
-        let mut builder = self.login_token(token);
-        if let Some(value) = device_id {
-            builder = builder.device_id(value);
-        }
-        if let Some(value) = initial_device_display_name {
-            builder = builder.initial_device_display_name(value);
-        }
-
-        builder.send().await
-    }
-
     /// Receive a login response and update the homeserver and the base client
     /// if needed.
     ///
@@ -1285,7 +1185,7 @@ impl Client {
     /// ```
     ///
     /// The `Session` object can also be created from the response the
-    /// [`Client::login()`] method returns:
+    /// [`LoginBuilder::send()`] method returns:
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, Session};
@@ -1297,7 +1197,7 @@ impl Client {
     /// let client = Client::new(homeserver).await?;
     ///
     /// let session: Session =
-    ///     client.login("example", "my-password", None, None).await?.into();
+    ///     client.login_username("example", "my-password").send().await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
@@ -2185,7 +2085,7 @@ impl Client {
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(&username, &password).send().await?;
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
@@ -2396,7 +2296,7 @@ impl Client {
     /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(&username, &password).send().await?;
     ///
     /// let mut sync_stream =
     ///     Box::pin(client.sync_stream(SyncSettings::default()).await);
