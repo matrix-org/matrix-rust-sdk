@@ -1,10 +1,6 @@
-use std::{
-    convert::TryFrom,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, sync::Arc};
 
 use anyhow::{bail, Context, Result};
-use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::Room as MatrixRoom,
     ruma::{
@@ -13,11 +9,7 @@ use matrix_sdk::{
     },
 };
 
-use super::{
-    backward_stream::BackwardsStream,
-    messages::{sync_event_to_message, AnyMessage},
-    RUNTIME,
-};
+use super::{messages::AnyMessage, RUNTIME};
 
 pub trait RoomDelegate: Sync + Send {
     fn did_receive_message(&self, messages: Arc<AnyMessage>);
@@ -31,21 +23,11 @@ pub enum Membership {
 
 pub struct Room {
     room: MatrixRoom,
-    delegate: Arc<RwLock<Option<Box<dyn RoomDelegate>>>>,
-    is_listening_to_live_events: Arc<RwLock<bool>>,
 }
 
 impl Room {
     pub fn new(room: MatrixRoom) -> Self {
-        Room {
-            room,
-            delegate: Arc::new(RwLock::new(None)),
-            is_listening_to_live_events: Arc::new(RwLock::new(false)),
-        }
-    }
-
-    pub fn set_delegate(&self, delegate: Option<Box<dyn RoomDelegate>>) {
-        *self.delegate.write().unwrap() = delegate;
+        Room { room }
     }
 
     pub fn id(&self) -> String {
@@ -117,43 +99,6 @@ impl Room {
 
     pub fn is_tombstoned(&self) -> bool {
         self.room.is_tombstoned()
-    }
-
-    pub fn start_live_event_listener(&self) -> Option<Arc<BackwardsStream>> {
-        if *self.is_listening_to_live_events.read().unwrap() {
-            return None;
-        }
-
-        *self.is_listening_to_live_events.write().unwrap() = true;
-
-        let room = self.room.clone();
-        let delegate = self.delegate.clone();
-        let is_listening_to_live_events = self.is_listening_to_live_events.clone();
-
-        let (forward_stream, backwards) = RUNTIME.block_on(async move {
-            room.timeline().await.expect("Failed acquiring timeline streams")
-        });
-
-        RUNTIME.spawn(async move {
-            pin_mut!(forward_stream);
-
-            while let Some(sync_event) = forward_stream.next().await {
-                if !(*is_listening_to_live_events.read().unwrap()) {
-                    return;
-                }
-
-                if let Some(delegate) = &*delegate.read().unwrap() {
-                    if let Some(message) = sync_event_to_message(sync_event) {
-                        delegate.did_receive_message(message)
-                    }
-                }
-            }
-        });
-        Some(Arc::new(BackwardsStream::new(Box::pin(backwards))))
-    }
-
-    pub fn stop_live_event_listener(&self) {
-        *self.is_listening_to_live_events.write().unwrap() = false;
     }
 
     pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {

@@ -42,12 +42,6 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-timeline = [
-    "matrix-sdk-base/experimental-timeline",
-    "matrix-sdk-indexeddb?/experimental-timeline",
-    "matrix-sdk-sled?/experimental-timeline",
-]
-
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
     "anyhow",

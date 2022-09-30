@@ -18,4 +18,3 @@ matrix-sdk = { version = "0.5, default-features = false, features = ["indexeddb"
 The following crate feature flags are available:
 
 * `e2e-encryption`: (on by default) Enables the store for end-to-end encrypted data.
-* `experimental-timeline`: implements the new experimental timeline interfaces

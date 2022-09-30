@@ -282,8 +282,6 @@ enum Membership {
 };
 
 interface Room {
-    void set_delegate(RoomDelegate? delegate);
-
     string id();
     string? name();
     string? topic();
@@ -305,9 +303,6 @@ interface Room {
 
     [Throws=ClientError]
     string? member_display_name(string user_id);
-
-    BackwardsStream? start_live_event_listener();
-    void stop_live_event_listener();
 
     [Throws=ClientError]
     void send(RoomMessageEventContent msg, string? txn_id);

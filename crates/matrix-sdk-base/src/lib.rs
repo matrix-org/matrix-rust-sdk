@@ -19,8 +19,6 @@
 
 pub use matrix_sdk_common::*;
 
-#[cfg(feature = "experimental-timeline")]
-pub use crate::timeline_stream::TimelineStreamError;
 pub use crate::{
     error::{Error, Result},
     session::{Session, SessionMeta, SessionTokens},
@@ -34,8 +32,6 @@ mod session;
 #[cfg(feature = "sliding-sync")]
 mod sliding_sync;
 pub mod store;
-#[cfg(feature = "experimental-timeline")]
-mod timeline_stream;
 mod utils;
 
 pub use client::BaseClient;

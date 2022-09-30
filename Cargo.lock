@@ -2556,7 +2556,6 @@ dependencies = [
  "base64",
  "dashmap",
  "derive_builder",
- "futures-util",
  "getrandom 0.2.7",
  "indexed_db_futures 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "indexed_db_futures 0.2.3 (git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs)",
