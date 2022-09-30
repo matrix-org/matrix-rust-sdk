@@ -13,7 +13,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 crate-type = ["staticlib"]
 
 [build-dependencies]
-uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "17ee82b50ab01182b09a3597b3a340baeca1c9a8", features = ["builtin-bindgen"] }
+uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "0eee77f67b716c4896494606e5931d249871b23a", features = ["builtin-bindgen"] }
 
 [dependencies]
 anyhow = "1.0.51"
@@ -34,5 +34,5 @@ tokio-stream = "0.1.8"
 tracing = "0.1.32"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-crypto-ffi, and uniffi_bindgen in ffi CI job
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "17ee82b50ab01182b09a3597b3a340baeca1c9a8" }
-uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "17ee82b50ab01182b09a3597b3a340baeca1c9a8" }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "0eee77f67b716c4896494606e5931d249871b23a" }
+uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "0eee77f67b716c4896494606e5931d249871b23a" }

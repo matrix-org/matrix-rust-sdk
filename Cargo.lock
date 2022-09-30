@@ -2479,6 +2479,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uniffi_build",
+ "uniffi_macros",
  "vodozemac",
  "zeroize",
 ]
@@ -4791,7 +4792,7 @@ checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
 [[package]]
 name = "uniffi"
 version = "0.20.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4807,7 +4808,7 @@ dependencies = [
 [[package]]
 name = "uniffi_bindgen"
 version = "0.20.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "askama",
@@ -4829,7 +4830,7 @@ dependencies = [
 [[package]]
 name = "uniffi_build"
 version = "0.20.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "camino",
@@ -4839,7 +4840,7 @@ dependencies = [
 [[package]]
 name = "uniffi_macros"
 version = "0.20.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "bincode",
  "camino",
@@ -4857,7 +4858,7 @@ dependencies = [
 [[package]]
 name = "uniffi_meta"
 version = "0.20.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "serde",
 ]
@@ -5195,7 +5196,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=17ee82b50ab01182b09a3597b3a340baeca1c9a8#17ee82b50ab01182b09a3597b3a340baeca1c9a8"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "nom",
 ]
