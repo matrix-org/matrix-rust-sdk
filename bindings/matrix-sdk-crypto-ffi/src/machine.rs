@@ -283,11 +283,13 @@ impl OlmMachine {
         }
     }
 
-    /// Mark the device of the given user with the given device ID as trusted.
-    pub fn mark_device_as_trusted(
+    /// Set local trust state for the device of the given user without creating
+    /// or uploading any signatures if verified
+    pub fn set_local_trust(
         &self,
         user_id: &str,
         device_id: &str,
+        trust_state: LocalTrust,
     ) -> Result<(), CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
@@ -295,7 +297,7 @@ impl OlmMachine {
             self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
 
         if let Some(device) = device {
-            self.runtime.block_on(device.set_local_trust(LocalTrust::Verified))?;
+            self.runtime.block_on(device.set_local_trust(trust_state))?;
         }
 
         Ok(())
