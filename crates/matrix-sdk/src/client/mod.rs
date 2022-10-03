@@ -61,10 +61,8 @@ use ruma::{
         error::{FromHttpResponseError, ServerError},
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
-    assign,
-    presence::PresenceState,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
-    ServerName, UInt, UserId,
+    assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
+    RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1957,6 +1955,8 @@ impl Client {
     ///       and where we wish to continue syncing.
     ///     * [`full_state`] - To tell the server that we wish to receive all
     ///       state events, regardless of our configured [`token`].
+    ///     * [`set_presence`] - To tell the server to set the presence and to
+    ///       which state.
     ///
     /// # Examples
     ///
@@ -1995,6 +1995,7 @@ impl Client {
     /// [`token`]: crate::config::SyncSettings#method.token
     /// [`timeout`]: crate::config::SyncSettings#method.timeout
     /// [`full_state`]: crate::config::SyncSettings#method.full_state
+    /// [`set_presence`]: ruma::presence::PresenceState
     /// [`filter`]: crate::config::SyncSettings#method.filter
     /// [`Filter`]: ruma::api::client::sync::sync_events::v3::Filter
     /// [`next_batch`]: SyncResponse#structfield.next_batch
@@ -2021,7 +2022,7 @@ impl Client {
             filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
             full_state: sync_settings.full_state,
-            set_presence: &PresenceState::Online,
+            set_presence: &sync_settings.set_presence,
             timeout: sync_settings.timeout,
         });
         let mut request_config = self.request_config();
