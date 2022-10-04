@@ -163,10 +163,15 @@ impl VerificationMachine {
             .unwrap_or_default()
     }
 
-    /// Add a new `VerificationRequest` object to the cache, this will cancel
-    /// any duplicates we have going on, including the newly inserted one, with
-    /// a given user.
+    /// Add a new `VerificationRequest` object to the cache.
+    /// If there are any existing requests with this user (and different
+    /// flow_id), both the existing and new request will be cancelled.
     fn insert_request(&self, request: VerificationRequest) {
+        if let Some(r) = self.get_request(request.other_user(), request.flow_id().as_str()) {
+            info!(flow_id = r.flow_id().as_str(), "Ignoring known verification request",);
+            return;
+        }
+
         let entry = self.requests.entry(request.other_user().to_owned()).or_default();
         let user_requests = entry.value();
 
@@ -177,6 +182,11 @@ impl VerificationMachine {
             let old_verification = old.value();
 
             if !old_verification.is_cancelled() {
+                warn!(
+                    "Received a new verification request whilst another request \
+                    with the same user is ongoing. Cancelling both requests."
+                );
+
                 if let Some(r) = old_verification.cancel() {
                     self.verifications.add_request(r.into())
                 }
@@ -737,5 +747,64 @@ mod tests {
         // Make sure both of them are cancelled.
         assert!(alice_request.is_cancelled());
         assert!(second_request.is_cancelled());
+    }
+
+    /// Ensure that if a duplicate request is added (i.e. matching user and
+    /// flow_id) the existing request is not cancelled and the new one is
+    /// ignored
+    #[async_test]
+    async fn ignore_identical_verification_request() {
+        let (machine, bob_store) = verification_machine().await;
+
+        // Start the first verification request.
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
+
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store.clone(),
+            flow_id.clone(),
+            alice_id(),
+            vec![],
+            None,
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .await
+            .unwrap();
+
+        let first_request =
+            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+
+        // We're not yet cancelled.
+        assert!(!first_request.is_cancelled());
+
+        // Bob is adding a second request with the same flow_id as before
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store,
+            flow_id.clone(),
+            alice_id(),
+            vec![],
+            None,
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .await
+            .unwrap();
+
+        let second_request =
+            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+
+        // None of the requests are cancelled
+        assert!(!first_request.is_cancelled());
+        assert!(!second_request.is_cancelled());
     }
 }
