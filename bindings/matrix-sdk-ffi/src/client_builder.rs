@@ -3,7 +3,6 @@ use std::{fs, path::PathBuf, sync::Arc};
 use anyhow::anyhow;
 use matrix_sdk::{
     ruma::{ServerName, UserId},
-    store::make_store_config,
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
@@ -71,9 +70,8 @@ impl ClientBuilder {
             // Determine store path
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
-            let store_config = make_store_config(&data_path, None)?;
 
-            inner_builder = inner_builder.store_config(store_config);
+            inner_builder = inner_builder.sled_store(data_path, None)?;
         }
 
         // Determine server either from URL, server name or user ID.

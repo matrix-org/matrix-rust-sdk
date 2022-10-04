@@ -155,8 +155,7 @@ impl ClientBuilder {
     /// Set up the store configuration.
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
-    /// [`make_store_config`] method from the [`store`] module or directly from
-    /// one of the store crates.
+    /// `make_store_config` method from one of the store crates.
     ///
     /// # Arguments
     ///
@@ -172,8 +171,6 @@ impl ClientBuilder {
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
-    /// [`make_store_config`]: crate::store::make_store_config
-    /// [`store`]: crate::store
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
         self.store_config = store_config;
         self
