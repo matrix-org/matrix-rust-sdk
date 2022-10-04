@@ -4,7 +4,6 @@ use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
-    store::make_store_config,
     Client,
 };
 use once_cell::sync::Lazy;
@@ -42,7 +41,7 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
 
     let client = Client::builder()
         .user_agent("matrix-sdk-integation-tests")
-        .store_config(make_store_config(tmp_dir.path(), None)?)
+        .sled_store(tmp_dir.path(), None)?
         .homeserver_url(homeserver_url)
         .build()
         .await?;

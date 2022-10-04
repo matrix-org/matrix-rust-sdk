@@ -8,7 +8,6 @@ use matrix_sdk::{
         api::client::filter::{FilterDefinition, LazyLoadOptions},
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
     },
-    store::make_store_config,
     Client, LoopCtrl,
 };
 use tokio::sync::oneshot;
@@ -16,11 +15,10 @@ use url::Url;
 
 async fn login(homeserver_url: String, username: &str, password: &str) -> Client {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let path = "./";
-    let store_config = make_store_config(path, Some("some password")).unwrap();
     let client = Client::builder()
         .homeserver_url(homeserver_url)
-        .store_config(store_config)
+        .sled_store("./", Some("some password"))
+        .unwrap()
         .build()
         .await
         .unwrap();
