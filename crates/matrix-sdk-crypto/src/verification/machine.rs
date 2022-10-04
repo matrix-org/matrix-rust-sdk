@@ -28,7 +28,7 @@ use ruma::{
     uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::{
     cache::VerificationCache,
@@ -168,7 +168,7 @@ impl VerificationMachine {
     /// flow_id), both the existing and new request will be cancelled.
     fn insert_request(&self, request: VerificationRequest) {
         if let Some(r) = self.get_request(request.other_user(), request.flow_id().as_str()) {
-            info!(flow_id = r.flow_id().as_str(), "Ignoring known verification request",);
+            debug!(flow_id = r.flow_id().as_str(), "Ignoring known verification request",);
             return;
         }
 
