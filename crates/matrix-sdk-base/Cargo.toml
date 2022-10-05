@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.60"
+rust-version = "1.62"
 version = "0.6.0"
 
 [package.metadata.docs.rs]

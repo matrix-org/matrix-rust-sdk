@@ -71,7 +71,7 @@ $ cp ../../target/aarch64-linux-android/debug/libmatrix_crypto.so \
 
 ## Minimum Supported Rust Version (MSRV)
 
-These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.60`.
+These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.62`.
 
 ## License
 

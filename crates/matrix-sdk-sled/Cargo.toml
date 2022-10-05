@@ -6,7 +6,7 @@ authors = ["Damir Jelić <poljar@termina.org.uk>"]
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Sled Storage backend for matrix-sdk for native environments"
 license = "Apache-2.0"
-rust-version = "1.60"
+rust-version = "1.62"
 readme = "README.md"
 
 [package.metadata.docs.rs]
