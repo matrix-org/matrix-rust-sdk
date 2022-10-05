@@ -20,18 +20,8 @@ pub struct ClientBuilder {
     inner: MatrixClientBuilder,
 }
 
+#[uniffi::export]
 impl ClientBuilder {
-    pub fn new() -> Self {
-        Self {
-            base_path: None,
-            username: None,
-            server_name: None,
-            homeserver_url: None,
-            user_agent: None,
-            inner: MatrixClient::builder(),
-        }
-    }
-
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.base_path = Some(path);
@@ -60,6 +50,19 @@ impl ClientBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         builder.user_agent = Some(user_agent);
         Arc::new(builder)
+    }
+}
+
+impl ClientBuilder {
+    pub fn new() -> Self {
+        Self {
+            base_path: None,
+            username: None,
+            server_name: None,
+            homeserver_url: None,
+            user_agent: None,
+            inner: MatrixClient::builder(),
+        }
     }
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {

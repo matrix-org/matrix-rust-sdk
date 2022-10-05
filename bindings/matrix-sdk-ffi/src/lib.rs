@@ -78,6 +78,7 @@ mod uniffi_types {
     pub use crate::{
         authentication_service::{AuthenticationService, HomeserverLoginDetails},
         client::Client,
+        client_builder::ClientBuilder,
         messages::AnyMessage,
         room::Room,
         session_verification::SessionVerificationEmoji,
