@@ -11,6 +11,17 @@ final class ClientTests: XCTestCase {
             XCTFail("The client should build successfully when given a homeserver.")
         }
     }
+
+    func testBuildingWithHomeserverURLAndUserAgent() {
+        do {
+            _ = try ClientBuilder()
+                .homeserverUrl(url: "https://localhost:8008")
+                .userAgent(userAgent: "golden-eye/007")
+                .build()
+        } catch {
+            XCTFail("The client should build successfully when given a homeserver and user agent.")
+        }
+    }
     
     func testBuildingWithUsername() {
         do {
