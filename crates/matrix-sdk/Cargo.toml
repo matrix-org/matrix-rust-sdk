@@ -45,6 +45,7 @@ image-rayon = ["image-proc", "image?/jpeg_rayon"]
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
     "anyhow",
+    "dep:derive_builder",
 ]
 
 docsrs = [
@@ -62,6 +63,7 @@ async-stream = "0.3.3"
 async-trait = "0.1.53"
 bytes = "1.1.0"
 dashmap = "5.2.0"
+derive_builder = { version = "0.11.2", optional = true }
 event-listener = "2.5.2"
 eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
@@ -79,9 +81,6 @@ thiserror = "1.0.30"
 tracing = "0.1.34"
 url = "2.2.2"
 zeroize = "1.3.0"
-
-# sliding sync
-derive_builder = "0.11.2"
 
 [dependencies.image]
 version = "0.24.2"
