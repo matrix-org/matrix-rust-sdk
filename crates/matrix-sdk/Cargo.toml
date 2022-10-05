@@ -111,8 +111,7 @@ version = "0.7.0"
 features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2965"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Upgrade once MSRV >= 1.61
-async-once-cell = "0.3.1"
+async-once-cell = "0.4.2"
 wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
