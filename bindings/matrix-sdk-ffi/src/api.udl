@@ -158,18 +158,6 @@ interface SlidingSync {
 interface ClientBuilder {
     constructor();
 
-    [Self=ByArc]
-    ClientBuilder base_path(string path);
-
-    [Self=ByArc]
-    ClientBuilder username(string username);
-
-    [Self=ByArc]
-    ClientBuilder homeserver_url(string url);
-
-    [Self=ByArc]
-    ClientBuilder user_agent(string user_agent);
-
     [Throws=ClientError, Self=ByArc]
     Client build();
 };
