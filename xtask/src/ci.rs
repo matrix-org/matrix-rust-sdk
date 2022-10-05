@@ -133,7 +133,7 @@ fn check_clippy() -> Result<()> {
     cmd!(
         "rustup run nightly cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
-            --no-default-features --features native-tls,warp
+            --no-default-features --features native-tls,sso-login
             -- -D warnings"
     )
     .run()?;
