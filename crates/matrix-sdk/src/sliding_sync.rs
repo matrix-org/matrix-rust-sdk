@@ -38,9 +38,10 @@ use crate::{Client, Result};
 ///
 /// If the client has been offline for a while, though, the SlidingSync might
 /// return back to `CatchingUp` at any point.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum SlidingSyncState {
     /// Hasn't started yet
+    #[default]
     Cold,
     /// We are quickly preloading a preview of the most important rooms
     Preload,
@@ -50,31 +51,21 @@ pub enum SlidingSyncState {
     Live,
 }
 
-impl Default for SlidingSyncState {
-    fn default() -> Self {
-        SlidingSyncState::Cold
-    }
-}
-
 /// The mode by which the the [`SlidingSyncView`] is in fetching the data.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum SlidingSyncMode {
     /// FullSync all rooms in the background, configured with batch size
+    #[default]
     FullSync,
     /// Only sync the specific windows defined
     Selective,
 }
 
-impl Default for SlidingSyncMode {
-    fn default() -> Self {
-        SlidingSyncMode::FullSync
-    }
-}
-
 /// The Entry in the sliding sync room list per sliding sync view
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`
+    #[default]
     Empty,
     /// There was `OwnedRoomId` but since the server told us to invalid this
     /// entry. it is considered stale
@@ -100,12 +91,6 @@ impl RoomListEntry {
 
 pub type AliveRoomTimeline =
     Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
-
-impl Default for RoomListEntry {
-    fn default() -> Self {
-        RoomListEntry::Empty
-    }
-}
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
