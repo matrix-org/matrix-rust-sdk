@@ -116,9 +116,10 @@ impl SignatureCheckResult {
 }
 
 /// The result of a signature check.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SignatureState {
     /// The signature is missing.
+    #[default]
     Missing,
     /// The signature is invalid.
     Invalid,
@@ -139,12 +140,6 @@ impl SignatureState {
     /// Did we find a valid signature?
     pub fn signed(self) -> bool {
         self == SignatureState::ValidButNotTrusted && self == SignatureState::ValidAndTrusted
-    }
-}
-
-impl Default for SignatureState {
-    fn default() -> Self {
-        Self::Missing
     }
 }
 
