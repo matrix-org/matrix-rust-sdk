@@ -149,6 +149,17 @@ impl OlmMachine {
     }
 }
 
+#[uniffi::export]
+impl OlmMachine {
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    pub fn cross_signing_status(&self) -> CrossSigningStatus {
+        self.runtime.block_on(self.inner.cross_signing_status()).into()
+    }
+}
+
 impl OlmMachine {
     /// Create a new `OlmMachine`
     ///
@@ -1123,14 +1134,6 @@ impl OlmMachine {
     /// upload the public part of it to the server.
     pub fn bootstrap_cross_signing(&self) -> Result<BootstrapCrossSigningResult, CryptoStoreError> {
         Ok(self.runtime.block_on(self.inner.bootstrap_cross_signing(true))?.into())
-    }
-
-    /// Get the status of the private cross signing keys.
-    ///
-    /// This can be used to check which private cross signing keys we have
-    /// stored locally.
-    pub fn cross_signing_status(&self) -> CrossSigningStatus {
-        self.runtime.block_on(self.inner.cross_signing_status()).into()
     }
 
     /// Export all our private cross signing keys.

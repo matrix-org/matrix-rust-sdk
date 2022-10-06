@@ -110,12 +110,6 @@ interface UserIdentity {
     );
 };
 
-dictionary CrossSigningStatus {
-    boolean has_master;
-    boolean has_self_signing;
-    boolean has_user_signing;
-};
-
 dictionary CrossSigningKeyExport {
     string? master_key;
     string? self_signing_key;
@@ -449,7 +443,6 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     void discard_room_key([ByRef] string room_id);
 
-    CrossSigningStatus cross_signing_status();
     [Throws=CryptoStoreError]
     BootstrapCrossSigningResult bootstrap_cross_signing();
     CrossSigningKeyExport? export_cross_signing_keys();
