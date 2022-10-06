@@ -65,7 +65,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
 use crate::{
@@ -302,6 +302,26 @@ impl Store {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
+    }
+
+    /// Compare the given `InboundGroupSession` with an existing session we have
+    /// in the store.
+    ///
+    /// This method returns `SessionOrdering::Better` if the given session is
+    /// better than the one we already have or if we don't have such a
+    /// session in the store.
+    pub async fn compare_group_session(
+        &self,
+        session: &InboundGroupSession,
+    ) -> Result<SessionOrdering> {
+        let old_session =
+            self.inner.get_inbound_group_session(session.room_id(), session.session_id()).await?;
+
+        Ok(if let Some(old_session) = old_session {
+            session.compare(&old_session).await
+        } else {
+            SessionOrdering::Better
+        })
     }
 
     #[cfg(test)]

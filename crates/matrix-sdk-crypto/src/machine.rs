@@ -548,6 +548,57 @@ impl OlmMachine {
         Ok(decrypted)
     }
 
+    async fn handle_key(
+        &self,
+        sender_key: Curve25519PublicKey,
+        event: &DecryptedRoomKeyEvent,
+        content: &MegolmV1AesSha2Content,
+    ) -> OlmResult<Option<InboundGroupSession>> {
+        let session = InboundGroupSession::new(
+            sender_key,
+            event.keys.ed25519,
+            &content.room_id,
+            &content.session_key,
+            event.content.algorithm(),
+            None,
+        );
+
+        if let Ok(session) = session {
+            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
+                info!(
+                    sender = %event.sender,
+                    %sender_key,
+                    room_id = %content.room_id,
+                    session_id = session.session_id(),
+                    algorithm = %event.content.algorithm(),
+                    "Received a new megolm room key",
+                );
+
+                Ok(Some(session))
+            } else {
+                warn!(
+                    sender = %event.sender,
+                    %sender_key,
+                    room_id = %content.room_id,
+                    session_id = session.session_id(),
+                    algorithm = %event.content.algorithm(),
+                    "Received a megolm room key that we already have a better version of, discarding",
+                );
+
+                Ok(None)
+            }
+        } else {
+            warn!(
+                sender = %event.sender,
+                %sender_key,
+                algorithm = %event.content.algorithm(),
+                "Received room key with unsupported key algorithm",
+            );
+
+            Ok(None)
+        }
+    }
+
     /// Create a group session from a room key and add it to our crypto store.
     async fn add_room_key(
         &self,
@@ -557,43 +608,20 @@ impl OlmMachine {
         let unsupported_warning = || {
             warn!(
                 sender = %event.sender,
-                sender_key = sender_key.to_base64(),
+                %sender_key,
                 algorithm = %event.content.algorithm(),
                 "Received room key with unsupported key algorithm",
             );
         };
 
-        let handle_key = |content: &MegolmV1AesSha2Content| {
-            let session = InboundGroupSession::new(
-                sender_key,
-                event.keys.ed25519,
-                &content.room_id,
-                &content.session_key,
-                event.content.algorithm(),
-                None,
-            );
-
-            if let Ok(session) = session {
-                info!(
-                    sender = %event.sender,
-                    sender_key = sender_key.to_base64(),
-                    room_id = %content.room_id,
-                    session_id = session.session_id(),
-                    algorithm = %event.content.algorithm(),
-                    "Received a new megolm room key",
-                );
-
-                Ok(Some(session))
-            } else {
-                unsupported_warning();
-                Ok(None)
-            }
-        };
-
         match &event.content {
-            RoomKeyContent::MegolmV1AesSha2(content) => handle_key(content),
+            RoomKeyContent::MegolmV1AesSha2(content) => {
+                self.handle_key(sender_key, event, content).await
+            }
             #[cfg(feature = "experimental-algorithms")]
-            RoomKeyContent::MegolmV2AesSha2(content) => handle_key(content),
+            RoomKeyContent::MegolmV2AesSha2(content) => {
+                self.handle_key(sender_key, event, content).await
+            }
             RoomKeyContent::Unknown(_) => {
                 unsupported_warning();
                 Ok(None)

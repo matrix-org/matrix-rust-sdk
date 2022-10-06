@@ -875,51 +875,33 @@ impl GossipMachine {
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         match InboundGroupSession::from_forwarded_key(&algorithm, content) {
             Ok(session) => {
-                let old_session = self
-                    .store
-                    .get_inbound_group_session(session.room_id(), session.session_id())
-                    .await?;
-
-                let session_id = session.session_id().to_owned();
-
-                // If we have a previous session, check if we have a better version
-                // and store the new one if so.
-                let session = if let Some(old_session) = old_session {
-                    if session.compare(&old_session).await == SessionOrdering::Better {
-                        self.mark_as_done(info).await?;
-                        Some(session)
-                    } else {
-                        None
-                    }
-                // If we didn't have a previous session, store it.
-                } else {
+                if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
                     self.mark_as_done(info).await?;
-                    Some(session)
-                };
 
-                if let Some(s) = &session {
                     info!(
                         %sender,
-                        sender_key = sender_key.to_base64(),
-                        claimed_sender_key = content.claimed_sender_key.to_base64(),
-                        room_id = s.room_id().as_str(),
-                        session_id = session_id.as_str(),
-                        %algorithm,
+                        %sender_key,
+                        claimed_sender_key = %session.sender_key(),
+                        room_id = session.room_id().as_str(),
+                        session_id = session.session_id(),
+                        algorithm = %session.algorithm(),
                         "Received a forwarded room key",
                     );
+
+                    Ok(Some(session))
                 } else {
                     info!(
                         %sender,
-                        sender_key = sender_key.to_base64(),
-                        claimed_sender_key = content.claimed_sender_key.to_base64(),
-                        room_id = %content.room_id,
-                        session_id = session_id.as_str(),
-                        %algorithm,
+                        %sender_key,
+                        claimed_sender_key = %session.sender_key(),
+                        room_id = %session.room_id,
+                        session_id = session.session_id(),
+                        algorithm = %session.algorithm(),
                         "Received a forwarded room key but we already have a better version of it",
                     );
-                }
 
-                Ok(session)
+                    Ok(None)
+                }
             }
             Err(e) => {
                 warn!(
