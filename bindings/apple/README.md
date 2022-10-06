@@ -42,15 +42,7 @@ The `build_crypto_xcframework.sh` script will go through all the steps required 
 
 `Package.swift` is meant to provide a simple example on how to integrate everything together but also a place to run unit and integration tests from.
 
-It's pre-configured to link to the generated .xcframework and .swift files so successfully running one of the scripts first is necessary for it to compile.
-
-If you're using `debug_build_xcframework.sh`, you can use `xcodebuild` to execute the unit tests in an iOS simulator, e.g.
-
-```
-xcodebuild test -scheme MatrixRustSDK -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 13'
-```
-
-If you're using `debug_build_library.sh`, you can execute the tests directly on macOS with `swift test`.
+It's pre-configured to link to the generated .xcframework and .swift files so successfully running the `debug_build_library.sh` script first is necessary for it to compile. Afterwards you can execute the tests with `swift test`. Note that for the moment this only works on macOS but we're planning to add Linux support in the future.
 
 ## Distribution
 
