@@ -42,7 +42,7 @@ The `build_crypto_xcframework.sh` script will go through all the steps required 
 
 `Package.swift` is meant to provide a simple example on how to integrate everything together but also a place to run unit and integration tests from.
 
-It's pre-configured to link to the generated .xcframework and .swift files so successfully running the `debug_build_library.sh` script first is necessary for it to compile. Afterwards you can execute the tests with `swift test`. Note that for the moment this only works on macOS but we're planning to add Linux support in the future.
+It's pre-configured to link to the generated static lib and .swift files so successfully running the `debug_build_library.sh` script first is necessary for it to compile. Afterwards you can execute the tests with `swift test`. Note that for the moment this only works on macOS but we're planning to add Linux support in the future.
 
 ## Distribution
 
