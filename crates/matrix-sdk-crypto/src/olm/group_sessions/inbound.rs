@@ -326,8 +326,20 @@ impl InboundGroupSession {
     /// Check if the `InboundGroupSession` is better than the given other
     /// `InboundGroupSession`
     pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
-        let mut other = other.inner.lock().await;
-        self.inner.lock().await.compare(&mut other)
+        // If this is the same object the ordering is the same, we can't compare because
+        // we would deadlock while trying to acquire the same lock twice.
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            SessionOrdering::Equal
+        } else if self.sender_key() != other.sender_key()
+            || self.signing_keys() != other.signing_keys()
+            || self.algorithm() != other.algorithm()
+            || self.room_id() != other.room_id()
+        {
+            SessionOrdering::Unconnected
+        } else {
+            let mut other = other.inner.lock().await;
+            self.inner.lock().await.compare(&mut other)
+        }
     }
 
     /// Decrypt the given ciphertext.
@@ -489,8 +501,18 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
 #[cfg(test)]
 mod test {
     use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id, user_id, DeviceId, UserId};
+    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::olm::InboundGroupSession;
+    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
+    }
+
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("ALICEDEVICE")
+    }
 
     #[async_test]
     async fn inbound_group_session_serialization() {
@@ -535,5 +557,27 @@ mod test {
         let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
 
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+    }
+
+    #[async_test]
+    async fn session_comparison() {
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        let worse = InboundGroupSession::from_export(&inbound.export_at_index(10).await).unwrap();
+        let mut copy = InboundGroupSession::from_pickle(inbound.pickle().await).unwrap();
+
+        assert_eq!(inbound.compare(&worse).await, SessionOrdering::Better);
+        assert_eq!(worse.compare(&inbound).await, SessionOrdering::Worse);
+        assert_eq!(inbound.compare(&inbound).await, SessionOrdering::Equal);
+        assert_eq!(inbound.compare(&copy).await, SessionOrdering::Equal);
+
+        copy.sender_key =
+            Curve25519PublicKey::from_base64("XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY")
+                .unwrap();
+
+        assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
     }
 }
