@@ -14,20 +14,19 @@
 
 use std::net::ToSocketAddrs;
 
-use matrix_sdk::{
-    bytes::Bytes,
-    ruma::{
-        self,
-        api::{
-            appservice::query::{
-                query_room_alias::v1 as query_room, query_user_id::v1 as query_user,
-            },
-            IncomingRequest,
-        },
-    },
+use axum::{
+    async_trait,
+    body::{Bytes, HttpBody},
+    extract::{FromRequest, Path, RequestParts},
+    middleware::{self, Next},
+    response::{ErrorResponse, IntoResponse, Response},
+    routing::{get, put},
+    BoxError, Extension, Json, Router,
 };
-use serde::Serialize;
-use warp::{filters::BoxedFilter, path::FullPath, Filter, Rejection, Reply};
+use http::StatusCode;
+use matrix_sdk::ruma::{self, api::IncomingRequest};
+use serde::{Deserialize, Serialize};
+use tower::ServiceBuilder;
 
 use crate::{AppService, Error, Result};
 
@@ -36,195 +35,133 @@ pub async fn run_server(
     host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<()> {
-    let routes = warp_filter(appservice);
+    let router: Router = router(appservice);
 
-    let mut addr = format!("{}:{}", host.into(), port.into()).to_socket_addrs()?;
+    let mut addr = (host.into(), port.into()).to_socket_addrs()?;
     if let Some(addr) = addr.next() {
-        warp::serve(routes).run(addr).await;
+        hyper::Server::bind(&addr).serve(router.into_make_service()).await?;
         Ok(())
     } else {
         Err(Error::HostPortToSocketAddrs)
     }
 }
 
-pub fn warp_filter(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
-    // TODO: try to use a struct instead of needlessly cloning appservice multiple
-    // times on every request
-    warp::any()
-        .and(filters::transactions(appservice.clone()))
-        .or(filters::users(appservice.clone()))
-        .or(filters::rooms(appservice))
-        .recover(handle_rejection)
-        .boxed()
+pub fn router<B>(appservice: AppService) -> Router<B>
+where
+    B: HttpBody + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+{
+    Router::new()
+        .route("/_matrix/app/v1/users/:user_id", get(handlers::user))
+        .route("/_matrix/app/v1/rooms/:room_id", get(handlers::room))
+        .route("/_matrix/app/v1/transactions/:txn_id", put(handlers::transaction))
+        .route("/users/:user_id", get(handlers::user))
+        .route("/rooms/:room_id", get(handlers::room))
+        .route("/transactions/:txn_id", put(handlers::transaction))
+        // FIXME: Use Route::with_state instead of an Extension layer in axum 0.6
+        .layer(
+            ServiceBuilder::new()
+                .layer(Extension(appservice))
+                .layer(middleware::from_fn(validate_access_token)),
+        )
 }
 
-mod filters {
-    use super::*;
+pub struct MatrixRequest<T>(T);
 
-    pub fn users(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
-        warp::get()
-            .and(
-                warp::path!("_matrix" / "app" / "v1" / "users" / String)
-                    // legacy route
-                    .or(warp::path!("users" / String))
-                    .unify(),
-            )
-            .and(warp::path::end())
-            .and(common(appservice))
-            .and_then(handlers::user)
-            .boxed()
-    }
+#[async_trait]
+impl<T, B> FromRequest<B> for MatrixRequest<T>
+where
+    T: IncomingRequest,
+    B: HttpBody + Send,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+{
+    type Rejection = Response;
 
-    pub fn rooms(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
-        warp::get()
-            .and(
-                warp::path!("_matrix" / "app" / "v1" / "rooms" / String)
-                    // legacy route
-                    .or(warp::path!("rooms" / String))
-                    .unify(),
-            )
-            .and(warp::path::end())
-            .and(common(appservice))
-            .and_then(handlers::room)
-            .boxed()
-    }
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let path_params =
+            req.extract::<Path<Vec<String>>>().await.map_err(IntoResponse::into_response)?;
+        let parts = req.extract::<http::request::Parts>().await.map_err(|e| match e {})?;
+        let body = req.extract::<Bytes>().await.map_err(IntoResponse::into_response)?;
 
-    pub fn transactions(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
-        warp::put()
-            .and(
-                warp::path!("_matrix" / "app" / "v1" / "transactions" / String)
-                    // legacy route
-                    .or(warp::path!("transactions" / String))
-                    .unify(),
-            )
-            .and(warp::path::end())
-            .and(common(appservice))
-            .and_then(handlers::transaction)
-            .boxed()
-    }
+        let http_request = http::Request::from_parts(parts, body);
 
-    fn common(appservice: AppService) -> BoxedFilter<(AppService, http::Request<Bytes>)> {
-        warp::any()
-            .and(valid_access_token(appservice.registration().hs_token.clone()))
-            .map(move || appservice.clone())
-            .and(
-                http_request().and_then(|request| async move {
-                    Ok::<http::Request<Bytes>, Rejection>(request)
-                }),
-            )
-            .boxed()
-    }
+        let request = T::try_from_http_request(http_request, &path_params).map_err(|_e| {
+            // TODO: JSON error response
+            StatusCode::BAD_REQUEST.into_response()
+        })?;
 
-    pub fn valid_access_token(token: String) -> BoxedFilter<()> {
-        warp::any()
-            .map(move || token.clone())
-            .and(warp::query::raw())
-            .and_then(|token: String, query: String| async move {
-                let query: Vec<(String, String)> =
-                    ruma::serde::urlencoded::from_str(&query).map_err(Error::from)?;
-
-                if query.into_iter().any(|(key, value)| key == "access_token" && value == token) {
-                    Ok::<(), Rejection>(())
-                } else {
-                    Err(warp::reject::custom(Unauthorized))
-                }
-            })
-            .untuple_one()
-            .boxed()
-    }
-
-    pub fn http_request() -> impl Filter<Extract = (http::Request<Bytes>,), Error = Rejection> + Copy
-    {
-        // TODO: extract `hyper::Request` instead
-        // blocked by https://github.com/seanmonstar/warp/issues/139
-        warp::any()
-            .and(warp::method())
-            .and(warp::filters::path::full())
-            .and(warp::filters::query::raw())
-            .and(warp::header::headers_cloned())
-            .and(warp::body::bytes())
-            .and_then(|method, path: FullPath, query, headers, bytes| async move {
-                let uri = http::uri::Builder::new()
-                    .path_and_query(format!("{}?{query}", path.as_str()))
-                    .build()
-                    .map_err(Error::from)?;
-
-                let mut request = http::Request::builder()
-                    .method(method)
-                    .uri(uri)
-                    .body(bytes)
-                    .map_err(Error::from)?;
-
-                *request.headers_mut() = headers;
-
-                Ok::<http::Request<Bytes>, Rejection>(request)
-            })
+        Ok(Self(request))
     }
 }
 
 mod handlers {
-    use percent_encoding::percent_decode_str;
+    use axum::{response::IntoResponse, Extension, Json};
+    use http::StatusCode;
+    use ruma::api::appservice::{
+        event::push_events,
+        query::{query_room_alias, query_user_id},
+    };
     use serde::Serialize;
 
-    use super::*;
+    use super::{ErrorMessage, MatrixRequest};
+    use crate::AppService;
 
     #[derive(Serialize)]
     struct EmptyObject {}
 
     pub async fn user(
-        user_id: String,
-        appservice: AppService,
-        request: http::Request<Bytes>,
-    ) -> Result<impl Reply, Rejection> {
+        Extension(appservice): Extension<AppService>,
+        MatrixRequest(request): MatrixRequest<query_user_id::v1::IncomingRequest>,
+    ) -> impl IntoResponse {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
-            let user_id = percent_decode_str(&user_id).decode_utf8().map_err(Error::from)?;
-            let request = query_user::IncomingRequest::try_from_http_request(request, &[user_id])
-                .map_err(Error::from)?;
-            return if user_exists(appservice.clone(), request).await {
-                Ok(warp::reply::json(&EmptyObject {}))
+            if user_exists(appservice.clone(), request).await {
+                Ok(Json(EmptyObject {}))
             } else {
-                Err(warp::reject::not_found())
-            };
+                Err(StatusCode::NOT_FOUND)
+            }
+        } else {
+            Ok(Json(EmptyObject {}))
         }
-        Ok(warp::reply::json(&EmptyObject {}))
     }
 
     pub async fn room(
-        room_id: String,
-        appservice: AppService,
-        request: http::Request<Bytes>,
-    ) -> Result<impl Reply, Rejection> {
+        Extension(appservice): Extension<AppService>,
+        MatrixRequest(request): MatrixRequest<query_room_alias::v1::IncomingRequest>,
+    ) -> impl IntoResponse {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
-            let room_id = percent_decode_str(&room_id).decode_utf8().map_err(Error::from)?;
-            let request = query_room::IncomingRequest::try_from_http_request(request, &[room_id])
-                .map_err(Error::from)?;
-            return if room_exists(appservice.clone(), request).await {
-                Ok(warp::reply::json(&EmptyObject {}))
+            if room_exists(appservice.clone(), request).await {
+                Ok(Json(&EmptyObject {}))
             } else {
-                Err(warp::reject::not_found())
-            };
+                Err(StatusCode::NOT_FOUND)
+            }
+        } else {
+            Ok(Json(&EmptyObject {}))
         }
-        Ok(warp::reply::json(&EmptyObject {}))
     }
 
     pub async fn transaction(
-        txn_id: String,
-        appservice: AppService,
-        request: http::Request<Bytes>,
-    ) -> Result<impl Reply, Rejection> {
-        let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
-            ruma::api::IncomingRequest::try_from_http_request(request, &[txn_id])
-                .map_err(Error::from)?;
-
-        appservice.receive_transaction(incoming_transaction).await?;
-        Ok(warp::reply::json(&EmptyObject {}))
+        appservice: Extension<AppService>,
+        MatrixRequest(request): MatrixRequest<push_events::v1::IncomingRequest>,
+    ) -> impl IntoResponse {
+        match appservice.receive_transaction(request).await {
+            Ok(_) => Ok(Json(&EmptyObject {})),
+            Err(e) => {
+                let status_code = StatusCode::INTERNAL_SERVER_ERROR;
+                Err((
+                    status_code,
+                    Json(ErrorMessage { code: status_code.as_u16(), message: e.to_string() }),
+                ))
+            }
+        }
     }
 }
 
-#[derive(Debug)]
-struct Unauthorized;
-
-impl warp::reject::Reject for Unauthorized {}
+#[derive(Deserialize)]
+struct QueryParameters {
+    access_token: String,
+}
 
 #[derive(Serialize)]
 struct ErrorMessage {
@@ -232,15 +169,23 @@ struct ErrorMessage {
     message: String,
 }
 
-pub async fn handle_rejection(err: Rejection) -> Result<impl Reply, Rejection> {
-    if err.find::<Unauthorized>().is_some() || err.find::<warp::reject::InvalidQuery>().is_some() {
-        let code = http::StatusCode::UNAUTHORIZED;
-        let message = "UNAUTHORIZED";
+async fn validate_access_token<B>(
+    req: http::Request<B>,
+    next: Next<B>,
+) -> Result<Response, ErrorResponse> {
+    let appservice =
+        req.extensions().get::<AppService>().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let json =
-            warp::reply::json(&ErrorMessage { code: code.as_u16(), message: message.into() });
-        Ok(warp::reply::with_status(json, code))
-    } else {
-        Err(err)
+    let query_string = req.uri().query().unwrap_or("");
+    match ruma::serde::urlencoded::from_str::<QueryParameters>(query_string) {
+        Ok(query) if query.access_token == appservice.registration.hs_token => {
+            Ok(next.run(req).await)
+        }
+        _ => {
+            let status_code = StatusCode::UNAUTHORIZED;
+            let message =
+                ErrorMessage { code: status_code.as_u16(), message: "UNAUTHORIZED".into() };
+            Err((status_code, Json(message)).into())
+        }
     }
 }
