@@ -1,4 +1,4 @@
-#![allow(clippy::all)]
+#![allow(clippy::all, warnings)]
 
 use crate::*;
 
