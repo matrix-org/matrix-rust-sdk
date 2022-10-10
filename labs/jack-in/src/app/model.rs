@@ -123,7 +123,7 @@ impl Model {
             )
             .is_ok());
         // mount logger
-        assert!(app.remount(Id::Logger, Box::new(Logger::default()), Vec::default()).is_ok());
+        assert!(app.remount(Id::Logger, Box::<Logger>::default(), Vec::default()).is_ok());
 
         assert!(app
             .mount(
