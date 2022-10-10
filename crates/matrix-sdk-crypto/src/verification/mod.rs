@@ -826,7 +826,9 @@ mod test {
 
     use super::VerificationStore;
     use crate::{
-        olm::PrivateCrossSigningIdentity, store::MemoryStore, ReadOnlyAccount, ReadOnlyDevice,
+        olm::PrivateCrossSigningIdentity,
+        store::{Changes, CryptoStore, IdentityChanges, MemoryStore},
+        ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
     };
 
     pub fn alice_id() -> &'static UserId {
@@ -848,28 +850,57 @@ mod test {
     pub(crate) async fn setup_stores() -> (VerificationStore, VerificationStore) {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_store = MemoryStore::new();
-        let alice_identity = Mutex::new(PrivateCrossSigningIdentity::empty(alice_id()));
+        let (alice_private_identity, _, _) =
+            PrivateCrossSigningIdentity::with_account(&alice).await;
+        let alice_private_identity = Mutex::new(alice_private_identity);
 
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_store = MemoryStore::new();
-        let bob_identity = Mutex::new(PrivateCrossSigningIdentity::empty(bob_id()));
+        let (bob_private_identity, _, _) = PrivateCrossSigningIdentity::with_account(&bob).await;
+        let bob_private_identity = Mutex::new(bob_private_identity);
+
+        let alice_public_identity =
+            ReadOnlyUserIdentity::from_private(&*alice_private_identity.lock().await).await;
+        let alice_readonly_identity =
+            ReadOnlyOwnUserIdentity::from_private(&*alice_private_identity.lock().await).await;
+        let bob_public_identity =
+            ReadOnlyUserIdentity::from_private(&*bob_private_identity.lock().await).await;
+        let bob_readonly_identity =
+            ReadOnlyOwnUserIdentity::from_private(&*bob_private_identity.lock().await).await;
 
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
+        let alice_changes = Changes {
+            identities: IdentityChanges {
+                new: vec![alice_readonly_identity.into(), bob_public_identity.into()],
+                changed: vec![],
+            },
+            ..Default::default()
+        };
+        alice_store.save_changes(alice_changes).await.unwrap();
         alice_store.save_devices(vec![bob_device]).await;
+
+        let bob_changes = Changes {
+            identities: IdentityChanges {
+                new: vec![bob_readonly_identity.into(), alice_public_identity.into()],
+                changed: vec![],
+            },
+            ..Default::default()
+        };
+        bob_store.save_changes(bob_changes).await.unwrap();
         bob_store.save_devices(vec![alice_device]).await;
 
         let alice_store = VerificationStore {
             account: alice,
             inner: Arc::new(alice_store),
-            private_identity: alice_identity.into(),
+            private_identity: alice_private_identity.into(),
         };
 
         let bob_store = VerificationStore {
             account: bob.clone(),
             inner: Arc::new(bob_store),
-            private_identity: bob_identity.into(),
+            private_identity: bob_private_identity.into(),
         };
 
         (alice_store, bob_store)

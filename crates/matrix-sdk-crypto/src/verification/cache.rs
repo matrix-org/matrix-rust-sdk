@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
-use tracing::trace;
+use tracing::{trace, warn};
 
 use super::{event_enums::OutgoingContent, Sas, Verification};
 #[cfg(feature = "qrcode")]
@@ -56,6 +56,8 @@ impl VerificationCache {
             let old_verification = old.value();
 
             if !old_verification.is_cancelled() {
+                warn!("Received a new verification whilst another one with the same user is ongoing. Cancelling both verifications");
+
                 if let Some(r) = old_verification.cancel() {
                     self.add_request(r.into())
                 }
@@ -78,16 +80,18 @@ impl VerificationCache {
 
     pub fn replace_sas(&self, sas: Sas) {
         let verification: Verification = sas.into();
-
-        self.verification
-            .entry(verification.other_user().to_owned())
-            .or_default()
-            .insert(verification.flow_id().to_owned(), verification.clone());
+        self.replace(verification);
     }
 
     #[cfg(feature = "qrcode")]
     pub fn insert_qr(&self, qr: QrVerification) {
         self.insert(qr)
+    }
+
+    #[cfg(feature = "qrcode")]
+    pub fn replace_qr(&self, qr: QrVerification) {
+        let verification: Verification = qr.into();
+        self.replace(verification);
     }
 
     #[cfg(feature = "qrcode")]
@@ -99,6 +103,13 @@ impl VerificationCache {
                 None
             }
         })
+    }
+
+    pub fn replace(&self, verification: Verification) {
+        self.verification
+            .entry(verification.other_user().to_owned())
+            .or_default()
+            .insert(verification.flow_id().to_owned(), verification.clone());
     }
 
     pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
