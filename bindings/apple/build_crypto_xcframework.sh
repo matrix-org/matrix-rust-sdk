@@ -10,7 +10,7 @@ TARGET_DIR="${SRC_ROOT}/target"
 
 GENERATED_DIR="${SRC_ROOT}/generated"
 if [ -d "${GENERATED_DIR}" ]; then rm -rf "${GENERATED_DIR}"; fi
-mkdir -p "${GENERATED_DIR}/macos" "${GENERATED_DIR}/simulator"
+mkdir -p ${GENERATED_DIR}/{macos,simulator}
 
 REL_FLAG="--release"
 REL_TYPE_DIR="release"
@@ -40,15 +40,15 @@ echo -e "\nCreating XCFramework"
 
 # MacOS
 lipo -create \
-  "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_crypto_ffi.a" \
-  "${TARGET_DIR}/aarch64-apple-darwin/${REL_TYPE_DIR}/libmatrix_crypto_ffi.a" \
-  -output "${GENERATED_DIR}/macos/libmatrix_crypto_ffi.a"
+  "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  "${TARGET_DIR}/aarch64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  -output "${GENERATED_DIR}/macos/libmatrix_sdk_crypto_ffi.a"
 
 # iOS Simulator
 lipo -create \
-  "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_crypto_ffi.a" \
-  "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_crypto_ffi.a" \
-  -output "${GENERATED_DIR}/simulator/libmatrix_crypto_ffi.a"
+  "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  -output "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a"
 
 # Generate uniffi files
 uniffi-bindgen generate "${SRC_ROOT}/bindings/${TARGET_CRATE}/src/olm.udl" --language swift --config "${SRC_ROOT}/bindings/${TARGET_CRATE}/uniffi.toml" --out-dir ${GENERATED_DIR}
@@ -71,11 +71,11 @@ mv ${GENERATED_DIR}/*.swift ${SWIFT_DIR}
 if [ -d "${GENERATED_DIR}/MatrixSDKCryptoFFI.xcframework" ]; then rm -rf "${GENERATED_DIR}/MatrixSDKCryptoFFI.xcframework"; fi
 
 xcodebuild -create-xcframework \
-  -library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_crypto_ffi.a" \
+  -library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   -headers ${HEADERS_DIR} \
-  -library "${GENERATED_DIR}/macos/libmatrix_crypto_ffi.a" \
+  -library "${GENERATED_DIR}/macos/libmatrix_sdk_crypto_ffi.a" \
   -headers ${HEADERS_DIR} \
-  -library "${GENERATED_DIR}/simulator/libmatrix_crypto_ffi.a" \
+  -library "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a" \
   -headers ${HEADERS_DIR} \
   -output "${GENERATED_DIR}/MatrixSDKCryptoFFI.xcframework"
 
