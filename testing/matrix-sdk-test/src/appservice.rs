@@ -39,7 +39,6 @@ impl TransactionBuilder {
     }
 
     /// Build the transaction
-    #[cfg(feature = "appservice")]
     pub fn build_json_transaction(&self) -> Value {
         let body = serde_json::json! {
             {
