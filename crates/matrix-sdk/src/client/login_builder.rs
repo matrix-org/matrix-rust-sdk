@@ -262,8 +262,8 @@ where
     /// Send the login request.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
-        use std::convert::Infallible;
         use std::{
+            convert::Infallible,
             io::{Error as IoError, ErrorKind as IoErrorKind},
             ops::Range,
             sync::{Arc, Mutex},
@@ -317,8 +317,8 @@ where
 
             if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
                 let query_string = request.uri().query().unwrap_or("");
-                let query: QueryParameters =
-                    ruma::serde::urlencoded::from_str(query_string).map_err(|_| {
+                let query: QueryParameters = ruma::serde::urlencoded::from_str(query_string)
+                    .map_err(|_| {
                         debug!("Failed to deserialize query parameters");
                         StatusCode::BAD_REQUEST
                     })?;

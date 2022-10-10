@@ -77,8 +77,8 @@ pub enum Error {
     #[error("utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
 
-    #[error("warp rejection: {0}")]
-    WarpRejection(String),
+    #[error("hyper error: {0}")]
+    Hyper(#[from] hyper::Error),
 }
 
 impl Error {
@@ -98,14 +98,6 @@ impl Error {
             Error::Matrix(matrix) => matrix.uiaa_response(),
             _ => None,
         }
-    }
-}
-
-impl warp::reject::Reject for Error {}
-
-impl From<warp::Rejection> for Error {
-    fn from(rejection: warp::Rejection) -> Self {
-        Self::WarpRejection(format!("{:?}", rejection))
     }
 }
 

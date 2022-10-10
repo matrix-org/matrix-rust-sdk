@@ -79,11 +79,13 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-use std::sync::Arc;
+use std::{convert::Infallible, fmt::Debug, future::Future, sync::Arc};
 
+use axum::body::{Bytes, HttpBody};
 use dashmap::DashMap;
 pub use error::Error;
 use event_handler::AppserviceFn;
+use http_body::combinators::UnsyncBoxBody;
 pub use matrix_sdk;
 #[doc(no_inline)]
 pub use matrix_sdk::ruma;
@@ -103,6 +105,7 @@ use ruma::{
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::task::JoinHandle;
+use tower::Service;
 use tracing::{debug, info, warn};
 
 mod error;
@@ -414,19 +417,19 @@ impl AppService {
         false
     }
 
-    /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route.
-    ///
-    /// Note that if you handle any of the [application-service-specific
-    /// routes], including the legacy routes, you will break the appservice
-    /// functionality.
-    ///
-    /// Hint: [`warp::Filter`]s can be converted to an `hyper::Service` using
-    /// [`warp::service`], which allows using it with tower-compatible
-    /// frameworks such as axum.
-    ///
-    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
-    pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
-        webserver::warp_filter(self.clone())
+    /// Returns a [`Service`] that processes appservice requests.
+    pub fn service<B>(
+        &self,
+        // axum::Error is part of the signature because axum::Router::nest
+        // requires the inner service to have that exact response (body) type
+        // in 0.5.x. This will be fixed in axum 0.6.0.
+    ) -> impl HttpService<B, ResBody = UnsyncBoxBody<Bytes, axum::Error>> + Clone
+    where
+        B: HttpBody + Send + 'static,
+        B::Data: Send,
+        B::Error: Into<axum::BoxError>,
+    {
+        webserver::router(self.clone())
     }
 
     /// Receive an incoming [transaction], pushing the contained events to
@@ -565,6 +568,28 @@ impl AppService {
     }
 }
 
+#[rustfmt::skip]
+pub trait HttpService<ReqBody>:
+    Service<
+        http::Request<ReqBody>,
+        Response = http::Response<Self::ResBody>,
+        Error = Infallible,
+        Future = <Self as HttpService<ReqBody>>::Future,
+    >
+{
+    type Future: Future<Output = Result<Self::Response, Self::Error>> + Send;
+    type ResBody;
+}
+
+impl<ReqBody, ResBody, S> HttpService<ReqBody> for S
+where
+    S: Service<http::Request<ReqBody>, Response = http::Response<ResBody>, Error = Infallible>,
+    <S as Service<http::Request<ReqBody>>>::Future: Send,
+{
+    type Future = <S as Service<http::Request<ReqBody>>>::Future;
+    type ResBody = ResBody;
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -572,6 +597,8 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    use http::{Method, Request};
+    use hyper::Body;
     use matrix_sdk::{
         config::RequestConfig,
         ruma::{api::appservice::Registration, events::room::member::OriginalSyncRoomMemberEvent},
@@ -585,7 +612,7 @@ mod tests {
         serde::Raw,
     };
     use serde_json::json;
-    use warp::{Filter, Reply};
+    use tower::ServiceExt;
     use wiremock::{
         matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
@@ -656,21 +683,22 @@ mod tests {
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::Member);
-        let transaction = transaction_builder.build_json_transaction();
+        let transaction = transaction_builder.build_transaction();
 
-        let appservice = appservice(None, None).await?;
-
-        let status = warp::test::request()
-            .method("PUT")
-            .path(uri)
-            .json(&transaction)
-            .filter(&appservice.warp_filter())
+        let response = appservice(None, None)
+            .await?
+            .service()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction))
+                    .unwrap(),
+            )
             .await
-            .unwrap()
-            .into_response()
-            .status();
+            .unwrap();
 
-        assert_eq!(status, 200);
+        assert_eq!(response.status(), 200);
 
         Ok(())
     }
@@ -681,7 +709,7 @@ mod tests {
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::Member);
-        let transaction = transaction_builder.build_json_transaction();
+        let transaction = transaction_builder.build_transaction();
 
         let appservice = appservice(None, None).await?;
 
@@ -695,17 +723,20 @@ mod tests {
             }
         });
 
-        let status = warp::test::request()
-            .method("PUT")
-            .path(uri)
-            .json(&transaction)
-            .filter(&appservice.warp_filter())
-            .await
-            .unwrap()
-            .into_response()
-            .status();
+        let mut service = appservice.service();
 
-        assert_eq!(status, 200);
+        let response = service
+            .call(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
         {
             let on_room_member_called = *on_state_member.lock().unwrap();
             assert!(on_room_member_called);
@@ -717,19 +748,20 @@ mod tests {
             *on_room_member_called = false;
         }
 
-        let status = warp::test::request()
-            .method("PUT")
-            .path(uri)
-            .json(&transaction)
-            .filter(&appservice.warp_filter())
+        let response = service
+            .call(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction))
+                    .unwrap(),
+            )
             .await
-            .unwrap()
-            .into_response()
-            .status();
+            .unwrap();
 
         // According to https://spec.matrix.org/v1.2/application-service-api/#pushing-events
         // This should noop and return 200.
-        assert_eq!(status, 200);
+        assert_eq!(response.status(), 200);
         {
             let on_room_member_called = *on_state_member.lock().unwrap();
             // This time we should not have called the event handler.
@@ -746,16 +778,13 @@ mod tests {
 
         let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
 
-        let status = warp::test::request()
-            .method("GET")
-            .path(uri)
-            .filter(&appservice.warp_filter())
+        let response = appservice
+            .service()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
-            .unwrap()
-            .into_response()
-            .status();
+            .unwrap();
 
-        assert_eq!(status, 200);
+        assert_eq!(response.status(), 200);
 
         Ok(())
     }
@@ -767,16 +796,13 @@ mod tests {
 
         let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
 
-        let status = warp::test::request()
-            .method("GET")
-            .path(uri)
-            .filter(&appservice.warp_filter())
+        let response = appservice
+            .service()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
-            .unwrap()
-            .into_response()
-            .status();
+            .unwrap();
 
-        assert_eq!(status, 200);
+        assert_eq!(response.status(), 200);
 
         Ok(())
     }
@@ -786,23 +812,24 @@ mod tests {
         let uri = "/_matrix/app/v1/transactions/1?access_token=invalid_token";
 
         let mut transaction_builder = TransactionBuilder::new();
-        let transaction = transaction_builder
-            .add_timeline_event(TimelineTestEvent::Member)
-            .build_json_transaction();
+        let transaction =
+            transaction_builder.add_timeline_event(TimelineTestEvent::Member).build_transaction();
 
         let appservice = appservice(None, None).await?;
 
-        let status = warp::test::request()
-            .method("PUT")
-            .path(uri)
-            .json(&transaction)
-            .filter(&appservice.warp_filter())
+        let response = appservice
+            .service()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction))
+                    .unwrap(),
+            )
             .await
-            .unwrap()
-            .into_response()
-            .status();
+            .unwrap();
 
-        assert_eq!(status, 401);
+        assert_eq!(response.status(), 401);
 
         Ok(())
     }
@@ -813,23 +840,23 @@ mod tests {
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::Member);
-        let transaction = transaction_builder.build_json_transaction();
+        let transaction = transaction_builder.build_transaction();
 
         let appservice = appservice(None, None).await?;
 
-        {
-            let status = warp::test::request()
-                .method("PUT")
-                .path(uri)
-                .json(&transaction)
-                .filter(&appservice.warp_filter())
-                .await
-                .unwrap()
-                .into_response()
-                .status();
+        let response = appservice
+            .service()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
-            assert_eq!(status, 401);
-        }
+        assert_eq!(response.status(), 401);
 
         Ok(())
     }
@@ -852,42 +879,22 @@ mod tests {
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::Member);
-        let transaction = transaction_builder.build_json_transaction();
+        let transaction = transaction_builder.build_transaction();
 
-        warp::test::request()
-            .method("PUT")
-            .path(uri)
-            .json(&transaction)
-            .filter(&appservice.warp_filter())
+        appservice
+            .service()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri)
+                    .body(Body::from(transaction))
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         let on_room_member_called = *on_state_member.lock().unwrap();
         assert!(on_room_member_called);
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_unrelated_path() -> Result<()> {
-        let appservice = appservice(None, None).await?;
-
-        let status = {
-            let consumer_filter = warp::any()
-                .and(appservice.warp_filter())
-                .or(warp::get().and(warp::path("unrelated").map(warp::reply)));
-
-            let response = warp::test::request()
-                .method("GET")
-                .path("/unrelated")
-                .filter(&consumer_filter)
-                .await?
-                .into_response();
-
-            response.status()
-        };
-
-        assert_eq!(status, 200);
 
         Ok(())
     }
@@ -900,29 +907,33 @@ mod tests {
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::Member);
-        let transaction_1 = transaction_builder.build_json_transaction();
+        let transaction_1 = transaction_builder.build_transaction();
 
         let mut transaction_builder = TransactionBuilder::new();
         transaction_builder.add_timeline_event(TimelineTestEvent::MemberNameChange);
-        let transaction_2 = transaction_builder.build_json_transaction();
+        let transaction_2 = transaction_builder.build_transaction();
 
         let appservice = appservice(None, None).await?;
+        let mut service = axum::Router::new().nest("/sub_path", appservice.service());
 
-        {
-            warp::test::request()
-                .method("PUT")
-                .path(uri_1)
-                .json(&transaction_1)
-                .filter(&warp::path("sub_path").and(appservice.warp_filter()))
-                .await?;
-
-            warp::test::request()
-                .method("PUT")
-                .path(uri_2)
-                .json(&transaction_2)
-                .filter(&warp::path("sub_path").and(appservice.warp_filter()))
-                .await?;
-        };
+        service
+            .call(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri_1)
+                    .body(Body::from(transaction_1))?,
+            )
+            .await
+            .unwrap();
+        service
+            .call(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(uri_2)
+                    .body(Body::from(transaction_2))?,
+            )
+            .await
+            .unwrap();
 
         let members = appservice
             .virtual_user(None)
@@ -1037,7 +1048,9 @@ mod tests {
     }
 
     mod registration {
-        use super::*;
+        use ruma::api::appservice::Registration;
+
+        use crate::{tests::registration_string, AppServiceRegistration, Result};
 
         #[test]
         fn test_registration() -> Result<()> {
