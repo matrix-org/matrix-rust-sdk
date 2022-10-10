@@ -4,6 +4,7 @@
 //! client or client library in any of the language targets Uniffi supports.
 
 #![warn(missing_docs)]
+#![allow(unused_qualifications)]
 
 mod backup_recovery_key;
 mod device;
@@ -11,6 +12,7 @@ mod error;
 mod logger;
 mod machine;
 mod responses;
+mod uniffi_api;
 mod users;
 mod verification;
 
@@ -471,14 +473,6 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 mod uniffi_types {
     pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
 }
-
-#[allow(warnings)]
-mod generated {
-    use super::*;
-    include!(concat!(env!("OUT_DIR"), "/olm.uniffi.rs"));
-}
-
-pub use generated::*;
 
 #[cfg(test)]
 mod test {
