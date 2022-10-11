@@ -103,6 +103,18 @@ pub enum HttpError {
     RefreshToken(#[from] RefreshTokenError),
 }
 
+impl HttpError {
+    /// If `self` is `Api(Server(Known(e)))`, returns `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
+        match self {
+            Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// Internal representation of errors.
 #[derive(Error, Debug)]
 #[non_exhaustive]
