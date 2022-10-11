@@ -28,7 +28,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
-        error::{FromHttpResponseError, IntoHttpError, ServerError},
+        error::{FromHttpResponseError, IntoHttpError, MatrixError, ServerError},
     },
     events::tag::InvalidUserTagName,
     IdParseError,
@@ -53,7 +53,7 @@ pub enum RumaApiError {
 
     /// Another API response error.
     #[error(transparent)]
-    Other(ruma::api::error::MatrixError),
+    Other(MatrixError),
 }
 
 /// An HTTP error, representing either a connection error or an error while
@@ -270,8 +270,8 @@ impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     }
 }
 
-impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
-    fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
+impl From<FromHttpResponseError<MatrixError>> for HttpError {
+    fn from(err: FromHttpResponseError<MatrixError>) -> Self {
         Self::Api(err.map(|e| e.map(RumaApiError::Other)))
     }
 }
@@ -348,4 +348,107 @@ pub enum RefreshTokenError {
     /// not be forwarded.
     #[error("the access token could not be refreshed")]
     UnableToRefreshToken,
+}
+
+/// Utility trait to conveniently extract a low-level error from a higher-level
+/// error.
+pub trait IsError<T> {
+    /// Attempt to cast an error to a lower-level error.
+    fn as_error(&self) -> Option<&T>;
+}
+impl IsError<MatrixError> for RumaApiError {
+    fn as_error(&self) -> Option<&MatrixError> {
+        match *self {
+            RumaApiError::Other(ref error) => Some(error),
+            RumaApiError::ClientApi(_) => None,
+        }
+    }
+}
+impl IsError<ruma::api::client::Error> for RumaApiError {
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match *self {
+            RumaApiError::Other(_) => None,
+            RumaApiError::ClientApi(ref error) => Some(error),
+        }
+    }
+}
+
+impl<T> IsError<MatrixError> for ServerError<T>
+where
+    T: IsError<MatrixError>,
+{
+    fn as_error(&self) -> Option<&MatrixError> {
+        match *self {
+            ServerError::Known(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+impl<T> IsError<ruma::api::client::Error> for ServerError<T>
+where
+    T: IsError<ruma::api::client::Error>,
+{
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match *self {
+            ServerError::Known(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+
+impl<T> IsError<MatrixError> for FromHttpResponseError<T>
+where
+    T: IsError<MatrixError>,
+{
+    fn as_error(&self) -> Option<&MatrixError> {
+        match *self {
+            FromHttpResponseError::Server(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+impl<T> IsError<ruma::api::client::Error> for FromHttpResponseError<T>
+where
+    T: IsError<ruma::api::client::Error>,
+{
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match *self {
+            FromHttpResponseError::Server(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+
+impl IsError<MatrixError> for HttpError {
+    fn as_error(&self) -> Option<&MatrixError> {
+        match *self {
+            HttpError::Api(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+impl IsError<ruma::api::client::Error> for HttpError {
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match *self {
+            HttpError::Api(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+
+impl IsError<MatrixError> for Error {
+    fn as_error(&self) -> Option<&MatrixError> {
+        match *self {
+            Error::Http(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+impl IsError<ruma::api::client::Error> for Error {
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match *self {
+            Error::Http(ref error) => error.as_error(),
+            _ => None,
+        }
+    }
 }

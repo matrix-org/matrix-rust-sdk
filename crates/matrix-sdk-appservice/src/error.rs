@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::api::client::uiaa::UiaaInfo;
+use ruma::api::{client::uiaa::UiaaInfo, error::MatrixError};
 use thiserror::Error;
+
+use crate::matrix_sdk::IsError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -80,7 +82,6 @@ pub enum Error {
     #[error("warp rejection: {0}")]
     WarpRejection(String),
 }
-
 impl Error {
     /// Try to destructure the error into an universal interactive auth info.
     ///
@@ -96,6 +97,23 @@ impl Error {
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
         match self {
             Error::Matrix(matrix) => matrix.uiaa_response(),
+            _ => None,
+        }
+    }
+}
+impl IsError<MatrixError> for Error {
+    fn as_error(&self) -> Option<&MatrixError> {
+        match self {
+            Error::Matrix(error) => error.as_error(),
+            _ => None,
+        }
+    }
+}
+
+impl IsError<ruma::api::client::Error> for Error {
+    fn as_error(&self) -> Option<&ruma::api::client::Error> {
+        match self {
+            Error::Matrix(error) => error.as_error(),
             _ => None,
         }
     }

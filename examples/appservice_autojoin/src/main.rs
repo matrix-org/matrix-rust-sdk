@@ -2,19 +2,15 @@ use std::env;
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
-        self,
         event_handler::Ctx,
         room::Room,
         ruma::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
-        HttpError,
+        IsError,
     },
-    ruma::api::{
-        client::{error::ErrorKind, uiaa::UiaaResponse},
-        error::{FromHttpResponseError, ServerError},
-    },
+    ruma::api::client::{error::ErrorKind, Error as ClientError},
     AppService, AppServiceBuilder, AppServiceRegistration, Result,
 };
 use tracing::trace;
@@ -40,13 +36,12 @@ pub async fn handle_room_member(
 }
 
 pub fn error_if_user_not_in_use(error: matrix_sdk_appservice::Error) -> Result<()> {
-    match error {
+    if let Some(&ClientError { kind: ErrorKind::UserInUse, .. }) = error.as_error() {
         // If user is already in use that's OK.
-        matrix_sdk_appservice::Error::Matrix(matrix_sdk::Error::Http(HttpError::UiaaError(
-            FromHttpResponseError::Server(ServerError::Known(UiaaResponse::MatrixError(error))),
-        ))) if matches!(error.kind, ErrorKind::UserInUse) => Ok(()),
+        Ok(())
+    } else {
         // In all other cases return with an error.
-        error => Err(error),
+        Err(error)
     }
 }
 

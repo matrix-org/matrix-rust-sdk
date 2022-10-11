@@ -50,7 +50,7 @@ pub use client::SsoLoginBuilder;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
+pub use error::{Error, HttpError, HttpResult, IsError, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use media::Media;
 #[cfg(feature = "sliding-sync")]

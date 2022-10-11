@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, str::FromStr, time::Duration};
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-    Error, HttpError, RumaApiError, Session,
+    Error, HttpError, IsError, RumaApiError, Session,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
@@ -17,7 +17,7 @@ use ruma::{
             },
             media::get_content_thumbnail::v3::Method,
             session::get_login_types::v3::LoginType,
-            uiaa::{self, UiaaResponse},
+            uiaa::{self},
         },
         error::{FromHttpResponseError, ServerError},
     },
@@ -228,16 +228,14 @@ async fn register_error() {
     });
 
     if let Err(err) = client.register(user).await {
-        if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
-            UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
-        ))) = err
+        if let Some(&client_api::Error { ref kind, ref message, ref status_code }) = err.as_error()
         {
             if let client_api::error::ErrorKind::Forbidden = kind {
             } else {
                 panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
             }
-            assert_eq!(message, "Invalid password".to_owned());
-            assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
+            assert_eq!(message, "Invalid password");
+            assert_eq!(status_code, &http::StatusCode::from_u16(403).unwrap());
         } else {
             panic!("found the wrong `Error` type {:#?}, expected `UiaaResponse`", err);
         }
