@@ -160,8 +160,7 @@ jobs:
           args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev 091c3561656e72e1a4160412c83b36d98e556d06
 
       - name: Build library & bindings
-        working-directory: bindings/apple
-        run: sh ./debug_build_library.sh
+        run: cargo xtask swift build-library
 
       - name: Run XCTests
         working-directory: bindings/apple

@@ -1,10 +1,7 @@
-use std::{env, path::PathBuf};
-
 use clap::{Args, Subcommand};
-use serde::Deserialize;
 use xshell::{cmd, pushd};
 
-use crate::Result;
+use crate::{workspace, Result};
 
 #[derive(Args)]
 pub struct FixupArgs {
@@ -24,7 +21,7 @@ enum FixupCommand {
 
 impl FixupArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace_root()?)?;
+        let _p = pushd(&workspace::root_path()?)?;
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -77,15 +74,4 @@ fn fix_clippy() -> Result<()> {
     )
     .run()?;
     Ok(())
-}
-
-fn workspace_root() -> Result<PathBuf> {
-    #[derive(Deserialize)]
-    struct Metadata {
-        workspace_root: PathBuf,
-    }
-
-    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let metadata_json = cmd!("{cargo} metadata --no-deps --format-version 1").read()?;
-    Ok(serde_json::from_str::<Metadata>(&metadata_json)?.workspace_root)
 }
