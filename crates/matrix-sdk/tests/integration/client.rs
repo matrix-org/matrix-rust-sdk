@@ -227,7 +227,7 @@ async fn register_error() {
         kind: RegistrationKind::User,
     });
 
-    if let Err(err) = client.register(user).await {
+    if let Err(ref err) = client.register(user).await {
         if let Some(&client_api::Error { ref kind, ref message, ref status_code }) = err.as_error()
         {
             if let client_api::error::ErrorKind::Forbidden = kind {

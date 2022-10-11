@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::api::{client::uiaa::UiaaInfo, error::MatrixError};
+use ruma::api::client::uiaa::UiaaInfo;
 use thiserror::Error;
 
-use crate::matrix_sdk::IsError;
+use crate::matrix_sdk::implement_is_error;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -101,24 +101,6 @@ impl Error {
         }
     }
 }
-impl IsError<MatrixError> for Error {
-    fn as_error(&self) -> Option<&MatrixError> {
-        match self {
-            Error::Matrix(error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-
-impl IsError<ruma::api::client::Error> for Error {
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match self {
-            Error::Matrix(error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-
 impl warp::reject::Reject for Error {}
 
 impl From<warp::Rejection> for Error {
@@ -138,3 +120,4 @@ impl From<matrix_sdk::StoreError> for Error {
         matrix_sdk::Error::from(e).into()
     }
 }
+implement_is_error!(Error);

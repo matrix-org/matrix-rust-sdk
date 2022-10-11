@@ -352,103 +352,42 @@ pub enum RefreshTokenError {
 
 /// Utility trait to conveniently extract a low-level error from a higher-level
 /// error.
-pub trait IsError<T> {
+pub trait IsError {
     /// Attempt to cast an error to a lower-level error.
-    fn as_error(&self) -> Option<&T>;
+    fn as_error<T>(&self) -> Option<&T> where T: 'static + std::error::Error;
 }
-impl IsError<MatrixError> for RumaApiError {
-    fn as_error(&self) -> Option<&MatrixError> {
-        match *self {
-            RumaApiError::Other(ref error) => Some(error),
-            RumaApiError::ClientApi(_) => None,
+impl IsError for dyn std::error::Error {
+    fn as_error<T>(&self) -> Option<&T> where T: 'static + std::error::Error {
+        let mut cursor = self;
+        loop {
+            if let Some(error) = cursor.downcast_ref() {
+                return Some(error);
+            }
+            if let Some(source) = self.source() {
+                cursor = source;
+            } else {
+                return None;
+            }
         }
     }
 }
-impl IsError<ruma::api::client::Error> for RumaApiError {
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match *self {
-            RumaApiError::Other(_) => None,
-            RumaApiError::ClientApi(ref error) => Some(error),
-        }
-    }
-}
+// Auxiliary implementations, to avoid having to perform unexpected casts.
 
-impl<T> IsError<MatrixError> for ServerError<T>
-where
-    T: IsError<MatrixError>,
-{
-    fn as_error(&self) -> Option<&MatrixError> {
-        match *self {
-            ServerError::Known(ref error) => error.as_error(),
-            _ => None,
+/// Utility macro: implement `IsError` for concrete classes.
+#[macro_export]
+macro_rules! implement_is_error {
+    ($type:ty) => {
+        impl $crate::IsError for $type {
+            fn as_error<T>(&self) -> Option<&T> where T: 'static + std::error::Error {
+                let me: &dyn std::error::Error = self;
+                me.as_error()
+            }
         }
-    }
+    };
 }
-impl<T> IsError<ruma::api::client::Error> for ServerError<T>
-where
-    T: IsError<ruma::api::client::Error>,
-{
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match *self {
-            ServerError::Known(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-
-impl<T> IsError<MatrixError> for FromHttpResponseError<T>
-where
-    T: IsError<MatrixError>,
-{
-    fn as_error(&self) -> Option<&MatrixError> {
-        match *self {
-            FromHttpResponseError::Server(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-impl<T> IsError<ruma::api::client::Error> for FromHttpResponseError<T>
-where
-    T: IsError<ruma::api::client::Error>,
-{
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match *self {
-            FromHttpResponseError::Server(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-
-impl IsError<MatrixError> for HttpError {
-    fn as_error(&self) -> Option<&MatrixError> {
-        match *self {
-            HttpError::Api(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-impl IsError<ruma::api::client::Error> for HttpError {
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match *self {
-            HttpError::Api(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-
-impl IsError<MatrixError> for Error {
-    fn as_error(&self) -> Option<&MatrixError> {
-        match *self {
-            Error::Http(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
-impl IsError<ruma::api::client::Error> for Error {
-    fn as_error(&self) -> Option<&ruma::api::client::Error> {
-        match *self {
-            Error::Http(ref error) => error.as_error(),
-            _ => None,
-        }
-    }
-}
+implement_is_error!(HttpError);
+implement_is_error!(Error);
+implement_is_error!(RoomKeyImportError);
+implement_is_error!(RefreshTokenError);
+#[cfg(featture = "impage-proc")]
+implement_is_error!(ImageError);
