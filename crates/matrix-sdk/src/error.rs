@@ -200,6 +200,18 @@ pub enum Error {
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl Error {
+    /// If `self` is `Http(Api(Server(Known(e))))`, returns `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
+        match self {
+            Error::Http(e) => e.as_ruma_api_error(),
+            _ => None,
+        }
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
