@@ -228,8 +228,12 @@ async fn register_error() {
     });
 
     if let Err(err) = client.register(user).await {
-        if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
-            UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
+        if let HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+            RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
+                kind,
+                message,
+                status_code,
+            })),
         ))) = err
         {
             if let client_api::error::ErrorKind::Forbidden = kind {
