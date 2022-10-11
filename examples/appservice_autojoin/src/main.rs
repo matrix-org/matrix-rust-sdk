@@ -9,7 +9,7 @@ use matrix_sdk_appservice::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
-        HttpError,
+        HttpError, RumaApiError,
     },
     ruma::api::{
         client::{error::ErrorKind, uiaa::UiaaResponse},
@@ -42,8 +42,10 @@ pub async fn handle_room_member(
 pub fn error_if_user_not_in_use(error: matrix_sdk_appservice::Error) -> Result<()> {
     match error {
         // If user is already in use that's OK.
-        matrix_sdk_appservice::Error::Matrix(matrix_sdk::Error::Http(HttpError::UiaaError(
-            FromHttpResponseError::Server(ServerError::Known(UiaaResponse::MatrixError(error))),
+        matrix_sdk_appservice::Error::Matrix(matrix_sdk::Error::Http(HttpError::Api(
+            FromHttpResponseError::Server(ServerError::Known(RumaApiError::Uiaa(
+                UiaaResponse::MatrixError(error),
+            ))),
         ))) if matches!(error.kind, ErrorKind::UserInUse) => Ok(()),
         // In all other cases return with an error.
         error => Err(error),
