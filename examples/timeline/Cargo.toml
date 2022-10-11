@@ -10,6 +10,7 @@ test = false
 
 [dependencies]
 anyhow = "1"
+clap = "3.2.22"
 futures = "0.3"
 futures-signals = { version = "0.3.30", default-features = false }
 tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread"] }
