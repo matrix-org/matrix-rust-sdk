@@ -27,7 +27,7 @@ The `build_xcframework.sh` script will go through all the steps required to gene
 ## Building only the Crypto SDK
 
 ```
-sh build_crypto_xcframework.sh
+build_crypto_xcframework.sh
 ```
 
 The `build_crypto_xcframework.sh` script will go through all the steps required to generate a fully usable `.xcframework`:
@@ -51,3 +51,10 @@ Once all the generated components are available running it should be as easy as 
 ## Distribution
 
 The generated framework and Swift code can be distributed and integrated directly but in order to make things simpler we bundle them together as a Swift package available [TBD](here) in the case of SDK, and as CocoaPods podspec in the case of Crypto SDK.
+
+### Publishing MatrixSDKCrypto
+1. Run `build_crypto_xcframework.sh` script which generates a .zip file with the framework
+2. Increment the version in `MatrixSDKCrypto.podspec`
+3. Create a new [GitHub release](https://github.com/matrix-org/matrix-rust-sdk/releases) with the same version (see [example](https://github.com/matrix-org/matrix-rust-sdk/releases/tag/matrix-sdk-crypto-ffi-0.1.0) for naming)
+4. Upload the .zip file to this release
+5. Push new Podspec version to Cocoapods via `pod trunk push MatrixSDKCrypto.podspec --allow-warnings`

@@ -11,12 +11,11 @@ The following crate feature flags are available:
 
 * `state-store`: (on by default) Enables the state store
 * `crypto-store`: Enables the store for end-to-end encrypted data.
-* `experimental-timeline`: implements the new experimental timeline interfaces
 
 
 ## Minimum Supported Rust Version (MSRV)
 
-These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.60`.
+These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.62`.
 
 ## License
 

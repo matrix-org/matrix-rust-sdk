@@ -18,6 +18,7 @@ pub struct SessionVerificationEmoji {
     description: String,
 }
 
+#[uniffi::export]
 impl SessionVerificationEmoji {
     pub fn symbol(&self) -> String {
         self.symbol.clone()

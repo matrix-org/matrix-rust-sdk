@@ -1,14 +1,14 @@
 [package]
 name = "matrix-sdk-qrcode"
 description = "Library to encode and decode QR codes for interactive verifications in Matrix land"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 readme = "README.md"
-rust-version = "1.60"
+rust-version = "1.62"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [package.metadata.docs.rs]

@@ -14,7 +14,7 @@
 
 use std::{fmt, time::Duration};
 
-use ruma::api::client::sync::sync_events;
+use ruma::{api::client::sync::sync_events, presence::PresenceState};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -25,6 +25,7 @@ pub struct SyncSettings<'a> {
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
+    pub(crate) set_presence: PresenceState,
 }
 
 impl<'a> Default for SyncSettings<'a> {
@@ -57,7 +58,13 @@ impl<'a> SyncSettings<'a> {
     /// Create new default sync settings.
     #[must_use]
     pub fn new() -> Self {
-        Self { filter: None, timeout: Some(DEFAULT_SYNC_TIMEOUT), token: None, full_state: false }
+        Self {
+            filter: None,
+            timeout: Some(DEFAULT_SYNC_TIMEOUT),
+            token: None,
+            full_state: false,
+            set_presence: PresenceState::Online,
+        }
     }
 
     /// Set the sync token.
@@ -106,6 +113,24 @@ impl<'a> SyncSettings<'a> {
     #[must_use]
     pub fn full_state(mut self, full_state: bool) -> Self {
         self.full_state = full_state;
+        self
+    }
+
+    /// Set the presence state
+    ///  
+    /// `PresenceState::Online` - The client is marked as being online. This is
+    /// the default preset.
+    ///
+    /// `PresenceState::Offline` - The client is not marked as being online.
+    ///
+    /// `PresenceState::Unavailable` - The client is marked as being idle.
+    ///
+    /// # Arguments
+    /// * `set_presence` - The `PresenceState` that the server should set for
+    ///   the client.
+    #[must_use]
+    pub fn set_presence(mut self, presence: PresenceState) -> Self {
+        self.set_presence = presence;
         self
     }
 }

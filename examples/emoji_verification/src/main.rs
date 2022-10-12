@@ -178,7 +178,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
         },
     );
 
-    client.sync(SyncSettings::new()).await;
+    client.sync(SyncSettings::new()).await?;
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use std::ops::Deref;
 use thiserror::Error;
 
 use crate::{
-    room::{Common, Joined, Left, RoomMember},
+    room::{Common, RoomMember},
     BaseRoom, Client, Error, Result, RoomType,
 };
 
@@ -52,13 +52,12 @@ impl Invited {
     }
 
     /// Reject the invitation.
-    pub async fn reject_invitation(&self) -> Result<Left> {
+    pub async fn reject_invitation(&self) -> Result<()> {
         self.inner.leave().await
     }
 
     /// Accept the invitation.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
-    pub async fn accept_invitation(&self) -> Result<Joined> {
+    pub async fn accept_invitation(&self) -> Result<()> {
         self.inner.join().await
     }
 

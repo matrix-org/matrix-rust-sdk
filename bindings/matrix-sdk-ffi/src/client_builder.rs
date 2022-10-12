@@ -3,7 +3,6 @@ use std::{fs, path::PathBuf, sync::Arc};
 use anyhow::anyhow;
 use matrix_sdk::{
     ruma::{ServerName, UserId},
-    store::make_store_config,
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
@@ -17,20 +16,12 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
+    user_agent: Option<String>,
     inner: MatrixClientBuilder,
 }
 
+#[uniffi::export]
 impl ClientBuilder {
-    pub fn new() -> Self {
-        Self {
-            base_path: None,
-            username: None,
-            server_name: None,
-            homeserver_url: None,
-            inner: MatrixClient::builder().user_agent("rust-sdk-ios"),
-        }
-    }
-
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.base_path = Some(path);
@@ -55,6 +46,25 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.user_agent = Some(user_agent);
+        Arc::new(builder)
+    }
+}
+
+impl ClientBuilder {
+    pub fn new() -> Self {
+        Self {
+            base_path: None,
+            username: None,
+            server_name: None,
+            homeserver_url: None,
+            user_agent: None,
+            inner: MatrixClient::builder(),
+        }
+    }
+
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
@@ -63,9 +73,8 @@ impl ClientBuilder {
             // Determine store path
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
-            let store_config = make_store_config(&data_path, None)?;
 
-            inner_builder = inner_builder.store_config(store_config);
+            inner_builder = RUNTIME.block_on(inner_builder.sled_store(data_path, None))?;
         }
 
         // Determine server either from URL, server name or user ID.
@@ -81,6 +90,10 @@ impl ClientBuilder {
             return Err(anyhow!(
                 "Failed to build: One of homeserver_url, server_name or username must be called."
             ));
+        }
+
+        if let Some(user_agent) = builder.user_agent {
+            inner_builder = inner_builder.user_agent(user_agent);
         }
 
         RUNTIME.block_on(async move {

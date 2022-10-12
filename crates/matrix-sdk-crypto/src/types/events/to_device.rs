@@ -240,7 +240,7 @@ pub struct ToDeviceCustomEvent {
 }
 
 /// Generic to-device event with a known type and content.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ToDeviceEvent<C>
 where
     C: EventType + Debug + Sized + Serialize,
@@ -250,8 +250,14 @@ where
     /// The content of the to-device event.
     pub content: C,
     /// Any other unknown data of the to-device event.
-    #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
+}
+
+impl<C: EventType + Debug + Sized + Serialize> ToDeviceEvent<C> {
+    /// Create a new `ToDeviceEvent`.
+    pub fn new(sender: OwnedUserId, content: C) -> ToDeviceEvent<C> {
+        ToDeviceEvent { sender, content, other: Default::default() }
+    }
 }
 
 impl<C> Serialize for ToDeviceEvent<C>
@@ -278,6 +284,40 @@ where
             Helper { sender: &self.sender, content: &self.content, event_type, other: &self.other };
 
         helper.serialize(serializer)
+    }
+}
+
+impl<'de, C> Deserialize<'de> for ToDeviceEvent<C>
+where
+    C: EventType + Debug + Sized + Deserialize<'de> + Serialize,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            sender: OwnedUserId,
+            content: C,
+            // We're deserializing the `type` field here so it doesn't end up in `other`.
+            #[allow(dead_code)]
+            #[serde(rename = "type")]
+            event_type: String,
+            #[serde(flatten)]
+            other: BTreeMap<String, Value>,
+        }
+
+        let helper: Helper<C> = Helper::deserialize(deserializer)?;
+
+        if helper.event_type == helper.content.event_type() {
+            Ok(Self { sender: helper.sender, content: helper.content, other: helper.other })
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Mismatched event type, got {}, expected {}",
+                helper.event_type,
+                helper.content.event_type()
+            )))
+        }
     }
 }
 
@@ -479,6 +519,53 @@ mod test {
 
             // Unknown event
             custom_event => Custom,
+
+            // `m.key.verification.request`
+            key_verification_event => KeyVerificationRequest,
+
+            // `m.dummy`
+            dummy_event => Dummy,
+
+            // `m.room.encrypted`
+            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn zeroized_deserialization() -> Result<(), serde_json::Error> {
+        use ruma::events::AnyToDeviceEvent;
+
+        macro_rules! assert_serialization_roundtrip {
+            ( $( $json:path => $to_device_events:ident ),* $(,)? ) => {
+                $(
+                    let json = $json();
+                    let event: ToDeviceEvents = serde_json::from_value(json.clone())?;
+                    let zeroized = event.serialize_zeroized()?;
+
+                    let ruma_event: AnyToDeviceEvent = zeroized.deserialize_as()?;
+
+                    assert_matches!(ruma_event, AnyToDeviceEvent::$to_device_events(_));
+                )*
+            }
+        }
+
+        assert_serialization_roundtrip!(
+            // `m.room_key
+            crate::types::events::room_key::test::json => RoomKey,
+
+            // `m.forwarded_room_key`
+            forwarded_room_key_event => ForwardedRoomKey,
+
+            // `m.room_key_request`
+            room_key_request_event => RoomKeyRequest,
+
+            // `m.secret.send`
+            crate::types::events::secret_send::test::json => SecretSend,
+
+            // `m.secret.request`
+            secret_request_event => SecretRequest,
 
             // `m.key.verification.request`
             key_verification_event => KeyVerificationRequest,

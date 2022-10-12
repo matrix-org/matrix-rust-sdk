@@ -17,15 +17,7 @@ use std::{
     sync::{Arc, RwLock as SyncRwLock},
 };
 
-#[cfg(feature = "experimental-timeline")]
-use dashmap::DashSet;
-#[cfg(feature = "experimental-timeline")]
-use futures_channel::mpsc;
-#[cfg(feature = "experimental-timeline")]
-use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt};
-#[cfg(feature = "experimental-timeline")]
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -52,11 +44,6 @@ use crate::{
     store::{Result as StoreResult, StateStore, StateStoreExt},
     MinimalStateEvent,
 };
-#[cfg(feature = "experimental-timeline")]
-use crate::{
-    deserialized_responses::{SyncTimelineEvent, TimelineSlice},
-    timeline_stream::{TimelineStreamBackward, TimelineStreamError, TimelineStreamForward},
-};
 
 /// The underlying room data structure collecting state for joined, left and
 /// invited rooms.
@@ -66,10 +53,6 @@ pub struct Room {
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
     store: Arc<dyn StateStore>,
-    #[cfg(feature = "experimental-timeline")]
-    forward_timeline_streams: Arc<Mutex<Vec<mpsc::Sender<TimelineSlice>>>>,
-    #[cfg(feature = "experimental-timeline")]
-    backward_timeline_streams: Arc<Mutex<Vec<mpsc::Sender<TimelineSlice>>>>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -118,10 +101,6 @@ impl Room {
             room_id: room_info.room_id.clone(),
             store,
             inner: Arc::new(SyncRwLock::new(room_info)),
-            #[cfg(feature = "experimental-timeline")]
-            forward_timeline_streams: Default::default(),
-            #[cfg(feature = "experimental-timeline")]
-            backward_timeline_streams: Default::default(),
         }
     }
 
@@ -500,126 +479,6 @@ impl Room {
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
-    }
-
-    /// Get two stream into the timeline.
-    /// First one is forward in time and the second one is backward in time.
-    #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline(
-        &self,
-    ) -> StoreResult<(
-        impl Stream<Item = SyncTimelineEvent>,
-        impl Stream<Item = Result<SyncTimelineEvent, TimelineStreamError>>,
-    )> {
-        // We need to hold the lock while we create the stream so that we don't lose new
-        // sync responses
-        let mut forward_timeline_streams = self.forward_timeline_streams.lock().await;
-        let mut backward_timeline_streams = self.backward_timeline_streams.lock().await;
-        let sync_token = self.store.get_sync_token().await?;
-        let event_ids = Arc::new(DashSet::new());
-
-        let (backward_stream, backward_sender) = if let Some((stored_events, end_token)) =
-            self.store.room_timeline(&self.room_id).await?
-        {
-            TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
-        } else {
-            TimelineStreamBackward::new(event_ids.clone(), sync_token.clone(), None)
-        };
-
-        backward_timeline_streams.push(backward_sender);
-
-        let (forward_stream, forward_sender) = TimelineStreamForward::new(event_ids);
-        forward_timeline_streams.push(forward_sender);
-
-        Ok((forward_stream, backward_stream))
-    }
-
-    /// Create a stream that returns all events of the room's timeline forward
-    /// in time.
-    ///
-    /// If you need also a backward stream you should use
-    /// [`timeline`][`crate::Room::timeline`]
-    #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline_forward(&self) -> StoreResult<impl Stream<Item = SyncTimelineEvent>> {
-        let mut forward_timeline_streams = self.forward_timeline_streams.lock().await;
-        let event_ids = Arc::new(DashSet::new());
-
-        let (forward_stream, forward_sender) = TimelineStreamForward::new(event_ids);
-        forward_timeline_streams.push(forward_sender);
-
-        Ok(forward_stream)
-    }
-
-    /// Create a stream that returns all events of the room's timeline backward
-    /// in time.
-    ///
-    /// If you need also a forward stream you should use
-    /// [`timeline`][`crate::Room::timeline`]
-    #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline_backward(
-        &self,
-    ) -> StoreResult<impl Stream<Item = Result<SyncTimelineEvent, TimelineStreamError>>> {
-        let mut backward_timeline_streams = self.backward_timeline_streams.lock().await;
-        let sync_token = self.store.get_sync_token().await?;
-        let event_ids = Arc::new(DashSet::new());
-
-        let (backward_stream, backward_sender) = if let Some((stored_events, end_token)) =
-            self.store.room_timeline(&self.room_id).await?
-        {
-            TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
-        } else {
-            TimelineStreamBackward::new(event_ids.clone(), Some(sync_token.clone().unwrap()), None)
-        };
-
-        backward_timeline_streams.push(backward_sender);
-
-        Ok(backward_stream)
-    }
-
-    /// Add a new timeline slice to the timeline streams.
-    #[cfg(feature = "experimental-timeline")]
-    pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
-        use tracing::warn;
-
-        if timeline.sync {
-            let mut streams = self.forward_timeline_streams.lock().await;
-            let mut remaining_streams = Vec::with_capacity(streams.len());
-            while let Some(mut forward) = streams.pop() {
-                if !forward.is_closed() {
-                    if let Err(error) = forward.try_send(timeline.clone()) {
-                        if error.is_full() {
-                            warn!(
-                                room_id = %self.room_id(),
-                                "Dropping timeline slice because the limit of the buffer for the \
-                                 forward stream is reached"
-                            );
-                        }
-                    } else {
-                        remaining_streams.push(forward);
-                    }
-                }
-            }
-            *streams = remaining_streams;
-        } else {
-            let mut streams = self.backward_timeline_streams.lock().await;
-            let mut remaining_streams = Vec::with_capacity(streams.len());
-            while let Some(mut backward) = streams.pop() {
-                if !backward.is_closed() {
-                    if let Err(error) = backward.try_send(timeline.clone()) {
-                        if error.is_full() {
-                            warn!(
-                                room_id = %self.room_id(),
-                                "Dropping timeline slice because the limit of the buffer for the \
-                                 backward stream is reached"
-                            );
-                        }
-                    } else {
-                        remaining_streams.push(backward);
-                    }
-                }
-            }
-            *streams = remaining_streams;
-        }
     }
 }
 

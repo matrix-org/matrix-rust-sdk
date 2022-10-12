@@ -64,7 +64,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
             asked.store(true, Ordering::SeqCst);
             LoopCtrl::Continue
         })
-        .await;
+        .await?;
 
     Ok(())
 }

@@ -69,7 +69,7 @@ async fn login_and_sync(
     // support we use the default sled-store (enabled by default on native
     // architectures), to configure a local cache and store for our crypto keys
     let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-    client_builder = client_builder.sled_store(home, None)?;
+    client_builder = client_builder.sled_store(home, None).await?;
 
     // alright, let's make that into a client
     let client = client_builder.build().await?;
@@ -104,7 +104,7 @@ async fn login_and_sync(
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     // this keeps state from the server streaming in to the bot via the
     // EventHandler trait
-    client.sync(settings).await; // this essentially loops until we kill the bot
+    client.sync(settings).await?; // this essentially loops until we kill the bot
 
     Ok(())
 }

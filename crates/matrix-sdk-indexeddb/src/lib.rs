@@ -15,6 +15,13 @@ pub use state_store::{
     MigrationConflictStrategy,
 };
 
+mod indexed_db_futures {
+    #[cfg(not(feature = "experimental-nodejs"))]
+    pub use indexed_db_futures::*;
+    #[cfg(feature = "experimental-nodejs")]
+    pub use indexed_db_futures_nodejs::*;
+}
+
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
 #[cfg(feature = "e2e-encryption")]

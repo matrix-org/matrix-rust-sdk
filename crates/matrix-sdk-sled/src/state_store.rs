@@ -14,13 +14,11 @@
 
 use std::{
     collections::BTreeSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(feature = "experimental-timeline")]
-use async_stream::stream;
 use async_trait::async_trait;
 use derive_builder::Builder;
 use futures_core::stream::Stream;
@@ -31,18 +29,9 @@ use matrix_sdk_base::{
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo,
 };
-#[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
-#[cfg(feature = "experimental-timeline")]
 use ruma::{
-    canonical_json::redact_in_place,
-    events::{
-        room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
-    CanonicalJsonObject, RoomVersionId,
-};
-use ruma::{
+    canonical_json::redact,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptType},
@@ -51,22 +40,19 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+    CanonicalJsonObject, EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId,
+    RoomVersionId, UserId,
 };
-#[cfg(feature = "experimental-timeline")]
-use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
 };
 use tokio::task::spawn_blocking;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
-#[cfg(feature = "experimental-timeline")]
-use crate::encode_key::ENCODE_SEPARATOR;
 use crate::encode_key::{EncodeKey, EncodeUnchecked};
 #[cfg(feature = "crypto-store")]
 pub use crate::SledCryptoStore;
@@ -155,8 +141,6 @@ const MEMBER: &str = "member";
 const PRESENCE: &str = "presence";
 const PROFILE: &str = "profile";
 const ROOM_ACCOUNT_DATA: &str = "room-account-data";
-#[cfg(feature = "experimental-timeline")]
-const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
 const ROOM_EVENT_RECEIPT: &str = "room-event-receipt";
 const ROOM_INFO: &str = "room-info";
 const ROOM_STATE: &str = "room-state";
@@ -168,10 +152,6 @@ const STRIPPED_JOINED_USER_ID: &str = "stripped-joined-user-id";
 const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
 const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
 const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
-#[cfg(feature = "experimental-timeline")]
-const TIMELINE_METADATA: &str = "timeline-metadata";
-#[cfg(feature = "experimental-timeline")]
-const TIMELINE: &str = "timeline";
 
 const ALL_DB_STORES: &[&str] = &[
     ACCOUNT_DATA,
@@ -184,8 +164,6 @@ const ALL_DB_STORES: &[&str] = &[
     PRESENCE,
     PROFILE,
     ROOM_ACCOUNT_DATA,
-    #[cfg(feature = "experimental-timeline")]
-    ROOM_EVENT_ID_POSITION,
     ROOM_EVENT_RECEIPT,
     ROOM_INFO,
     ROOM_STATE,
@@ -198,12 +176,6 @@ const ALL_DB_STORES: &[&str] = &[
     STRIPPED_ROOM_MEMBER,
     STRIPPED_ROOM_STATE,
     CUSTOM,
-    #[cfg(feature = "experimental-timeline")]
-    ROOM_EVENT_ID_POSITION,
-    #[cfg(feature = "experimental-timeline")]
-    TIMELINE_METADATA,
-    #[cfg(feature = "experimental-timeline")]
-    TIMELINE,
 ];
 const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
@@ -331,12 +303,6 @@ pub struct SledStateStore {
     room_event_receipts: Tree,
     media: Tree,
     custom: Tree,
-    #[cfg(feature = "experimental-timeline")]
-    room_timeline: Tree,
-    #[cfg(feature = "experimental-timeline")]
-    room_timeline_metadata: Tree,
-    #[cfg(feature = "experimental-timeline")]
-    room_event_id_to_position: Tree,
 }
 
 impl std::fmt::Debug for SledStateStore {
@@ -349,7 +315,6 @@ impl std::fmt::Debug for SledStateStore {
     }
 }
 
-#[allow(deprecated)]
 impl SledStateStore {
     fn open_helper(
         db: Db,
@@ -383,13 +348,6 @@ impl SledStateStore {
 
         let custom = db.open_tree(CUSTOM)?;
 
-        #[cfg(feature = "experimental-timeline")]
-        let room_timeline = db.open_tree(TIMELINE)?;
-        #[cfg(feature = "experimental-timeline")]
-        let room_timeline_metadata = db.open_tree(TIMELINE_METADATA)?;
-        #[cfg(feature = "experimental-timeline")]
-        let room_event_id_to_position = db.open_tree(ROOM_EVENT_ID_POSITION)?;
-
         Ok(Self {
             path,
             inner: db,
@@ -414,37 +372,12 @@ impl SledStateStore {
             room_event_receipts,
             media,
             custom,
-            #[cfg(feature = "experimental-timeline")]
-            room_timeline,
-            #[cfg(feature = "experimental-timeline")]
-            room_timeline_metadata,
-            #[cfg(feature = "experimental-timeline")]
-            room_event_id_to_position,
         })
     }
 
     /// Generate a SledStateStoreBuilder with default parameters
     pub fn builder() -> SledStateStoreBuilder {
         SledStateStoreBuilder::default()
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open() -> StoreResult<Self> {
-        SledStateStore::builder().build().map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
-        SledStateStore::builder()
-            .path(path.as_ref().into())
-            .passphrase(passphrase.to_owned())
-            .build()
-            .map_err(StoreError::backend)
-    }
-
-    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
-    pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
-        SledStateStore::builder().path(path.as_ref().into()).build().map_err(StoreError::backend)
     }
 
     fn drop_tables(self) -> StoreResult<()> {
@@ -512,10 +445,10 @@ impl SledStateStore {
     ///
     /// The given passphrase will be used to encrypt private data.
     #[cfg(feature = "crypto-store")]
-    pub fn open_crypto_store(&self) -> Result<SledCryptoStore, OpenStoreError> {
+    pub async fn open_crypto_store(&self) -> Result<SledCryptoStore, OpenStoreError> {
         let db = self.inner.clone();
         let store_cipher = self.store_cipher.clone();
-        SledCryptoStore::open_helper(db, None, store_cipher)
+        SledCryptoStore::open_helper(db, None, store_cipher).await
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
@@ -540,17 +473,6 @@ impl SledStateStore {
         } else {
             key.encode()
         }
-    }
-
-    #[cfg(feature = "experimental-timeline")]
-    fn encode_key_with_counter<A: EncodeKey>(&self, tablename: &str, s: A, i: usize) -> Vec<u8> {
-        [
-            &self.encode_key(tablename, s),
-            [ENCODE_SEPARATOR].as_slice(),
-            (i as u64).to_be_bytes().as_ref(),
-            [ENCODE_SEPARATOR].as_slice(),
-        ]
-        .concat()
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -773,6 +695,54 @@ impl SledStateStore {
 
         ret?;
 
+        if !changes.redactions.is_empty() {
+            let mut redactions_found = false;
+            let mut redactions_batch = sled::Batch::default();
+
+            let make_room_version = |room_id| {
+                self.room_info
+                    .get(&self.encode_key(ROOM_INFO, room_id))
+                    .ok()
+                    .flatten()
+                    .map(|r| self.deserialize_value::<RoomInfo>(&r))
+                    .transpose()
+                    .ok()
+                    .flatten()
+                    .and_then(|info| info.room_version().cloned())
+                    .unwrap_or_else(|| {
+                        warn!(%room_id, "Unable to find the room version, assume version 9");
+                        RoomVersionId::V9
+                    })
+            };
+
+            for (room_id, redactions) in &changes.redactions {
+                let key_prefix = self.encode_key(ROOM_STATE, room_id);
+                let mut room_version = None;
+
+                // iterate through all saved state events and check whether they are among the
+                // redacted, if so apply redaction and save that to the batch
+                // applied all at once after.
+                for (key, evt) in self.room_state.scan_prefix(key_prefix).filter_map(|r| r.ok()) {
+                    let raw_evt = self.deserialize_value::<Raw<AnySyncStateEvent>>(&evt)?;
+                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
+                        if redactions.contains_key(&event_id) {
+                            let redacted = redact(
+                                &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                room_version.get_or_insert_with(|| make_room_version(room_id)),
+                            )
+                            .map_err(StoreError::Redaction)?;
+                            redactions_found = true;
+                            redactions_batch.insert(key, self.serialize_value(&redacted)?);
+                        }
+                    }
+                }
+            }
+
+            if redactions_found {
+                self.room_state.apply_batch(redactions_batch)?;
+            }
+        }
+
         let ret: Result<(), TransactionError<SledStoreError>> =
             (&self.room_user_receipts, &self.room_event_receipts, &self.presence).transaction(
                 |(room_user_receipts, room_event_receipts, presence)| {
@@ -826,9 +796,6 @@ impl SledStateStore {
             );
 
         ret?;
-
-        #[cfg(feature = "experimental-timeline")]
-        self.save_room_timeline(changes).await?;
 
         // user state
         let ret: Result<(), TransactionError<SledStoreError>> = (&self.session, &self.account_data)
@@ -1329,253 +1296,7 @@ impl SledStateStore {
             );
         ret?;
 
-        #[cfg(feature = "experimental-timeline")]
-        self.remove_room_timeline(room_id).await?;
-
         self.inner.flush_async().await?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-timeline")]
-    async fn room_timeline(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
-        let db = self.clone();
-        let key = self.encode_key(TIMELINE_METADATA, room_id);
-        let metadata: Option<TimelineMetadata> = db
-            .room_timeline_metadata
-            .get(key.as_slice())?
-            .map(|v| self.deserialize_value(&v))
-            .transpose()?;
-        let metadata = match metadata {
-            Some(m) => m,
-            None => {
-                info!(%room_id, "Couldn't find a previously stored timeline");
-                return Ok(None);
-            }
-        };
-
-        let mut position = metadata.start_position;
-        let end_token = metadata.end;
-
-        info!(%room_id, ?end_token, "Found previously stored timeline");
-
-        let room_id = room_id.to_owned();
-        let stream = stream! {
-            while let Ok(Some(item)) =
-                db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &room_id, position))
-            {
-                position += 1;
-                yield db.deserialize_value(&item).map_err(|e| SledStoreError::from(e).into());
-            }
-        };
-
-        Ok(Some((Box::pin(stream), end_token)))
-    }
-
-    #[cfg(feature = "experimental-timeline")]
-    async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
-        info!(%room_id, "Removing stored timeline");
-
-        let mut timeline_batch = sled::Batch::default();
-        for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, room_id)).keys() {
-            timeline_batch.remove(key?);
-        }
-
-        let mut event_id_to_position_batch = sled::Batch::default();
-        for key in self
-            .room_event_id_to_position
-            .scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, room_id))
-            .keys()
-        {
-            event_id_to_position_batch.remove(key?);
-        }
-
-        let ret: Result<(), TransactionError<SledStoreError>> =
-            (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
-                .transaction(
-                    |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
-                        room_timeline_metadata
-                            .remove(self.encode_key(TIMELINE_METADATA, room_id))?;
-
-                        room_timeline.apply_batch(&timeline_batch)?;
-                        room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
-
-                        Ok(())
-                    },
-                );
-
-        ret?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-timeline")]
-    async fn save_room_timeline(&self, changes: &StateChanges) -> Result<()> {
-        use tracing::warn;
-
-        let mut timeline_batch = sled::Batch::default();
-        let mut event_id_to_position_batch = sled::Batch::default();
-        let mut timeline_metadata_batch = sled::Batch::default();
-
-        for (room_id, timeline) in &changes.timeline {
-            if timeline.sync {
-                info!(%room_id, "Saving new timeline batch from sync response");
-            } else {
-                info!(%room_id, "Saving new timeline batch from messages response");
-            }
-
-            let metadata: Option<TimelineMetadata> = if timeline.limited {
-                info!(%room_id, "Deleting stored timeline because the sync response was limited");
-                self.remove_room_timeline(room_id).await?;
-                None
-            } else {
-                let metadata: Option<TimelineMetadata> = self
-                    .room_timeline_metadata
-                    .get(self.encode_key(TIMELINE_METADATA, room_id))?
-                    .map(|item| self.deserialize_value(&item))
-                    .transpose()?;
-                if let Some(mut metadata) = metadata {
-                    if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
-                        // This should only happen when a developer adds a wrong timeline
-                        // batch to the `StateChanges` or the server returns a wrong response
-                        // to our request.
-                        warn!(%room_id, "Dropping unexpected timeline batch");
-                        return Ok(());
-                    }
-
-                    // Check if the event already exists in the store
-                    let mut delete_timeline = false;
-                    for event in &timeline.events {
-                        if let Some(event_id) = event.event_id() {
-                            let event_key =
-                                self.encode_key(ROOM_EVENT_ID_POSITION, (room_id, event_id));
-                            if self.room_event_id_to_position.contains_key(event_key)? {
-                                delete_timeline = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if delete_timeline {
-                        info!(%room_id, "Deleting stored timeline because of duplicated events");
-                        self.remove_room_timeline(room_id).await?;
-                        None
-                    } else if timeline.sync {
-                        metadata.start = timeline.start.clone();
-                        Some(metadata)
-                    } else {
-                        metadata.end = timeline.end.clone();
-                        Some(metadata)
-                    }
-                } else {
-                    None
-                }
-            };
-
-            let mut metadata = if let Some(metadata) = metadata {
-                metadata
-            } else {
-                TimelineMetadata {
-                    start: timeline.start.clone(),
-                    end: timeline.end.clone(),
-                    start_position: usize::MAX / 2 + 1,
-                    end_position: usize::MAX / 2,
-                }
-            };
-            let room_version = self
-                .room_info
-                .get(&self.encode_key(ROOM_INFO, room_id))?
-                .map(|r| self.deserialize_value::<RoomInfo>(&r))
-                .transpose()?
-                .and_then(|info| info.room_version().cloned())
-                .unwrap_or_else(|| {
-                    warn!(%room_id, "Unable to find the room version, assume version 9");
-                    RoomVersionId::V9
-                });
-
-            if timeline.sync {
-                for event in &timeline.events {
-                    // Redact events already in store only on sync response
-                    if let Ok(AnySyncTimelineEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
-                            redaction,
-                        )),
-                    )) = event.event.deserialize()
-                    {
-                        let redacts_key =
-                            self.encode_key(ROOM_EVENT_ID_POSITION, (room_id, redaction.redacts));
-                        if let Some(position_key) =
-                            self.room_event_id_to_position.get(redacts_key)?
-                        {
-                            if let Some(mut full_event) = self
-                                .room_timeline
-                                .get(position_key.as_ref())?
-                                .map(|e| {
-                                    self.deserialize_value::<SyncTimelineEvent>(&e)
-                                        .map_err(SledStoreError::from)
-                                })
-                                .transpose()?
-                            {
-                                let mut event_json: CanonicalJsonObject =
-                                    full_event.event.deserialize_as()?;
-                                redact_in_place(&mut event_json, &room_version)
-                                    .map_err(StoreError::Redaction)?;
-                                full_event.event = Raw::new(&event_json)?.cast();
-                                timeline_batch
-                                    .insert(position_key, self.serialize_value(&full_event)?);
-                            }
-                        }
-                    }
-
-                    metadata.start_position -= 1;
-                    let key =
-                        self.encode_key_with_counter(TIMELINE, room_id, metadata.start_position);
-                    timeline_batch.insert(key.as_slice(), self.serialize_value(&event)?);
-                    // Only add event with id to the position map
-                    if let Some(event_id) = event.event_id() {
-                        let event_key =
-                            self.encode_key(ROOM_EVENT_ID_POSITION, (room_id, event_id));
-                        event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
-                    }
-                }
-            } else {
-                for event in &timeline.events {
-                    metadata.end_position += 1;
-                    let key =
-                        self.encode_key_with_counter(TIMELINE, room_id, metadata.end_position);
-                    timeline_batch.insert(key.as_slice(), self.serialize_value(&event)?);
-                    // Only add event with id to the position map
-                    if let Some(event_id) = event.event_id() {
-                        let event_key =
-                            self.encode_key(ROOM_EVENT_ID_POSITION, (room_id, event_id));
-                        event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
-                    }
-                }
-            }
-
-            timeline_metadata_batch.insert(
-                self.encode_key(TIMELINE_METADATA, room_id),
-                self.serialize_value(&metadata)?,
-            );
-        }
-
-        let ret: Result<(), TransactionError<SledStoreError>> =
-            (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
-                .transaction(
-                    |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
-                        room_timeline_metadata.apply_batch(&timeline_metadata_batch)?;
-
-                        room_timeline.apply_batch(&timeline_batch)?;
-                        room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
-
-                        Ok(())
-                    },
-                );
-
-        ret?;
 
         Ok(())
     }
@@ -1754,23 +1475,6 @@ impl StateStore for SledStateStore {
     async fn remove_room(&self, room_id: &RoomId) -> StoreResult<()> {
         self.remove_room(room_id).await.map_err(Into::into)
     }
-
-    #[cfg(feature = "experimental-timeline")]
-    async fn room_timeline(
-        &self,
-        room_id: &RoomId,
-    ) -> StoreResult<Option<(BoxStream<StoreResult<SyncTimelineEvent>>, Option<String>)>> {
-        self.room_timeline(room_id).await.map_err(|e| e.into())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg(feature = "experimental-timeline")]
-struct TimelineMetadata {
-    pub start: String,
-    pub start_position: usize,
-    pub end: Option<String>,
-    pub end_position: usize,
 }
 
 #[cfg(test)]

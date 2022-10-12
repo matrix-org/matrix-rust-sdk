@@ -4,6 +4,7 @@
 //! client or client library in any of the language targets Uniffi supports.
 
 #![warn(missing_docs)]
+#![allow(unused_qualifications)]
 
 mod backup_recovery_key;
 mod device;
@@ -11,6 +12,7 @@ mod error;
 mod logger;
 mod machine;
 mod responses;
+mod uniffi_api;
 mod users;
 mod verification;
 
@@ -185,8 +187,9 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let store = SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())?;
     let runtime = Runtime::new()?;
+    let store =
+        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -467,13 +470,9 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
-#[allow(warnings)]
-mod generated {
-    use super::*;
-    include!(concat!(env!("OUT_DIR"), "/olm.uniffi.rs"));
+mod uniffi_types {
+    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
 }
-
-pub use generated::*;
 
 #[cfg(test)]
 mod test {

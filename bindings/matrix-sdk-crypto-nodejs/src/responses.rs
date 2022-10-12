@@ -152,7 +152,7 @@ impl DecryptedRoomEvent {
     /// trusted.
     #[napi(getter)]
     pub fn sender_device(&self) -> Option<identifiers::DeviceId> {
-        Some(identifiers::DeviceId::from(self.encryption_info.as_ref()?.sender_device.clone()))
+        Some(self.encryption_info.as_ref()?.sender_device.as_ref()?.clone().into())
     }
 
     /// The Curve25519 key of the device that created the megolm

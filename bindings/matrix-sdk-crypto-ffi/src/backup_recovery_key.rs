@@ -59,6 +59,19 @@ pub struct MegolmV1BackupKey {
     pub backup_algorithm: String,
 }
 
+#[uniffi::export]
+impl BackupRecoveryKey {
+    /// Convert the recovery key to a base 58 encoded string.
+    pub fn to_base58(&self) -> String {
+        self.inner.to_base58()
+    }
+
+    /// Convert the recovery key to a base 64 encoded string.
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
+}
+
 impl BackupRecoveryKey {
     const KEY_SIZE: usize = 32;
     const SALT_SIZE: usize = 32;
@@ -132,16 +145,6 @@ impl BackupRecoveryKey {
             passphrase_info: self.passphrase_info.clone(),
             backup_algorithm: public_key.backup_algorithm().to_owned(),
         }
-    }
-
-    /// Convert the recovery key to a base 58 encoded string.
-    pub fn to_base58(&self) -> String {
-        self.inner.to_base58()
-    }
-
-    /// Convert the recovery key to a base 64 encoded string.
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
     }
 
     /// Try to decrypt a message that was encrypted using the public part of the

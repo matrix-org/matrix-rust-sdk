@@ -27,6 +27,10 @@ on:
         description: "The tag to build with"
         required: true
         type: string
+    secrets:
+      NPM_TOKEN:
+        required: true
+
 jobs:
   upload-assets:
     name: "Upload prebuilt libraries"

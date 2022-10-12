@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "async-once-cell"
-version = "0.3.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72faff1fdc615a0199d7bf71e6f389af54d46a66e9beb5d76c39e48eda93ecce"
+checksum = "f61305cacf1d0c5c9d3ee283d22f8f1f8c743a18ceb44a1b102bd53476c141de"
 
 [[package]]
 name = "async-stream"
@@ -1306,6 +1306,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
+name = "example-appservice-autojoin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "matrix-sdk-appservice",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "example-autojoin"
 version = "0.1.0"
 dependencies = [
@@ -1320,18 +1331,6 @@ name = "example-command-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "matrix-sdk",
- "tokio",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "example-create-rooms"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 3.2.20",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2048,6 +2047,20 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexed_db_futures"
 version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d26ac735f676c52305becf53264b91cea9866a8de61ccbf464405b377b9cbca9"
+dependencies = [
+ "cfg-if",
+ "js-sys",
+ "uuid 0.8.2",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "indexed_db_futures"
+version = "0.2.3"
 source = "git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs#5dab67890cea0ab88b967031adc09179a537d77c"
 dependencies = [
  "cfg-if",
@@ -2166,6 +2179,7 @@ dependencies = [
  "log4rs",
  "matrix-sdk",
  "matrix-sdk-common",
+ "matrix-sdk-sled",
  "sanitize-filename-reader-friendly",
  "serde_json",
  "structopt",
@@ -2368,7 +2382,7 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "matrix-sdk"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -2384,7 +2398,6 @@ dependencies = [
  "event-listener",
  "eyre",
  "futures",
- "futures-channel",
  "futures-core",
  "futures-signals",
  "futures-util",
@@ -2443,7 +2456,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "assign",
  "async-stream",
@@ -2473,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-lock",
  "futures-core",
@@ -2490,7 +2503,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aes",
  "async-trait",
@@ -2550,6 +2563,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uniffi_build",
+ "uniffi_macros",
  "vodozemac",
  "zeroize",
 ]
@@ -2578,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto-nodejs"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "http",
  "matrix-sdk-common",
@@ -2596,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "extension-trait",
@@ -2620,16 +2634,16 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "base64",
  "dashmap",
  "derive_builder",
- "futures-util",
  "getrandom 0.2.7",
- "indexed_db_futures",
+ "indexed_db_futures 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "indexed_db_futures 0.2.3 (git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs)",
  "js-sys",
  "matrix-sdk-base",
  "matrix-sdk-common",
@@ -2658,12 +2672,13 @@ dependencies = [
  "once_cell",
  "tempfile",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "byteorder",
@@ -2676,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sled"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2704,7 +2719,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2723,7 +2738,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "http",
  "matrix-sdk-test-macros",
@@ -2737,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2832,9 +2847,11 @@ dependencies = [
 
 [[package]]
 name = "napi"
-version = "2.6.3"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "2.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fece4c26c5132f8559080145fde9ba88700c0f1aa30a1ab3e057ab105814d"
 dependencies = [
+ "bitflags",
  "ctor",
  "napi-sys",
  "once_cell",
@@ -2850,8 +2867,9 @@ checksum = "882a73d9ef23e8dc2ebbffb6a6ae2ef467c0f18ac10711e4cc59c5485d41df0e"
 
 [[package]]
 name = "napi-derive"
-version = "2.6.0"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "2.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39f3d8b02ef355898ea98f69082d9a183c8701c836942c2daf3e92364e88a0fa"
 dependencies = [
  "convert_case",
  "napi-derive-backend",
@@ -2862,8 +2880,9 @@ dependencies = [
 
 [[package]]
 name = "napi-derive-backend"
-version = "1.0.34"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c35640513eb442fcbd1653a1c112fb6b2cc12b54d82f9c141f5859c721cab36"
 dependencies = [
  "convert_case",
  "once_cell",
@@ -2876,7 +2895,8 @@ dependencies = [
 [[package]]
 name = "napi-sys"
 version = "2.2.2"
-source = "git+https://github.com/Hywan/napi-rs?branch=fix-napi-strict-on-t-and-ref-t#316f605831941875f86839987cce75027f031c12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "529671ebfae679f2ce9630b62dd53c72c56b3eb8b2c852e7e2fa91704ff93d67"
 dependencies = [
  "libloading",
 ]
@@ -4871,8 +4891,8 @@ checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
 
 [[package]]
 name = "uniffi"
-version = "0.19.6"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+version = "0.20.0"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4887,8 +4907,8 @@ dependencies = [
 
 [[package]]
 name = "uniffi_bindgen"
-version = "0.19.6"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+version = "0.20.0"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "askama",
@@ -4909,8 +4929,8 @@ dependencies = [
 
 [[package]]
 name = "uniffi_build"
-version = "0.19.6"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+version = "0.20.0"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "anyhow",
  "camino",
@@ -4919,8 +4939,8 @@ dependencies = [
 
 [[package]]
 name = "uniffi_macros"
-version = "0.19.6"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+version = "0.20.0"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "bincode",
  "camino",
@@ -4937,8 +4957,8 @@ dependencies = [
 
 [[package]]
 name = "uniffi_meta"
-version = "0.19.6"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+version = "0.20.0"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "serde",
 ]
@@ -5276,7 +5296,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=091c3561656e72e1a4160412c83b36d98e556d06#091c3561656e72e1a4160412c83b36d98e556d06"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=0eee77f67b716c4896494606e5931d249871b23a#0eee77f67b716c4896494606e5931d249871b23a"
 dependencies = [
  "nom",
 ]

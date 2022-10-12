@@ -1,10 +1,9 @@
 [package]
 name = "jack-in"
+publish = false
 description = "an experimental sliding sync/syncv3 terminal client to jack into the matrix"
 version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 file-logging = ["dep:log4rs"]
@@ -15,8 +14,9 @@ dialoguer = "0.10.2"
 eyre = "0.6"
 futures = { version = "0.3.1" }
 futures-signals = "0.3.24"
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"] }
-matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"], version = "0.6.0" }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
+matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled", features = ["state-store", "crypto-store"], version = "0.2.0" }
 sanitize-filename-reader-friendly = "2.2.1"
 serde_json = "1.0.85"
 structopt = "0.3"

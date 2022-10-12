@@ -4,6 +4,7 @@ master.zip
 emsdk-*
 .idea/
 .env
+.build
 
 ## User settings
 xcuserdata/

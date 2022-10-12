@@ -1,6 +1,5 @@
 use std::{env, process::exit, sync::Mutex, time::Duration};
 
-use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
     self,
     config::SyncSettings,
@@ -9,7 +8,6 @@ use matrix_sdk::{
         api::client::filter::{FilterDefinition, LazyLoadOptions},
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
     },
-    store::make_store_config,
     Client, LoopCtrl,
 };
 use tokio::sync::oneshot;
@@ -17,11 +15,11 @@ use url::Url;
 
 async fn login(homeserver_url: String, username: &str, password: &str) -> Client {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let path = "./";
-    let store_config = make_store_config(path, Some("some password")).unwrap();
     let client = Client::builder()
         .homeserver_url(homeserver_url)
-        .store_config(store_config)
+        .sled_store("./", Some("some password"))
+        .await
+        .unwrap()
         .build()
         .await
         .unwrap();
@@ -35,7 +33,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
     client
 }
 
-fn event_content(event: AnySyncTimelineEvent) -> Option<String> {
+fn _event_content(event: AnySyncTimelineEvent) -> Option<String> {
     if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
         SyncMessageLikeEvent::Original(event),
     )) = event
@@ -46,17 +44,8 @@ fn event_content(event: AnySyncTimelineEvent) -> Option<String> {
     }
 }
 
-async fn print_timeline(room: Room) {
-    let backward_stream = room.timeline_backward().await.unwrap();
-
-    pin_mut!(backward_stream);
-
-    while let Some(event) = backward_stream.next().await {
-        let event = event.unwrap();
-        if let Some(content) = event_content(event.event.deserialize().unwrap()) {
-            println!("{content}");
-        }
-    }
+async fn print_timeline(_room: Room) {
+    // TODO
 }
 
 #[tokio::main]
@@ -94,7 +83,8 @@ async fn main() -> anyhow::Result<()> {
                 }
                 LoopCtrl::Continue
             })
-            .await;
+            .await
+            .unwrap();
     });
 
     // Wait for the first sync response

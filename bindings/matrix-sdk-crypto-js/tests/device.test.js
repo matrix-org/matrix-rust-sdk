@@ -28,7 +28,6 @@ const {
     QrCode,
     QrCodeScan,
 } = require('../pkg/matrix_sdk_crypto_js');
-const { LoggerLevel, Tracing } = require('../pkg/matrix_sdk_crypto_js');
 const { zip, addMachineToMachine } = require('./helper');
 
 describe('LocalTrust', () => {

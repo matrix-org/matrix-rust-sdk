@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
+use matrix_sdk_sled::make_store_config;
 use matrix_sdk::{
     ruma::{OwnedRoomId, OwnedUserId},
-    store::make_store_config,
     Client,
 };
 use sanitize_filename_reader_friendly::sanitize;
@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
     let data_path =
         PathBuf::from(app_root(AppDataType::UserData, &APP_INFO)?).join(sanitize(user_id.as_str()));
     std::fs::create_dir_all(&data_path)?;
-    let store_config = make_store_config(&data_path, opt.store_pass.as_deref())?;
+    let store_config = make_store_config(&data_path, opt.store_pass.as_deref()).await?;
 
     let client = Client::builder()
         .user_agent("jack-in")

@@ -8,13 +8,10 @@ use matrix_sdk_appservice::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
-        HttpError,
+        RumaApiError,
     },
+    ruma::api::client::{error::ErrorKind, uiaa::UiaaResponse},
     AppService, AppServiceBuilder, AppServiceRegistration, Result,
-};
-use ruma::api::{
-    client::{error::ErrorKind, uiaa::UiaaResponse},
-    error::{FromHttpResponseError, ServerError},
 };
 use tracing::trace;
 
@@ -39,28 +36,36 @@ pub async fn handle_room_member(
 }
 
 pub fn error_if_user_not_in_use(error: matrix_sdk_appservice::Error) -> Result<()> {
-    match error {
+    // FIXME: Use if-let chain once available
+    match &error {
         // If user is already in use that's OK.
-        matrix_sdk_appservice::Error::Matrix(matrix_sdk::Error::Http(HttpError::UiaaError(
-            FromHttpResponseError::Server(ServerError::Known(UiaaResponse::MatrixError(error))),
-        ))) if matches!(error.kind, ErrorKind::UserInUse) => Ok(()),
-        // In all other cases return with an error.
-        error => Err(error),
+        matrix_sdk_appservice::Error::Matrix(err) => match err.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(error)))
+                if matches!(error.kind, ErrorKind::UserInUse) =>
+            {
+                Ok(())
+            }
+            // In all other cases return with an error.
+            _ => Err(error),
+        },
+        _ => Err(error),
     }
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> anyhow::Result<()> {
     env::set_var("RUST_LOG", "matrix_sdk=debug,matrix_sdk_appservice=debug");
     tracing_subscriber::fmt::init();
 
     let homeserver_url = "http://localhost:8008";
     let server_name = "localhost";
-    let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
+    let registration =
+        AppServiceRegistration::try_from_yaml_file("./appservice-registration.yaml")?;
     let appservice =
         AppServiceBuilder::new(homeserver_url.parse()?, server_name.parse()?, registration)
             .build()
             .await?;
+
     appservice.register_user_query(Box::new(|_, _| Box::pin(async { true }))).await;
 
     let virtual_user = appservice.virtual_user(None).await?;

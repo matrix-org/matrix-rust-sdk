@@ -30,12 +30,14 @@ impl From<anyhow::Error> for AuthenticationError {
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     url: String,
     authentication_issuer: Option<String>,
     supports_password_login: bool,
 }
 
+#[uniffi::export]
 impl HomeserverLoginDetails {
     /// The URL of the currently configured homeserver.
     pub fn url(&self) -> String {
@@ -54,6 +56,13 @@ impl HomeserverLoginDetails {
     }
 }
 
+#[uniffi::export]
+impl AuthenticationService {
+    pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
+        self.homeserver_details.read().unwrap().clone()
+    }
+}
+
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     pub fn new(base_path: String) -> Self {
@@ -62,10 +71,6 @@ impl AuthenticationService {
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
         }
-    }
-
-    pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
-        self.homeserver_details.read().unwrap().clone()
     }
 
     /// Updates the service to authenticate with the homeserver for the

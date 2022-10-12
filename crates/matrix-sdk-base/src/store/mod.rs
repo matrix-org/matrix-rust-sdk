@@ -46,7 +46,10 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent, ReceiptType},
-        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::{
+            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            redaction::OriginalSyncRoomRedactionEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
@@ -61,8 +64,6 @@ use serde::de::DeserializeOwned;
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
-#[cfg(feature = "experimental-timeline")]
-use crate::deserialized_responses::{SyncTimelineEvent, TimelineSlice};
 use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
@@ -364,20 +365,6 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<()>;
-
-    /// Get a stream of the stored timeline
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to delete.
-    ///
-    /// Returns a stream of events and a token that can be used to request
-    /// previous events.
-    #[cfg(feature = "experimental-timeline")]
-    async fn room_timeline(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<Result<SyncTimelineEvent>>, Option<String>)>>;
 }
 
 /// Convenience functionality for state stores.
@@ -686,6 +673,10 @@ pub struct StateChanges {
     /// A map of `RoomId` to `ReceiptEventContent`.
     pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
 
+    /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
+    /// `SyncRoomRedactionEvent`.
+    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OriginalSyncRoomRedactionEvent>>,
+
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
     pub stripped_state: BTreeMap<
@@ -704,9 +695,6 @@ pub struct StateChanges {
     pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
     /// A map of `RoomId` to a vector of `Notification`s
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
-    /// A mapping of `RoomId` to a `TimelineSlice`
-    #[cfg(feature = "experimental-timeline")]
-    pub timeline: BTreeMap<OwnedRoomId, TimelineSlice>,
 }
 
 impl StateChanges {
@@ -777,6 +765,14 @@ impl StateChanges {
             .insert(event.state_key().to_owned(), raw_event);
     }
 
+    /// Redact an event in the room
+    pub fn add_redaction(&mut self, room_id: &RoomId, redaction: OriginalSyncRoomRedactionEvent) {
+        self.redactions
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(redaction.redacts.clone(), redaction);
+    }
+
     /// Update the `StateChanges` struct with the given room with a new
     /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
@@ -787,13 +783,6 @@ impl StateChanges {
     /// `Receipts`.
     pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
         self.receipts.insert(room_id.to_owned(), event);
-    }
-
-    /// Update the `StateChanges` struct with the given room with a new
-    /// `TimelineSlice`.
-    #[cfg(feature = "experimental-timeline")]
-    pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
-        self.timeline.insert(room_id.to_owned(), timeline);
     }
 }
 

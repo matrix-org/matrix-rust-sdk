@@ -14,6 +14,7 @@
 
 use std::{
     fmt,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
@@ -44,7 +45,11 @@ use crate::{
     types::{
         deserialize_curve_key,
         events::{
-            forwarded_room_key::ForwardedMegolmV1AesSha2Content,
+            forwarded_room_key::{
+                ForwardedMegolmV1AesSha2Content, ForwardedMegolmV2AesSha2Content,
+                ForwardedRoomKeyContent,
+            },
+            olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
@@ -154,42 +159,6 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
-        })
-    }
-
-    /// Create a new inbound group session from a forwarded room key content.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender_key` - The public curve25519 key of the account that
-    /// sent us the session
-    ///
-    /// * `content` - A forwarded room key content that contains the session key
-    /// to create the `InboundGroupSession`.
-    pub fn from_forwarded_key(
-        algorithm: &EventEncryptionAlgorithm,
-        content: &ForwardedMegolmV1AesSha2Content,
-    ) -> Result<Self, SessionCreationError> {
-        let config = OutboundGroupSession::session_config(algorithm)?;
-
-        let session = InnerSession::import(&content.session_key, config);
-
-        let first_known_index = session.first_known_index();
-
-        let mut sender_claimed_key = SigningKeys::new();
-        sender_claimed_key.insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
-
-        Ok(InboundGroupSession {
-            inner: Mutex::new(session).into(),
-            session_id: content.session_id.as_str().into(),
-            sender_key: content.claimed_sender_key,
-            first_known_index,
-            history_visibility: None.into(),
-            signing_keys: sender_claimed_key.into(),
-            room_id: (*content.room_id).into(),
-            imported: true,
-            backed_up: AtomicBool::new(false).into(),
-            algorithm: algorithm.to_owned().into(),
         })
     }
 
@@ -326,8 +295,20 @@ impl InboundGroupSession {
     /// Check if the `InboundGroupSession` is better than the given other
     /// `InboundGroupSession`
     pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
-        let mut other = other.inner.lock().await;
-        self.inner.lock().await.compare(&mut other)
+        // If this is the same object the ordering is the same, we can't compare because
+        // we would deadlock while trying to acquire the same lock twice.
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            SessionOrdering::Equal
+        } else if self.sender_key() != other.sender_key()
+            || self.signing_keys() != other.signing_keys()
+            || self.algorithm() != other.algorithm()
+            || self.room_id() != other.room_id()
+        {
+            SessionOrdering::Unconnected
+        } else {
+            let mut other = other.inner.lock().await;
+            self.inner.lock().await.compare(&mut other)
+        }
     }
 
     /// Decrypt the given ciphertext.
@@ -486,11 +467,82 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     }
 }
 
+impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
+    fn from(value: &ForwardedMegolmV1AesSha2Content) -> Self {
+        let session = InnerSession::import(&value.session_key, SessionConfig::version_1());
+        let session_id = session.session_id().into();
+        let first_known_index = session.first_known_index();
+
+        InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id,
+            sender_key: value.claimed_sender_key,
+            history_visibility: None.into(),
+            first_known_index,
+            signing_keys: SigningKeys::from([(
+                DeviceKeyAlgorithm::Ed25519,
+                value.claimed_ed25519_key.into(),
+            )])
+            .into(),
+            room_id: value.room_id.to_owned().into(),
+            imported: true,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+            backed_up: AtomicBool::from(false).into(),
+        }
+    }
+}
+
+impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
+    fn from(value: &ForwardedMegolmV2AesSha2Content) -> Self {
+        let session = InnerSession::import(&value.session_key, SessionConfig::version_2());
+        let session_id = session.session_id().into();
+        let first_known_index = session.first_known_index();
+
+        InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id,
+            sender_key: value.claimed_sender_key,
+            history_visibility: None.into(),
+            first_known_index,
+            signing_keys: value.claimed_signing_keys.to_owned().into(),
+            room_id: value.room_id.to_owned().into(),
+            imported: true,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+            backed_up: AtomicBool::from(false).into(),
+        }
+    }
+}
+
+impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
+    type Error = SessionCreationError;
+
+    fn try_from(value: &DecryptedForwardedRoomKeyEvent) -> Result<Self, Self::Error> {
+        match &value.content {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(c) => Ok(Self::from(c.deref())),
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(c) => Ok(Self::from(c.deref())),
+            ForwardedRoomKeyContent::Unknown(c) => {
+                Err(SessionCreationError::Algorithm(c.algorithm.to_owned()))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id, user_id, DeviceId, UserId};
+    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::olm::InboundGroupSession;
+    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
+    }
+
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("ALICEDEVICE")
+    }
 
     #[async_test]
     async fn inbound_group_session_serialization() {
@@ -535,5 +587,27 @@ mod test {
         let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
 
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+    }
+
+    #[async_test]
+    async fn session_comparison() {
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        let worse = InboundGroupSession::from_export(&inbound.export_at_index(10).await).unwrap();
+        let mut copy = InboundGroupSession::from_pickle(inbound.pickle().await).unwrap();
+
+        assert_eq!(inbound.compare(&worse).await, SessionOrdering::Better);
+        assert_eq!(worse.compare(&inbound).await, SessionOrdering::Worse);
+        assert_eq!(inbound.compare(&inbound).await, SessionOrdering::Equal);
+        assert_eq!(inbound.compare(&copy).await, SessionOrdering::Equal);
+
+        copy.sender_key =
+            Curve25519PublicKey::from_base64("XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY")
+                .unwrap();
+
+        assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
     }
 }

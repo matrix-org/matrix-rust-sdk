@@ -74,4 +74,17 @@ fn setup_tracing(configuration: String) {
 
 mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+
+    pub use crate::{
+        authentication_service::{AuthenticationService, HomeserverLoginDetails},
+        client::Client,
+        client_builder::ClientBuilder,
+        messages::AnyMessage,
+        room::Room,
+        session_verification::SessionVerificationEmoji,
+        sliding_sync::{
+            SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncView, StoppableSpawn,
+            UnreadNotificationsCount,
+        },
+    };
 }
