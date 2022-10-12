@@ -253,13 +253,9 @@ impl HttpError {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::Uiaa(UiaaResponse::AuthResponse(i)),
-        ))) = self
-        {
-            Some(i)
-        } else {
-            None
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
         }
     }
 }
@@ -277,13 +273,9 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::Uiaa(UiaaResponse::AuthResponse(i)),
-        )))) = self
-        {
-            Some(i)
-        } else {
-            None
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
         }
     }
 }

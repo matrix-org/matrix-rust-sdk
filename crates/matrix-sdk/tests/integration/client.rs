@@ -3,23 +3,20 @@ use std::{collections::BTreeMap, str::FromStr, time::Duration};
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-    Error, HttpError, RumaApiError, Session,
+    RumaApiError, Session,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    api::{
-        client::{
-            self as client_api,
-            account::register::{v3::Request as RegistrationRequest, RegistrationKind},
-            directory::{
-                get_public_rooms,
-                get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
-            },
-            media::get_content_thumbnail::v3::Method,
-            session::get_login_types::v3::LoginType,
-            uiaa::{self, UiaaResponse},
+    api::client::{
+        self as client_api,
+        account::register::{v3::Request as RegistrationRequest, RegistrationKind},
+        directory::{
+            get_public_rooms,
+            get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
         },
-        error::{FromHttpResponseError, ServerError},
+        media::get_content_thumbnail::v3::Method,
+        session::get_login_types::v3::LoginType,
+        uiaa::{self, UiaaResponse},
     },
     assign, device_id,
     directory::Filter,
@@ -188,18 +185,17 @@ async fn login_error() {
         .await;
 
     if let Err(err) = client.login_username("example", "wordpass").send().await {
-        if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::ClientApi(client_api::Error { kind, message, status_code }),
-        )))) = err
+        if let Some(RumaApiError::ClientApi(client_api::Error { kind, message, status_code })) =
+            err.as_ruma_api_error()
         {
-            if let client_api::error::ErrorKind::Forbidden = kind {
-            } else {
-                panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
+            if *kind != client_api::error::ErrorKind::Forbidden {
+                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
             }
-            assert_eq!(message, "Invalid password".to_owned());
-            assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
+
+            assert_eq!(message, "Invalid password");
+            assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
         } else {
-            panic!("found the wrong `Error` type {:?}, expected `Error::RumaResponse", err);
+            panic!("found the wrong `Error` type {err:?}, expected `Error::RumaResponse");
         }
     } else {
         panic!("this request should return an `Err` variant")
@@ -228,22 +224,20 @@ async fn register_error() {
     });
 
     if let Err(err) = client.register(user).await {
-        if let HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-                kind,
-                message,
-                status_code,
-            })),
-        ))) = err
+        if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
+            kind,
+            message,
+            status_code,
+        }))) = err.as_ruma_api_error()
         {
-            if let client_api::error::ErrorKind::Forbidden = kind {
-            } else {
-                panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
+            if *kind != client_api::error::ErrorKind::Forbidden {
+                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
             }
-            assert_eq!(message, "Invalid password".to_owned());
-            assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
+
+            assert_eq!(message, "Invalid password");
+            assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
         } else {
-            panic!("found the wrong `Error` type {:#?}, expected `UiaaResponse`", err);
+            panic!("found the wrong `Error` type {err:#?}, expected `UiaaResponse`");
         }
     } else {
         panic!("this request should return an `Err` variant")
