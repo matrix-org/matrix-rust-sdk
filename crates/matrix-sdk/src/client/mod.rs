@@ -58,7 +58,7 @@ use ruma::{
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
-        error::{FromHttpResponseError, ServerError},
+        error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
@@ -1338,13 +1338,11 @@ impl Client {
                     Ok(Some(res))
                 }
                 Err(error) => {
-                    *guard = if let HttpError::Api(FromHttpResponseError::Server(
-                        ServerError::Known(RumaApiError::ClientApi(api_error)),
-                    )) = &error
-                    {
-                        Err(RefreshTokenError::ClientApi(api_error.to_owned()))
-                    } else {
-                        Err(RefreshTokenError::UnableToRefreshToken)
+                    *guard = match error.as_ruma_api_error() {
+                        Some(RumaApiError::ClientApi(api_error)) => {
+                            Err(RefreshTokenError::ClientApi(api_error.to_owned()))
+                        }
+                        _ => Err(RefreshTokenError::UnableToRefreshToken),
                     };
 
                     Err(error)
@@ -1688,9 +1686,9 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-                RumaApiError::ClientApi(error),
-            )))) = &res
+            // FIXME: Use if-let chain once available
+            if let Err(Some(RumaApiError::ClientApi(error))) =
+                res.as_ref().map_err(HttpError::as_ruma_api_error)
             {
                 if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                     let refresh_res = self.refresh_access_token().await;
@@ -1733,9 +1731,9 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-                RumaApiError::ClientApi(error),
-            )))) = &res
+            // FIXME: Use if-let chain once available
+            if let Err(Some(RumaApiError::ClientApi(error))) =
+                res.as_ref().map_err(HttpError::as_ruma_api_error)
             {
                 if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                     let refresh_res = self.refresh_access_token().await;

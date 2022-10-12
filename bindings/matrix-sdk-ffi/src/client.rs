@@ -5,22 +5,19 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
-        api::{
-            client::{
-                account::whoami,
-                error::ErrorKind,
-                filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-                media::get_content_thumbnail::v3::Method,
-                session::get_login_types,
-                sync::sync_events::v3::Filter,
-            },
-            error::{FromHttpResponseError, ServerError},
+        api::client::{
+            account::whoami,
+            error::ErrorKind,
+            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+            media::get_content_thumbnail::v3::Method,
+            session::get_login_types,
+            sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
         serde::Raw,
         TransactionId, UInt,
     },
-    Client as MatrixClient, Error, HttpError, LoopCtrl, RumaApiError, Session,
+    Client as MatrixClient, Error, LoopCtrl, RumaApiError, Session,
 };
 
 use super::{
@@ -268,10 +265,7 @@ impl Client {
     /// Process a sync error and return loop control accordingly
     fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
         let mut control = LoopCtrl::Continue;
-        if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::ClientApi(error),
-        )))) = sync_error
-        {
+        if let Some(RumaApiError::ClientApi(error)) = sync_error.as_ruma_api_error() {
             if let ErrorKind::UnknownToken { soft_logout } = error.kind {
                 self.state.write().unwrap().is_soft_logout = soft_logout;
                 if let Some(delegate) = &*self.delegate.read().unwrap() {

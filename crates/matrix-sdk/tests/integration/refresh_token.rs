@@ -13,7 +13,6 @@ use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
         client::{account::register, error::ErrorKind, Error as ClientApiError},
-        error::{FromHttpResponseError, ServerError},
         MatrixVersion,
     },
     assign, device_id, user_id,
@@ -229,13 +228,11 @@ async fn refresh_token_not_handled() {
         .mount(&server)
         .await;
 
-    let res = client.whoami().await;
+    let res = client.whoami().await.unwrap_err();
     assert_matches!(
-        res,
-        Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::ClientApi(ClientApiError { kind, .. })
-        )))) if matches!(kind, ErrorKind::UnknownToken { .. })
-    )
+        res.as_ruma_api_error(),
+        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
+    );
 }
 
 #[async_test]
@@ -362,12 +359,10 @@ async fn refresh_token_handled_failure() {
         .mount(&server)
         .await;
 
-    let res = client.whoami().await;
+    let res = client.whoami().await.unwrap_err();
     assert_matches!(
-        res,
-        Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-            RumaApiError::ClientApi(ClientApiError { kind, .. })
-        )))) if matches!(kind, ErrorKind::UnknownToken { .. })
+        res.as_ruma_api_error(),
+        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
     )
 }
 
