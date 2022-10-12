@@ -555,6 +555,31 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn preprocess_to_device_events(
+        &self,
+        to_device_events: Vec<Raw<ruma::events::AnyToDeviceEvent>>,
+        changed_devices: &api::sync::sync_events::DeviceLists,
+        one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
+        unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
+    ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
+        if let Some(o) = self.olm_machine() {
+            // Let the crypto machine handle the sync response, this
+            // decrypts to-device events, but leaves room events alone.
+            // This makes sure that we have the decryption keys for the room
+            // events at hand.
+            Ok(o.receive_sync_changes(
+                to_device_events,
+                changed_devices,
+                one_time_keys_counts,
+                unused_fallback_keys,
+            )
+            .await?)
+        } else {
+            Ok(to_device_events)
+        }
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -585,27 +610,17 @@ impl BaseClient {
         }
 
         let now = Instant::now();
-
         let to_device_events = to_device.events;
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = {
-            if let Some(o) = self.olm_machine() {
-                // Let the crypto machine handle the sync response, this
-                // decrypts to-device events, but leaves room events alone.
-                // This makes sure that we have the decryption keys for the room
-                // events at hand.
-                o.receive_sync_changes(
-                    to_device_events,
-                    &device_lists,
-                    &device_one_time_keys_count,
-                    device_unused_fallback_key_types.as_deref(),
-                )
-                .await?
-            } else {
-                to_device_events
-            }
-        };
+        let to_device_events = self
+            .preprocess_to_device_events(
+                to_device_events,
+                &device_lists,
+                &device_one_time_keys_count,
+                device_unused_fallback_key_types.as_deref(),
+            )
+            .await?;
 
         let mut changes = StateChanges::new(next_batch.clone());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());

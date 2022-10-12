@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
-use matrix_sdk_sled::make_store_config;
 use matrix_sdk::{
     ruma::{OwnedRoomId, OwnedUserId},
     Client,
 };
+use matrix_sdk_sled::make_store_config;
 use sanitize_filename_reader_friendly::sanitize;
 use tracing::{log::LevelFilter, warn};
 use tracing_flame::FlameLayer;

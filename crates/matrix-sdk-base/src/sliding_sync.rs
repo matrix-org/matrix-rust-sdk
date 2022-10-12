@@ -49,21 +49,13 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let to_device_events = {
             if let Some(e2ee) = &e2ee {
-                if let Some(o) = self.olm_machine() {
-                    // Let the crypto machine handle the sync response, this
-                    // decrypts to-device events, but leaves room events alone.
-                    // This makes sure that we have the decryption keys for the room
-                    // events at hand.
-                    o.receive_sync_changes(
-                        to_device_events,
-                        &e2ee.device_lists,
-                        &e2ee.device_one_time_keys_count,
-                        e2ee.device_unused_fallback_key_types.as_deref(),
-                    )
-                    .await?
-                } else {
-                    to_device_events
-                }
+                self.preprocess_to_device_events(
+                    to_device_events,
+                    &e2ee.device_lists,
+                    &e2ee.device_one_time_keys_count,
+                    e2ee.device_unused_fallback_key_types.as_deref(),
+                )
+                .await?
             } else {
                 to_device_events
             }
