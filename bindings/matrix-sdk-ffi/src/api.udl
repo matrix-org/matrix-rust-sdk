@@ -225,10 +225,6 @@ interface Client {
     void logout();
 };
 
-callback interface RoomDelegate {
-    void did_receive_message(AnyMessage message);
-};
-
 enum Membership {
     "Invited",
     "Joined",
@@ -255,10 +251,6 @@ interface Room {
 
     [Throws=ClientError]
     void redact(string event_id, string? reason, string? txn_id);
-};
-
-interface BackwardsStream {
-    sequence<AnyMessage> paginate_backwards(u64 count);
 };
 
 interface RoomMessageEventContent {};

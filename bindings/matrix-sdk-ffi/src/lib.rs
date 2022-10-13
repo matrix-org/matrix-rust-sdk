@@ -3,7 +3,6 @@
 #![allow(unused_qualifications)]
 
 pub mod authentication_service;
-pub mod backward_stream;
 pub mod client;
 pub mod client_builder;
 mod helpers;
@@ -30,8 +29,8 @@ pub static RUNTIME: Lazy<Runtime> =
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
 pub use self::{
-    authentication_service::*, backward_stream::*, client::*, messages::*, room::*,
-    session_verification::*, sliding_sync::*,
+    authentication_service::*, client::*, messages::*, room::*, session_verification::*,
+    sliding_sync::*,
 };
 
 #[derive(Default, Debug)]

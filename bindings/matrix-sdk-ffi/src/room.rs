@@ -9,11 +9,7 @@ use matrix_sdk::{
     },
 };
 
-use super::{messages::AnyMessage, RUNTIME};
-
-pub trait RoomDelegate: Sync + Send {
-    fn did_receive_message(&self, messages: Arc<AnyMessage>);
-}
+use super::RUNTIME;
 
 pub enum Membership {
     Invited,
