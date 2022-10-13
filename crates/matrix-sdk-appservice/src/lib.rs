@@ -416,7 +416,8 @@ impl AppService {
         false
     }
 
-    /// Returns a [`Service`][tower::Service] that processes appservice requests.
+    /// Returns a [`Service`][tower::Service] that processes appservice
+    /// requests.
     pub fn service<B>(&self) -> AppServiceRouter<B>
     where
         B: HttpBody + Send + 'static,
@@ -584,8 +585,7 @@ mod tests {
         serde::Raw,
     };
     use serde_json::json;
-    use tower::Service;
-    use tower::ServiceExt;
+    use tower::{Service, ServiceExt};
     use wiremock::{
         matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
