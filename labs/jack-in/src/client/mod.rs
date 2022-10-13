@@ -1,7 +1,7 @@
 use eyre::{Result, WrapErr};
 use futures::{pin_mut, StreamExt};
 use tokio::sync::mpsc;
-use tracing::{error, warn};
+use tracing::{error, warn, info};
 
 pub mod state;
 
@@ -12,7 +12,7 @@ pub async fn run_client(
     sliding_sync_proxy: String,
     tx: mpsc::Sender<state::SlidingSyncState>,
 ) -> Result<()> {
-    warn!("Starting sliding sync now");
+    info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
     let full_sync_view =
         SlidingSyncViewBuilder::default_with_fullsync().timeline_limit(10u32).build()?;
@@ -26,6 +26,8 @@ pub async fn run_client(
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
     tx.send(ssync_state.clone()).await?;
+
+    info!("starting polling");
 
     pin_mut!(stream);
     if let Some(Err(e)) = stream.next().await {
@@ -42,7 +44,7 @@ pub async fn run_client(
         ssync_state.set_first_render_now();
         tx.send(ssync_state.clone()).await?;
     }
-    warn!("Done initial sliding sync");
+    info!("Done initial sliding sync");
 
     loop {
         match stream.next().await {
@@ -51,7 +53,7 @@ pub async fn run_client(
                 let state = state.read_only().get_cloned();
 
                 if state == SlidingSyncState::Live {
-                    warn!("Reached live sync");
+                    info!("Reached live sync");
                     break;
                 }
                 let _ = tx.send(ssync_state.clone()).await;
@@ -93,7 +95,7 @@ pub async fn run_client(
         }
         match update {
             Ok(update) => {
-                warn!("Live update received: {:?}", update);
+                info!("Live update received: {:?}", update);
                 tx.send(ssync_state.clone()).await?;
                 err_counter = 0;
             }

@@ -13,7 +13,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_sled::make_store_config;
 use sanitize_filename_reader_friendly::sanitize;
-use tracing::{log::LevelFilter, warn};
+use tracing::{log, warn};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
@@ -81,9 +81,17 @@ struct Opt {
     #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
     sliding_sync_proxy: String,
 
-    /// Your access token to connect via the
+    /// The password of your account. If not given and no database found, it will prompt you for it
     #[structopt(short, long, env = "JACKIN_PASSWORD")]
     password: Option<String>,
+
+    /// Create a fresh database, drop all existing cache
+    #[structopt(long)]
+    fresh: bool,
+
+    /// RUST_LOG log-levels
+    #[structopt(short, long, env = "JACKIN_LOG", default_value = "jack_in=info,warn")]
+    log: String,
 
     /// The userID associated with this access token
     #[structopt(short, long, env = "JACKIN_USER")]
@@ -168,14 +176,45 @@ async fn main() -> Result<()> {
         }
         #[cfg(not(feature = "file-logging"))]
         {
-            tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
-            tui_logger::set_default_level(LevelFilter::Warn);
-            tui_logger::set_level_for_target("matrix_sdk", LevelFilter::Warn);
+
+            tui_logger::init_logger(log::LevelFilter::Trace).unwrap();
+            // Set default level for unknown targets to Trace
+            tui_logger::set_default_level(log::LevelFilter::Warn);
+
+            for pair in opt.log.split(",") {
+                if let Some((name, lvl)) = pair.split_once("=") {
+                    let level = match lvl.to_lowercase().as_str() {
+                        "trace" => log::LevelFilter::Trace,
+                        "debug" => log::LevelFilter::Debug,
+                        "info" => log::LevelFilter::Info,
+                        "warn" => log::LevelFilter::Warn,
+                        "error" => log::LevelFilter::Error,
+                        // nothing means error
+                        _ => continue,
+                    };
+                    tui_logger::set_level_for_target(name, level);
+                } else {
+                    let level = match pair.to_lowercase().as_str() {
+                        "trace" => log::LevelFilter::Trace,
+                        "debug" => log::LevelFilter::Debug,
+                        "info" => log::LevelFilter::Info,
+                        "warn" => log::LevelFilter::Warn,
+                        "error" => log::LevelFilter::Error,
+                        // nothing means error
+                        _ => continue,
+                    };
+                    tui_logger::set_default_level(level);
+                }
+            }
         }
     }
 
     let data_path =
         PathBuf::from(app_root(AppDataType::UserData, &APP_INFO)?).join(sanitize(user_id.as_str()));
+    if opt.fresh {
+        // drop the datbase first;
+        std::fs::remove_dir_all(&data_path)?;
+    }
     std::fs::create_dir_all(&data_path)?;
     let store_config = make_store_config(&data_path, opt.store_pass.as_deref()).await?;
 
