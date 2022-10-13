@@ -406,15 +406,10 @@ impl AppService {
     }
 
     /// Check if given `user_id` is in any of the [`AppServiceRegistration`]'s
-    /// `users` namespaces
+    /// `users` namespaces.
     pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> bool {
-        for regex in &self.namespaces.users {
-            if regex.is_match(user_id.as_ref()) {
-                return true;
-            }
-        }
-
-        false
+        let user_id = user_id.as_ref();
+        self.namespaces.users.iter().any(|regex| regex.is_match(user_id))
     }
 
     /// Returns a [`Service`] that processes appservice requests.
