@@ -2,14 +2,32 @@
 
 #![allow(unused_qualifications)]
 
+macro_rules! unwrap_or_clone_arc_into_variant {
+    (
+        $arc:ident $(, .$field:tt)?, $pat:pat => $body:expr
+    ) => {
+        #[allow(unused_variables)]
+        match &(*$arc)$(.$field)? {
+            $pat => {
+                #[warn(unused_variables)]
+                match crate::helpers::unwrap_or_clone_arc($arc)$(.$field)? {
+                    $pat => Some($body),
+                    _ => unreachable!(),
+                }
+            },
+            _ => None,
+        }
+    };
+}
+
 pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
 mod helpers;
-pub mod messages;
 pub mod room;
 pub mod session_verification;
 pub mod sliding_sync;
+pub mod timeline;
 mod uniffi_api;
 
 use std::io;
@@ -26,11 +44,14 @@ pub use uniffi_api::*;
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
 
-pub use matrix_sdk::ruma::{api::client::account::register, UserId};
+pub use matrix_sdk::{
+    room::timeline::PaginationOutcome,
+    ruma::{api::client::account::register, UserId},
+};
 
 pub use self::{
-    authentication_service::*, client::*, messages::*, room::*, session_verification::*,
-    sliding_sync::*,
+    authentication_service::*, client::*, room::*, session_verification::*, sliding_sync::*,
+    timeline::*,
 };
 
 #[derive(Default, Debug)]
@@ -78,12 +99,14 @@ mod uniffi_types {
         authentication_service::{AuthenticationService, HomeserverLoginDetails},
         client::Client,
         client_builder::ClientBuilder,
-        messages::AnyMessage,
         room::Room,
         session_verification::SessionVerificationEmoji,
         sliding_sync::{
             SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncView, StoppableSpawn,
             UnreadNotificationsCount,
+        },
+        timeline::{
+            EventTimelineItem, Message, TimelineItem, TimelineItemContent, VirtualTimelineItem,
         },
     };
 }

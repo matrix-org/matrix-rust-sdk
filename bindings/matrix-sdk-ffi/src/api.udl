@@ -243,6 +243,14 @@ interface Room {
     [Throws=ClientError]
     string? member_display_name(string user_id);
 
+    void add_timeline_listener(TimelineListener listener);
+
+    // Loads older messages into the timeline.
+    //
+    // Raises an exception if there are no timeline listeners.
+    [Throws=ClientError]
+    PaginationOutcome paginate_backwards(u16 limit);
+
     [Throws=ClientError]
     void send(RoomMessageEventContent msg, string? txn_id);
 
@@ -253,45 +261,139 @@ interface Room {
     void redact(string event_id, string? reason, string? txn_id);
 };
 
+callback interface TimelineListener {
+    void on_update(TimelineDiff update);
+};
+
+interface TimelineDiff {
+    TimelineChange change();
+
+    [Self=ByArc]
+    sequence<TimelineItem>? replace();
+    [Self=ByArc]
+    InsertAtData? insert_at();
+    [Self=ByArc]
+    UpdateAtData? update_at();
+    u32? remove_at();
+    MoveData? move();
+    [Self=ByArc]
+    TimelineItem? push();
+};
+
+enum TimelineChange {
+    "Replace",
+    "InsertAt",
+    "UpdateAt",
+    "RemoveAt",
+    "Move",
+    "Push",
+    "Pop",
+    "Clear",
+};
+
+dictionary InsertAtData {
+    u32 index;
+    TimelineItem item;
+};
+
+dictionary UpdateAtData {
+    u32 index;
+    TimelineItem item;
+};
+
+dictionary MoveData {
+    u32 old_index;
+    u32 new_index;
+};
+
+interface TimelineItem {};
+
+interface EventTimelineItem {
+    TimelineKey key();
+    sequence<Reaction> reactions();
+};
+
+[Enum]
+interface TimelineKey {
+  TransactionId(string txn_id);
+  EventId(string event_id);
+};
+
+// Other methods defined via proc-macro
+interface Message {
+    MessageType? msgtype();
+};
+
+[Enum]
+interface MessageType {
+    Emote(EmoteMessageContent content);
+    Image(ImageMessageContent content);
+    Notice(NoticeMessageContent content);
+    Text(TextMessageContent content);
+};
+
+dictionary EmoteMessageContent {
+    string body;
+    FormattedBody? formatted;
+};
+
+dictionary ImageMessageContent {
+    string body;
+    MediaSource source;
+    ImageInfo? info;
+};
+
+dictionary ImageInfo {
+    u64? height;
+    u64? width;
+    string? mimetype;
+    u64? size;
+    ThumbnailInfo? thumbnail_info;
+    MediaSource? thumbnail_source;
+    string? blurhash;
+};
+
+dictionary ThumbnailInfo {
+    u64? height;
+    u64? width;
+    string? mimetype;
+    u64? size;
+};
+
+dictionary NoticeMessageContent {
+    string body;
+    FormattedBody? formatted;
+};
+
+dictionary TextMessageContent {
+    string body;
+    FormattedBody? formatted;
+};
+
+dictionary FormattedBody {
+    MessageFormat format;
+    string body;
+};
+
+enum MessageFormat {
+    "Html",
+    "Unknown",
+};
+
+dictionary Reaction {
+    string key;
+    u64 count;
+    // senders to come
+};
+
+interface VirtualTimelineItem {};
+
+dictionary PaginationOutcome {
+    // Whether there's more messages to be paginated.
+    boolean more_messages;
+};
+
 interface RoomMessageEventContent {};
-
-interface AnyMessage {
-    TextMessage? text_message();
-    ImageMessage? image_message();
-    NoticeMessage? notice_message();
-    EmoteMessage? emote_message();
-};
-
-interface BaseMessage {
-    string id();
-    string body();
-    string sender();
-    u64 origin_server_ts();
-    string? transaction_id();
-};
-
-interface TextMessage {
-    BaseMessage base_message();
-    string? html_body();
-};
-
-interface ImageMessage {
-    BaseMessage base_message();
-    MediaSource source();
-    u64? width();
-    u64? height();
-    string? blurhash();
-};
-
-interface NoticeMessage {
-    BaseMessage base_message();
-    string? html_body();
-};
-
-interface EmoteMessage {
-    BaseMessage base_message();
-    string? html_body();
-};
 
 interface MediaSource {
     string url();
