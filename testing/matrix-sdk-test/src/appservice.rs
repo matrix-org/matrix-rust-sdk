@@ -38,16 +38,9 @@ impl TransactionBuilder {
         self
     }
 
-    /// Build the transaction
-    #[cfg(feature = "appservice")]
-    pub fn build_json_transaction(&self) -> Value {
-        let body = serde_json::json! {
-            {
-                "events": self.events
-            }
-        };
-
-        body
+    /// Build the transaction as a serialized HTTP body
+    pub fn build_transaction(&self) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({ "events": self.events })).unwrap()
     }
 
     pub fn clear(&mut self) {

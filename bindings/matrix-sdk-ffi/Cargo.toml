@@ -23,7 +23,7 @@ futures-signals = { version = "0.3.28" }
 futures-util = { version = "0.3.17", default-features = false }
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "markdown", "sliding-sync", "socks"], version = "0.6.0" }
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync", "socks"], version = "0.6.0" }
 once_cell = "1.10.0"
 sanitize-filename-reader-friendly = "2.2.1"
 serde = { version = "1", features = ["derive"] }
