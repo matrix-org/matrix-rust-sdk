@@ -416,7 +416,7 @@ impl AppService {
         false
     }
 
-    /// Returns a [`Service`] that processes appservice requests.
+    /// Returns a [`Service`][tower::Service] that processes appservice requests.
     pub fn service<B>(&self) -> AppServiceRouter<B>
     where
         B: HttpBody + Send + 'static,
