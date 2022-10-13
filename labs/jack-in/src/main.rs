@@ -93,11 +93,11 @@ struct Opt {
     #[structopt(short, long, env = "JACKIN_LOG", default_value = "jack_in=info,warn")]
     log: String,
 
-    /// The userID associated with this access token
+    /// The userID to log in with
     #[structopt(short, long, env = "JACKIN_USER")]
     user: String,
 
-    /// The userID associated with this access token
+    /// The password to encrypt the store  with
     #[structopt(long, env = "JACKIN_STORE_PASSWORD")]
     store_pass: Option<String>,
 
@@ -234,6 +234,7 @@ async fn main() -> Result<()> {
         .map(|v| serde_json::from_slice(&v))
         .transpose()?
     {
+        tracing::info!("Restoring session from store");
         client.restore_login(session).await?;
     } else {
         let theme = ColorfulTheme::default();
