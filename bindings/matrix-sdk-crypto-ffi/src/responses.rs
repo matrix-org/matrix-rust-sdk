@@ -82,6 +82,7 @@ impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum OutgoingVerificationRequest {
     ToDevice { request_id: String, event_type: String, body: String },
     InRoom { request_id: String, room_id: String, event_type: String, content: String },
