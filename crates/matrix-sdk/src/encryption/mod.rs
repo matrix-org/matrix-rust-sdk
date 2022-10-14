@@ -53,8 +53,12 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedUserId, TransactionId, UserId,
+    assign,
+    events::AnyToDeviceEvent,
+    serde::Raw,
+    DeviceId, OwnedUserId, TransactionId, UserId,
 };
+use serde::Deserialize;
 use tracing::{debug, instrument, trace, warn};
 
 pub use crate::error::RoomKeyImportError;
@@ -107,6 +111,36 @@ impl Client {
         self.mark_request_as_sent(request_id, &response).await?;
 
         Ok(response)
+    }
+
+    pub(crate) async fn query_keys_for_untracked_users(
+        &self,
+        events: &[Raw<AnyToDeviceEvent>],
+    ) -> Result<()> {
+        #[derive(Deserialize)]
+        struct ToDeviceEvent {
+            sender: OwnedUserId,
+        }
+
+        if let Some(olm_machine) = self.olm_machine() {
+            let to_device_senders: Vec<_> = events
+                .iter()
+                .filter_map(|e| {
+                    let e: ToDeviceEvent = e.deserialize_as().ok()?;
+                    Some(e.sender)
+                })
+                .collect();
+
+            let untracked_senders: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = to_device_senders
+                .into_iter()
+                .filter(|user_id| !olm_machine.tracked_users().contains(user_id))
+                .map(|u| (u, Vec::new()))
+                .collect();
+
+            self.keys_query(&TransactionId::new(), untracked_senders).await?;
+        }
+
+        Ok(())
     }
 
     /// Encrypt and upload the file to be read from `reader` and construct an

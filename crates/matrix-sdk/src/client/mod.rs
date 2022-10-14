@@ -2029,6 +2029,15 @@ impl Client {
         }
 
         let response = self.send(request, Some(request_config)).await?;
+
+        #[cfg(feature = "e2e-encryption")]
+        {
+            use tracing::warn;
+
+            if let Err(e) = self.query_keys_for_untracked_users(&response.to_device.events).await {
+                warn!("Couldn't query the keys for untracked users {e:?}");
+            }
+        }
         let response = self.process_sync(response).await?;
 
         #[cfg(feature = "e2e-encryption")]
