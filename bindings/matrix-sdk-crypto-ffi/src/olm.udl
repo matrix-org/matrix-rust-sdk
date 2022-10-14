@@ -160,11 +160,6 @@ dictionary Sas {
     CancelInfo? cancel_info;
 };
 
-dictionary ScanResult {
-    QrCode qr;
-    OutgoingVerificationRequest request;
-};
-
 dictionary QrCode {
     string other_user_id;
     string other_device_id;
@@ -203,12 +198,6 @@ dictionary RequestVerificationResult {
 dictionary ConfirmVerificationResult {
     sequence<OutgoingVerificationRequest> requests;
     SignatureUploadRequest? signature_request;
-};
-
-[Enum]
-interface Verification {
-    SasV1(Sas sas);
-    QrCodeV1(QrCode qrcode);
 };
 
 dictionary KeyRequestPair {
@@ -307,7 +296,6 @@ interface OlmMachine {
     void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
     sequence<VerificationRequest> get_verification_requests([ByRef] string user_id);
     VerificationRequest? get_verification_request([ByRef] string user_id, [ByRef] string flow_id);
-    Verification? get_verification([ByRef] string user_id, [ByRef] string flow_id);
 
     [Throws=CryptoStoreError]
     VerificationRequest? request_verification(
@@ -330,31 +318,18 @@ interface OlmMachine {
         sequence<string> methods
     );
 
-    OutgoingVerificationRequest? accept_verification_request(
-        [ByRef] string user_id,
-        [ByRef] string flow_id,
-        sequence<string> methods
-    );
-
     [Throws=CryptoStoreError]
     ConfirmVerificationResult? confirm_verification([ByRef] string user_id, [ByRef] string flow_id);
-    OutgoingVerificationRequest? cancel_verification(
-        [ByRef] string user_id,
-        [ByRef] string flow_id,
-        [ByRef] string cancel_code
-    );
 
     [Throws=CryptoStoreError]
     StartSasResult? start_sas_with_device([ByRef] string user_id, [ByRef] string device_id);
     [Throws=CryptoStoreError]
     StartSasResult? start_sas_verification([ByRef] string user_id, [ByRef] string flow_id);
-    OutgoingVerificationRequest? accept_sas_verification([ByRef] string user_id, [ByRef] string flow_id);
     sequence<i32>? get_emoji_index([ByRef] string user_id, [ByRef] string flow_id);
     sequence<i32>? get_decimals([ByRef] string user_id, [ByRef] string flow_id);
 
     [Throws=CryptoStoreError]
     QrCode? start_qr_verification([ByRef] string user_id, [ByRef] string flow_id);
-    ScanResult? scan_qr_code([ByRef] string user_id, [ByRef] string flow_id, [ByRef] string data);
     string? generate_qr_code([ByRef] string user_id, [ByRef] string flow_id);
 
     [Throws=DecryptionError]
