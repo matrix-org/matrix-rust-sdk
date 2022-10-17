@@ -15,6 +15,12 @@ members = [
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
+[workspace.dependencies]
+uniffi = "0.21.0"
+uniffi_macros = "0.21.0"
+uniffi_bindgen = "0.21.0"
+uniffi_build = { version = "0.21.0", features = ["builtin-bindgen"] }
+
 [profile.release]
 lto = true
 
