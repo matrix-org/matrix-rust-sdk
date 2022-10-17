@@ -2337,13 +2337,11 @@ pub(crate) mod tests {
             other: Default::default(),
         };
         let event = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
         let changed_devices = DeviceLists::new();
         let key_counts = Default::default();
 
         let _ =
-            bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+            bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
 
         let group_session = GroupSession::new(SessionConfig::version_1());
         let session_key = group_session.session_key();
@@ -2373,10 +2371,8 @@ pub(crate) mod tests {
         );
 
         let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event.clone());
 
-        bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+        bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
 
         let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 
