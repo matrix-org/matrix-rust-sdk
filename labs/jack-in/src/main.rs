@@ -81,7 +81,8 @@ struct Opt {
     #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
     sliding_sync_proxy: String,
 
-    /// The password of your account. If not given and no database found, it will prompt you for it
+    /// The password of your account. If not given and no database found, it
+    /// will prompt you for it
     #[structopt(short, long, env = "JACKIN_PASSWORD")]
     password: Option<String>,
 
@@ -176,7 +177,6 @@ async fn main() -> Result<()> {
         }
         #[cfg(not(feature = "file-logging"))]
         {
-
             tui_logger::init_logger(log::LevelFilter::Trace).unwrap();
             // Set default level for unknown targets to Trace
             tui_logger::set_default_level(log::LevelFilter::Warn);
@@ -212,7 +212,7 @@ async fn main() -> Result<()> {
     let data_path =
         PathBuf::from(app_root(AppDataType::UserData, &APP_INFO)?).join(sanitize(user_id.as_str()));
     if opt.fresh {
-        // drop the datbase first;
+        // drop the database first;
         std::fs::remove_dir_all(&data_path)?;
     }
     std::fs::create_dir_all(&data_path)?;

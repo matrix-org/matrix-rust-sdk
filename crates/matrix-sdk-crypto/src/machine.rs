@@ -1584,7 +1584,7 @@ pub(crate) mod tests {
         api::{
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::{DeviceLists, ToDevice},
+                sync::sync_events::v3::DeviceLists,
             },
             IncomingResponse,
         },
@@ -2340,8 +2340,10 @@ pub(crate) mod tests {
         let changed_devices = DeviceLists::new();
         let key_counts = Default::default();
 
-        let _ =
-            bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
+        let _ = bob
+            .receive_sync_changes(vec![event], &changed_devices, &key_counts, None)
+            .await
+            .unwrap();
 
         let group_session = GroupSession::new(SessionConfig::version_1());
         let session_key = group_session.session_key();
