@@ -12,6 +12,10 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["staticlib"]
 
+[features]
+default = ["experimental-room-preview"] # the whole crate is still very experimental, so this is fine
+experimental-room-preview = ["matrix-sdk/experimental-room-preview"]
+
 [build-dependencies]
 uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "0eee77f67b716c4896494606e5931d249871b23a", features = ["builtin-bindgen"] }
 
@@ -19,7 +23,7 @@ uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "0eee77f67b
 anyhow = "1.0.51"
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
-futures-signals = { version = "0.3.28" }
+futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.17", default-features = false }
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
