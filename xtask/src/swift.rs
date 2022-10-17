@@ -5,17 +5,18 @@ use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
 
+/// Builds the SDK for Swift as a Static Library or XCFramework.
 #[derive(Args)]
 pub struct SwiftArgs {
     #[clap(subcommand)]
-    cmd: Option<SwiftCommand>,
+    cmd: SwiftCommand,
 }
 
 #[derive(Subcommand)]
 enum SwiftCommand {
-    /// Build as a static lib.
+    /// Builds the SDK for Swift as a static lib.
     BuildLibrary,
-    /// Build as an XCFramework.
+    /// Builds the SDK for Swift as an XCFramework.
     BuildFramework,
 }
 
@@ -24,11 +25,8 @@ impl SwiftArgs {
         let _p = pushd(&workspace::root_path()?)?;
 
         match self.cmd {
-            Some(cmd) => match cmd {
-                SwiftCommand::BuildLibrary => build_library(),
-                SwiftCommand::BuildFramework => build_xcframework(),
-            },
-            None => build_library(),
+            SwiftCommand::BuildLibrary => build_library(),
+            SwiftCommand::BuildFramework => build_xcframework(),
         }
     }
 }
