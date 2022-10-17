@@ -34,13 +34,21 @@ impl SwiftArgs {
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
 
+    let release_type = "debug";
+    let static_lib_filename = "libmatrix_sdk_ffi.a";
+
     let root_directory = workspace::root_path()?;
     let target_directory = root_directory.join("target");
     let ffi_directory = root_directory.join("bindings/apple/generated/matrix_sdk_ffi");
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
-
-    let release_type = "debug";
-    let static_lib_filename = "libmatrix_sdk_ffi.a";
+    let udl_file = camino::Utf8PathBuf::from_path_buf(
+        root_directory.join("bindings/matrix-sdk-ffi/src/api.udl"),
+    )
+    .expect("Root Dir contains non-utf8 characters");
+    let outdir_overwrite = camino::Utf8PathBuf::from_path_buf(ffi_directory.clone())
+        .expect("Root Dir contains non-utf8 characters");
+    let library_file = camino::Utf8PathBuf::from_path_buf(ffi_directory.join(static_lib_filename))
+        .expect("Root Dir contains non-utf8 characters");
 
     fs::create_dir_all(ffi_directory.as_path())?;
     fs::create_dir_all(swift_directory.as_path())?;
@@ -52,14 +60,14 @@ fn build_library() -> Result<()> {
         ffi_directory.join(static_lib_filename),
     )?;
 
-    cmd!(
-        "uniffi-bindgen generate
-    			--language swift
-    			--lib-file {ffi_directory}/{static_lib_filename}
-    			--out-dir {ffi_directory}
-				{root_directory}/bindings/matrix-sdk-ffi/src/api.udl"
-    )
-    .run()?;
+    uniffi_bindgen::generate_bindings(
+        udl_file.as_path(),
+        None,
+        vec!["swift"],
+        Some(outdir_overwrite.as_path()),
+        Some(library_file.as_path()),
+        false,
+    )?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
