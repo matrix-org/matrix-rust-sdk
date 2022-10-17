@@ -105,7 +105,10 @@ impl HttpClient {
         HttpClient { inner, request_config }
     }
 
-    #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
+    #[tracing::instrument(
+        skip(self, request, access_token),
+        fields(request_type = type_name::<Request>()),
+    )]
     pub async fn send<Request>(
         &self,
         request: Request,
