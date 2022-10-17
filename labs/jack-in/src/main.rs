@@ -181,8 +181,8 @@ async fn main() -> Result<()> {
             // Set default level for unknown targets to Trace
             tui_logger::set_default_level(log::LevelFilter::Warn);
 
-            for pair in opt.log.split(",") {
-                if let Some((name, lvl)) = pair.split_once("=") {
+            for pair in opt.log.split(',') {
+                if let Some((name, lvl)) = pair.split_once('=') {
                     let level = match lvl.to_lowercase().as_str() {
                         "trace" => log::LevelFilter::Trace,
                         "debug" => log::LevelFilter::Debug,
@@ -209,8 +209,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let data_path =
-        PathBuf::from(app_root(AppDataType::UserData, &APP_INFO)?).join(sanitize(user_id.as_str()));
+    let data_path = app_root(AppDataType::UserData, &APP_INFO)?.join(sanitize(user_id.as_str()));
     if opt.fresh {
         // drop the database first;
         std::fs::remove_dir_all(&data_path)?;
