@@ -79,13 +79,12 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-use std::{convert::Infallible, fmt::Debug, future::Future, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
-use axum::body::{Bytes, HttpBody};
+use axum::body::HttpBody;
 use dashmap::DashMap;
 pub use error::Error;
 use event_handler::AppserviceFn;
-use http_body::combinators::UnsyncBoxBody;
 pub use matrix_sdk;
 #[doc(no_inline)]
 pub use matrix_sdk::ruma;
@@ -105,7 +104,6 @@ use ruma::{
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::task::JoinHandle;
-use tower::Service;
 use tracing::{debug, info, warn};
 
 mod error;
@@ -117,6 +115,7 @@ mod webserver;
 pub use registration::AppServiceRegistration;
 use registration::NamespaceCache;
 pub use virtual_user::VirtualUserBuilder;
+pub use webserver::AppServiceRouter;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -412,13 +411,9 @@ impl AppService {
         self.namespaces.users.iter().any(|regex| regex.is_match(user_id))
     }
 
-    /// Returns a [`Service`] that processes appservice requests.
-    pub fn service<B>(
-        &self,
-        // axum::Error is part of the signature because axum::Router::nest
-        // requires the inner service to have that exact response (body) type
-        // in 0.5.x. This will be fixed in axum 0.6.0.
-    ) -> impl HttpService<B, ResBody = UnsyncBoxBody<Bytes, axum::Error>> + Clone
+    /// Returns a [`Service`][tower::Service] that processes appservice
+    /// requests.
+    pub fn service<B>(&self) -> AppServiceRouter<B>
     where
         B: HttpBody + Send + 'static,
         B::Data: Send,
@@ -563,28 +558,6 @@ impl AppService {
     }
 }
 
-#[rustfmt::skip]
-pub trait HttpService<ReqBody>:
-    Service<
-        http::Request<ReqBody>,
-        Response = http::Response<Self::ResBody>,
-        Error = Infallible,
-        Future = <Self as HttpService<ReqBody>>::Future,
-    >
-{
-    type Future: Future<Output = Result<Self::Response, Self::Error>> + Send;
-    type ResBody;
-}
-
-impl<ReqBody, ResBody, S> HttpService<ReqBody> for S
-where
-    S: Service<http::Request<ReqBody>, Response = http::Response<ResBody>, Error = Infallible>,
-    <S as Service<http::Request<ReqBody>>>::Future: Send,
-{
-    type Future = <S as Service<http::Request<ReqBody>>>::Future;
-    type ResBody = ResBody;
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -607,7 +580,7 @@ mod tests {
         serde::Raw,
     };
     use serde_json::json;
-    use tower::ServiceExt;
+    use tower::{Service, ServiceExt};
     use wiremock::{
         matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
