@@ -58,6 +58,8 @@ impl VerificationCache {
             if !old_verification.is_cancelled() {
                 warn!(
                     user_id = verification.other_user().as_str(),
+                    old_flow_id = old_verification.flow_id(),
+                    new_flow_id = verification.flow_id(),
                     "Received a new verification whilst another one with \
                     the same user is ongoing. Cancelling both verifications"
                 );
