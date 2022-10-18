@@ -10,3 +10,4 @@ jobs:
         uses: styfle/cancel-workflow-action@0.11.0
         with:
           workflow_id: all
+          all_but_latest: true
