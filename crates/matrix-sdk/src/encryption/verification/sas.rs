@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas};
+use futures_core::Stream;
+use matrix_sdk_base::crypto::{
+    AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas, SasState,
+};
 use ruma::{events::key::verification::cancel::CancelCode, UserId};
 
 use crate::{error::Result, Client};
@@ -216,5 +219,109 @@ impl SasVerification {
     /// flow.
     pub fn other_user_id(&self) -> &UserId {
         self.inner.other_user_id()
+    }
+
+    /// Listen for changes in the SAS verification process.
+    ///
+    /// The changes are presented as a stream of [`SasState`] values.
+    ///
+    /// This method can be used to react to changes in the state of the
+    /// verification process, or rather the method can be used to handle
+    /// each step of the verification process.
+    ///
+    /// # Flowchart
+    ///
+    /// The flow of the verification process is pictured bellow. Please note
+    /// that the process can be cancelled at each step of the process.
+    /// Either side can cancel the process.
+    ///
+    /// ```text
+    ///                ┌───────┐
+    ///                │Started│
+    ///                └───┬───┘
+    ///                    │
+    ///               ┌────⌄───┐
+    ///               │Accepted│
+    ///               └────┬───┘
+    ///                    │
+    ///            ┌───────⌄──────┐
+    ///            │Keys Exchanged│
+    ///            └───────┬──────┘
+    ///                    │
+    ///            ________⌄________
+    ///           ╱                 ╲       ┌─────────┐
+    ///          ╱   Does the short  ╲______│Cancelled│
+    ///          ╲ auth string match ╱ no   └─────────┘
+    ///           ╲_________________╱
+    ///                    │yes
+    ///                    │
+    ///               ┌────⌄────┐
+    ///               │Confirmed│
+    ///               └────┬────┘
+    ///                    │
+    ///                ┌───⌄───┐
+    ///                │  Done │
+    ///                └───────┘
+    /// ```
+    /// # Example
+    ///
+    /// ```no_run
+    /// use futures::stream::{Stream, StreamExt};
+    /// use matrix_sdk::encryption::verification::{SasState, SasVerification};
+    ///
+    /// # futures::executor::block_on(async {
+    /// # let sas: SasVerification = unimplemented!();
+    /// # let user_confirmed = false;
+    ///
+    /// while let Some(state) = sas.changes().next().await {
+    ///     match state {
+    ///         SasState::KeysExchanged { emojis, decimals: _ } => {
+    ///             let emojis =
+    ///                 emojis.expect("We only support emoji verification");
+    ///             println!("Do these emojis match {emojis:#?}");
+    ///
+    ///             // Ask the user to confirm or cancel here.
+    ///             if user_confirmed {
+    ///                 sas.confirm().await?;
+    ///             } else {
+    ///                 sas.cancel().await?;
+    ///             }
+    ///         }
+    ///         SasState::Done { .. } => {
+    ///             let device = sas.other_device();
+    ///
+    ///             println!(
+    ///                 "Successfully verified device {} {} {:?}",
+    ///                 device.user_id(),
+    ///                 device.device_id(),
+    ///                 device.local_trust_state()
+    ///             );
+    ///
+    ///             break;
+    ///         }
+    ///         SasState::Cancelled(cancel_info) => {
+    ///             println!(
+    ///                 "The verification has been cancelled, reason: {}",
+    ///                 cancel_info.reason()
+    ///             );
+    ///             break;
+    ///         }
+    ///         SasState::Started { .. }
+    ///         | SasState::Accepted { .. }
+    ///         | SasState::Confirmed => (),
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn changes(&self) -> impl Stream<Item = SasState> {
+        self.inner.changes()
+    }
+
+    /// Get the current state the verification process is in.
+    ///
+    /// To listen to changes to the [`SasState`] use the
+    /// [`SasVerification::changes`] method.
+    pub fn state(&self) -> SasState {
+        self.inner.state()
     }
 }

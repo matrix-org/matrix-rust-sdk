@@ -1,16 +1,14 @@
-use std::io::{self, Write};
+use std::io::Write;
 
 use anyhow::Result;
 use clap::Parser;
+use futures::stream::StreamExt;
 use matrix_sdk::{
-    self,
     config::SyncSettings,
-    encryption::verification::{format_emojis, SasVerification, Verification},
+    encryption::verification::{format_emojis, Emoji, SasState, SasVerification, Verification},
     ruma::{
         events::{
             key::verification::{
-                done::{OriginalSyncKeyVerificationDoneEvent, ToDeviceKeyVerificationDoneEvent},
-                key::{OriginalSyncKeyVerificationKeyEvent, ToDeviceKeyVerificationKeyEvent},
                 request::ToDeviceKeyVerificationRequestEvent,
                 start::{OriginalSyncKeyVerificationStartEvent, ToDeviceKeyVerificationStartEvent},
             },
@@ -22,38 +20,18 @@ use matrix_sdk::{
 };
 use url::Url;
 
-async fn wait_for_confirmation(client: Client, sas: SasVerification) {
-    let emoji = sas.emoji().expect("The emoji should be available now");
-
+async fn wait_for_confirmation(sas: SasVerification, emoji: [Emoji; 7]) {
     println!("\nDo the emojis match: \n{}", format_emojis(emoji));
     print!("Confirm with `yes` or cancel with `no`: ");
     std::io::stdout().flush().expect("We should be able to flush stdout");
 
     let mut input = String::new();
-    io::stdin().read_line(&mut input).expect("error: unable to read user input");
+    std::io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
     match input.trim().to_lowercase().as_ref() {
-        "yes" | "true" | "ok" => {
-            sas.confirm().await.unwrap();
-
-            if sas.is_done() {
-                print_result(&sas);
-                print_devices(sas.other_device().user_id(), &client).await;
-            }
-        }
+        "yes" | "true" | "ok" => sas.confirm().await.unwrap(),
         _ => sas.cancel().await.unwrap(),
     }
-}
-
-fn print_result(sas: &SasVerification) {
-    let device = sas.other_device();
-
-    println!(
-        "Successfully verified device {} {} {:?}",
-        device.user_id(),
-        device.device_id(),
-        device.local_trust_state()
-    );
 }
 
 async fn print_devices(user_id: &UserId, client: &Client) {
@@ -66,6 +44,47 @@ async fn print_devices(user_id: &UserId, client: &Client) {
             device.display_name().unwrap_or("-"),
             device.is_verified()
         );
+    }
+}
+
+async fn sas_verification_handler(client: Client, sas: SasVerification) {
+    println!(
+        "Starting verification with {} {}",
+        &sas.other_device().user_id(),
+        &sas.other_device().device_id()
+    );
+    print_devices(sas.other_device().user_id(), &client).await;
+    sas.accept().await.unwrap();
+
+    while let Some(state) = sas.changes().next().await {
+        match state {
+            SasState::KeysExchanged { emojis, decimals: _ } => {
+                tokio::spawn(wait_for_confirmation(
+                    sas.clone(),
+                    emojis.expect("We only support verifications using emojis").emojis,
+                ));
+            }
+            SasState::Done { .. } => {
+                let device = sas.other_device();
+
+                println!(
+                    "Successfully verified device {} {} {:?}",
+                    device.user_id(),
+                    device.device_id(),
+                    device.local_trust_state()
+                );
+
+                print_devices(sas.other_device().user_id(), &client).await;
+
+                break;
+            }
+            SasState::Cancelled(cancel_info) => {
+                println!("The verification has been cancelled, reason: {}", cancel_info.reason());
+
+                break;
+            }
+            SasState::Started { .. } | SasState::Accepted { .. } | SasState::Confirmed => (),
+        }
     }
 }
 
@@ -88,36 +107,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
             .get_verification(&ev.sender, ev.content.transaction_id.as_str())
             .await
         {
-            println!(
-                "Starting verification with {} {}",
-                &sas.other_device().user_id(),
-                &sas.other_device().device_id()
-            );
-            print_devices(&ev.sender, &client).await;
-            sas.accept().await.unwrap();
-        }
-    });
-
-    client.add_event_handler(|ev: ToDeviceKeyVerificationKeyEvent, client: Client| async move {
-        if let Some(Verification::SasV1(sas)) = client
-            .encryption()
-            .get_verification(&ev.sender, ev.content.transaction_id.as_str())
-            .await
-        {
-            tokio::spawn(wait_for_confirmation(client, sas));
-        }
-    });
-
-    client.add_event_handler(|ev: ToDeviceKeyVerificationDoneEvent, client: Client| async move {
-        if let Some(Verification::SasV1(sas)) = client
-            .encryption()
-            .get_verification(&ev.sender, ev.content.transaction_id.as_str())
-            .await
-        {
-            if sas.is_done() {
-                print_result(&sas);
-                print_devices(&ev.sender, &client).await;
-            }
+            tokio::spawn(sas_verification_handler(client, sas));
         }
     });
 
@@ -140,40 +130,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                 .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
                 .await
             {
-                println!(
-                    "Starting verification with {} {}",
-                    &sas.other_device().user_id(),
-                    &sas.other_device().device_id()
-                );
-                print_devices(&ev.sender, &client).await;
-                sas.accept().await.unwrap();
-            }
-        },
-    );
-
-    client.add_event_handler(
-        |ev: OriginalSyncKeyVerificationKeyEvent, client: Client| async move {
-            if let Some(Verification::SasV1(sas)) = client
-                .encryption()
-                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                .await
-            {
-                tokio::spawn(wait_for_confirmation(client.clone(), sas));
-            }
-        },
-    );
-
-    client.add_event_handler(
-        |ev: OriginalSyncKeyVerificationDoneEvent, client: Client| async move {
-            if let Some(Verification::SasV1(sas)) = client
-                .encryption()
-                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                .await
-            {
-                if sas.is_done() {
-                    print_result(&sas);
-                    print_devices(&ev.sender, &client).await;
-                }
+                tokio::spawn(sas_verification_handler(client, sas));
             }
         },
     );
