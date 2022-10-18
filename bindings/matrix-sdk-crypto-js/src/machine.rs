@@ -30,20 +30,25 @@ pub struct OlmMachine {
 impl OlmMachine {
     /// Create a new memory based `OlmMachine`.
     ///
-    /// The created machine will keep the encryption keys only in
-    /// memory and once the objects is dropped, the keys will be lost.
+    /// The created machine will keep the encryption keys either in a IndexedDB
+    /// based store, or in a memory store and once the objects is dropped,
+    /// the keys will be lost.
     ///
-    /// `user_id` represents the unique ID of the user that owns this
-    /// machine. `device_id` represents the unique ID of the device
+    /// # Arguments
+    ///
+    /// * `user_id` - represents the unique ID of the user that owns this
+    /// machine.
+    ///
+    /// * `device_id` - represents the unique ID of the device
     /// that owns this machine.
     ///
-    /// `store_name` and `store_passphrase` are both optional, but
-    /// must be both set to have an effect. If they are both set, the
-    /// state of the machine will persist in a database named
-    /// `store_name` where its content is encrypted by the passphrase
-    /// given by `store_passphrase`. If they are not both set, the
-    /// created machine will keep the encryption keys only in memory,
-    /// and once the object is dropped, the keys will be lost.
+    /// * `store_name` - The name that should be used to open the IndexedDB
+    ///   based database. If this isn't provided, a memory-only store will be
+    ///   used. *Note* the memory-only store will lose your E2EE keys when the
+    ///   `OlmMachine` gets dropped.
+    ///
+    /// * `store_passphrase` - The passphrase that should be used to encrypt the
+    ///   IndexedDB based
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
