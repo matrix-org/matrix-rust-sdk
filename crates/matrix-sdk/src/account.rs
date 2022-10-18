@@ -79,7 +79,8 @@ impl Account {
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = get_display_name::v3::Request::new(user_id);
-        let response = self.client.send(request, None).await?;
+        let request_config = self.client.request_config().force_auth();
+        let response = self.client.send(request, Some(request_config)).await?;
         Ok(response.displayname)
     }
 
