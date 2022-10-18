@@ -2473,6 +2473,7 @@ dependencies = [
  "base64",
  "bs58",
  "byteorder",
+ "cfg-if",
  "ctr",
  "dashmap",
  "event-listener",
