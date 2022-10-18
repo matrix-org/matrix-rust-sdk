@@ -46,12 +46,12 @@ tracing = "0.1.34"
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
-futures = { version = "0.3.21", default-features = false, features = ["executor"] }
-tracing = { version = "0.1.26", features = ["log"] }
-http = "0.2.6"
 assign = "1.1.1"
 env_logger = "0.9.0"
+futures = { version = "0.3.21", default-features = false, features = ["executor"] }
+http = "0.2.6"
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+tracing = { version = "0.1.26", features = ["log"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
