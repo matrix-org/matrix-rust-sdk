@@ -532,7 +532,12 @@ impl Client {
     /// context argument types are only available for a subset of event types:
     ///
     /// * [`Room`][room::Room] is only available for room-specific events, i.e.
-    ///   not for events like global account data events or presence events
+    ///   not for events like global account data events or presence events.
+    ///
+    /// You can provide custom context via
+    /// [`add_event_handler_context`](Client::add_event_handler_context) and
+    /// then use [`Ctx<T>`](crate::event_handler::Ctx) to extract the context
+    /// into the event handler.
     ///
     /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
     ///
@@ -544,6 +549,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
+    ///     event_handler::Ctx,
     ///     room::Room,
     ///     ruma::{
     ///         events::{
@@ -587,6 +593,16 @@ impl Client {
     ///     /* Event handler */
     /// });
     /// client.remove_event_handler(handle);
+    ///
+    /// // Registering custom event handler context:
+    /// #[derive(Debug, Clone)] // The context will be cloned for event handler.
+    /// struct MyContext {
+    ///     number: usize,
+    /// }
+    /// client.add_event_handler_context(MyContext { number: 5 });
+    /// client.add_event_handler(|ev: SyncRoomMessageEvent, context: Ctx<MyContext>| async move {
+    ///     // Use the context
+    /// });
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
