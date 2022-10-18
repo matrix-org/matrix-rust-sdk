@@ -29,6 +29,7 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true }
 uniffi_macros = { workspace = true }
+vodozemac = { workspace = true }
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [dependencies.js_int]
@@ -54,9 +55,6 @@ features = ["crypto-store"]
 version = "1.17.0"
 default_features = false
 features = ["rt-multi-thread"]
-
-[dependencies.vodozemac]
-version = "0.3.0"
 
 [build-dependencies]
 uniffi_build = { workspace = true, features = ["builtin-bindgen"] }

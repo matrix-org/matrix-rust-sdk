@@ -21,9 +21,7 @@ byteorder = "1.4.3"
 qrcode = { version = "0.12.0", default-features = false }
 ruma-common = "0.10.0"
 thiserror = "1.0.30"
-
-[dependencies.vodozemac]
-version = "0.3.0"
+vodozemac = { workspace = true }
 
 [dev-dependencies]
 image = "0.23.0"

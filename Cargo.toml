@@ -21,6 +21,7 @@ uniffi = "0.21.0"
 uniffi_macros = "0.21.0"
 uniffi_bindgen = "0.21.0"
 uniffi_build = { version = "0.21.0", features = ["builtin-bindgen"] }
+vodozemac = "0.3.0"
 
 [profile.release]
 lto = true
