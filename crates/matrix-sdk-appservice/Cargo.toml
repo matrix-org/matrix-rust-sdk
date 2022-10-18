@@ -37,7 +37,7 @@ http-body = "0.4.5"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"] }
 matrix-sdk = { version = "0.6.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 regex = "1.5.5"
-ruma = { version = "0.7.0", features = ["client-api-c", "appservice-api-s"] }
+ruma = { workspace = true, features = ["appservice-api-s"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 serde_yaml = "0.9.4"

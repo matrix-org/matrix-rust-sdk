@@ -16,6 +16,7 @@ default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
+ruma = { version = "0.7.4", features = ["client-api-c"] }
 uniffi = "0.21.0"
 uniffi_macros = "0.21.0"
 uniffi_bindgen = "0.21.0"

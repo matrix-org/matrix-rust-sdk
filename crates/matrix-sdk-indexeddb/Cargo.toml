@@ -30,7 +30,7 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", features
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 indexed_db_futures = "0.2.3"
 indexed_db_futures_nodejs = { version = "0.2.3", package = "indexed_db_futures", git = "https://github.com/Hywan/rust-indexed-db", branch = "feat-factory-nodejs", optional = true }
-ruma = "0.7.0"
+ruma = { workspace = true }
 serde = "1.0.136"
 serde_json = "1.0.79"
 thiserror = "1.0.30"
