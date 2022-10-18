@@ -47,7 +47,7 @@ use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     UserId,
 };
-pub use sas::{AcceptSettings, Sas};
+pub use sas::{AcceptSettings, AcceptedProtocols, EmojiShortAuthString, Sas, SasState};
 use tracing::{error, info, trace, warn};
 
 use crate::{

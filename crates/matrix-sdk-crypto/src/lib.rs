@@ -88,7 +88,8 @@ pub use requests::{
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
 pub use verification::{
-    format_emojis, AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest,
+    format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,
+    SasState, Verification, VerificationRequest,
 };
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};
