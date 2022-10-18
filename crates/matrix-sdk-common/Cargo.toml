@@ -21,7 +21,7 @@ js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
 [dependencies]
 futures-core = "0.3.21"
 instant = "0.1.12"
-ruma = { version = "0.7.0", features = ["client-api-c"] }
+ruma = { workspace = true }
 serde = "1.0.136"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

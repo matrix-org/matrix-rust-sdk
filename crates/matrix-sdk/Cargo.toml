@@ -81,7 +81,8 @@ matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", de
 matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
 rand = { version = "0.8.5", optional = true }
-reqwest = { version = "0.11.10", default_features = false}
+reqwest = { version = "0.11.10", default_features = false }
+ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 thiserror = "1.0.30"
@@ -110,10 +111,6 @@ features = [
     "farbfeld",
 ]
 optional = true
-
-[dependencies.ruma]
-version = "0.7.4"
-features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2965"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-once-cell = "0.4.2"
