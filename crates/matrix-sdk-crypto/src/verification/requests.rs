@@ -36,6 +36,8 @@ use ruma::{
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
     UserId,
 };
+#[cfg(feature = "qrcode")]
+use tracing::debug;
 use tracing::{info, trace, warn};
 
 #[cfg(feature = "qrcode")]
@@ -345,10 +347,18 @@ impl VerificationRequest {
                 .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
                 .is_some()
             {
-                info!("Replacing existing QR verification");
+                debug!(
+                    user_id = %self.other_user(),
+                    flow_id = self.flow_id().as_str(),
+                    "Replacing existing QR verification"
+                );
                 self.verification_cache.replace_qr(qr_verification.clone());
             } else {
-                info!("Inserting new QR verification");
+                debug!(
+                    user_id = %self.other_user(),
+                    flow_id = self.flow_id().as_str(),
+                    "Inserting new QR verification"
+                );
                 self.verification_cache.insert_qr(qr_verification.clone());
             }
 
@@ -650,20 +660,21 @@ impl VerificationRequest {
                 {
                     // We may have previously started QR verification and generated a QR code. If we
                     // now switch to SAS flow, the previous verification has to be replaced
-                    if cfg!(feature = "qrcode") {
-                        #[cfg(feature = "qrcode")]
-                        if self
-                            .verification_cache
-                            .get_qr(sas.other_user_id(), sas.flow_id().as_str())
-                            .is_some()
-                        {
-                            info!("We have an ongoing QR verification, replacing with SAS");
-                            self.verification_cache.replace(sas.clone().into())
+                    cfg_if::cfg_if! {
+                        if #[cfg(feature = "qrcode")] {
+                            if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
+                                debug!(
+                                    user_id = %self.other_user(),
+                                    flow_id = self.flow_id().as_str(),
+                                    "We have an ongoing QR verification, replacing with SAS"
+                                );
+                                self.verification_cache.replace(sas.clone().into())
+                            } else {
+                                self.verification_cache.insert_sas(sas.clone());
+                            }
                         } else {
                             self.verification_cache.insert_sas(sas.clone());
                         }
-                    } else {
-                        self.verification_cache.insert_sas(sas.clone());
                     }
 
                     let request = match content {

@@ -819,7 +819,7 @@ impl ReadOnlyOwnUserIdentity {
             master_key,
             self_signing_key,
             user_signing_key,
-            verified: Arc::new(AtomicBool::new(true)),
+            verified: Arc::new(AtomicBool::new(false)),
         }
     }
 

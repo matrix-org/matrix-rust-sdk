@@ -56,7 +56,11 @@ impl VerificationCache {
             let old_verification = old.value();
 
             if !old_verification.is_cancelled() {
-                warn!("Received a new verification whilst another one with the same user is ongoing. Cancelling both verifications");
+                warn!(
+                    user_id = verification.other_user().as_str(),
+                    "Received a new verification whilst another one with \
+                    the same user is ongoing. Cancelling both verifications"
+                );
 
                 if let Some(r) = old_verification.cancel() {
                     self.add_request(r.into())
