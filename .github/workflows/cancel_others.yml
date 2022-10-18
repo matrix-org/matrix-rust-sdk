@@ -1,0 +1,12 @@
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  cancel-others:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel workflows for older commits
+        uses: styfle/cancel-workflow-action@0.9.1
+        with:
+          workflow_id: all

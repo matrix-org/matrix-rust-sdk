@@ -16,15 +16,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  cancel-others:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.9.1
-        with:
-          access_token: ${{ github.token }}
-
   xtask:
     runs-on: ubuntu-latest
     steps:
