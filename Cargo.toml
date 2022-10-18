@@ -17,6 +17,7 @@ resolver = "2"
 
 [workspace.dependencies]
 ruma = { version = "0.7.4", features = ["client-api-c"] }
+tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 uniffi = "0.21.0"
 uniffi_macros = "0.21.0"
 uniffi_bindgen = "0.21.0"
