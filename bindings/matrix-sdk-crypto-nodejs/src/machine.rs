@@ -36,7 +36,7 @@ impl OlmMachine {
     // the factory function. We also manually implement the
     // constructor to raise an error when called.
 
-    /// Create a new memory-based `OlmMachine` asynchronously.
+    /// Create a new `OlmMachine` asynchronously.
     ///
     /// The persistence of the encryption keys and all the inner
     /// objects are controlled by the `store_path` argument.
