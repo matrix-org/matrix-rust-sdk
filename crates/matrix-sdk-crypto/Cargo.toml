@@ -49,7 +49,7 @@ sha2 = "0.10.2"
 thiserror = "1.0.30"
 tracing = "0.1.34"
 vodozemac = { workspace = true }
-zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
+zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.18", default-features = false, features = ["time"] }
