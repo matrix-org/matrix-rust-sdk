@@ -66,6 +66,7 @@ impl OlmMachine {
                 #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
                     use std::sync::Arc;
+
                     use zeroize::Zeroize;
 
                     let store = Some(
@@ -82,9 +83,22 @@ impl OlmMachine {
                     store
                 }
 
-                (Some(_), None) => return Err(anyhow::Error::msg("The `store_name` has been set, and so, it expects a `store_passphrase`, which is not set; please provide one")),
+                #[cfg(target_arch = "wasm32")]
+                (Some(store_name), None) => {
+                    use std::sync::Arc;
+                    Some(
+                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_name(&store_name)
+                            .await
+                            .map(Arc::new)?,
+                    )
+                }
 
-                (None, Some(_)) => return Err(anyhow::Error::msg("The `store_passphrase` has been set, but it has an effect only if `store_name` is set, which is not; please provide one")),
+                (None, Some(_)) => {
+                    return Err(anyhow::Error::msg(
+                        "The `store_passphrase` has been set, but it has an effect only if \
+                        `store_name` is set, which is not; please provide one",
+                    ))
+                }
 
                 _ => None,
             };
