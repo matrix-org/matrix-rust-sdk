@@ -2415,6 +2415,7 @@ dependencies = [
  "lru",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
+ "matrix-sdk-store-encryption",
  "matrix-sdk-test",
  "once_cell",
  "ruma",

@@ -97,17 +97,7 @@ impl From<IndexeddbStateStoreError> for StoreError {
         match e {
             IndexeddbStateStoreError::Json(e) => StoreError::Json(e),
             IndexeddbStateStoreError::StoreError(e) => e,
-            IndexeddbStateStoreError::Encryption(e) => match e {
-                EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
-                EncryptionError::Serialization(e) => StoreError::Json(e),
-                EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
-                EncryptionError::Version(found, expected) => StoreError::Encryption(format!(
-                    "Bad Database Encryption Version: expected {expected}, found {found}",
-                )),
-                EncryptionError::Length(found, expected) => StoreError::Encryption(format!(
-                    "The database key an invalid length: expected {expected}, found {found}",
-                )),
-            },
+            IndexeddbStateStoreError::Encryption(e) => StoreError::Encryption(e),
             _ => StoreError::backend(e),
         }
     }
@@ -1140,9 +1130,7 @@ impl IndexeddbStateStore {
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let jskey = &JsValue::from_str(
-            core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?,
-        );
+        let jskey = &JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
         self.get_custom_value_for_js(jskey).await
     }
 
@@ -1157,9 +1145,7 @@ impl IndexeddbStateStore {
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let jskey = JsValue::from_str(
-            core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?,
-        );
+        let jskey = JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
 

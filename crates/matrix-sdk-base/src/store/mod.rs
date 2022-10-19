@@ -26,6 +26,7 @@ use std::{
     ops::Deref,
     pin::Pin,
     result::Result as StdResult,
+    str::Utf8Error,
     sync::Arc,
 };
 
@@ -41,6 +42,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{CryptoStore, IntoCryptoStore};
+pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
@@ -98,10 +100,11 @@ pub enum StoreError {
     UnencryptedStore,
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
-    Encryption(String),
+    Encryption(#[from] StoreEncryptionError),
+
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
-    Codec(String),
+    Codec(#[from] Utf8Error),
 
     /// The database format has changed in a backwards incompatible way.
     #[error(
