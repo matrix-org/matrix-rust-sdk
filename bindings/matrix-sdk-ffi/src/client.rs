@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -129,7 +129,7 @@ impl Client {
 
     pub fn restore_token(&self) -> anyhow::Result<String> {
         RUNTIME.block_on(async move {
-            let session = self.client.session().expect("Missing session");
+            let session = self.client.session().context("Missing session")?;
             let homeurl = self.client.homeserver().await.into();
             Ok(serde_json::to_string(&RestoreToken {
                 session,
@@ -141,14 +141,14 @@ impl Client {
     }
 
     pub fn user_id(&self) -> anyhow::Result<String> {
-        let user_id = self.client.user_id().expect("No User ID found");
+        let user_id = self.client.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
     }
 
     pub fn display_name(&self) -> anyhow::Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let display_name = l.account().get_display_name().await?.expect("No User ID found");
+            let display_name = l.account().get_display_name().await?.context("No User ID found")?;
             Ok(display_name)
         })
     }
@@ -156,13 +156,13 @@ impl Client {
     pub fn avatar_url(&self) -> anyhow::Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let avatar_url = l.account().get_avatar_url().await?.expect("No User ID found");
+            let avatar_url = l.account().get_avatar_url().await?.context("No User ID found")?;
             Ok(avatar_url.to_string())
         })
     }
 
     pub fn device_id(&self) -> anyhow::Result<String> {
-        let device_id = self.client.device_id().expect("No Device ID found");
+        let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
     }
 
@@ -235,13 +235,13 @@ impl Client {
                 return Ok(Arc::new(session_verification_controller.clone()));
             }
 
-            let user_id = self.client.user_id().expect("Failed retrieving current user_id");
+            let user_id = self.client.user_id().context("Failed retrieving current user_id")?;
             let user_identity = self
                 .client
                 .encryption()
                 .get_user_identity(user_id)
                 .await?
-                .expect("Failed retrieving user identity");
+                .context("Failed retrieving user identity")?;
 
             let session_verification_controller = SessionVerificationController::new(user_identity);
 
