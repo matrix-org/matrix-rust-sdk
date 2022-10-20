@@ -475,9 +475,11 @@ enum BuilderStoreConfig {
 impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(feature = "sled")]
             Self::Sled { path, .. } => {
                 f.debug_struct("Sled").field("path", path).finish_non_exhaustive()
             }
+            #[cfg(feature = "indexeddb")]
             Self::IndexedDb { name, .. } => {
                 f.debug_struct("IndexedDb").field("name", name).finish_non_exhaustive()
             }
