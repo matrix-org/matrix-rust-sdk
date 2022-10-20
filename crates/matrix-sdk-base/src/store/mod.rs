@@ -513,9 +513,7 @@ impl Store {
 
         Self::new(inner)
     }
-}
 
-impl Store {
     /// Create a new store, wrappning the given `StateStore`
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
