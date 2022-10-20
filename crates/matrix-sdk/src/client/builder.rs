@@ -342,6 +342,7 @@ impl ClientBuilder {
             HttpConfig::Custom(c) => c,
         };
 
+        #[allow(clippy::infallible_destructuring_match)]
         let store_config = match self.store_config {
             #[cfg(feature = "sled")]
             BuilderStoreConfig::Sled { path, passphrase } => {
@@ -474,6 +475,7 @@ enum BuilderStoreConfig {
 
 impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[allow(clippy::infallible_destructuring_match)]
         match self {
             #[cfg(feature = "sled")]
             Self::Sled { path, .. } => {
