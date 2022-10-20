@@ -99,14 +99,17 @@ mod uniffi_types {
         authentication_service::{AuthenticationService, HomeserverLoginDetails},
         client::Client,
         client_builder::ClientBuilder,
-        room::Room,
-        session_verification::SessionVerificationEmoji,
+        room::{Membership, Room},
+        session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncView, StoppableSpawn,
-            UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,
+            SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
-            EventTimelineItem, Message, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+            EmoteMessageContent, EventTimelineItem, FormattedBody, ImageInfo, ImageMessageContent,
+            InsertAtData, Message, MessageFormat, MessageType, NoticeMessageContent, Reaction,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            TimelineItemContent, TimelineKey, UpdateAtData, VirtualTimelineItem,
         },
     };
 }
