@@ -23,6 +23,7 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
+    fmt,
     ops::Deref,
     pin::Pin,
     result::Result as StdResult,
@@ -495,7 +496,7 @@ where
 ///
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
@@ -632,6 +633,18 @@ impl Store {
             .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
+    }
+}
+
+impl fmt::Debug for Store {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Store")
+            .field("inner", &self.inner)
+            .field("session_meta", &self.session_meta)
+            .field("sync_token", &self.sync_token)
+            .field("rooms", &self.rooms)
+            .field("stripped_rooms", &self.stripped_rooms)
+            .finish_non_exhaustive()
     }
 }
 
