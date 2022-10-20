@@ -156,21 +156,25 @@ async fn main() -> Result<()> {
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk::sliding_sync", LevelFilter::Trace),
+                        .build("matrix_sdk::sliding_sync", log::LevelFilter::Trace),
                 )
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk::http_client", LevelFilter::Debug),
+                        .build("matrix_sdk::http_client", log::LevelFilter::Debug),
                 )
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk_base::sliding_sync", LevelFilter::Debug),
+                        .build("matrix_sdk_base::sliding_sync", log::LevelFilter::Debug),
                 )
-                .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
-                .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
-                .build(Root::builder().build(LevelFilter::Error))
+                .logger(
+                    Logger::builder().appender("file").build("reqwest", log::LevelFilter::Trace),
+                )
+                .logger(
+                    Logger::builder().appender("file").build("matrix_sdk", log::LevelFilter::Warn),
+                )
+                .build(Root::builder().build(log::LevelFilter::Error))
                 .unwrap();
 
             log4rs::init_config(config).expect("Logging with log4rs failed to initialize");
