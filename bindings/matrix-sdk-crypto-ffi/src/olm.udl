@@ -254,6 +254,26 @@ enum LocalTrust {
     "Unset",
 };
 
+enum EventEncryptionAlgorithm {
+    "OlmV1Curve25519AesSha2",
+    "MegolmV1AesSha2",
+};
+
+enum HistoryVisibility {
+    "Invited",
+    "Joined",
+    "Shared",
+    "WorldReadable",
+};
+
+dictionary EncryptionSettings {
+    EventEncryptionAlgorithm algorithm;
+    u64 rotation_period;
+    u64 rotation_period_msgs;
+    HistoryVisibility history_visibility;
+    boolean only_allow_trusted_devices;
+};
+
 interface OlmMachine {
     [Throws=CryptoStoreError]
     constructor(
@@ -301,7 +321,11 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     Request? get_missing_sessions(sequence<string> users);
     [Throws=CryptoStoreError]
-    sequence<Request> share_room_key([ByRef] string room_id, sequence<string> users);
+    sequence<Request> share_room_key(
+        [ByRef] string room_id,
+        sequence<string> users,
+        EncryptionSettings settings
+    );
 
     [Throws=CryptoStoreError]
     void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
