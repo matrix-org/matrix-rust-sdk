@@ -343,9 +343,11 @@ impl ClientBuilder {
         };
 
         let store_config = match self.store_config {
+            #[cfg(feature = "sled")]
             BuilderStoreConfig::Sled { path, passphrase } => {
                 matrix_sdk_sled::make_store_config(&path, passphrase.as_deref()).await?
             }
+            #[cfg(feature = "indexeddb")]
             BuilderStoreConfig::IndexedDb { name, passphrase } => {
                 matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
             }
