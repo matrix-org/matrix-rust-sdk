@@ -87,152 +87,6 @@ impl OlmMachine {
 
         HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
     }
-
-    /// Accept a verification requests that we share with the given user with
-    /// the given flow id.
-    ///
-    /// This will move the verification request into the ready state.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to accept the
-    /// verification requests.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// * `methods` - A list of verification methods that we want to advertise
-    /// as supported.
-    pub fn accept_verification_request(
-        &self,
-        user_id: String,
-        flow_id: String,
-        methods: Vec<String>,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-        let methods = methods.into_iter().map(VerificationMethod::from).collect();
-
-        if let Some(verification) = self.inner.get_verification_request(&user_id, &flow_id) {
-            verification.accept_with_methods(methods).map(|r| r.into())
-        } else {
-            None
-        }
-    }
-
-    /// Get a verification flow object for the given user with the given flow
-    /// id.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to fetch the
-    /// verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn get_verification(&self, user_id: String, flow_id: String) -> Option<Verification> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        self.inner.get_verification(&user_id, &flow_id).map(|v| match v {
-            RustVerification::SasV1(s) => Verification::SasV1 { sas: s.into() },
-            RustVerification::QrV1(qr) => Verification::QrCodeV1 { qrcode: qr.into() },
-            _ => unreachable!(),
-        })
-    }
-
-    /// Cancel a verification for the given user with the given flow id using
-    /// the given cancel code.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to cancel the
-    /// verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// * `cancel_code` - The error code for why the verification was cancelled,
-    /// manual cancellatio usually happens with `m.user` cancel code. The full
-    /// list of cancel codes can be found in the [spec]
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
-    pub fn cancel_verification(
-        &self,
-        user_id: String,
-        flow_id: String,
-        cancel_code: String,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        if let Some(request) = self.inner.get_verification_request(&user_id, &flow_id) {
-            request.cancel().map(|r| r.into())
-        } else if let Some(verification) = self.inner.get_verification(&user_id, &flow_id) {
-            match verification {
-                RustVerification::SasV1(v) => {
-                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
-                }
-                RustVerification::QrV1(v) => {
-                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
-                }
-                _ => unreachable!(),
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Pass data from a scanned QR code to an active verification request and
-    /// transition into QR code verification.
-    ///
-    /// This requires an active `VerificationRequest` to succeed, returns `None`
-    /// if no `VerificationRequest` is found or if the QR code data is invalid.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
-    ///
-    /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
-    ///
-    /// * `data` - The data that was extracted from the scanned QR code as an
-    /// base64 encoded string, without padding.
-    pub fn scan_qr_code(
-        &self,
-        user_id: String,
-        flow_id: String,
-        data: String,
-    ) -> Option<ScanResult> {
-        let user_id = UserId::parse(user_id).ok()?;
-        let data = decode_config(data, STANDARD_NO_PAD).ok()?;
-        let data = QrVerificationData::from_bytes(data).ok()?;
-
-        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
-            if let Some(qr) = self.runtime.block_on(verification.scan_qr_code(data)).ok()? {
-                let request = qr.reciprocate()?;
-
-                Some(ScanResult { qr: qr.into(), request: request.into() })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Accept that we're going forward with the short auth string verification.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to accept the
-    /// SAS verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn accept_sas_verification(
-        &self,
-        user_id: String,
-        flow_id: String,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        self.inner.get_verification(&user_id, &flow_id)?.sas_v1()?.accept().map(|r| r.into())
-    }
 }
 
 impl OlmMachine {
@@ -968,6 +822,36 @@ impl OlmMachine {
         self.inner.get_verification_request(&user_id, flow_id).map(|v| v.into())
     }
 
+    /// Accept a verification requests that we share with the given user with
+    /// the given flow id.
+    ///
+    /// This will move the verification request into the ready state.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user for which we would like to accept the
+    /// verification requests.
+    ///
+    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    ///
+    /// * `methods` - A list of verification methods that we want to advertise
+    /// as supported.
+    pub fn accept_verification_request(
+        &self,
+        user_id: &str,
+        flow_id: &str,
+        methods: Vec<String>,
+    ) -> Option<OutgoingVerificationRequest> {
+        let user_id = UserId::parse(user_id).ok()?;
+        let methods = methods.into_iter().map(VerificationMethod::from).collect();
+
+        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
+            verification.accept_with_methods(methods).map(|r| r.into())
+        } else {
+            None
+        }
+    }
+
     /// Get an m.key.verification.request content for the given user.
     ///
     /// # Arguments
@@ -1110,6 +994,65 @@ impl OlmMachine {
         })
     }
 
+    /// Get a verification flow object for the given user with the given flow
+    /// id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user for which we would like to fetch the
+    /// verification.
+    ///
+    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    pub fn get_verification(&self, user_id: &str, flow_id: &str) -> Option<Verification> {
+        let user_id = UserId::parse(user_id).ok()?;
+
+        self.inner.get_verification(&user_id, flow_id).map(|v| match v {
+            RustVerification::SasV1(s) => Verification::SasV1 { sas: s.into() },
+            RustVerification::QrV1(qr) => Verification::QrCodeV1 { qrcode: qr.into() },
+            _ => unreachable!(),
+        })
+    }
+
+    /// Cancel a verification for the given user with the given flow id using
+    /// the given cancel code.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user for which we would like to cancel the
+    /// verification.
+    ///
+    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    ///
+    /// * `cancel_code` - The error code for why the verification was cancelled,
+    /// manual cancellatio usually happens with `m.user` cancel code. The full
+    /// list of cancel codes can be found in the [spec]
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
+    pub fn cancel_verification(
+        &self,
+        user_id: &str,
+        flow_id: &str,
+        cancel_code: &str,
+    ) -> Option<OutgoingVerificationRequest> {
+        let user_id = UserId::parse(user_id).ok()?;
+
+        if let Some(request) = self.inner.get_verification_request(&user_id, flow_id) {
+            request.cancel().map(|r| r.into())
+        } else if let Some(verification) = self.inner.get_verification(&user_id, flow_id) {
+            match verification {
+                RustVerification::SasV1(v) => {
+                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
+                }
+                RustVerification::QrV1(v) => {
+                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            None
+        }
+    }
+
     /// Confirm a verification was successful.
     ///
     /// This method should be called either if a short auth string should be
@@ -1202,6 +1145,40 @@ impl OlmMachine {
             .and_then(|v| v.qr_v1().and_then(|qr| qr.to_bytes().map(encode).ok()))
     }
 
+    /// Pass data from a scanned QR code to an active verification request and
+    /// transition into QR code verification.
+    ///
+    /// This requires an active `VerificationRequest` to succeed, returns `None`
+    /// if no `VerificationRequest` is found or if the QR code data is invalid.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user for which we would like to start the
+    /// QR code verification.
+    ///
+    /// * `flow_id` - The ID of the verification request that initiated the
+    /// verification flow.
+    ///
+    /// * `data` - The data that was extracted from the scanned QR code as an
+    /// base64 encoded string, without padding.
+    pub fn scan_qr_code(&self, user_id: &str, flow_id: &str, data: &str) -> Option<ScanResult> {
+        let user_id = UserId::parse(user_id).ok()?;
+        let data = decode_config(data, STANDARD_NO_PAD).ok()?;
+        let data = QrVerificationData::from_bytes(data).ok()?;
+
+        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
+            if let Some(qr) = self.runtime.block_on(verification.scan_qr_code(data)).ok()? {
+                let request = qr.reciprocate()?;
+
+                Some(ScanResult { qr: qr.into(), request: request.into() })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Transition from a verification request into short auth string based
     /// verification.
     ///
@@ -1260,6 +1237,24 @@ impl OlmMachine {
                 None
             },
         )
+    }
+
+    /// Accept that we're going forward with the short auth string verification.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user for which we would like to accept the
+    /// SAS verification.
+    ///
+    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    pub fn accept_sas_verification(
+        &self,
+        user_id: &str,
+        flow_id: &str,
+    ) -> Option<OutgoingVerificationRequest> {
+        let user_id = UserId::parse(user_id).ok()?;
+
+        self.inner.get_verification(&user_id, flow_id)?.sas_v1()?.accept().map(|r| r.into())
     }
 
     /// Get a list of emoji indices of the emoji representation of the short
