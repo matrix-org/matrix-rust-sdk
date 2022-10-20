@@ -99,7 +99,8 @@ pub struct SessionMeta {
 
 /// The mutable parts of the session: the access token and optional refresh
 /// token.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct SessionTokens {
     /// The access token used for this session.
     pub access_token: String,

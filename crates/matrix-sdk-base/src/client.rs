@@ -94,9 +94,8 @@ impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session_meta", &self.store.session_meta())
-            .field("session_tokens", &self.store.session_tokens)
             .field("sync_token", &self.store.sync_token)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
