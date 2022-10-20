@@ -6,7 +6,6 @@ use matrix_sdk_crypto::{
 use crate::{OutgoingVerificationRequest, SignatureUploadRequest};
 
 /// Enum representing the different verification flows we support.
-#[derive(uniffi::Enum)]
 pub enum Verification {
     /// The `m.sas.v1` verification flow.
     SasV1 {
@@ -22,7 +21,6 @@ pub enum Verification {
 }
 
 /// The `m.sas.v1` verification flow.
-#[derive(uniffi::Record)]
 pub struct Sas {
     /// The other user that is participating in the verification flow
     pub other_user_id: String,
@@ -55,7 +53,6 @@ pub struct Sas {
 
 /// The `m.qr_code.scan.v1`, `m.qr_code.show.v1`, and `m.reciprocate.v1`
 /// verification flow.
-#[derive(uniffi::Record)]
 pub struct QrCode {
     /// The other user that is participating in the verification flow
     pub other_user_id: String,
@@ -103,7 +100,6 @@ impl From<InnerQr> for QrCode {
 }
 
 /// Information on why a verification flow has been cancelled and by whom.
-#[derive(uniffi::Record)]
 pub struct CancelInfo {
     /// The textual representation of the cancel reason
     pub reason: String,
@@ -133,7 +129,6 @@ pub struct StartSasResult {
 }
 
 /// A result type for scanning QR codes.
-#[derive(uniffi::Record)]
 pub struct ScanResult {
     /// The QR code verification object that got created.
     pub qr: QrCode,

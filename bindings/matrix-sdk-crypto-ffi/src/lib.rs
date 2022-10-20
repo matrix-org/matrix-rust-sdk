@@ -474,12 +474,7 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 mod uniffi_types {
-    pub use crate::{
-        backup_recovery_key::BackupRecoveryKey,
-        machine::OlmMachine,
-        responses::OutgoingVerificationRequest,
-        verification::{CancelInfo, QrCode, Sas, ScanResult, Verification},
-    };
+    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
 }
 
 #[cfg(test)]
