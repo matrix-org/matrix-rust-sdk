@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
@@ -82,7 +82,7 @@ use crate::{
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     http_cfg: Option<HttpConfig>,
-    store_config: StoreConfig,
+    store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
@@ -95,7 +95,7 @@ impl ClientBuilder {
         Self {
             homeserver_cfg: None,
             http_cfg: None,
-            store_config: Default::default(),
+            store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
             respect_login_well_known: true,
             appservice_mode: false,
@@ -126,30 +126,36 @@ impl ClientBuilder {
 
     /// Set up the store configuration for a sled store.
     ///
-    /// This is a shorthand for
+    /// This is the same as
     /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
+    /// except it delegates the actual store config creation to when
+    /// `.build().await` is called.
     #[cfg(feature = "sled")]
-    pub async fn sled_store(
-        self,
+    pub fn sled_store(
+        mut self,
         path: impl AsRef<std::path::Path>,
         passphrase: Option<&str>,
-    ) -> Result<Self, matrix_sdk_sled::OpenStoreError> {
-        let config = matrix_sdk_sled::make_store_config(path, passphrase).await?;
-        Ok(self.store_config(config))
+    ) -> Self {
+        self.store_config = BuilderStoreConfig::Sled {
+            path: path.as_ref().to_owned(),
+            passphrase: passphrase.map(ToOwned::to_owned),
+        };
+        self
     }
 
     /// Set up the store configuration for a IndexedDB store.
     ///
-    /// This is a shorthand for
-    /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>.
+    /// This is the same as
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>,
+    /// except it delegates the actual store config creation to when
+    /// `.build().await` is called.
     #[cfg(feature = "indexeddb")]
-    pub async fn indexeddb_store(
-        self,
-        name: &str,
-        passphrase: Option<&str>,
-    ) -> Result<Self, matrix_sdk_indexeddb::OpenStoreError> {
-        let config = matrix_sdk_indexeddb::make_store_config(name, passphrase).await?;
-        Ok(self.store_config(config))
+    pub fn indexeddb_store(mut self, name: &str, passphrase: Option<&str>) -> Self {
+        self.store_config = BuilderStoreConfig::IndexedDb {
+            name: name.to_owned(),
+            passphrase: passphrase.map(ToOwned::to_owned),
+        };
+        self
     }
 
     /// Set up the store configuration.
@@ -172,7 +178,7 @@ impl ClientBuilder {
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
-        self.store_config = store_config;
+        self.store_config = BuilderStoreConfig::Custom(store_config);
         self
     }
 
@@ -336,7 +342,20 @@ impl ClientBuilder {
             HttpConfig::Custom(c) => c,
         };
 
-        let base_client = BaseClient::with_store_config(self.store_config);
+        #[allow(clippy::infallible_destructuring_match)]
+        let store_config = match self.store_config {
+            #[cfg(feature = "sled")]
+            BuilderStoreConfig::Sled { path, passphrase } => {
+                matrix_sdk_sled::make_store_config(&path, passphrase.as_deref()).await?
+            }
+            #[cfg(feature = "indexeddb")]
+            BuilderStoreConfig::IndexedDb { name, passphrase } => {
+                matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
+            }
+            BuilderStoreConfig::Custom(config) => config,
+        };
+
+        let base_client = BaseClient::with_store_config(store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         let mut authentication_issuer: Option<Url> = None;
@@ -436,6 +455,38 @@ impl HttpConfig {
 impl Default for HttpConfig {
     fn default() -> Self {
         Self::Settings(HttpSettings::default())
+    }
+}
+
+#[derive(Clone)]
+enum BuilderStoreConfig {
+    #[cfg(feature = "sled")]
+    Sled {
+        path: std::path::PathBuf,
+        passphrase: Option<String>,
+    },
+    #[cfg(feature = "indexeddb")]
+    IndexedDb {
+        name: String,
+        passphrase: Option<String>,
+    },
+    Custom(StoreConfig),
+}
+
+impl fmt::Debug for BuilderStoreConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[allow(clippy::infallible_destructuring_match)]
+        match self {
+            #[cfg(feature = "sled")]
+            Self::Sled { path, .. } => {
+                f.debug_struct("Sled").field("path", path).finish_non_exhaustive()
+            }
+            #[cfg(feature = "indexeddb")]
+            Self::IndexedDb { name, .. } => {
+                f.debug_struct("IndexedDb").field("name", name).finish_non_exhaustive()
+            }
+            Self::Custom(store_config) => f.debug_tuple("Custom").field(store_config).finish(),
+        }
     }
 }
 

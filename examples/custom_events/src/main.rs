@@ -107,11 +107,9 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    #[allow(unused_mut)]
-    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
     let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-    client_builder = client_builder.sled_store(home, None).await?;
-    let client = client_builder.build().await?;
+    let client =
+        Client::builder().homeserver_url(homeserver_url).sled_store(home, None).build().await?;
     client
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
