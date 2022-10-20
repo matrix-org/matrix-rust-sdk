@@ -33,13 +33,12 @@ struct Cli {
 }
 
 async fn login(cli: Cli) -> Result<Client> {
-    let builder = Client::builder()
-        .homeserver_url(cli.homeserver)
-        .sled_store("./", Some("some password"))
-        .await
-        .unwrap();
+    let mut builder =
+        Client::builder().homeserver_url(cli.homeserver).sled_store("./", Some("some password"));
 
-    let builder = if let Some(proxy) = cli.proxy { builder.proxy(proxy) } else { builder };
+    if let Some(proxy) = cli.proxy {
+        builder = builder.proxy(proxy);
+    }
 
     let client = builder.build().await?;
 
