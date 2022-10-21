@@ -154,6 +154,16 @@ impl Room {
         self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
     }
 
+    /// Check if the room has it's encryption event synced.
+    ///
+    /// The encryption event can be missing when the room hasn't appeared in
+    /// sync yet.
+    ///
+    /// Returns true if the encryption state is synced, false otherwise.
+    pub fn is_encryption_state_synced(&self) -> bool {
+        self.inner.read().unwrap().encryption_state_synced
+    }
+
     /// Get the `prev_batch` token that was received from the last sync. May be
     /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
@@ -517,6 +527,9 @@ pub struct RoomInfo {
     /// How much we know about this room.
     #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
     pub(crate) sync_info: SyncInfo,
+    /// Whether or not the encryption info was been synced.
+    #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
+    pub(crate) encryption_state_synced: bool,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
@@ -543,10 +556,18 @@ impl SyncInfo {
     // The sync_info field introduced a new field in the database schema, but to
     // avoid a database migration, we let serde assume that if the room is in
     // the database, yet the field isn't, we have synced it before this field
-    // was introduce - which was a a full sync.
+    // was introduced - which was a a full sync.
     fn complete() -> Self {
         SyncInfo::FullySynced
     }
+}
+
+// The encryption_state_synced field introduced a new field in the database
+// schema, but to avoid a database migration, we let serde assume that if
+// the room is in the database, yet the field isn't, we have synced it
+// before this field was introduced - which was a a full sync.
+fn encryption_state_default() -> bool {
+    true
 }
 
 impl RoomInfo {
@@ -557,9 +578,10 @@ impl RoomInfo {
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
-            sync_info: SyncInfo::NoState,
             members_synced: false,
             last_prev_batch: None,
+            sync_info: SyncInfo::NoState,
+            encryption_state_synced: false,
             base_info: BaseRoomInfo::new(),
         }
     }
@@ -604,6 +626,16 @@ impl RoomInfo {
         self.sync_info = SyncInfo::NoState;
     }
 
+    /// Mark this Room as having the encryption state synced
+    pub fn mark_encryption_state_synced(&mut self) {
+        self.encryption_state_synced = true;
+    }
+
+    /// Mark this Room still missing encryption state information
+    pub fn mark_encryption_state_missing(&mut self) {
+        self.encryption_state_synced = false;
+    }
+
     /// Set the `prev_batch`-token.
     /// Returns whether the token has differed and thus has been upgraded:
     /// `false` means no update was applied as the were the same
@@ -619,6 +651,12 @@ impl RoomInfo {
     /// Whether this is an encrypted Room
     pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
+    }
+
+    /// Set the encryption event content in this room.
+    pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) -> &Self {
+        self.base_info.encryption = event;
+        self
     }
 
     /// Handle the given state event.

@@ -690,6 +690,7 @@ impl BaseClient {
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
+            room_info.mark_encryption_state_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -812,6 +813,7 @@ impl BaseClient {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited();
                 room_info.mark_state_fully_synced();
+                room_info.mark_encryption_state_synced();
                 changes.add_room(room_info);
             }
 

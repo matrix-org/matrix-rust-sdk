@@ -162,6 +162,20 @@ impl HttpError {
             _ => None,
         }
     }
+    
+    /// Return whether the error was a 404 not found response.
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            HttpError::Reqwest(err) => err.status() == Some(StatusCode::NOT_FOUND),
+            HttpError::AuthenticationRequired => false,
+            HttpError::NotClientRequest => false,
+            HttpError::Api(_) => false,
+            HttpError::IntoHttp(_) => false,
+            HttpError::Server(status) => *status == StatusCode::NOT_FOUND,
+            HttpError::UnableToCloneRequest => false,
+            HttpError::RefreshToken(_) => false,
+        }
+    }
 }
 
 /// Internal representation of errors.

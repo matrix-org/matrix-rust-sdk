@@ -3,6 +3,7 @@ use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
+    StateChanges,
 };
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "e2e-encryption")]
@@ -17,6 +18,7 @@ use ruma::{
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
         room::get_room_event,
+        state::get_state_events_for_key,
         tag::{create_tag, delete_tag},
         Direction,
     },
@@ -24,8 +26,8 @@ use ruma::{
     events::{
         direct::DirectEventContent,
         room::{
-            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
-            MediaSource,
+            encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            server_acl::RoomServerAclEventContent, MediaSource,
         },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
@@ -314,6 +316,70 @@ impl Common {
             self.client.inner.members_request_locks.remove(self.inner.room_id());
 
             Ok(Some(response))
+        }
+    }
+
+    async fn request_encryption_state(&self) -> Result<Option<RoomEncryptionEventContent>> {
+        if let Some(mutex) = self
+            .client
+            .inner
+            .encryption_state_request_locks
+            .get(self.inner.room_id())
+            .map(|m| m.clone())
+        {
+            // If a encryption state request is already going on, await the release of
+            // the lock.
+            _ = mutex.lock().await;
+
+            Ok(None)
+        } else {
+            let mutex = Arc::new(Mutex::new(()));
+            self.client
+                .inner
+                .encryption_state_request_locks
+                .insert(self.inner.room_id().to_owned(), mutex.clone());
+
+            let _guard = mutex.lock().await;
+
+            let request = get_state_events_for_key::v3::Request::new(
+                self.inner.room_id(),
+                StateEventType::RoomEncryption,
+                "",
+            );
+            let response = match self.client.send(request, None).await {
+                Ok(response) => {
+                    Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
+                }
+                Err(err) if err.is_not_found() => None,
+                Err(err) => return Err(err.into()),
+            };
+
+            // FIXME: This can race with the sync setting the room_info and erase its
+            // state..
+            let mut room_info = self.inner.clone_info();
+            room_info.mark_encryption_state_synced();
+            room_info.set_encryption_event(response.clone());
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.client.store().save_changes(&changes).await?;
+            self.update_summary(room_info);
+
+            self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
+
+            Ok(response)
+        }
+    }
+
+    /// Check whether this room is encrypted. If the room encryption state is
+    /// not synced yet, it will send a request to fetch it.
+    ///
+    /// Returns true if the room is encrypted, otherwise false.
+    pub async fn is_encrypted(&self) -> Result<bool> {
+        if !self.is_encryption_state_synced() {
+            let encryption = self.request_encryption_state().await?;
+            Ok(encryption.is_some())
+        } else {
+            Ok(self.inner.is_encrypted())
         }
     }
 
