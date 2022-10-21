@@ -297,7 +297,7 @@ impl Joined {
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
-        if !self.is_encrypted() {
+        if !self.is_encrypted().await? {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
             self.send_state_event(content).await?;
@@ -551,7 +551,7 @@ impl Joined {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        let (content, event_type) = if self.is_encrypted() {
+        let (content, event_type) = if self.is_encrypted().await? {
             // Reactions are currently famously not encrypted, skip encrypting
             // them until they are.
             if event_type == "m.reaction" {
@@ -730,7 +730,7 @@ impl Joined {
         config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
-        let content = if self.is_encrypted() {
+        let content = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
                     body,

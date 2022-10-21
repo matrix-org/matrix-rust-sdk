@@ -61,10 +61,6 @@ impl Room {
         self.room.is_public()
     }
 
-    pub fn is_encrypted(&self) -> bool {
-        self.room.is_encrypted()
-    }
-
     pub fn is_space(&self) -> bool {
         self.room.is_space()
     }
@@ -98,6 +94,14 @@ impl Room {
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
+    }
+
+    pub fn is_encrypted(&self) -> Result<bool> {
+        let room = self.room.clone();
+        RUNTIME.block_on(async move {
+            let is_encrypted = room.is_encrypted().await?;
+            Ok(is_encrypted)
+        })
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {

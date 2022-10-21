@@ -907,7 +907,7 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_joined_room(room_id).expect("Room should exist");
-        assert!(room.is_encrypted());
+        assert!(room.is_encrypted().await.expect("Getting encryption state"));
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Relation::new(event_id.into(), "🐈".to_owned()));
