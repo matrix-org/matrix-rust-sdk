@@ -247,6 +247,10 @@ pub enum Error {
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 
+    /// The client is in inconsistent state.
+    #[error("The internal client state is inconsistent.")]
+    InconsistentState,
+
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
     /// but not here and that raised.

@@ -406,7 +406,7 @@ async fn join_room_by_id() {
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        client.join_room_by_id(room_id).await.unwrap().room_id,
+        client.join_room_by_id(room_id).await.unwrap().room_id(),
         room_id
     );
 }
@@ -431,7 +431,7 @@ async fn join_room_by_id_or_alias() {
             .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
             .await
             .unwrap()
-            .room_id,
+            .room_id(),
         room_id!("!testroom:example.org")
     );
 }

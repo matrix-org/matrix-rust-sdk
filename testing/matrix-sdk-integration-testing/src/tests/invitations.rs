@@ -18,8 +18,8 @@ async fn test_invitation_details() -> Result<()> {
         is_direct: true,
     });
 
-    let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id;
+    let room = tamatoa.create_room(request).await?;
+    let room_id = room.room_id().to_owned();
 
     // the actual test
     sebastian.sync_once(Default::default()).await?;

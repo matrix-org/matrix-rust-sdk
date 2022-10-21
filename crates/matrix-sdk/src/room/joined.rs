@@ -35,6 +35,7 @@ use tracing::debug;
 #[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
+use super::Left;
 use crate::{
     attachment::AttachmentConfig, error::HttpResult, room::Common, BaseRoom, Client, Result,
     RoomType,
@@ -83,7 +84,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    pub async fn leave(&self) -> Result<()> {
+    pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
