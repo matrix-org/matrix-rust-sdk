@@ -40,10 +40,11 @@ use serde::de::DeserializeOwned;
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
+use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{RoomMember, RoomType},
+    room::{Left, RoomMember, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -96,21 +97,22 @@ impl Common {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left.
-    pub(crate) async fn leave(&self) -> Result<()> {
+    pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
+        self.client.send(request, None).await?;
 
-        Ok(())
+        let base_room = self.client.base_client().room_left(self.room_id()).await?;
+        Left::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method.
-    pub(crate) async fn join(&self) -> Result<()> {
+    pub(crate) async fn join(&self) -> Result<Joined> {
         let request = join_room_by_id::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
-
-        Ok(())
+        let response = self.client.send(request, None).await?;
+        let base_room = self.client.base_client().room_joined(&response.room_id).await?;
+        Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Get the inner client saved in this room instance.

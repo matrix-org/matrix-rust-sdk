@@ -119,6 +119,10 @@ impl Room {
         self.inner.read().unwrap().room_type
     }
 
+    pub(crate) fn set_room_type(&self, room_type: RoomType) {
+        self.inner.write().unwrap().room_type = room_type;
+    }
+
     /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
     pub fn is_space(&self) -> bool {
         self.inner.read().unwrap().room_type().map_or(false, |t| *t == CreateRoomType::Space)
@@ -137,6 +141,17 @@ impl Room {
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
         self.inner.read().unwrap().members_synced
+    }
+
+    /// Check if the room states have been synced
+    ///
+    /// States might be missing if we have only seen the room_id of this Room
+    /// so far, for example as the response for a `create_room` request without
+    /// being synced yet.
+    ///
+    /// Returns true if the state is fully synced, false otherwise.
+    pub fn is_state_fully_synced(&self) -> bool {
+        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
@@ -499,9 +514,39 @@ pub struct RoomInfo {
     pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
+    /// How much we know about this room.
+    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
+    pub(crate) sync_info: SyncInfo,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) enum SyncInfo {
+    /// We only know the room exists and whether it is in invite / joined / left
+    /// state.
+    ///
+    /// This is the case when we have a limited sync or only seen the room
+    /// because of a request we've done, like a room creation event.
+    NoState,
+
+    /// Some states have been synced, but they might have been filtered or is
+    /// stale, as it is from a room we've left.
+    PartiallySynced,
+
+    /// We have all the latest state events
+    FullySynced,
+}
+
+impl SyncInfo {
+    // The sync_info field introduced a new field in the database schema, but to
+    // avoid a database migration, we let serde assume that if the room is in
+    // the database, yet the field isn't, we have synced it before this field
+    // was introduce - which was a a full sync.
+    fn complete() -> Self {
+        SyncInfo::FullySynced
+    }
 }
 
 impl RoomInfo {
@@ -512,6 +557,7 @@ impl RoomInfo {
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
+            sync_info: SyncInfo::NoState,
             members_synced: false,
             last_prev_batch: None,
             base_info: BaseRoomInfo::new(),
@@ -541,6 +587,21 @@ impl RoomInfo {
     /// Mark this Room still missing member information
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
+    }
+
+    /// Mark this Room still missing some state information
+    pub fn mark_state_partially_synced(&mut self) {
+        self.sync_info = SyncInfo::PartiallySynced;
+    }
+
+    /// Mark this Room still having all state synced
+    pub fn mark_state_fully_synced(&mut self) {
+        self.sync_info = SyncInfo::FullySynced;
+    }
+
+    /// Mark this Room still having no state synced
+    pub fn mark_state_not_synced(&mut self) {
+        self.sync_info = SyncInfo::NoState;
     }
 
     /// Set the `prev_batch`-token.

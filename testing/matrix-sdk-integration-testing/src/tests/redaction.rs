@@ -32,7 +32,8 @@ async fn test_redacting_name() -> Result<()> {
         is_direct: true,
     });
 
-    let room_id = tamatoa.create_room(request).await?.room_id;
+    let room = tamatoa.create_room(request).await?;
+    let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
         sync_once(&tamatoa).await?;
         if tamatoa.get_joined_room(&room_id).is_some() {
@@ -101,7 +102,8 @@ async fn test_redacting_name_static() -> Result<()> {
         is_direct: true,
     });
 
-    let room_id = tamatoa.create_room(request).await?.room_id;
+    let room = tamatoa.create_room(request).await?;
+    let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
         sync_once(&tamatoa).await?;
         if tamatoa.get_joined_room(&room_id).is_some() {

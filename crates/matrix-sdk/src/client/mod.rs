@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
-    SessionTokens, StateStore, SyncOutsideWasm,
+    deserialized_responses::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session,
+    SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -1496,12 +1496,11 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(
-        &self,
-        room_id: &RoomId,
-    ) -> HttpResult<join_room_by_id::v3::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join a room by `RoomId`.
@@ -1517,11 +1516,13 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1601,9 +1602,53 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> HttpResult<create_room::v3::Response> {
+    ) -> HttpResult<room::Joined> {
         let request = room.into();
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+
+        let base_room =
+            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        Ok(room::Joined::new(self, base_room).unwrap())
+    }
+
+    /// Create a direct message room with the specified user.
+    #[cfg(not(feature = "e2e-encryption"))]
+    pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
+        use ruma::{
+            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
+        };
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.to_owned()];
+
+        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
+            invite,
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        });
+
+        let room = self.create_room(request).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .account()
+            .account_data::<DirectEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+
+        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.account().set_account_data(content).await?;
+
+        Ok(room)
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

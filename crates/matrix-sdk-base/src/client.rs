@@ -166,6 +166,12 @@ impl BaseClient {
         self.store.get_rooms()
     }
 
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        self.store.get_or_create_room(room_id, room_type).await
+    }
+
     /// Get all the rooms this client knows about.
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
         self.store.get_stripped_rooms()
@@ -579,6 +585,52 @@ impl BaseClient {
         }
     }
 
+    /// User has left a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
+        if room.room_type() == RoomType::Left {
+            return Ok(room);
+        }
+
+        // needs to be updated first
+        // FIXME: this might be racy. If we receive an update at the same time between
+        //        us checking and submitting the save_changes, we might be overwriting
+        //        some received state. See #1041
+        room.set_room_type(RoomType::Left);
+        let mut room_info = room.clone_info();
+        room_info.mark_state_partially_synced();
+        let mut changes = StateChanges::default();
+        changes.add_room(room_info);
+        self.store.save_changes(&changes).await?;
+
+        Ok(self.store.get_or_create_room(room_id, RoomType::Left).await)
+    }
+
+    /// User has joined a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
+        if room.room_type() == RoomType::Joined {
+            return Ok(room);
+        }
+
+        // needs to be updated first
+        // FIXME: this might be racy. If we receive an update at the same time between
+        //        us checking and submitting the save_changes, we might be overwriting
+        //        some received state. See #1041
+        room.set_room_type(RoomType::Joined);
+        let mut room_info = room.clone_info();
+        room_info.mark_state_partially_synced();
+        let mut changes = StateChanges::default();
+        changes.add_room(room_info);
+        self.store.save_changes(&changes).await?;
+
+        Ok(self.store.get_or_create_room(room_id, RoomType::Joined).await)
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -637,6 +689,7 @@ impl BaseClient {
 
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
+            room_info.mark_state_fully_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -717,6 +770,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -757,6 +811,7 @@ impl BaseClient {
             if let Some(r) = self.store.get_room(&room_id) {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited();
+                room_info.mark_state_fully_synced();
                 changes.add_room(room_info);
             }
 

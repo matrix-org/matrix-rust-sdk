@@ -90,10 +90,12 @@ impl BaseClient {
                 let invite_states = &room_data.invite_state;
                 let room = store.get_or_create_stripped_room(&room_id).await;
                 let mut room_info = room.clone_info();
+                room_info.mark_state_partially_synced();
 
                 if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
+                    room_info.mark_state_partially_synced();
                     changes.add_room(room_info);
                 }
 
@@ -107,6 +109,7 @@ impl BaseClient {
                 let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
+                room_info.mark_state_partially_synced();
 
                 // FIXME not yet supported by sliding sync.
                 // room_info.update_summary(&room_data.summary);
