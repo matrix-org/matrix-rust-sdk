@@ -119,10 +119,6 @@ impl Room {
         self.inner.read().unwrap().room_type
     }
 
-    pub(crate) fn set_room_type(&self, room_type: RoomType) {
-        self.inner.write().unwrap().room_type = room_type;
-    }
-
     /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
     pub fn is_space(&self) -> bool {
         self.inner.read().unwrap().room_type().map_or(false, |t| *t == CreateRoomType::Space)

@@ -16,7 +16,6 @@ use tokio::sync::Notify;
 use crate::helpers::get_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Flaky because of the race of #1041; Also membership updates aren't fully supported yet"]
 async fn test_repeated_join_leave() -> Result<()> {
     let peter = get_client_for_user("peter".to_owned()).await?;
     // FIXME: Run once with memory, once with sled
@@ -70,7 +69,7 @@ async fn test_repeated_join_leave() -> Result<()> {
         let room =
             karl.get_invited_room(room_id).expect("karl has the room").accept_invitation().await?;
         println!("Done");
-        let membership = room.get_member_no_sync(&karl_id).await?.expect("karl joined");
+        let membership = room.get_member(&karl_id).await?.expect("karl joined");
         assert_eq!(*membership.membership(), MembershipState::Join);
 
         assert!(karl.get_invited_room(room_id).is_none());
@@ -81,7 +80,7 @@ async fn test_repeated_join_leave() -> Result<()> {
         println!("Leaving..");
         let room = room.leave().await?;
         println!("Done");
-        let membership = room.get_member_no_sync(&karl_id).await?.expect("karl left");
+        let membership = room.get_member(&karl_id).await?.expect("karl left");
         assert_eq!(*membership.membership(), MembershipState::Leave);
 
         assert!(karl.get_invited_room(room_id).is_none());

@@ -585,29 +585,6 @@ impl BaseClient {
         }
     }
 
-    /// User has left a room.
-    ///
-    /// Update the internal and cached state accordingly. Return the final Room.
-    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
-        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
-        if room.room_type() == RoomType::Left {
-            return Ok(room);
-        }
-
-        // needs to be updated first
-        // FIXME: this might be racy. If we receive an update at the same time between
-        //        us checking and submitting the save_changes, we might be overwriting
-        //        some received state. See #1041
-        room.set_room_type(RoomType::Left);
-        let mut room_info = room.clone_info();
-        room_info.mark_state_partially_synced();
-        let mut changes = StateChanges::default();
-        changes.add_room(room_info);
-        self.store.save_changes(&changes).await?;
-
-        Ok(self.store.get_or_create_room(room_id, RoomType::Left).await)
-    }
-
     /// User has joined a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
@@ -617,18 +594,43 @@ impl BaseClient {
             return Ok(room);
         }
 
-        // needs to be updated first
         // FIXME: this might be racy. If we receive an update at the same time between
         //        us checking and submitting the save_changes, we might be overwriting
         //        some received state. See #1041
-        room.set_room_type(RoomType::Joined);
         let mut room_info = room.clone_info();
+        room_info.mark_as_joined();
         room_info.mark_state_partially_synced();
+        room_info.mark_members_missing(); // the own member event changed
         let mut changes = StateChanges::default();
-        changes.add_room(room_info);
-        self.store.save_changes(&changes).await?;
+        changes.add_room(room_info.clone());
+        self.store.save_changes(&changes).await?; // Update the store
+        room.update_summary(room_info); // Update the cached room handle
 
-        Ok(self.store.get_or_create_room(room_id, RoomType::Joined).await)
+        Ok(room)
+    }
+
+    /// User has left a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
+        if room.room_type() == RoomType::Left {
+            return Ok(room);
+        }
+
+        // FIXME: this might be racy. If we receive an update at the same time between
+        //        us checking and submitting the save_changes, we might be overwriting
+        //        some received state. See #1041
+        let mut room_info = room.clone_info();
+        room_info.mark_as_left();
+        room_info.mark_state_partially_synced();
+        room_info.mark_members_missing(); // the own member event changed
+        let mut changes = StateChanges::default();
+        changes.add_room(room_info.clone());
+        self.store.save_changes(&changes).await?; // Update the store
+        room.update_summary(room_info); // Update the cached room handle
+
+        Ok(room)
     }
 
     /// Receive a response from a sync call.
@@ -929,21 +931,21 @@ impl BaseClient {
                     }
 
                     ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                }
 
-                    if member.state_key() == member.sender() {
-                        changes
-                            .profiles
-                            .entry(room_id.to_owned())
-                            .or_default()
-                            .insert(member.sender().to_owned(), member.borrow().into());
-                    }
-
+                if member.state_key() == member.sender() {
                     changes
-                        .members
+                        .profiles
                         .entry(room_id.to_owned())
                         .or_default()
-                        .insert(member.state_key().to_owned(), member);
+                        .insert(member.sender().to_owned(), member.borrow().into());
                 }
+
+                changes
+                    .members
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(member.state_key().to_owned(), member);
             }
 
             #[cfg(feature = "e2e-encryption")]
