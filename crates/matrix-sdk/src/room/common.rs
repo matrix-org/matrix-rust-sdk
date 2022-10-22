@@ -354,8 +354,7 @@ impl Common {
                 Err(err) => return Err(err.into()),
             };
 
-            // FIXME: This can race with the sync setting the room_info and erase its
-            // state..
+            let sync_lock = self.client.base_client().sync_lock().read().await;
             let mut room_info = self.inner.clone_info();
             room_info.mark_encryption_state_synced();
             room_info.set_encryption_event(response.clone());
@@ -363,6 +362,7 @@ impl Common {
             changes.add_room(room_info.clone());
             self.client.store().save_changes(&changes).await?;
             self.update_summary(room_info);
+            drop(sync_lock);
 
             self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
 

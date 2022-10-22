@@ -505,6 +505,12 @@ pub(crate) struct Store {
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
+    /// A lock to synchronize access to the store, such that data by the sync is
+    /// never overwritten. The sync processing is supposed to use write access,
+    /// such that only it is currently accessing the store overall. Other things
+    /// might acquire read access, such that access to different rooms can be
+    /// parallelized.
+    sync_lock: Arc<RwLock<()>>,
 }
 
 impl Store {
@@ -524,7 +530,13 @@ impl Store {
             sync_token: Default::default(),
             rooms: Default::default(),
             stripped_rooms: Default::default(),
+            sync_lock: Default::default(),
         }
+    }
+
+    /// Get access to the syncing lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        &self.sync_lock
     }
 
     /// Restore the access to the Store from the given `Session`, overwrites any
