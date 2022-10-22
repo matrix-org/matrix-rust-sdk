@@ -28,6 +28,7 @@ use matrix_sdk_common::{
         SyncTimelineEvent, Timeline,
     },
     instant::Instant,
+    locks::RwLock,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -594,9 +595,7 @@ impl BaseClient {
             return Ok(room);
         }
 
-        // FIXME: this might be racy. If we receive an update at the same time between
-        //        us checking and submitting the save_changes, we might be overwriting
-        //        some received state. See #1041
+        let sync_lock = self.sync_lock().read().await;
         let mut room_info = room.clone_info();
         room_info.mark_as_joined();
         room_info.mark_state_partially_synced();
@@ -605,6 +604,7 @@ impl BaseClient {
         changes.add_room(room_info.clone());
         self.store.save_changes(&changes).await?; // Update the store
         room.update_summary(room_info); // Update the cached room handle
+        drop(sync_lock);
 
         Ok(room)
     }
@@ -618,9 +618,7 @@ impl BaseClient {
             return Ok(room);
         }
 
-        // FIXME: this might be racy. If we receive an update at the same time between
-        //        us checking and submitting the save_changes, we might be overwriting
-        //        some received state. See #1041
+        let sync_lock = self.sync_lock().read().await;
         let mut room_info = room.clone_info();
         room_info.mark_as_left();
         room_info.mark_state_partially_synced();
@@ -629,8 +627,14 @@ impl BaseClient {
         changes.add_room(room_info.clone());
         self.store.save_changes(&changes).await?; // Update the store
         room.update_summary(room_info); // Update the cached room handle
+        drop(sync_lock);
 
         Ok(room)
+    }
+
+    /// Get access to the store's sync lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        self.store.sync_lock()
     }
 
     /// Receive a response from a sync call.
@@ -843,9 +847,11 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
+        let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
         *self.store.sync_token.write().await = Some(next_batch.clone());
         self.apply_changes(&changes).await;
+        drop(sync_lock);
 
         info!("Processed a sync response in {:?}", now.elapsed());
 
