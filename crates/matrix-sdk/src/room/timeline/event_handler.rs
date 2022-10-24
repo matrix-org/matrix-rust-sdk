@@ -252,7 +252,7 @@ impl<'a> TimelineEventHandler<'a> {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
-                    "Event tries to edit another user's timeline item, discarding"
+                    "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
             }
@@ -262,7 +262,7 @@ impl<'a> TimelineEventHandler<'a> {
                 TimelineItemContent::RedactedMessage => {
                     info!(
                         %event_id,
-                        "Event tries to edit a non-editable timeline item, discarding"
+                        "Edit event applies to a redacted message, discarding"
                     );
                     return None;
                 }
