@@ -490,7 +490,7 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    pub(crate) fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
+    fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
         let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
@@ -507,7 +507,7 @@ impl NewEventTimelineItem {
         Self { content, reactions }
     }
 
-    pub(crate) fn redacted_message() -> Self {
+    fn redacted_message() -> Self {
         Self {
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),
