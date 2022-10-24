@@ -20,7 +20,8 @@ use ruma::{
     events::{
         reaction::ReactionEventContent,
         room::{
-            message::{Relation, Replacement, RoomMessageEventContent},
+            encrypted::{self, RoomEncryptedEventContent},
+            message::{self, Replacement, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -216,6 +217,7 @@ impl<'a> TimelineEventHandler<'a> {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
                 AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
+                AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 // TODO
                 _ => {}
             },
@@ -236,7 +238,7 @@ impl<'a> TimelineEventHandler<'a> {
 
     fn handle_room_message(&mut self, content: RoomMessageEventContent) {
         match content.relates_to {
-            Some(Relation::Replacement(re)) => {
+            Some(message::Relation::Replacement(re)) => {
                 self.handle_room_message_edit(re);
             }
             _ => {
@@ -263,6 +265,13 @@ impl<'a> TimelineEventHandler<'a> {
                     info!(
                         %event_id,
                         "Edit event applies to a redacted message, discarding"
+                    );
+                    return None;
+                }
+                TimelineItemContent::UnableToDecrypt(_) => {
+                    info!(
+                        %event_id,
+                        "Edit event applies to event that couldn't be decrypted, discarding"
                     );
                     return None;
                 }
@@ -310,6 +319,18 @@ impl<'a> TimelineEventHandler<'a> {
 
         if did_update {
             lock.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+        }
+    }
+
+    fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
+        match c.relates_to {
+            Some(encrypted::Relation::Replacement(_) | encrypted::Relation::Annotation(_)) => {
+                // Do nothing for these, as they would not produce a new
+                // timeline item when decrypted either
+            }
+            _ => {
+                self.add(NewEventTimelineItem::unable_to_decrypt(c));
+            }
         }
     }
 
@@ -495,7 +516,7 @@ impl NewEventTimelineItem {
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
             in_reply_to: c.relates_to.and_then(|rel| match rel {
-                Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
+                message::Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
                 _ => None,
             }),
             edited,
@@ -505,6 +526,13 @@ impl NewEventTimelineItem {
             relations.and_then(|r| r.annotation).map(BundledReactions::from).unwrap_or_default();
 
         Self { content, reactions }
+    }
+
+    fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
+        Self {
+            content: TimelineItemContent::UnableToDecrypt(content.into()),
+            reactions: BundledReactions::default(),
+        }
     }
 
     fn redacted_message() -> Self {

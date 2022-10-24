@@ -21,12 +21,15 @@ use ruma::events::room::message::{OriginalSyncRoomMessageEvent, Relation};
 use ruma::{
     events::{
         relation::{AnnotationChunk, AnnotationType},
-        room::message::MessageType,
+        room::{
+            encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+            message::MessageType,
+        },
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
+    OwnedUserId, TransactionId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -282,6 +285,9 @@ pub enum TimelineItemContent {
 
     /// A redacted message.
     RedactedMessage,
+
+    /// An `m.room.encrypted` event that could not be decrypted.
+    UnableToDecrypt(EncryptedMessage),
 }
 
 /// An `m.room.message` event or extensible event, including edits.
@@ -309,6 +315,50 @@ impl Message {
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+}
+
+/// Metadata about an `m.room.encrypted` event that could not be decrypted.
+#[derive(Clone, Debug)]
+pub enum EncryptedMessage {
+    /// Metadata about an event using the `m.olm.v1.curve25519-aes-sha2`
+    /// algorithm.
+    OlmV1Curve25519AesSha2 {
+        /// The Curve25519 key of the sender.
+        sender_key: String,
+    },
+    /// Metadata about an event using the `m.megolm.v1.aes-sha2` algorithm.
+    MegolmV1AesSha2 {
+        /// The Curve25519 key of the sender.
+        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[doc(hidden)] // Included for Debug formatting only
+        sender_key: String,
+
+        /// The ID of the sending device.
+        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[doc(hidden)] // Included for Debug formatting only
+        device_id: OwnedDeviceId,
+
+        /// The ID of the session used to encrypt the message.
+        session_id: String,
+    },
+    /// No metadata because the event uses an unknown algorithm.
+    Unknown,
+}
+
+impl From<RoomEncryptedEventContent> for EncryptedMessage {
+    fn from(c: RoomEncryptedEventContent) -> Self {
+        match c.scheme {
+            EncryptedEventScheme::OlmV1Curve25519AesSha2(s) => {
+                Self::OlmV1Curve25519AesSha2 { sender_key: s.sender_key }
+            }
+            #[allow(deprecated)]
+            EncryptedEventScheme::MegolmV1AesSha2(s) => {
+                let MegolmV1AesSha2Content { sender_key, device_id, session_id, .. } = s;
+                Self::MegolmV1AesSha2 { sender_key, device_id, session_id }
+            }
+            _ => Self::Unknown,
+        }
     }
 }
 
