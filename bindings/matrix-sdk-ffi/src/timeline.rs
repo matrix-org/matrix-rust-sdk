@@ -220,6 +220,25 @@ impl TimelineItemContent {
         unwrap_or_clone_arc_into_variant!(self, .0, C::Message(msg) => Arc::new(Message(msg)))
     }
 
+    pub fn as_unable_to_decrypt(&self) -> Option<EncryptedMessage> {
+        use matrix_sdk::room::timeline::{EncryptedMessage as E, TimelineItemContent as C};
+
+        match &self.0 {
+            C::UnableToDecrypt(utd) => Some(match utd {
+                E::OlmV1Curve25519AesSha2 { sender_key } => {
+                    let sender_key = sender_key.clone();
+                    EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key }
+                }
+                E::MegolmV1AesSha2 { session_id, .. } => {
+                    let session_id = session_id.clone();
+                    EncryptedMessage::MegolmV1AesSha2 { session_id }
+                }
+                E::Unknown => EncryptedMessage::Unknown,
+            }),
+            _ => None,
+        }
+    }
+
     pub fn is_redacted_message(&self) -> bool {
         use matrix_sdk::room::timeline::TimelineItemContent as C;
         matches!(self.0, C::RedactedMessage)
@@ -372,6 +391,21 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
             blurhash: info.blurhash.clone(),
         }
     }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum EncryptedMessage {
+    OlmV1Curve25519AesSha2 {
+        /// The Curve25519 key of the sender.
+        sender_key: String,
+    },
+    // Other fields not included because UniFFI doesn't have the concept of
+    // deprecated fields right now.
+    MegolmV1AesSha2 {
+        /// The ID of the session used to encrypt the message.
+        session_id: String,
+    },
+    Unknown,
 }
 
 #[derive(Clone, uniffi::Record)]
