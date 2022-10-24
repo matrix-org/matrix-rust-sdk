@@ -76,6 +76,11 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert!(karl.get_joined_room(room_id).is_some());
         assert!(karl.get_left_room(room_id).is_none());
 
+        // Syncs can overwrite the internal state. If the sync lags behind because we
+        // change so often so fast, we can get errors in the asserts here. So we have to
+        // wait here a bit till the sync happened.
+        room.sync_up().await;
+
         // Leave the room
         println!("Leaving..");
         let room = room.leave().await?;

@@ -124,6 +124,12 @@ impl Common {
         self.client.clone()
     }
 
+    /// Get the sync state of this room, i.e. whether it was fully synced with
+    /// the server.
+    pub fn is_synced(&self) -> bool {
+        self.inner.is_state_fully_synced()
+    }
+
     /// Gets the avatar of this room, if set.
     ///
     /// Returns the avatar.
@@ -412,6 +418,17 @@ impl Common {
     /// quick succession, in that case the return value will be `None`.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
         self.request_members().await
+    }
+
+    /// Wait for the room to be fully synced.
+    ///
+    /// This method makes sure the room that was returned when joining/leaving
+    /// rooms has been echoed back in the sync. Warning: This waits until a sync
+    /// happens and does not return if no sync is happening!
+    pub async fn sync_up(&self) {
+        while !self.is_synced() {
+            self.client.inner.sync_beat.listen().await;
+        }
     }
 
     /// Get active members for this room, includes invited, joined members.
