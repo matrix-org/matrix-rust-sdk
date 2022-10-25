@@ -140,7 +140,7 @@ impl IndexeddbCryptoStore {
         prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self> {
-        let name = format!("{:0}::matrix-sdk-crypto", prefix);
+        let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.1)?;
@@ -232,7 +232,7 @@ impl IndexeddbCryptoStore {
 
     /// Open a new `IndexeddbCryptoStore` with given name and passphrase
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
-        let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
+        let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
@@ -907,7 +907,7 @@ impl IndexeddbCryptoStore {
 
         if let Some(inner) = request {
             tx.object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
-                .delete(&self.encode_key(KEYS::KEY_REQUEST, &inner.info.as_key()))?;
+                .delete(&self.encode_key(KEYS::KEY_REQUEST, inner.info.as_key()))?;
         }
 
         tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?.delete(&jskey)?;

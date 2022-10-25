@@ -100,7 +100,7 @@ pub fn format_emojis(emojis: [Emoji; 7]) -> String {
 
         // Hack to make terminals behave properly when one of the above is printed.
         let emoji = if VARIATION_SELECTOR_EMOJIS.contains(&emoji) {
-            format!("{} ", emoji)
+            format!("{emoji} ")
         } else {
             emoji.to_owned()
         };
@@ -109,13 +109,12 @@ pub fn format_emojis(emojis: [Emoji; 7]) -> String {
         // monospace characters.
         let placeholder = ".".repeat(EMOJI_WIDTH);
 
-        format!("{:^12}", placeholder).replace(&placeholder, &emoji)
+        format!("{placeholder:^12}").replace(&placeholder, &emoji)
     };
 
     let emoji_string = emojis.iter().map(|e| center_emoji(e)).collect::<Vec<_>>().join("");
 
-    let description =
-        descriptions.iter().map(|d| format!("{:^12}", d)).collect::<Vec<_>>().join("");
+    let description = descriptions.iter().map(|d| format!("{d:^12}")).collect::<Vec<_>>().join("");
 
     format!("{emoji_string}\n{description}")
 }

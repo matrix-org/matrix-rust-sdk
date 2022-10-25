@@ -1981,7 +1981,7 @@ pub(crate) mod tests {
         if let AnyToDeviceEvent::Dummy(e) = event {
             assert_eq!(&e.sender, alice.user_id());
         } else {
-            panic!("Wrong event type found {:?}", event);
+            panic!("Wrong event type found {event:?}");
         }
     }
 
@@ -2019,7 +2019,7 @@ pub(crate) mod tests {
             assert_eq!(&event.sender, alice.user_id());
             assert!(event.content.session_key.is_empty());
         } else {
-            panic!("expected RoomKeyEvent found {:?}", event);
+            panic!("expected RoomKeyEvent found {event:?}");
         }
 
         let session =
@@ -2298,7 +2298,7 @@ pub(crate) mod tests {
 
         // Bob verifies that the MAC is valid and also sends a "done" message.
         let msgs = bob.verification_machine.outgoing_messages();
-        eprintln!("{:?}", msgs);
+        eprintln!("{msgs:?}");
         assert!(msgs.len() == 1);
         let event = msgs.first().map(|r| outgoing_request_to_event(bob.user_id(), r)).unwrap();
 
@@ -2319,7 +2319,7 @@ pub(crate) mod tests {
         assert!(!alice_sas.is_done());
         assert!(!bob_device.is_verified());
         // Alices receives the done message
-        eprintln!("{:?}", event);
+        eprintln!("{event:?}");
         alice.handle_verification_event(&event).await;
 
         assert!(alice_sas.is_done());

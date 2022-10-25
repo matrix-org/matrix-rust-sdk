@@ -60,7 +60,7 @@ pub struct MediaThumbnailSize {
 
 impl UniqueKey for MediaThumbnailSize {
     fn unique_key(&self) -> String {
-        format!("{}{}{}x{}", self.method, UNIQUE_SEPARATOR, self.width, self.height)
+        format!("{}{UNIQUE_SEPARATOR}{}x{}", self.method, self.width, self.height)
     }
 }
 
@@ -85,7 +85,7 @@ pub struct MediaRequest {
 
 impl UniqueKey for MediaRequest {
     fn unique_key(&self) -> String {
-        format!("{}{}{}", self.source.unique_key(), UNIQUE_SEPARATOR, self.format.unique_key())
+        format!("{}{UNIQUE_SEPARATOR}{}", self.source.unique_key(), self.format.unique_key())
     }
 }
 /// Trait for media event content.
