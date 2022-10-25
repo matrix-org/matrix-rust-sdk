@@ -62,7 +62,7 @@ pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartCont
     Base64::new(
         Sha256::new()
             .chain_update(public_key.to_base64())
-            .chain_update(&content_string)
+            .chain_update(content_string)
             .finalize()
             .as_slice()
             .to_owned(),
@@ -228,7 +228,7 @@ pub fn receive_mac_event(
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
             let calculated_mac = Base64::parse(
-                sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{}{}", info, key_id)),
+                sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{info}{key_id}")),
             )
             .expect("Can't base64-decode SAS MAC");
 

@@ -690,7 +690,7 @@ impl SledStateStore {
 
             let make_room_version = |room_id| {
                 self.room_info
-                    .get(&self.encode_key(ROOM_INFO, room_id))
+                    .get(self.encode_key(ROOM_INFO, room_id))
                     .ok()
                     .flatten()
                     .map(|r| self.deserialize_value::<RoomInfo>(&r))
@@ -1577,7 +1577,7 @@ mod migration {
         if let Err(SledStoreError::MigrationConflict { .. }) = res {
             // all good
         } else {
-            panic!("Didn't raise the expected error: {:?}", res);
+            panic!("Didn't raise the expected error: {res:?}");
         }
         assert_eq!(std::fs::read_dir(folder.path())?.count(), 1);
         Ok(())

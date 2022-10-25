@@ -412,17 +412,22 @@ impl From<HistoryVisibility> for RustHistoryVisibility {
     }
 }
 
-/// Settings for an encrypted room.
+/// Settings that should be used when a room key is shared.
 ///
-/// This determines the algorithm and rotation periods of a group session.
+/// These settings control which algorithm the room key should use, how long a
+/// room key should be used and some other important information that determines
+/// the lifetime of a room key.
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
-    /// How long the session should be used before changing it. Time in seconds.
+    /// How long can the room key be used before it should be rotated. Time in
+    /// seconds.
     pub rotation_period: u64,
-    /// How many messages should be sent before changing the session.
+    /// How many messages should be sent before the room key should be rotated.
     pub rotation_period_msgs: u64,
-    /// The history visibility of the room when the session was created.
+    /// The current history visibility of the room. The visibility will be
+    /// tracked by the room key and the key will be rotated if the visibility
+    /// changes.
     pub history_visibility: HistoryVisibility,
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.

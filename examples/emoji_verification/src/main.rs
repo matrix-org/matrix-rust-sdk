@@ -35,7 +35,7 @@ async fn wait_for_confirmation(sas: SasVerification, emoji: [Emoji; 7]) {
 }
 
 async fn print_devices(user_id: &UserId, client: &Client) {
-    println!("Devices of user {}", user_id);
+    println!("Devices of user {user_id}");
 
     for device in client.encryption().get_user_devices(user_id).await.unwrap().devices() {
         println!(
