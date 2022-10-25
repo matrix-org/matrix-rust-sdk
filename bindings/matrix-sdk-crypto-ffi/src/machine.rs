@@ -516,6 +516,8 @@ impl OlmMachine {
     ///
     /// * `users` - The list of users which are considered to be members of the
     /// room and should receive the room key.
+    ///
+    /// * `settings` - The settings that should be used for the room key.
     pub fn share_room_key(
         &self,
         room_id: &str,
