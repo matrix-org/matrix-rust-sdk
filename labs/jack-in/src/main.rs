@@ -192,11 +192,11 @@ async fn main() -> Result<()> {
         .account()
         .get_display_name()
         .await?
-        .map(|s| format!("{} ({})", s, user_id))
-        .unwrap_or_else(|| format!("{}", user_id));
+        .map(|s| format!("{s} ({user_id})"))
+        .unwrap_or_else(|| format!("{user_id}"));
     let poller = MatrixPoller(rx);
     let mut model = Model::new(start_sync, model_tx, poller);
-    model.set_title(format!("{} via {}", display_name, opt.sliding_sync_proxy));
+    model.set_title(format!("{display_name} via {}", opt.sliding_sync_proxy));
     run_ui(model).await;
 
     Ok(())
@@ -213,7 +213,7 @@ async fn run_ui(mut model: Model) {
         // Tick
         match model.app.tick(PollStrategy::Once) {
             Err(err) => {
-                model.set_title(format!("Application error: {}", err));
+                model.set_title(format!("Application error: {err}"));
             }
             Ok(messages) if !messages.is_empty() => {
                 // NOTE: redraw if at least one msg has been processed

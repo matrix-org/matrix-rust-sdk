@@ -161,7 +161,7 @@ impl MockComponent for Details {
         let mut tabs = vec![];
 
         for (title, count) in &self.state_events_counts {
-            tabs.push(Spans::from(format!("{}: {}", title.clone(), count)));
+            tabs.push(Spans::from(format!("{title}: {count}")));
         }
 
         frame.render_widget(
