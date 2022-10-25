@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::net::ToSocketAddrs;
+use std::{
+    convert::Infallible,
+    future::Future,
+    net::ToSocketAddrs,
+    pin::Pin,
+    task::{self, Poll},
+};
 
 use axum::{
     async_trait,
@@ -20,13 +26,14 @@ use axum::{
     extract::{FromRequest, Path, RequestParts},
     middleware::{self, Next},
     response::{ErrorResponse, IntoResponse, Response},
-    routing::{get, put},
+    routing::{future::RouteFuture, get, put},
     BoxError, Extension, Json, Router,
 };
 use http::StatusCode;
+use hyper::Body;
 use matrix_sdk::ruma::{self, api::IncomingRequest};
 use serde::{Deserialize, Serialize};
-use tower::ServiceBuilder;
+use tower::{make, Service, ServiceBuilder};
 
 use crate::{AppService, Error, Result};
 
@@ -35,36 +42,82 @@ pub async fn run_server(
     host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<()> {
-    let router: Router = router(appservice);
+    let router: AppServiceRouter = router(appservice);
 
     let mut addr = (host.into(), port.into()).to_socket_addrs()?;
     if let Some(addr) = addr.next() {
-        hyper::Server::bind(&addr).serve(router.into_make_service()).await?;
+        hyper::Server::bind(&addr).serve(make::Shared::new(router)).await?;
         Ok(())
     } else {
         Err(Error::HostPortToSocketAddrs)
     }
 }
 
-pub fn router<B>(appservice: AppService) -> Router<B>
+pub fn router<B>(appservice: AppService) -> AppServiceRouter<B>
 where
     B: HttpBody + Send + 'static,
     B::Data: Send,
     B::Error: Into<BoxError>,
 {
-    Router::new()
-        .route("/_matrix/app/v1/users/:user_id", get(handlers::user))
-        .route("/_matrix/app/v1/rooms/:room_id", get(handlers::room))
-        .route("/_matrix/app/v1/transactions/:txn_id", put(handlers::transaction))
-        .route("/users/:user_id", get(handlers::user))
-        .route("/rooms/:room_id", get(handlers::room))
-        .route("/transactions/:txn_id", put(handlers::transaction))
-        // FIXME: Use Route::with_state instead of an Extension layer in axum 0.6
-        .layer(
-            ServiceBuilder::new()
-                .layer(Extension(appservice))
-                .layer(middleware::from_fn(validate_access_token)),
-        )
+    AppServiceRouter(
+        Router::new()
+            .route("/_matrix/app/v1/users/:user_id", get(handlers::user))
+            .route("/_matrix/app/v1/rooms/:room_id", get(handlers::room))
+            .route("/_matrix/app/v1/transactions/:txn_id", put(handlers::transaction))
+            .route("/users/:user_id", get(handlers::user))
+            .route("/rooms/:room_id", get(handlers::room))
+            .route("/transactions/:txn_id", put(handlers::transaction))
+            // FIXME: Use Route::with_state instead of an Extension layer in axum 0.6
+            .layer(
+                ServiceBuilder::new()
+                    .layer(Extension(appservice))
+                    .layer(middleware::from_fn(validate_access_token)),
+            ),
+    )
+}
+
+#[derive(Debug)]
+pub struct AppServiceRouter<B = Body>(Router<B>);
+
+impl<B> Clone for AppServiceRouter<B> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<B> Service<http::Request<B>> for AppServiceRouter<B>
+where
+    B: HttpBody + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+{
+    // axum's Response type is part of the signature because axum::Router::nest
+    // requires the inner service to have that exact response (body) type in
+    // 0.5.x; this will be fixed in axum 0.6.0.
+    type Response = Response;
+    type Error = Infallible;
+    type Future = AppServiceRouteFuture<B>;
+
+    fn poll_ready(&mut self, cx: &mut task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<B>) -> Self::Future {
+        AppServiceRouteFuture(self.0.call(req))
+    }
+}
+
+pub struct AppServiceRouteFuture<B>(RouteFuture<B, Infallible>);
+
+impl<B> Future for AppServiceRouteFuture<B>
+where
+    B: HttpBody,
+{
+    type Output = Result<Response, Infallible>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
+    }
 }
 
 pub struct MatrixRequest<T>(T);

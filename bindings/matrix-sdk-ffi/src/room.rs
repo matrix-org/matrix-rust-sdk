@@ -92,8 +92,8 @@ impl Room {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).expect("Invalid user id.");
-            let member = room.get_member(user_id).await?.expect("No user found");
+            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(user_id).await?.context("No user found")?;
             let avatar_url_string = member.avatar_url().map(|m| m.to_string());
             Ok(avatar_url_string)
         })
@@ -103,8 +103,8 @@ impl Room {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).expect("Invalid user id.");
-            let member = room.get_member(user_id).await?.expect("No user found");
+            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(user_id).await?.context("No user found")?;
             let avatar_url_string = member.display_name().map(|m| m.to_owned());
             Ok(avatar_url_string)
         })

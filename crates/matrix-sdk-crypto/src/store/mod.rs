@@ -325,7 +325,7 @@ impl Store {
     }
 
     #[cfg(test)]
-    /// Testing helper to allo to save only a set of devices
+    /// Testing helper to allow to save only a set of devices
     pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },

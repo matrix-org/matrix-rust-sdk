@@ -15,6 +15,8 @@
 
 //! User sessions.
 
+use std::fmt;
+
 use ruma::{api::client::session::refresh_token, OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +38,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// assert_eq!(session.device_id.as_str(), "MYDEVICEID");
 /// ```
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     /// The access token used for this session.
     pub access_token: String,
@@ -66,6 +68,15 @@ impl Session {
     }
 }
 
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("user_id", &self.user_id)
+            .field("device_id", &self.device_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl From<ruma::api::client::session::login::v3::Response> for Session {
     fn from(response: ruma::api::client::session::login::v3::Response) -> Self {
         Self {
@@ -88,7 +99,8 @@ pub struct SessionMeta {
 
 /// The mutable parts of the session: the access token and optional refresh
 /// token.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct SessionTokens {
     /// The access token used for this session.
     pub access_token: String,

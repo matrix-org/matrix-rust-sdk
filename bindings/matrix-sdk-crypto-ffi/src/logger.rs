@@ -51,6 +51,7 @@ pub fn set_logger(logger: Box<dyn Logger>) {
     let _ = tracing_subscriber::fmt()
         .with_writer(logger)
         .with_env_filter(filter)
+        .with_ansi(false)
         .without_time()
         .try_init();
 }

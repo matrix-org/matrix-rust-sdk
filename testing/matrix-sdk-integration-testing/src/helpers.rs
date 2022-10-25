@@ -42,7 +42,6 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
     let client = Client::builder()
         .user_agent("matrix-sdk-integation-tests")
         .sled_store(tmp_dir.path(), None)
-        .await?
         .homeserver_url(homeserver_url)
         .build()
         .await?;

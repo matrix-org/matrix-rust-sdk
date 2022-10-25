@@ -104,25 +104,14 @@ impl From<TransactionError<SledStoreError>> for SledStoreError {
     }
 }
 
-#[allow(clippy::from_over_into)]
-impl Into<StoreError> for SledStoreError {
-    fn into(self) -> StoreError {
-        match self {
+impl From<SledStoreError> for StoreError {
+    fn from(err: SledStoreError) -> StoreError {
+        match err {
             SledStoreError::Json(e) => StoreError::Json(e),
             SledStoreError::Identifier(e) => StoreError::Identifier(e),
-            SledStoreError::Encryption(e) => match e {
-                KeyEncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
-                KeyEncryptionError::Serialization(e) => StoreError::Json(e),
-                KeyEncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
-                KeyEncryptionError::Version(found, expected) => StoreError::Encryption(format!(
-                    "Bad Database Encryption Version: expected {expected}, found {found}",
-                )),
-                KeyEncryptionError::Length(found, expected) => StoreError::Encryption(format!(
-                    "The database key an invalid length: expected {expected}, found {found}",
-                )),
-            },
+            SledStoreError::Encryption(e) => StoreError::Encryption(e),
             SledStoreError::StoreError(e) => e,
-            _ => StoreError::backend(self),
+            _ => StoreError::backend(err),
         }
     }
 }

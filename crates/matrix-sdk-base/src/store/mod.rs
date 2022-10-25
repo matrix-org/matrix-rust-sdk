@@ -23,9 +23,11 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
+    fmt,
     ops::Deref,
     pin::Pin,
     result::Result as StdResult,
+    str::Utf8Error,
     sync::Arc,
 };
 
@@ -41,6 +43,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{CryptoStore, IntoCryptoStore};
+pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
@@ -98,10 +101,11 @@ pub enum StoreError {
     UnencryptedStore,
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
-    Encryption(String),
+    Encryption(#[from] StoreEncryptionError),
+
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
-    Codec(String),
+    Codec(#[from] Utf8Error),
 
     /// The database format has changed in a backwards incompatible way.
     #[error(
@@ -492,7 +496,7 @@ where
 ///
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
@@ -510,10 +514,8 @@ impl Store {
 
         Self::new(inner)
     }
-}
 
-impl Store {
-    /// Create a new store, wrappning the given `StateStore`
+    /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
             inner,
@@ -631,6 +633,18 @@ impl Store {
             .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
+    }
+}
+
+impl fmt::Debug for Store {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Store")
+            .field("inner", &self.inner)
+            .field("session_meta", &self.session_meta)
+            .field("sync_token", &self.sync_token)
+            .field("rooms", &self.rooms)
+            .field("stripped_rooms", &self.stripped_rooms)
+            .finish_non_exhaustive()
     }
 }
 

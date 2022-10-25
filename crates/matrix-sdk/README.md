@@ -43,8 +43,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Syncing is important to synchronize the client state with the server.
-    // This method will never return.
-    client.sync(SyncSettings::default()).await;
+    // This method will never return unless there is an error.
+    client.sync(SyncSettings::default()).await?;
 
     Ok(())
 }

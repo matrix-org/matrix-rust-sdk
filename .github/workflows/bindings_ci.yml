@@ -149,11 +149,6 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Install targets
-        run: |
-          rustup target add aarch64-apple-ios-sim --toolchain nightly
-          rustup target add x86_64-apple-ios --toolchain nightly
-
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
@@ -161,17 +156,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          # keep in sync with uniffi dependency in Cargo.toml's
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev 0eee77f67b716c4896494606e5931d249871b23a
+          # keep in sync with uniffi dependency in root Cargo.toml
+          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev fdb769b567865d9c5c7c682a18d0c1301a039c85
 
-      - name: Generate .xcframework
-        working-directory: bindings/apple
-        run: sh ./debug_build_xcframework.sh x86_64 ci
+      - name: Build library & bindings
+        run: cargo xtask swift build-library
 
       - name: Run XCTests
         working-directory: bindings/apple
-        run: |
-          xcodebuild test \
-            -scheme MatrixRustSDK \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 13'
+        run: swift test

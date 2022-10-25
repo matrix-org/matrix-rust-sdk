@@ -1,9 +1,12 @@
 mod ci;
 mod fixup;
+mod swift;
+mod workspace;
 
 use ci::CiArgs;
 use clap::{Parser, Subcommand};
 use fixup::FixupArgs;
+use swift::SwiftArgs;
 use xshell::cmd;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
@@ -26,6 +29,7 @@ enum Command {
         #[clap(long)]
         open: bool,
     },
+    Swift(SwiftArgs),
 }
 
 fn main() -> Result<()> {
@@ -33,6 +37,7 @@ fn main() -> Result<()> {
         Command::Ci(ci) => ci.run(),
         Command::Fixup(cfg) => cfg.run(),
         Command::Doc { open } => build_docs(open.then_some("--open"), DenyWarnings::No),
+        Command::Swift(cfg) => cfg.run(),
     }
 }
 

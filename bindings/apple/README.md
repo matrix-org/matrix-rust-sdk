@@ -38,15 +38,11 @@ The `build_crypto_xcframework.sh` script will go through all the steps required 
 4. `xcodebuild` an `xcframework` from the fat static libs and the original iOS one, and add the header and module map to it under `generated/MatrixSDKCryptoFFI.xcframework`
 5. cleanup and delete the generated files except the .xcframework and the swift sources (that aren't part of the framework)
 
-## Running the Xcode project
+## Building & testing the Swift package
 
-The Xcode project is meant to provide a simple example on how to integrate everything together but also a place to run unit and integration tests from.
+`Package.swift` is meant to provide a simple example on how to integrate everything together but also a place to run unit and integration tests from.
 
-It's pre-configured to link to the generated .xcframework and .swift files so successfully running the script first is necessary for it to compile.
-
-It makes the compiled code available to swift by importing the C header through its bridging header.
-
-Once all the generated components are available running it should be as easy as choosing a platform and clicking run.
+It's pre-configured to link to the generated static lib and .swift files so successfully running `cargo xtask swift build-library` first is necessary for it to compile. Afterwards you can execute the tests with `swift test`. Note that for the moment this only works on macOS but we're planning to add Linux support in the future.
 
 ## Distribution
 
