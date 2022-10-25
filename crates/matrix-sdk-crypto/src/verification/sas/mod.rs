@@ -668,7 +668,9 @@ impl Sas {
     /// # futures::executor::block_on(async {
     /// # let sas: Sas = unimplemented!();
     ///
-    /// while let Some(state) = sas.changes().next().await {
+    /// let mut stream = sas.changes();
+    ///
+    /// while let Some(state) = stream.next().await {
     ///     match state {
     ///         SasState::KeysExchanged { emojis, decimals: _ } => {
     ///             let emojis =
