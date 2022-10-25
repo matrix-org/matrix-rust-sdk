@@ -87,16 +87,16 @@ pub enum SecretInfo {
 
 impl SecretInfo {
     /// Serialize `SecretInfo` into `String` for usage as database keys and
-    /// comparison
+    /// comparison.
     pub fn as_key(&self) -> String {
         match &self {
-            SecretInfo::KeyRequest(ref info) => format!(
+            SecretInfo::KeyRequest(info) => format!(
                 "keyRequest:{:}:{:}:{:}",
                 info.room_id().as_str(),
                 info.session_id(),
                 &info.algorithm(),
             ),
-            SecretInfo::SecretRequest(ref sname) => format!("secretName:{sname:}"),
+            SecretInfo::SecretRequest(sname) => format!("secretName:{sname}"),
         }
     }
 }
