@@ -273,7 +273,9 @@ impl SasVerification {
     /// # let sas: SasVerification = unimplemented!();
     /// # let user_confirmed = false;
     ///
-    /// while let Some(state) = sas.changes().next().await {
+    /// let mut stream = sas.changes();
+    ///
+    /// while let Some(state) = stream.next().await {
     ///     match state {
     ///         SasState::KeysExchanged { emojis, decimals: _ } => {
     ///             let emojis =

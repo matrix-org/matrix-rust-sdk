@@ -56,7 +56,9 @@ async fn sas_verification_handler(client: Client, sas: SasVerification) {
     print_devices(sas.other_device().user_id(), &client).await;
     sas.accept().await.unwrap();
 
-    while let Some(state) = sas.changes().next().await {
+    let mut stream = sas.changes();
+
+    while let Some(state) = stream.next().await {
         match state {
             SasState::KeysExchanged { emojis, decimals: _ } => {
                 tokio::spawn(wait_for_confirmation(
