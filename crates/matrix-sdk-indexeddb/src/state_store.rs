@@ -191,7 +191,7 @@ fn create_stores(db: &IdbDatabase) -> Result<(), JsValue> {
 
 async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let now = JsDate::now();
-    let backup_name = format!("backup-{}-{}", source.name(), now);
+    let backup_name = format!("backup-{}-{now}", source.name());
 
     let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&backup_name, source.version())?;
     db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
@@ -257,7 +257,7 @@ impl IndexeddbStateStoreBuilder {
             .unwrap_or(MigrationConflictStrategy::BackupAndDrop);
         let name = self.name.clone().unwrap_or_else(|| "state".to_owned());
 
-        let meta_name = format!("{}::{}", name, KEYS::INTERNAL_STATE);
+        let meta_name = format!("{name}::{}", KEYS::INTERNAL_STATE);
 
         let mut db_req: OpenDbRequest =
             IdbDatabase::open_f64(&meta_name, KEYS::CURRENT_META_DB_VERSION)?;

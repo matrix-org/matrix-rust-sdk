@@ -792,7 +792,7 @@ impl CryptoStore for SledCryptoStore {
         let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, (room_id, session_id));
         let pickle = self
             .inbound_group_sessions
-            .get(&key)
+            .get(key)
             .map_err(CryptoStoreError::backend)?
             .map(|p| self.deserialize_value(&p));
 

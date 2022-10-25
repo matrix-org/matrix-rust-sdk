@@ -96,7 +96,7 @@ impl SecretInfo {
                 info.session_id(),
                 &info.algorithm(),
             ),
-            SecretInfo::SecretRequest(ref sname) => format!("secretName:{:}", sname),
+            SecretInfo::SecretRequest(ref sname) => format!("secretName:{sname:}"),
         }
     }
 }

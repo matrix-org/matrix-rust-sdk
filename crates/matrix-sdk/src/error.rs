@@ -319,7 +319,7 @@ impl From<SdkBaseError> for Error {
             _ => Self::UnknownError(anyhow::anyhow!(e).into()),
             #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
             _ => {
-                let e: Box<dyn std::error::Error + Sync + Send> = format!("{:?}", e).into();
+                let e: Box<dyn std::error::Error + Sync + Send> = format!("{e:?}").into();
                 Self::UnknownError(e)
             }
         }
