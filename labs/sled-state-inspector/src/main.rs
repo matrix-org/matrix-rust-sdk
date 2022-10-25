@@ -172,7 +172,7 @@ impl Printer {
         let data = if self.json {
             serde_json::to_string_pretty(data).expect("Can't serialize struct")
         } else {
-            format!("{:#?}", data)
+            format!("{data:#?}")
         };
 
         let syntax = if self.json {

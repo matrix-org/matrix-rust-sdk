@@ -68,6 +68,6 @@ async fn main() -> anyhow::Result<()> {
 
     let user_id = UserId::parse(username).expect("Couldn't parse the MXID");
     let profile = get_profile(client, &user_id).await?;
-    println!("{:#?}", profile);
+    println!("{profile:#?}");
     Ok(())
 }
