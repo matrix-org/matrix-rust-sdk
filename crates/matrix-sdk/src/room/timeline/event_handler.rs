@@ -40,79 +40,81 @@ use super::{
     TimelineKey,
 };
 
-pub(super) fn handle_live_event(
-    raw: Raw<AnySyncTimelineEvent>,
-    encryption_info: Option<EncryptionInfo>,
-    own_user_id: &UserId,
-    timeline: &TimelineInner,
-) {
-    handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::End, timeline)
-}
+impl TimelineInner {
+    pub(super) fn handle_live_event(
+        &self,
+        raw: Raw<AnySyncTimelineEvent>,
+        encryption_info: Option<EncryptionInfo>,
+        own_user_id: &UserId,
+    ) {
+        self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::End)
+    }
 
-pub(super) fn handle_local_event(
-    txn_id: OwnedTransactionId,
-    content: AnyMessageLikeEventContent,
-    own_user_id: &UserId,
-    timeline: &TimelineInner,
-) {
-    let meta = TimelineEventMetadata {
-        sender: own_user_id.to_owned(),
-        origin_server_ts: None,
-        raw_event: None,
-        is_own_event: true,
-        relations: None,
-        // FIXME: Should we supply something here for encrypted rooms?
-        encryption_info: None,
-    };
+    pub(super) fn handle_local_event(
+        &self,
+        txn_id: OwnedTransactionId,
+        content: AnyMessageLikeEventContent,
+        own_user_id: &UserId,
+    ) {
+        let meta = TimelineEventMetadata {
+            sender: own_user_id.to_owned(),
+            origin_server_ts: None,
+            raw_event: None,
+            is_own_event: true,
+            relations: None,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+        };
 
-    let flow = Flow::Local { txn_id };
-    let kind = TimelineEventKind::Message { content };
+        let flow = Flow::Local { txn_id };
+        let kind = TimelineEventKind::Message { content };
 
-    TimelineEventHandler::new(meta, flow, timeline).handle_event(kind)
-}
+        TimelineEventHandler::new(meta, flow, self).handle_event(kind)
+    }
 
-pub(super) fn handle_back_paginated_event(
-    raw: Raw<AnySyncTimelineEvent>,
-    encryption_info: Option<EncryptionInfo>,
-    own_user_id: &UserId,
-    timeline: &TimelineInner,
-) {
-    handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::Start, timeline)
-}
+    pub(super) fn handle_back_paginated_event(
+        &self,
+        raw: Raw<AnySyncTimelineEvent>,
+        encryption_info: Option<EncryptionInfo>,
+        own_user_id: &UserId,
+    ) {
+        self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::Start)
+    }
 
-fn handle_remote_event(
-    raw: Raw<AnySyncTimelineEvent>,
-    encryption_info: Option<EncryptionInfo>,
-    own_user_id: &UserId,
-    position: TimelineItemPosition,
-    timeline: &TimelineInner,
-) {
-    let event = match raw.deserialize() {
-        Ok(ev) => ev,
-        Err(_e) => {
-            // TODO: Add some sort of error timeline item
-            return;
-        }
-    };
+    fn handle_remote_event(
+        &self,
+        raw: Raw<AnySyncTimelineEvent>,
+        encryption_info: Option<EncryptionInfo>,
+        own_user_id: &UserId,
+        position: TimelineItemPosition,
+    ) {
+        let event = match raw.deserialize() {
+            Ok(ev) => ev,
+            Err(_e) => {
+                // TODO: Add some sort of error timeline item
+                return;
+            }
+        };
 
-    let sender = event.sender().to_owned();
-    let is_own_event = sender == own_user_id;
+        let sender = event.sender().to_owned();
+        let is_own_event = sender == own_user_id;
 
-    let meta = TimelineEventMetadata {
-        raw_event: Some(raw),
-        sender,
-        origin_server_ts: Some(event.origin_server_ts()),
-        is_own_event,
-        relations: event.relations().cloned(),
-        encryption_info,
-    };
-    let flow = Flow::Remote {
-        event_id: event.event_id().to_owned(),
-        txn_id: event.transaction_id().map(ToOwned::to_owned),
-        position,
-    };
+        let meta = TimelineEventMetadata {
+            raw_event: Some(raw),
+            sender,
+            origin_server_ts: Some(event.origin_server_ts()),
+            is_own_event,
+            relations: event.relations().cloned(),
+            encryption_info,
+        };
+        let flow = Flow::Remote {
+            event_id: event.event_id().to_owned(),
+            txn_id: event.transaction_id().map(ToOwned::to_owned),
+            position,
+        };
 
-    TimelineEventHandler::new(meta, flow, timeline).handle_event(event.into())
+        TimelineEventHandler::new(meta, flow, self).handle_event(event.into())
+    }
 }
 
 enum Flow {

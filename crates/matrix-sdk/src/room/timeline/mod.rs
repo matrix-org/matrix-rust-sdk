@@ -42,7 +42,6 @@ mod event_handler;
 mod event_item;
 mod virtual_item;
 
-use self::event_handler::{handle_back_paginated_event, handle_live_event, handle_local_event};
 pub use self::{
     event_item::{
         EventTimelineItem, Message, PaginationOutcome, ReactionDetails, TimelineDetails,
@@ -81,7 +80,7 @@ impl Timeline {
             move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
                 let inner = inner.clone();
                 async move {
-                    handle_live_event(event, encryption_info, room.own_user_id(), &inner);
+                    inner.handle_live_event(event, encryption_info, room.own_user_id());
                 }
             }
         });
@@ -113,11 +112,10 @@ impl Timeline {
 
         let own_user_id = self.room.own_user_id();
         for room_ev in messages.chunk {
-            handle_back_paginated_event(
+            self.inner.handle_back_paginated_event(
                 room_ev.event.cast(),
                 room_ev.encryption_info,
                 own_user_id,
-                &self.inner,
             );
         }
 
@@ -175,7 +173,7 @@ impl Timeline {
         txn_id: Option<&TransactionId>,
     ) -> Result<()> {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id(), &self.inner);
+        self.inner.handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id());
 
         // If this room isn't actually in joined state, we'll get a server error.
         // Not ideal, but works for now.
