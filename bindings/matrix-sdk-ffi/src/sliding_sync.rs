@@ -137,9 +137,10 @@ impl SlidingSyncRoom {
         for ev in lock.iter().rev() {
             if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
                 SyncRoomMessageEvent::Original(o),
-            ))) = ev.deserialize()
+            ))) = ev.event.deserialize()
             {
-                let inner = matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.clone());
+                let inner =
+                    matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.event.clone());
                 return Some(Arc::new(EventTimelineItem(inner)));
             }
         }

@@ -18,14 +18,13 @@ use std::{fmt::Debug, sync::Arc};
 use anyhow::{bail, Context};
 use futures_core::stream::Stream;
 use futures_signals::signal::Mutable;
-use matrix_sdk_base::deserialized_responses::SyncResponse;
+use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
     },
     assign,
-    events::{AnySyncTimelineEvent, RoomEventType},
-    serde::Raw,
+    events::RoomEventType,
     OwnedRoomId, RoomId, UInt,
 };
 use url::Url;
@@ -92,8 +91,7 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline =
-    Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
+pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<SyncTimelineEvent>>;
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
@@ -106,8 +104,11 @@ pub struct SlidingSyncRoom {
 }
 
 impl SlidingSyncRoom {
-    fn from(room_id: OwnedRoomId, mut inner: v4::SlidingSyncRoom) -> Self {
-        let v4::SlidingSyncRoom { timeline, .. } = inner;
+    fn from(
+        room_id: OwnedRoomId,
+        mut inner: v4::SlidingSyncRoom,
+        timeline: Vec<SyncTimelineEvent>,
+    ) -> Self {
         // we overwrite to only keep one copy
         inner.timeline = vec![];
         Self {
@@ -144,7 +145,7 @@ impl SlidingSyncRoom {
         self.inner.name.as_deref()
     }
 
-    fn update(&mut self, room_data: &v4::SlidingSyncRoom) {
+    fn update(&mut self, room_data: &v4::SlidingSyncRoom, timeline: Vec<SyncTimelineEvent>) {
         let v4::SlidingSyncRoom {
             name,
             initial,
@@ -153,7 +154,6 @@ impl SlidingSyncRoom {
             unread_notifications,
             required_state,
             prev_batch,
-            timeline,
             ..
         } = room_data;
 
@@ -181,8 +181,8 @@ impl SlidingSyncRoom {
 
         if !timeline.is_empty() {
             let mut ref_timeline = self.timeline.lock_mut();
-            for e in timeline {
-                ref_timeline.push_cloned(e.clone());
+            for e in timeline.into_iter() {
+                ref_timeline.push_cloned(e);
             }
         }
     }
@@ -443,7 +443,7 @@ impl SlidingSync {
         resp: v4::Response,
         views: &[SlidingSyncView],
     ) -> anyhow::Result<UpdateSummary> {
-        self.client.process_sliding_sync(resp.clone()).await?;
+        let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         tracing::info!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
@@ -462,17 +462,25 @@ impl SlidingSync {
 
         let mut rooms = Vec::new();
         let mut rooms_map = self.rooms.lock_mut();
-        for (id, room_data) in resp.rooms.iter() {
-            if let Some(mut r) = rooms_map.remove(id) {
-                r.update(room_data);
+        for (id, mut room_data) in resp.rooms.into_iter() {
+            let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
+                joined_room.timeline.events
+            } else {
+                let events = room_data.timeline.into_iter().map(Into::into).collect();
+                room_data.timeline = vec![];
+                events
+            };
+
+            if let Some(mut r) = rooms_map.remove(&id) {
+                r.update(&room_data, timeline);
                 rooms_map.insert_cloned(id.clone(), r);
                 rooms.push(id.clone());
             } else {
                 rooms_map.insert_cloned(
                     id.clone(),
-                    SlidingSyncRoom::from(id.clone(), room_data.clone()),
+                    SlidingSyncRoom::from(id.clone(), room_data, timeline),
                 );
-                rooms.push(id.clone());
+                rooms.push(id);
             }
         }
 

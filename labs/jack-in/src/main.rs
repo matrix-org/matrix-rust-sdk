@@ -244,7 +244,7 @@ async fn main() -> Result<()> {
         let password = match opt.password {
             Some(ref pw) => pw.clone(),
             _ => Password::with_theme(&theme)
-                .with_prompt(format!("Password for {:} :", user_id))
+                .with_prompt(format!("Password for {user_id:} :"))
                 .interact()?,
         };
         client.login_username(&user_id, &password).send().await?;
