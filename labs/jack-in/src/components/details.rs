@@ -79,7 +79,7 @@ impl Details {
             .timeline()
             .lock_ref()
             .iter()
-            .filter_map(|d| d.deserialize().ok())
+            .filter_map(|d| d.event.deserialize().ok())
             .map(|e| e.into_full_event(room_id.clone()))
             .collect();
         timeline.reverse();

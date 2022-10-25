@@ -137,9 +137,10 @@ impl SlidingSyncRoom {
         for ev in lock.iter().rev() {
             if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
                 SyncRoomMessageEvent::Original(o),
-            ))) = ev.deserialize()
+            ))) = ev.event.deserialize()
             {
-                let inner = matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.clone());
+                let inner =
+                    matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.event.clone());
                 return Some(Arc::new(EventTimelineItem(inner)));
             }
         }
@@ -581,6 +582,12 @@ impl SlidingSyncBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         let view = unwrap_or_clone_arc(v);
         builder.inner = builder.inner.add_view(view.inner);
+        Arc::new(builder)
+    }
+
+    pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.with_common_extensions();
         Arc::new(builder)
     }
 

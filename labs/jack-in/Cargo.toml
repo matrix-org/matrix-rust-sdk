@@ -9,18 +9,22 @@ edition = "2021"
 file-logging = ["dep:log4rs"]
 
 [dependencies]
-tuirealm = "~1.7.1"
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"] ,  version = "0.6.0" }
-matrix-sdk-common = { path = "../../crates/matrix-sdk-common" ,  version = "0.6.0" }
-structopt = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+app_dirs2 = "2"
+dialoguer = "0.10.2"
+eyre = "0.6"
 futures = { version = "0.3.1" }
 futures-signals = "0.3.24"
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"], version = "0.6.0" }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
+matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled", features = ["state-store", "crypto-store"], version = "0.2.0" }
+sanitize-filename-reader-friendly = "2.2.1"
+serde_json = "1.0.85"
+structopt = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 tracing-flame = "0.2"
 tracing-subscriber = "0.3.15" 
-eyre = "0.6"
-
 tui-logger = "0.8.0"
+tuirealm = "~1.7.1"
 
 # file-logging specials
 tracing = { version = "0.1.35", features = ["log"] }

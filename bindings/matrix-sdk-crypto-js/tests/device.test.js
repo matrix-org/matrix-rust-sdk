@@ -176,13 +176,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.request');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }]
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send the verification request to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -230,13 +228,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.ready');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId2.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+            }];
 
             // Let's send the verification ready to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -287,13 +283,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.start');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId2.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+            }];
 
             // Let's send the SAS start to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -335,13 +329,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.accept');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send the SAS accept to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -364,13 +356,11 @@ describe('Key Verification', () => {
             toDeviceRequest = JSON.parse(toDeviceRequest.body);
             expect(toDeviceRequest.event_type).toStrictEqual('m.key.verification.key');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId2.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: toDeviceRequest.messages[userId1.toString()][deviceId1.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId2.toString(),
+                type: toDeviceRequest.event_type,
+                content: toDeviceRequest.messages[userId1.toString()][deviceId1.toString()],
+            }];
 
             // Let's send te SAS key to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -390,13 +380,11 @@ describe('Key Verification', () => {
             toDeviceRequest = JSON.parse(toDeviceRequest.body);
             expect(toDeviceRequest.event_type).toStrictEqual('m.key.verification.key');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: toDeviceRequest.messages[userId2.toString()][deviceId2.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: toDeviceRequest.event_type,
+                content: toDeviceRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send te SAS key to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -463,13 +451,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.mac');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send te SAS confirmation to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -491,13 +477,11 @@ describe('Key Verification', () => {
                 outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
                 expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.mac');
 
-                const toDeviceEvents = {
-                    events: [{
-                        sender: userId2.toString(),
-                        type: outgoingVerificationRequest.event_type,
-                        content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                    }],
-                };
+                const toDeviceEvents = [{
+                    sender: userId2.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+                }];
 
                 // Let's send te SAS confirmation to `m1`.
                 await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -512,13 +496,11 @@ describe('Key Verification', () => {
                 outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
                 expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.done');
 
-                const toDeviceEvents = {
-                    events: [{
-                        sender: userId2.toString(),
-                        type: outgoingVerificationRequest.event_type,
-                        content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                    }],
-                };
+                const toDeviceEvents = [{
+                    sender: userId2.toString(),
+                    type: outgoingVerificationRequest.event_type,
+                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+                }];
 
                 // Let's send te SAS done to `m1`.
                 await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -538,13 +520,11 @@ describe('Key Verification', () => {
             toDeviceRequest = JSON.parse(toDeviceRequest.body);
             expect(toDeviceRequest.event_type).toStrictEqual('m.key.verification.done');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: toDeviceRequest.messages[userId2.toString()][deviceId2.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: toDeviceRequest.event_type,
+                content: toDeviceRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send te SAS key to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -628,13 +608,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.request');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }]
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send the verification request to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -685,13 +663,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.ready');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }],
-            };
+            const toDeviceEvents = [{
+                sender: userId2.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+            }];
 
             // Let's send the verification ready to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -848,13 +824,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.start');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
-                }]
-            };
+            const toDeviceEvents = [{
+                sender: userId1.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId2.toString()][deviceId2.toString()],
+            }];
 
             // Let's send the verification request to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
@@ -872,13 +846,11 @@ describe('Key Verification', () => {
             outgoingVerificationRequest = JSON.parse(outgoingVerificationRequest.body);
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.done');
 
-            const toDeviceEvents = {
-                events: [{
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
-                }]
-            };
+            const toDeviceEvents = [{
+                sender: userId2.toString(),
+                type: outgoingVerificationRequest.event_type,
+                content: outgoingVerificationRequest.messages[userId1.toString()][deviceId1.toString()],
+            }];
 
             // Let's send the verification request to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());

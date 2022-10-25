@@ -31,11 +31,12 @@ use ruma::{
             upload_keys,
             upload_signatures::v3::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::v3::{DeviceLists, ToDevice},
+        sync::sync_events::DeviceLists,
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
@@ -891,11 +892,11 @@ impl OlmMachine {
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     pub async fn receive_sync_changes(
         &self,
-        to_device_events: ToDevice,
+        to_device_events: Vec<Raw<AnyToDeviceEvent>>,
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
-    ) -> OlmResult<ToDevice> {
+    ) -> OlmResult<Vec<Raw<AnyToDeviceEvent>>> {
         // Remove verification objects that have expired or are done.
         let mut events = self.verification_machine.garbage_collect();
 
@@ -912,7 +913,7 @@ impl OlmMachine {
             }
         }
 
-        for mut raw_event in to_device_events.events {
+        for mut raw_event in to_device_events {
             let event: ToDeviceEvents = match raw_event.deserialize_as() {
                 Ok(e) => e,
                 Err(e) => {
@@ -1002,10 +1003,7 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        let mut to_device = ToDevice::new();
-        to_device.events = events;
-
-        Ok(to_device)
+        Ok(events)
     }
 
     /// Request a room key from our devices.
@@ -1586,7 +1584,7 @@ pub(crate) mod tests {
         api::{
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::{DeviceLists, ToDevice},
+                sync::sync_events::v3::DeviceLists,
             },
             IncomingResponse,
         },
@@ -2005,15 +2003,12 @@ pub(crate) mod tests {
         let alice_session =
             alice.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
-
         let decrypted = bob
-            .receive_sync_changes(to_device, &Default::default(), &Default::default(), None)
+            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
             .await
             .unwrap();
 
-        let event = decrypted.events[0].deserialize().unwrap();
+        let event = decrypted[0].deserialize().unwrap();
 
         if let AnyToDeviceEvent::RoomKey(event) = event {
             assert_eq!(&event.sender, alice.user_id());
@@ -2342,13 +2337,13 @@ pub(crate) mod tests {
             other: Default::default(),
         };
         let event = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
         let changed_devices = DeviceLists::new();
         let key_counts = Default::default();
 
-        let _ =
-            bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+        let _ = bob
+            .receive_sync_changes(vec![event], &changed_devices, &key_counts, None)
+            .await
+            .unwrap();
 
         let group_session = GroupSession::new(SessionConfig::version_1());
         let session_key = group_session.session_key();
@@ -2378,10 +2373,8 @@ pub(crate) mod tests {
         );
 
         let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event.clone());
 
-        bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+        bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
 
         let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 

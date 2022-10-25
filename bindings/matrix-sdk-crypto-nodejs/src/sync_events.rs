@@ -7,7 +7,7 @@ use crate::identifiers;
 /// Information on E2E device updates.
 #[napi]
 pub struct DeviceLists {
-    pub(crate) inner: ruma::api::client::sync::sync_events::v3::DeviceLists,
+    pub(crate) inner: ruma::api::client::sync::sync_events::DeviceLists,
 }
 
 #[napi]
@@ -18,7 +18,7 @@ impl DeviceLists {
         changed: Option<Vec<&identifiers::UserId>>,
         left: Option<Vec<&identifiers::UserId>>,
     ) -> Self {
-        let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
+        let mut inner = ruma::api::client::sync::sync_events::DeviceLists::default();
 
         inner.changed = changed.into_iter().flatten().map(|user| user.inner.clone()).collect();
         inner.left = left.into_iter().flatten().map(|user| user.inner.clone()).collect();

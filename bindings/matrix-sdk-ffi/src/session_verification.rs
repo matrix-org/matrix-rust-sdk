@@ -6,8 +6,8 @@ use matrix_sdk::{
         verification::{SasVerification, VerificationRequest},
     },
     ruma::{
-        api::client::sync::sync_events::v3::ToDevice,
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
+        serde::Raw,
     },
 };
 
@@ -106,10 +106,10 @@ impl SessionVerificationController {
         })
     }
 
-    pub async fn process_to_device_messages(&self, to_device: ToDevice) {
+    pub async fn process_to_device_messages(&self, to_device_events: Vec<Raw<AnyToDeviceEvent>>) {
         let sas_verification = self.sas_verification.clone();
 
-        for event in to_device.events.into_iter().filter_map(|e| e.deserialize().ok()) {
+        for event in to_device_events.into_iter().filter_map(|e| e.deserialize().ok()) {
             match event {
                 AnyToDeviceEvent::KeyVerificationReady(event) => {
                     if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {

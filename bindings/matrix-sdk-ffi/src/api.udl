@@ -175,6 +175,9 @@ interface SlidingSyncBuilder {
     [Self=ByArc]
     SlidingSyncBuilder add_view(SlidingSyncView view);
 
+    [Self=ByArc]
+    SlidingSyncBuilder with_common_extensions();
+
     [Throws=ClientError, Self=ByArc]
     SlidingSync build();
 };

@@ -17,12 +17,14 @@ use std::{fmt::Debug, sync::Arc};
 
 use anyhow::{bail, Context};
 use futures_core::stream::Stream;
-use matrix_sdk_base::deserialized_responses::SyncResponse;
+use futures_signals::signal::Mutable;
+use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
 use ruma::{
-    api::client::sync::sync_events::v4,
+    api::client::sync::sync_events::v4::{
+        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
+    },
     assign,
-    events::{AnySyncTimelineEvent, RoomEventType},
-    serde::Raw,
+    events::RoomEventType,
     OwnedRoomId, RoomId, UInt,
 };
 use url::Url;
@@ -89,28 +91,30 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline =
-    Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncTimelineEvent>>>;
+pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<SyncTimelineEvent>>;
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
     room_id: OwnedRoomId,
     inner: v4::SlidingSyncRoom,
-    is_loading_more: futures_signals::signal::Mutable<bool>,
-    prev_batch: futures_signals::signal::Mutable<Option<String>>,
+    is_loading_more: Mutable<bool>,
+    prev_batch: Mutable<Option<String>>,
     timeline: AliveRoomTimeline,
 }
 
 impl SlidingSyncRoom {
-    fn from(room_id: OwnedRoomId, mut inner: v4::SlidingSyncRoom) -> Self {
-        let v4::SlidingSyncRoom { timeline, .. } = inner;
+    fn from(
+        room_id: OwnedRoomId,
+        mut inner: v4::SlidingSyncRoom,
+        timeline: Vec<SyncTimelineEvent>,
+    ) -> Self {
         // we overwrite to only keep one copy
         inner.timeline = vec![];
         Self {
             room_id,
-            is_loading_more: futures_signals::signal::Mutable::new(false),
-            prev_batch: futures_signals::signal::Mutable::new(inner.prev_batch.clone()),
+            is_loading_more: Mutable::new(false),
+            prev_batch: Mutable::new(inner.prev_batch.clone()),
             timeline: Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(timeline)),
             inner,
         }
@@ -141,7 +145,7 @@ impl SlidingSyncRoom {
         self.inner.name.as_deref()
     }
 
-    fn update(&mut self, room_data: &v4::SlidingSyncRoom) {
+    fn update(&mut self, room_data: &v4::SlidingSyncRoom, timeline: Vec<SyncTimelineEvent>) {
         let v4::SlidingSyncRoom {
             name,
             initial,
@@ -150,7 +154,6 @@ impl SlidingSyncRoom {
             unread_notifications,
             required_state,
             prev_batch,
-            timeline,
             ..
         } = room_data;
 
@@ -178,8 +181,8 @@ impl SlidingSyncRoom {
 
         if !timeline.is_empty() {
             let mut ref_timeline = self.timeline.lock_mut();
-            for e in timeline {
-                ref_timeline.push_cloned(e.clone());
+            for e in timeline.into_iter() {
+                ref_timeline.push_cloned(e);
             }
         }
     }
@@ -192,11 +195,11 @@ impl std::ops::Deref for SlidingSyncRoom {
     }
 }
 
-type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
-type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
-type PosState = futures_signals::signal::Mutable<Option<String>>;
-type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
-type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
+type ViewState = Mutable<SlidingSyncState>;
+type SyncMode = Mutable<SlidingSyncMode>;
+type PosState = Mutable<Option<String>>;
+type RangeState = Mutable<Vec<(UInt, UInt)>>;
+type RoomsCount = Mutable<Option<u32>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<RoomListEntry>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
 type RoomsSubscriptions =
@@ -243,6 +246,9 @@ pub struct SlidingSync {
     /// The rooms details
     #[builder(private, default)]
     rooms: RoomsMap,
+
+    #[builder(private, default)]
+    extensions: Mutable<Option<ExtensionsConfig>>,
 }
 
 impl SlidingSyncBuilder {
@@ -273,6 +279,91 @@ impl SlidingSyncBuilder {
         let views = self.views.clone().unwrap_or_default();
         views.lock_mut().push_cloned(v);
         self.views = Some(views);
+        self
+    }
+
+    /// Activate e2ee, to-device-message and account data extensions if not yet
+    /// configured.
+    ///
+    /// Will leave any extension configuration found untouched, so the order
+    /// does not matter.
+    pub fn with_common_extensions(mut self) -> Self {
+        {
+            let mut lock = self.extensions.get_or_insert_with(Default::default).lock_mut();
+            let mut cfg = lock.get_or_insert_with(Default::default);
+            if cfg.to_device.is_none() {
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.e2ee.is_none() {
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.account_data.is_none() {
+                cfg.account_data =
+                    Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+            }
+        }
+        self
+    }
+
+    /// Set the E2EE extension configuration.
+    pub fn with_e2ee_extension(mut self, e2ee: E2EEConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .e2ee = Some(e2ee);
+        self
+    }
+
+    /// Unset the E2EE extension configuration.
+    pub fn without_e2ee_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .e2ee = None;
+        self
+    }
+
+    /// Set the ToDevice extension configuration.
+    pub fn with_to_device_extension(mut self, to_device: ToDeviceConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .to_device = Some(to_device);
+        self
+    }
+
+    /// Unset the ToDevice extension configuration.
+    pub fn without_to_device_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .to_device = None;
+        self
+    }
+
+    /// Set the account data extension configuration.
+    pub fn with_account_data_extension(mut self, account_data: AccountDataConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .account_data = Some(account_data);
+        self
+    }
+
+    /// Unset the account data extension configuration.
+    pub fn without_account_data_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .account_data = None;
         self
     }
 }
@@ -329,6 +420,15 @@ impl SlidingSync {
         self.rooms.lock_ref().get(&room_id).cloned()
     }
 
+    fn update_to_device_since(&self, since: String) {
+        self.extensions
+            .lock_mut()
+            .get_or_insert_with(Default::default)
+            .to_device
+            .get_or_insert_with(Default::default)
+            .since = Some(since);
+    }
+
     /// Lookup a set of rooms
     pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
         &self,
@@ -343,7 +443,7 @@ impl SlidingSync {
         resp: v4::Response,
         views: &[SlidingSyncView],
     ) -> anyhow::Result<UpdateSummary> {
-        self.client.process_sliding_sync(resp.clone()).await?;
+        let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         tracing::info!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
@@ -362,18 +462,31 @@ impl SlidingSync {
 
         let mut rooms = Vec::new();
         let mut rooms_map = self.rooms.lock_mut();
-        for (id, room_data) in resp.rooms.iter() {
-            if let Some(mut r) = rooms_map.remove(id) {
-                r.update(room_data);
+        for (id, mut room_data) in resp.rooms.into_iter() {
+            let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
+                joined_room.timeline.events
+            } else {
+                let events = room_data.timeline.into_iter().map(Into::into).collect();
+                room_data.timeline = vec![];
+                events
+            };
+
+            if let Some(mut r) = rooms_map.remove(&id) {
+                r.update(&room_data, timeline);
                 rooms_map.insert_cloned(id.clone(), r);
                 rooms.push(id.clone());
             } else {
                 rooms_map.insert_cloned(
                     id.clone(),
-                    SlidingSyncRoom::from(id.clone(), room_data.clone()),
+                    SlidingSyncRoom::from(id.clone(), room_data, timeline),
                 );
-                rooms.push(id.clone());
+                rooms.push(id);
             }
+        }
+
+        // Update the `to-device` next-batch if found.
+        if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
+            self.update_to_device_since(to_device_since)
         }
 
         Ok(UpdateSummary { views: updated_views, rooms })
@@ -386,9 +499,7 @@ impl SlidingSync {
         &self,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<UpdateSummary>> + '_> {
         let views = self.views.lock_ref().to_vec();
-        let _pos = self.pos.clone();
-
-        // FIXME: hack for while the sliding sync server is on a proxy
+        let extensions = self.extensions.clone();
         let client = self.client.clone();
 
         Ok(async_stream::try_stream! {
@@ -398,6 +509,11 @@ impl SlidingSync {
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                #[cfg(feature = "e2e-encryption")]
+                if let Err(e) = client.send_outgoing_requests().await {
+                    tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
+                }
+
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
@@ -431,6 +547,7 @@ impl SlidingSync {
                     pos: pos.as_deref(),
                     room_subscriptions,
                     unsubscribe_rooms: &unsubscribe_rooms,
+                    extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
                 });
                 tracing::debug!("requesting");
                 let resp = client

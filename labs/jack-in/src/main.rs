@@ -4,15 +4,21 @@
 
 use std::path::{Path, PathBuf};
 
+use app_dirs2::{app_root, AppDataType, AppInfo};
+use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
 use matrix_sdk::{
-    ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
-    Client, Session,
+    ruma::{OwnedRoomId, OwnedUserId},
+    Client,
 };
-use tracing::{log::LevelFilter, warn};
+use matrix_sdk_sled::make_store_config;
+use sanitize_filename_reader_friendly::sanitize;
+use tracing::{log, warn};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
+
+const APP_INFO: AppInfo = AppInfo { name: "jack-in", author: "Matrix-Rust-SDK Core Team" };
 
 // -- internal
 mod app;
@@ -75,13 +81,26 @@ struct Opt {
     #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
     sliding_sync_proxy: String,
 
-    /// Your access token to connect via the
-    #[structopt(short, long, env = "JACKIN_TOKEN")]
-    token: String,
+    /// The password of your account. If not given and no database found, it
+    /// will prompt you for it
+    #[structopt(short, long, env = "JACKIN_PASSWORD")]
+    password: Option<String>,
 
-    /// The userID associated with this access token
+    /// Create a fresh database, drop all existing cache
+    #[structopt(long)]
+    fresh: bool,
+
+    /// RUST_LOG log-levels
+    #[structopt(short, long, env = "JACKIN_LOG", default_value = "jack_in=info,warn")]
+    log: String,
+
+    /// The userID to log in with
     #[structopt(short, long, env = "JACKIN_USER")]
     user: String,
+
+    /// The password to encrypt the store  with
+    #[structopt(long, env = "JACKIN_STORE_PASSWORD")]
+    store_pass: Option<String>,
 
     #[structopt(long)]
     /// Activate tracing and write the flamegraph to the specified file
@@ -112,7 +131,6 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let user_id: OwnedUserId = opt.user.clone().parse()?;
-    let device_id: OwnedDeviceId = "XdftAsd".into();
 
     if let Some(ref p) = opt.flames {
         setup_flames(p.as_path());
@@ -138,41 +156,104 @@ async fn main() -> Result<()> {
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk::sliding_sync", LevelFilter::Trace),
+                        .build("matrix_sdk::sliding_sync", log::LevelFilter::Trace),
                 )
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk::http_client", LevelFilter::Debug),
+                        .build("matrix_sdk::http_client", log::LevelFilter::Debug),
                 )
                 .logger(
                     Logger::builder()
                         .appender("file")
-                        .build("matrix_sdk_base::sliding_sync", LevelFilter::Debug),
+                        .build("matrix_sdk_base::sliding_sync", log::LevelFilter::Debug),
                 )
-                .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
-                .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
-                .build(Root::builder().build(LevelFilter::Error))
+                .logger(
+                    Logger::builder().appender("file").build("reqwest", log::LevelFilter::Trace),
+                )
+                .logger(
+                    Logger::builder().appender("file").build("matrix_sdk", log::LevelFilter::Warn),
+                )
+                .build(Root::builder().build(log::LevelFilter::Error))
                 .unwrap();
 
             log4rs::init_config(config).expect("Logging with log4rs failed to initialize");
         }
         #[cfg(not(feature = "file-logging"))]
         {
-            tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
-            tui_logger::set_default_level(LevelFilter::Warn);
-            tui_logger::set_level_for_target("matrix_sdk", LevelFilter::Warn);
+            tui_logger::init_logger(log::LevelFilter::Trace).unwrap();
+            // Set default level for unknown targets to Trace
+            tui_logger::set_default_level(log::LevelFilter::Warn);
+
+            for pair in opt.log.split(',') {
+                if let Some((name, lvl)) = pair.split_once('=') {
+                    let level = match lvl.to_lowercase().as_str() {
+                        "trace" => log::LevelFilter::Trace,
+                        "debug" => log::LevelFilter::Debug,
+                        "info" => log::LevelFilter::Info,
+                        "warn" => log::LevelFilter::Warn,
+                        "error" => log::LevelFilter::Error,
+                        // nothing means error
+                        _ => continue,
+                    };
+                    tui_logger::set_level_for_target(name, level);
+                } else {
+                    let level = match pair.to_lowercase().as_str() {
+                        "trace" => log::LevelFilter::Trace,
+                        "debug" => log::LevelFilter::Debug,
+                        "info" => log::LevelFilter::Info,
+                        "warn" => log::LevelFilter::Warn,
+                        "error" => log::LevelFilter::Error,
+                        // nothing means error
+                        _ => continue,
+                    };
+                    tui_logger::set_default_level(level);
+                }
+            }
         }
     }
 
-    let client = Client::builder().server_name(user_id.server_name()).build().await?;
-    let session = Session {
-        access_token: opt.token.clone(),
-        refresh_token: None,
-        user_id: user_id.clone(),
-        device_id,
-    };
-    client.restore_login(session).await?;
+    let data_path = app_root(AppDataType::UserData, &APP_INFO)?.join(sanitize(user_id.as_str()));
+    if opt.fresh {
+        // drop the database first;
+        std::fs::remove_dir_all(&data_path)?;
+    }
+    std::fs::create_dir_all(&data_path)?;
+    let store_config = make_store_config(&data_path, opt.store_pass.as_deref()).await?;
+
+    let client = Client::builder()
+        .user_agent("jack-in")
+        .server_name(user_id.server_name())
+        .store_config(store_config)
+        .build()
+        .await?;
+
+    let session_key = b"jackin::session_token";
+
+    if let Some(session) = client
+        .store()
+        .get_custom_value(session_key)
+        .await?
+        .map(|v| serde_json::from_slice(&v))
+        .transpose()?
+    {
+        tracing::info!("Restoring session from store");
+        client.restore_login(session).await?;
+    } else {
+        let theme = ColorfulTheme::default();
+        let password = match opt.password {
+            Some(ref pw) => pw.clone(),
+            _ => Password::with_theme(&theme)
+                .with_prompt(format!("Password for {user_id:} :"))
+                .interact()?,
+        };
+        client.login_username(&user_id, &password).send().await?;
+    }
+
+    if let Some(session) = client.session() {
+        client.store().set_custom_value(session_key, serde_json::to_vec(&session)?).await?;
+    }
+
     let sliding_client = client.clone();
     let proxy = opt.sliding_sync_proxy.clone();
 
