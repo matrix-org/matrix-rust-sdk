@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
@@ -427,7 +427,7 @@ impl Common {
     /// happens and does not return if no sync is happening!
     pub async fn sync_up(&self) {
         while !self.is_synced() {
-            self.client.inner.sync_beat.listen().await;
+            self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
         }
     }
 

@@ -261,7 +261,8 @@ pub enum Error {
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 
-    /// The client is in inconsistent state.
+    /// The client is in inconsistent state. This happens when we set a room to
+    /// a specific type, but then cannot get it in this type.
     #[error("The internal client state is inconsistent.")]
     InconsistentState,
 
