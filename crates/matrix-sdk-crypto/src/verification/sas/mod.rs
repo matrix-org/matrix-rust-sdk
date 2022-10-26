@@ -57,6 +57,41 @@ pub struct Sas {
     request_handle: Option<RequestHandle>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum State {
+    Created,
+    Started,
+    Accepted,
+    WeAccepted,
+    KeyReceived,
+    KeySent,
+    KeysExchanged,
+    Confirmed,
+    MacReceived,
+    WaitingForDone,
+    Done,
+    Cancelled,
+}
+
+impl From<&InnerSas> for State {
+    fn from(value: &InnerSas) -> Self {
+        match value {
+            InnerSas::Created(_) => Self::Created,
+            InnerSas::Started(_) => Self::Started,
+            InnerSas::Accepted(_) => Self::Accepted,
+            InnerSas::WeAccepted(_) => Self::WeAccepted,
+            InnerSas::KeyReceived(_) => Self::KeyReceived,
+            InnerSas::KeySent(_) => Self::KeySent,
+            InnerSas::KeysExchanged(_) => Self::KeysExchanged,
+            InnerSas::Confirmed(_) => Self::Confirmed,
+            InnerSas::MacReceived(_) => Self::MacReceived,
+            InnerSas::WaitingForDone(_) => Self::WaitingForDone,
+            InnerSas::Done(_) => Self::Done,
+            InnerSas::Cancelled(_) => Self::Cancelled,
+        }
+    }
+}
+
 /// The short auth string for the emoji method of SAS verification.
 #[derive(Debug, Clone)]
 pub struct EmojiShortAuthString {
@@ -411,6 +446,8 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
+        let old_state = self.state_debug();
+
         let (request, state) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -444,6 +481,15 @@ impl Sas {
         if let Some(new_state) = state {
             self.update_state(new_state);
         }
+
+        let new_state = self.state_debug();
+
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "Accepted SAS verification"
+        );
 
         request
     }
@@ -734,12 +780,16 @@ impl Sas {
         }
     }
 
+    fn state_debug(&self) -> State {
+        (&*self.inner.lock().unwrap()).into()
+    }
+
     pub(crate) fn receive_any_event(
         &self,
         sender: &UserId,
         content: &AnyVerificationContent<'_>,
     ) -> Option<(OutgoingContent, Option<RequestInfo>)> {
-        let old_state = self.state();
+        let old_state = self.state_debug();
 
         let (content, state) = {
             let mut guard = self.inner.lock().unwrap();
@@ -753,15 +803,20 @@ impl Sas {
             (content, state)
         };
 
-        let new_state = self.state();
-        trace!(?old_state, ?new_state, "SAS received an event and changed it's state");
+        let new_state = self.state_debug();
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "SAS received an event and changed it's state"
+        );
 
         self.update_state(state);
         content
     }
 
     pub(crate) fn mark_request_as_sent(&self, request_id: &TransactionId) {
-        let old_state = self.state();
+        let old_state = self.state_debug();
 
         let state = {
             let mut guard = self.inner.lock().unwrap();
@@ -775,6 +830,7 @@ impl Sas {
                 Some(state)
             } else {
                 error!(
+                    flow_id = self.flow_id().as_str(),
                     %request_id,
                     "Tried to mark a request as sent, but the request ID didn't match"
                 );
@@ -782,8 +838,15 @@ impl Sas {
             }
         };
 
-        let new_state = self.state();
-        debug!(?old_state, ?new_state, %request_id, "Marked a SAS verification HTTP request as sent");
+        let new_state = self.state_debug();
+
+        debug!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            %request_id,
+            "Marked a SAS verification HTTP request as sent"
+        );
 
         if let Some(state) = state {
             self.update_state(state);
