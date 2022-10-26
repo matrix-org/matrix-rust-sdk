@@ -129,7 +129,7 @@ impl Room {
         self.inner.read().unwrap().notification_counts
     }
 
-    /// Check if the room has it's members fully synced.
+    /// Check if the room has its members fully synced.
     ///
     /// Members might be missing if lazy member loading was enabled for the
     /// sync.
@@ -150,7 +150,7 @@ impl Room {
         self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
     }
 
-    /// Check if the room has it's encryption event synced.
+    /// Check if the room has its encryption event synced.
     ///
     /// The encryption event can be missing when the room hasn't appeared in
     /// sync yet.
@@ -544,7 +544,7 @@ pub(crate) enum SyncInfo {
     /// stale, as it is from a room we've left.
     PartiallySynced,
 
-    /// We have all the latest state events
+    /// We have all the latest state events.
     FullySynced,
 }
 
@@ -582,52 +582,52 @@ impl RoomInfo {
         }
     }
 
-    /// Mark this Room as joined
+    /// Mark this Room as joined.
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
-    /// Mark this Room as left
+    /// Mark this Room as left.
     pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
-    /// Mark this Room as invited
+    /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
         self.room_type = RoomType::Invited;
     }
 
-    /// Mark this Room as having all the members synced
+    /// Mark this Room as having all the members synced.
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    /// Mark this Room still missing member information
+    /// Mark this Room still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    /// Mark this Room still missing some state information
+    /// Mark this Room still missing some state information.
     pub fn mark_state_partially_synced(&mut self) {
         self.sync_info = SyncInfo::PartiallySynced;
     }
 
-    /// Mark this Room still having all state synced
+    /// Mark this Room still having all state synced.
     pub fn mark_state_fully_synced(&mut self) {
         self.sync_info = SyncInfo::FullySynced;
     }
 
-    /// Mark this Room still having no state synced
+    /// Mark this Room still having no state synced.
     pub fn mark_state_not_synced(&mut self) {
         self.sync_info = SyncInfo::NoState;
     }
 
-    /// Mark this Room as having the encryption state synced
+    /// Mark this Room as having the encryption state synced.
     pub fn mark_encryption_state_synced(&mut self) {
         self.encryption_state_synced = true;
     }
 
-    /// Mark this Room still missing encryption state information
+    /// Mark this Room still missing encryption state information.
     pub fn mark_encryption_state_missing(&mut self) {
         self.encryption_state_synced = false;
     }
@@ -644,15 +644,14 @@ impl RoomInfo {
         }
     }
 
-    /// Whether this is an encrypted Room
+    /// Returns whether this is an encrypted Room.
     pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }
 
     /// Set the encryption event content in this room.
-    pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) -> &Self {
+    pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) {
         self.base_info.encryption = event;
-        self
     }
 
     /// Handle the given state event.
