@@ -9,7 +9,7 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.62"
-version = "0.6.0"
+version = "0.6.2"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]

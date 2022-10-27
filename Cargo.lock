@@ -2441,7 +2441,7 @@ checksum = "73cbba799671b762df5a175adf59ce145165747bb891505c43d09aefbbf38beb"
 
 [[package]]
 name = "matrix-sdk"
-version = "0.6.0"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -2520,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "assign",
  "async-stream",
