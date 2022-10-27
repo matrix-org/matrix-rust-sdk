@@ -528,15 +528,16 @@ dependencies = [
 
 [[package]]
 name = "cargo_metadata"
-version = "0.14.2"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4acbb09d9ee8e23699b9634375c72795d095bf268439da88562cf9b501f181fa"
+checksum = "406c859255d568f4f742b3146d51851f3bfd49f734a2c289d9107c4395ee0062"
 dependencies = [
  "camino",
  "cargo-platform",
  "semver",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -4998,7 +4999,7 @@ checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
 [[package]]
 name = "uniffi"
 version = "0.21.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5014,7 +5015,7 @@ dependencies = [
 [[package]]
 name = "uniffi_bindgen"
 version = "0.21.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "anyhow",
  "askama",
@@ -5036,7 +5037,7 @@ dependencies = [
 [[package]]
 name = "uniffi_build"
 version = "0.21.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "anyhow",
  "camino",
@@ -5046,7 +5047,7 @@ dependencies = [
 [[package]]
 name = "uniffi_macros"
 version = "0.21.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "bincode",
  "camino",
@@ -5064,7 +5065,7 @@ dependencies = [
 [[package]]
 name = "uniffi_meta"
 version = "0.21.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "serde",
 ]
@@ -5373,7 +5374,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=fdb769b567865d9c5c7c682a18d0c1301a039c85#fdb769b567865d9c5c7c682a18d0c1301a039c85"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=89b9dd835b470abb339b1bd492c19f7a08ad872f#89b9dd835b470abb339b1bd492c19f7a08ad872f"
 dependencies = [
  "nom",
 ]

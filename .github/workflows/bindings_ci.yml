@@ -157,7 +157,7 @@ jobs:
         with:
           command: install
           # keep in sync with uniffi dependency in root Cargo.toml
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev fdb769b567865d9c5c7c682a18d0c1301a039c85
+          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev 89b9dd835b470abb339b1bd492c19f7a08ad872f
 
       - name: Build library & bindings
         run: cargo xtask swift build-library
