@@ -36,6 +36,7 @@ pub enum Msg {
     RoomsBlur,
     DetailsBlur,
     SelectRoom(Option<OwnedRoomId>),
+    SendMessage(String),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -276,7 +277,7 @@ async fn main() -> Result<()> {
         .map(|s| format!("{s} ({user_id})"))
         .unwrap_or_else(|| format!("{user_id}"));
     let poller = MatrixPoller(rx);
-    let mut model = Model::new(start_sync, model_tx, poller);
+    let mut model = Model::new(start_sync, model_tx, poller, client);
     model.set_title(format!("{display_name} via {}", opt.sliding_sync_proxy));
     run_ui(model).await;
 

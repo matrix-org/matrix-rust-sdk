@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use dialoguer::Input;
 use matrix_sdk::ruma::events::{AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent};
 use tuirealm::{
     command::{Cmd, CmdResult},
@@ -248,6 +249,18 @@ impl Component<Msg, JackInEvent> for Details {
                 }
                 Event::Keyboard(KeyEvent { code: Key::Up, modifiers: KeyModifiers::SHIFT }) => {
                     self.select_dir(-10);
+                    return None;
+                }
+                Event::Keyboard(KeyEvent {
+                    code: Key::Char('s'),
+                    modifiers: KeyModifiers::NONE,
+                }) => {
+                    dialoguer::console::Term::stdout().clear_screen()?;
+                    let input = Input::<String>::new().with_prompt("What's your message?").allow_empty(true).interact_text().ok()?;
+                    if input.len() != 0 {
+                        return Some(Msg::SendMessage(input));
+                    }
+
                     return None;
                 }
                 Event::Keyboard(KeyEvent { code: Key::Tab, modifiers: KeyModifiers::NONE }) => {

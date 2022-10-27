@@ -18,6 +18,7 @@ use super::{
     Id, JackInEvent, MatrixPoller, Msg,
 };
 use crate::client::state::SlidingSyncState;
+use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 
 pub struct Model {
     /// Application
@@ -32,6 +33,7 @@ pub struct Model {
     pub show_logger: bool,
     sliding_sync: SlidingSyncState,
     tx: mpsc::Sender<SlidingSyncState>,
+    pub client: Client,
 }
 
 impl Model {
@@ -39,6 +41,7 @@ impl Model {
         sliding_sync: SlidingSyncState,
         tx: mpsc::Sender<SlidingSyncState>,
         poller: MatrixPoller,
+        client: Client,
     ) -> Self {
         let app = Self::init_app(sliding_sync.clone(), poller);
 
@@ -50,6 +53,7 @@ impl Model {
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             show_logger: true,
+            client,
         }
     }
 }
@@ -174,13 +178,13 @@ impl Update<Msg> for Model {
                 }
                 Msg::Clock => None,
                 Msg::RoomsBlur => {
-                    // Give focus to letter counter
+                    // Give focus to room details
                     let _ = self.app.blur();
                     assert!(self.app.active(&Id::Details).is_ok());
                     None
                 }
                 Msg::DetailsBlur => {
-                    // Give focus to letter counter
+                    // Give focus to room list
                     let _ = self.app.blur();
                     assert!(self.app.active(&Id::Rooms).is_ok());
                     None
@@ -189,6 +193,26 @@ impl Update<Msg> for Model {
                     warn!("setting room, sending msg");
                     self.sliding_sync.select_room(r);
                     let _ = self.tx.try_send(self.sliding_sync.clone());
+                    None
+                }
+                Msg::SendMessage(m) => {
+                    if let Some(room) = self
+                        .sliding_sync
+                        .selected_room
+                        .lock_ref()
+                        .as_ref()
+                        .and_then(|id| self.client.get_joined_room(id))
+                    {
+                        tokio::spawn(async move {
+                            // we do that in fire and forget style
+                            match room.send(RoomMessageEventContent::text_plain(m), None).await {
+                                Ok(_r) => tracing::info!("Message send"),
+                                Err(e) => tracing::error!("Sending message failed: {:}", e),
+                            }
+                        });
+                    } else {
+                        warn!("asked to send message, but no room is selected");
+                    }
                     None
                 }
             }
