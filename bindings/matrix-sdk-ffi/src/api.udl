@@ -30,7 +30,6 @@ dictionary UpdateSummary {
     sequence<string> rooms;
 };
 
-
 callback interface SlidingSyncObserver {
     void did_receive_sync_update(UpdateSummary summary);
 };
@@ -102,25 +101,7 @@ interface SlidingSyncViewBuilder {
     constructor();
 
     [Self=ByArc]
-    SlidingSyncViewBuilder timeline_limit(u32 limit);
-
-    [Self=ByArc]
     SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
-
-    [Self=ByArc]
-    SlidingSyncViewBuilder batch_size(u32 size);
-
-    [Self=ByArc]
-    SlidingSyncViewBuilder name(string name);
-
-    [Self=ByArc]
-    SlidingSyncViewBuilder sort(sequence<string> sort);
-
-    [Self=ByArc]
-    SlidingSyncViewBuilder add_range(u32 from, u32 to);
-
-    [Self=ByArc]
-    SlidingSyncViewBuilder reset_ranges();
 
     [Self=ByArc]
     SlidingSyncViewBuilder required_state(sequence<RequiredState> required_state);
@@ -165,18 +146,6 @@ interface ClientBuilder {
 interface SlidingSyncBuilder {
     [Throws=ClientError, Self=ByArc]
     SlidingSyncBuilder homeserver(string url);
-
-    [Self=ByArc]
-    SlidingSyncBuilder add_fullsync_view();
-
-    [Self=ByArc]
-    SlidingSyncBuilder no_views();
-
-    [Self=ByArc]
-    SlidingSyncBuilder add_view(SlidingSyncView view);
-
-    [Self=ByArc]
-    SlidingSyncBuilder with_common_extensions();
 
     [Throws=ClientError, Self=ByArc]
     SlidingSync build();
@@ -228,15 +197,7 @@ interface Client {
     void logout();
 };
 
-enum Membership {
-    "Invited",
-    "Joined",
-    "Left",
-};
-
 interface Room {
-    Membership membership();
-
     [Throws=ClientError]
     string display_name();
 
@@ -269,8 +230,6 @@ callback interface TimelineListener {
 };
 
 interface TimelineDiff {
-    TimelineChange change();
-
     [Self=ByArc]
     sequence<TimelineItem>? replace();
     [Self=ByArc]
@@ -281,17 +240,6 @@ interface TimelineDiff {
     MoveData? move();
     [Self=ByArc]
     TimelineItem? push();
-};
-
-enum TimelineChange {
-    "Replace",
-    "InsertAt",
-    "UpdateAt",
-    "RemoveAt",
-    "Move",
-    "Push",
-    "Pop",
-    "Clear",
 };
 
 dictionary InsertAtData {
@@ -312,14 +260,7 @@ dictionary MoveData {
 interface TimelineItem {};
 
 interface EventTimelineItem {
-    TimelineKey key();
     sequence<Reaction> reactions();
-};
-
-[Enum]
-interface TimelineKey {
-  TransactionId(string txn_id);
-  EventId(string event_id);
 };
 
 // Other methods defined via proc-macro
@@ -389,8 +330,6 @@ dictionary Reaction {
     // senders to come
 };
 
-interface VirtualTimelineItem {};
-
 dictionary PaginationOutcome {
     // Whether there's more messages to be paginated.
     boolean more_messages;
@@ -433,8 +372,6 @@ callback interface SessionVerificationControllerDelegate {
 
 interface SessionVerificationController {
     void set_delegate(SessionVerificationControllerDelegate? delegate);
-
-    boolean is_verified();
 
     [Throws=ClientError]
     void request_verification();
