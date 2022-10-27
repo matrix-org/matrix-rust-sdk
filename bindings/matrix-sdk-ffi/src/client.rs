@@ -333,7 +333,6 @@ impl Client {
         let client = self.client.clone();
         let state = self.state.clone();
         let delegate = self.delegate.clone();
-        let session_verification_controller = self.session_verification_controller.clone();
         let local_self = self.clone();
         RUNTIME.spawn(async move {
             let mut filter = FilterDefinition::default();
@@ -355,7 +354,7 @@ impl Client {
 
             client
                 .sync_with_result_callback(sync_settings, |result| async {
-                    Ok(if let Ok(sync_response) = result {
+                    Ok(if result.is_ok() {
                         if !state.read().unwrap().has_first_synced {
                             state.write().unwrap().has_first_synced = true;
                         }
@@ -369,14 +368,6 @@ impl Client {
 
                         if let Some(delegate) = &*delegate.read().unwrap() {
                             delegate.did_receive_sync_update()
-                        }
-
-                        if let Some(session_verification_controller) =
-                            &*session_verification_controller.read().await
-                        {
-                            session_verification_controller
-                                .process_to_device_messages(sync_response.to_device_events)
-                                .await;
                         }
 
                         LoopCtrl::Continue
