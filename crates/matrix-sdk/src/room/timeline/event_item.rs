@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 #[cfg(feature = "experimental-room-preview")]
@@ -32,7 +34,7 @@ use ruma::{
 /// There is always one main event that gives the `EventTimelineItem` its
 /// identity (see [key](Self::key)) but in many cases, additional events like
 /// reactions and edits are also part of the item.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EventTimelineItem {
     pub(super) key: TimelineKey,
     // If this item is a local echo that has been acknowledged by the server
@@ -47,6 +49,22 @@ pub struct EventTimelineItem {
     pub(super) encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
     pub(super) raw: Option<Raw<AnySyncTimelineEvent>>,
+}
+
+impl fmt::Debug for EventTimelineItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventTimelineItem")
+            .field("key", &self.key)
+            .field("event_id", &self.event_id)
+            .field("sender", &self.sender)
+            .field("content", &self.content)
+            .field("reactions", &self.reactions)
+            .field("origin_server_ts", &self.origin_server_ts)
+            .field("is_own", &self.is_own)
+            .field("encryption_info", &self.encryption_info)
+            // skip raw, too noisy
+            .finish_non_exhaustive()
+    }
 }
 
 macro_rules! build {
