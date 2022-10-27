@@ -36,6 +36,8 @@ use ruma::{
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
     UserId,
 };
+#[cfg(feature = "qrcode")]
+use tracing::debug;
 use tracing::{info, trace, warn};
 
 #[cfg(feature = "qrcode")]
@@ -336,7 +338,29 @@ impl VerificationRequest {
 
         if let Some(future) = fut {
             let qr_verification = future.await?;
-            self.verification_cache.insert_qr(qr_verification.clone());
+
+            // We may have previously started our own QR verification (e.g. two devices
+            // displaying QR code at the same time), so we need to replace it with the newly
+            // scanned code.
+            if self
+                .verification_cache
+                .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
+                .is_some()
+            {
+                debug!(
+                    user_id = %self.other_user(),
+                    flow_id = self.flow_id().as_str(),
+                    "Replacing existing QR verification"
+                );
+                self.verification_cache.replace_qr(qr_verification.clone());
+            } else {
+                debug!(
+                    user_id = %self.other_user(),
+                    flow_id = self.flow_id().as_str(),
+                    "Inserting new QR verification"
+                );
+                self.verification_cache.insert_qr(qr_verification.clone());
+            }
 
             Ok(Some(qr_verification))
         } else {
@@ -634,7 +658,24 @@ impl VerificationRequest {
                 if let Some((sas, content)) =
                     s.clone().start_sas(self.we_started, self.inner.clone().into()).await?
                 {
-                    self.verification_cache.insert_sas(sas.clone());
+                    // We may have previously started QR verification and generated a QR code. If we
+                    // now switch to SAS flow, the previous verification has to be replaced
+                    cfg_if::cfg_if! {
+                        if #[cfg(feature = "qrcode")] {
+                            if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
+                                debug!(
+                                    user_id = %self.other_user(),
+                                    flow_id = self.flow_id().as_str(),
+                                    "We have an ongoing QR verification, replacing with SAS"
+                                );
+                                self.verification_cache.replace(sas.clone().into())
+                            } else {
+                                self.verification_cache.insert_sas(sas.clone());
+                            }
+                        } else {
+                            self.verification_cache.insert_sas(sas.clone());
+                        }
+                    }
 
                     let request = match content {
                         OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
@@ -1222,7 +1263,11 @@ mod tests {
 
     use std::convert::{TryFrom, TryInto};
 
+    #[cfg(feature = "qrcode")]
+    use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
+    #[cfg(feature = "qrcode")]
+    use ruma::events::key::verification::VerificationMethod;
     use ruma::{event_id, room_id};
 
     use super::VerificationRequest;
@@ -1384,5 +1429,126 @@ mod tests {
         assert!(!alice_sas.is_cancelled());
         assert!(alice_sas.started_from_request());
         assert!(bob_sas.started_from_request());
+    }
+
+    #[async_test]
+    #[cfg(feature = "qrcode")]
+    async fn can_scan_another_qr_after_creating_mine() {
+        let (alice_store, bob_store) = setup_stores().await;
+
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
+
+        // We setup the initial verification request
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store,
+            flow_id.clone(),
+            alice_id(),
+            vec![],
+            Some(vec![VerificationMethod::QrCodeScanV1, VerificationMethod::QrCodeShowV1]),
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+        let content = RequestContent::try_from(&content).unwrap();
+
+        let alice_request = VerificationRequest::from_request(
+            VerificationCache::new(),
+            alice_store,
+            bob_id(),
+            flow_id,
+            &content,
+        );
+
+        let content: OutgoingContent = alice_request
+            .accept_with_methods(vec![
+                VerificationMethod::QrCodeScanV1,
+                VerificationMethod::QrCodeShowV1,
+            ])
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let content = ReadyContent::try_from(&content).unwrap();
+        bob_request.receive_ready(alice_id(), &content);
+
+        assert!(bob_request.is_ready());
+        assert!(alice_request.is_ready());
+
+        // Each side can start its own QR verification flow by generating QR code
+        let alice_verification = alice_request.generate_qr_code().await.unwrap();
+        let bob_verification = bob_request.generate_qr_code().await.unwrap();
+
+        assert!(alice_verification.is_some());
+        assert!(bob_verification.is_some());
+
+        // Now only Alice scans Bob's code
+        let bob_qr_code = bob_verification.unwrap().to_bytes().unwrap();
+        let bob_qr_code = QrVerificationData::from_bytes(bob_qr_code).unwrap();
+        let alice_verification = alice_request.scan_qr_code(bob_qr_code).await.unwrap().unwrap();
+
+        // Finally we assert that the verification has been reciprocated rather than
+        // cancelled due to a duplicate verification flow
+        assert!(!alice_verification.is_cancelled());
+        assert!(alice_verification.reciprocated());
+    }
+
+    #[async_test]
+    #[cfg(feature = "qrcode")]
+    async fn can_start_sas_after_generating_qr_code() {
+        let (alice_store, bob_store) = setup_stores().await;
+
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
+
+        // We setup the initial verification request
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store,
+            flow_id.clone(),
+            alice_id(),
+            vec![],
+            Some(vec![
+                VerificationMethod::QrCodeScanV1,
+                VerificationMethod::QrCodeShowV1,
+                VerificationMethod::SasV1,
+            ]),
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+        let content = RequestContent::try_from(&content).unwrap();
+
+        let alice_request = VerificationRequest::from_request(
+            VerificationCache::new(),
+            alice_store,
+            bob_id(),
+            flow_id,
+            &content,
+        );
+
+        let content: OutgoingContent = alice_request
+            .accept_with_methods(vec![
+                VerificationMethod::QrCodeScanV1,
+                VerificationMethod::QrCodeShowV1,
+            ])
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let content = ReadyContent::try_from(&content).unwrap();
+        bob_request.receive_ready(alice_id(), &content);
+
+        assert!(bob_request.is_ready());
+        assert!(alice_request.is_ready());
+
+        // Each side can start its own QR verification flow by generating QR code
+        let alice_verification = alice_request.generate_qr_code().await.unwrap();
+        let bob_verification = bob_request.generate_qr_code().await.unwrap();
+
+        assert!(alice_verification.is_some());
+        assert!(bob_verification.is_some());
+
+        // Alice can now start SAS verification flow instead of QR without cancelling
+        // the request
+        let (sas, _) = alice_request.start_sas().await.unwrap().unwrap();
+        assert!(!sas.is_cancelled());
     }
 }

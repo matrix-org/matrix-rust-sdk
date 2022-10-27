@@ -4,11 +4,8 @@ use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
         sync::sync_events::{
-            v3::{
-                DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
-                State, ToDevice,
-            },
-            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+            v3::{Ephemeral, InvitedRoom, Presence, RoomAccountData, State},
+            DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
     events::{
@@ -16,7 +13,8 @@ use ruma::{
             MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
             SyncRoomMemberEvent,
         },
-        AnySyncTimelineEvent, AnyTimelineEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        AnyToDeviceEvent,
     },
     serde::Raw,
     DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId,
@@ -79,7 +77,7 @@ pub struct EncryptionInfo {
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is as well trusted.
-    pub sender_device: OwnedDeviceId,
+    pub sender_device: Option<OwnedDeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
@@ -133,9 +131,9 @@ pub struct SyncResponse {
     /// Updates to the presence status of other users.
     pub presence: Presence,
     /// The global private data created by this user.
-    pub account_data: GlobalAccountData,
+    pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
-    pub to_device: ToDevice,
+    pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
     /// Information on E2E device updates.
     ///
     /// Only present on an incremental sync.
@@ -187,7 +185,7 @@ pub struct JoinedRoom {
     /// true).
     pub state: State,
     /// The private data that this user has attached to this room.
-    pub account_data: RoomAccountData,
+    pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
     /// The ephemeral events in the room that aren't recorded in the timeline or
     /// state of the room. e.g. typing.
     pub ephemeral: Ephemeral,
@@ -197,7 +195,7 @@ impl JoinedRoom {
     pub fn new(
         timeline: Timeline,
         state: State,
-        account_data: RoomAccountData,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Ephemeral,
         unread_notifications: UnreadNotificationsCount,
     ) -> Self {

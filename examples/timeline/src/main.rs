@@ -1,99 +1,84 @@
-use std::{env, process::exit, sync::Mutex, time::Duration};
-
-use matrix_sdk::{
-    self,
-    config::SyncSettings,
-    room::Room,
-    ruma::{
-        api::client::filter::{FilterDefinition, LazyLoadOptions},
-        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
-    },
-    Client, LoopCtrl,
-};
-use tokio::sync::oneshot;
+use anyhow::Result;
+use clap::Parser;
+use futures::StreamExt;
+use futures_signals::signal_vec::SignalVecExt;
+use matrix_sdk::{self, config::SyncSettings, ruma::OwnedRoomId, Client};
 use url::Url;
 
-async fn login(homeserver_url: String, username: &str, password: &str) -> Client {
-    let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::builder()
-        .homeserver_url(homeserver_url)
-        .sled_store("./", Some("some password"))
-        .await
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
+#[derive(Parser, Debug)]
+struct Cli {
+    /// The homeserver to connect to.
+    #[clap(value_parser)]
+    homeserver: Url,
+
+    /// The user name that should be used for the login.
+    #[clap(value_parser)]
+    user_name: String,
+
+    /// The password that should be used for the login.
+    #[clap(value_parser)]
+    password: String,
+
+    /// Set the proxy that should be used for the connection.
+    #[clap(short, long)]
+    proxy: Option<Url>,
+
+    /// Enable verbose logging output.
+    #[clap(short, long, action)]
+    verbose: bool,
+
+    /// The room id that we should listen for the,
+    #[clap(value_parser)]
+    room_id: OwnedRoomId,
+}
+
+async fn login(cli: Cli) -> Result<Client> {
+    let mut builder =
+        Client::builder().homeserver_url(cli.homeserver).sled_store("./", Some("some password"));
+
+    if let Some(proxy) = cli.proxy {
+        builder = builder.proxy(proxy);
+    }
+
+    let client = builder.build().await?;
 
     client
-        .login_username(username, password)
+        .login_username(&cli.user_name, &cli.password)
         .initial_device_display_name("rust-sdk")
         .send()
-        .await
-        .unwrap();
-    client
-}
+        .await?;
 
-fn _event_content(event: AnySyncTimelineEvent) -> Option<String> {
-    if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-        SyncMessageLikeEvent::Original(event),
-    )) = event
-    {
-        Some(event.content.msgtype.body().to_owned())
-    } else {
-        None
-    }
-}
-
-async fn print_timeline(_room: Room) {
-    // TODO
+    Ok(client)
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let (homeserver_url, username, password, room_id) =
-        match (env::args().nth(1), env::args().nth(2), env::args().nth(3), env::args().nth(4)) {
-            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
-            _ => {
-                eprintln!(
-                    "Usage: {} <homeserver_url> <username> <password> <room_id>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-            }
-        };
+    let cli = Cli::parse();
+    let room_id = cli.room_id.clone();
+    let client = login(cli).await?;
 
-    let client = login(homeserver_url, &username, &password).await;
-
-    let mut filter = FilterDefinition::default();
-    filter.room.include_leave = true;
-    filter.room.state.lazy_load_options =
-        LazyLoadOptions::Enabled { include_redundant_members: false };
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_secs(30)).filter(filter.into());
-    let (sender, receiver) = oneshot::channel::<()>();
-    let sender = Mutex::new(Some(sender));
-    let client_clone = client.clone();
-    tokio::spawn(async move {
-        client_clone
-            .sync_with_callback(sync_settings, |_| async {
-                if let Some(sender) = sender.lock().unwrap().take() {
-                    sender.send(()).unwrap();
-                }
-                LoopCtrl::Continue
-            })
-            .await
-            .unwrap();
-    });
+    let sync_settings = SyncSettings::default();
 
     // Wait for the first sync response
     println!("Wait for the first sync");
-    receiver.await.unwrap();
 
-    let room = client.get_room(room_id.as_str().try_into().unwrap()).unwrap();
+    client.sync_once(sync_settings.clone()).await?;
 
-    print_timeline(room).await;
+    // Get the timeline stream and listen to it.
+    let room = client.get_room(&room_id).unwrap();
+    let timeline = room.timeline();
+    let mut timeline_stream = timeline.signal().to_stream();
+
+    tokio::spawn(async move {
+        while let Some(diff) = timeline_stream.next().await {
+            println!("Received a timeline diff {diff:#?}");
+        }
+    });
+
+    // Sync forever
+    client.sync(sync_settings).await?;
 
     Ok(())
 }

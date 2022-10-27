@@ -58,7 +58,7 @@ use ruma::{
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
-        error::{FromHttpResponseError, ServerError},
+        error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
@@ -532,7 +532,12 @@ impl Client {
     /// context argument types are only available for a subset of event types:
     ///
     /// * [`Room`][room::Room] is only available for room-specific events, i.e.
-    ///   not for events like global account data events or presence events
+    ///   not for events like global account data events or presence events.
+    ///
+    /// You can provide custom context via
+    /// [`add_event_handler_context`](Client::add_event_handler_context) and
+    /// then use [`Ctx<T>`](crate::event_handler::Ctx) to extract the context
+    /// into the event handler.
     ///
     /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
     ///
@@ -544,6 +549,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
+    ///     event_handler::Ctx,
     ///     room::Room,
     ///     ruma::{
     ///         events::{
@@ -587,6 +593,16 @@ impl Client {
     ///     /* Event handler */
     /// });
     /// client.remove_event_handler(handle);
+    ///
+    /// // Registering custom event handler context:
+    /// #[derive(Debug, Clone)] // The context will be cloned for event handler.
+    /// struct MyContext {
+    ///     number: usize,
+    /// }
+    /// client.add_event_handler_context(MyContext { number: 5 });
+    /// client.add_event_handler(|ev: SyncRoomMessageEvent, context: Ctx<MyContext>| async move {
+    ///     // Use the context
+    /// });
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
@@ -1338,13 +1354,11 @@ impl Client {
                     Ok(Some(res))
                 }
                 Err(error) => {
-                    *guard = if let HttpError::Api(FromHttpResponseError::Server(
-                        ServerError::Known(RumaApiError::ClientApi(api_error)),
-                    )) = &error
-                    {
-                        Err(RefreshTokenError::ClientApi(api_error.to_owned()))
-                    } else {
-                        Err(RefreshTokenError::UnableToRefreshToken)
+                    *guard = match error.as_ruma_api_error() {
+                        Some(RumaApiError::ClientApi(api_error)) => {
+                            Err(RefreshTokenError::ClientApi(api_error.to_owned()))
+                        }
+                        _ => Err(RefreshTokenError::UnableToRefreshToken),
                     };
 
                     Err(error)
@@ -1688,9 +1702,9 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-                RumaApiError::ClientApi(error),
-            )))) = &res
+            // FIXME: Use if-let chain once available
+            if let Err(Some(RumaApiError::ClientApi(error))) =
+                res.as_ref().map_err(HttpError::as_ruma_api_error)
             {
                 if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                     let refresh_res = self.refresh_access_token().await;
@@ -1733,9 +1747,9 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
-                RumaApiError::ClientApi(error),
-            )))) = &res
+            // FIXME: Use if-let chain once available
+            if let Err(Some(RumaApiError::ClientApi(error))) =
+                res.as_ref().map_err(HttpError::as_ruma_api_error)
             {
                 if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                     let refresh_res = self.refresh_access_token().await;

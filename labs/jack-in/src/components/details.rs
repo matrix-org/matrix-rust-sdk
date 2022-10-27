@@ -79,7 +79,7 @@ impl Details {
             .timeline()
             .lock_ref()
             .iter()
-            .filter_map(|d| d.deserialize().ok())
+            .filter_map(|d| d.event.deserialize().ok())
             .map(|e| e.into_full_event(room_id.clone()))
             .collect();
         timeline.reverse();
@@ -161,7 +161,7 @@ impl MockComponent for Details {
         let mut tabs = vec![];
 
         for (title, count) in &self.state_events_counts {
-            tabs.push(Spans::from(format!("{}: {}", title.clone(), count)));
+            tabs.push(Spans::from(format!("{title}: {count}")));
         }
 
         frame.render_widget(

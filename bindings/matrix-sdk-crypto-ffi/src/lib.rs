@@ -16,7 +16,7 @@ mod uniffi_api;
 mod users;
 mod verification;
 
-use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
@@ -28,12 +28,18 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
-use matrix_sdk_crypto::types::{EventEncryptionAlgorithm, SigningKey};
+use matrix_sdk_crypto::{
+    types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
+    EncryptionSettings as RustEncryptionSettings, LocalTrust,
+};
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
-use ruma::{DeviceId, DeviceKeyAlgorithm, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId};
+use ruma::{
+    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility, DeviceId,
+    DeviceKeyAlgorithm, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
+};
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
@@ -272,7 +278,7 @@ pub fn migrate(
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm: RustEventEncryptionAlgorithm::MegolmV1AesSha2,
         };
 
         let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;
@@ -344,6 +350,99 @@ pub trait ProgressListener {
 impl<T: Fn(i32, i32)> ProgressListener for T {
     fn on_progress(&self, progress: i32, total: i32) {
         self(progress, total)
+    }
+}
+
+/// An encryption algorithm to be used to encrypt messages sent to a room.
+pub enum EventEncryptionAlgorithm {
+    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
+    OlmV1Curve25519AesSha2,
+    /// Megolm version 1 using AES-256 and SHA-256.
+    MegolmV1AesSha2,
+}
+
+impl From<EventEncryptionAlgorithm> for RustEventEncryptionAlgorithm {
+    fn from(a: EventEncryptionAlgorithm) -> Self {
+        match a {
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+            }
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
+                RustEventEncryptionAlgorithm::MegolmV1AesSha2
+            }
+        }
+    }
+}
+
+/// Who can see a room's history.
+pub enum HistoryVisibility {
+    /// Previous events are accessible to newly joined members from the point
+    /// they were invited onwards.
+    ///
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *invite* or *join*.
+    Invited,
+
+    /// Previous events are accessible to newly joined members from the point
+    /// they joined the room onwards.
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *join*.
+    Joined,
+
+    /// Previous events are always accessible to newly joined members.
+    ///
+    /// All events in the room are accessible, even those sent when the member
+    /// was not a part of the room.
+    Shared,
+
+    /// All events while this is the `HistoryVisibility` value may be shared by
+    /// any participating homeserver with anyone, regardless of whether they
+    /// have ever joined the room.
+    WorldReadable,
+}
+
+impl From<HistoryVisibility> for RustHistoryVisibility {
+    fn from(h: HistoryVisibility) -> Self {
+        match h {
+            HistoryVisibility::Invited => RustHistoryVisibility::Invited,
+            HistoryVisibility::Joined => RustHistoryVisibility::Joined,
+            HistoryVisibility::Shared => RustHistoryVisibility::Shared,
+            HistoryVisibility::WorldReadable => RustHistoryVisibility::Shared,
+        }
+    }
+}
+
+/// Settings that should be used when a room key is shared.
+///
+/// These settings control which algorithm the room key should use, how long a
+/// room key should be used and some other important information that determines
+/// the lifetime of a room key.
+pub struct EncryptionSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// How long can the room key be used before it should be rotated. Time in
+    /// seconds.
+    pub rotation_period: u64,
+    /// How many messages should be sent before the room key should be rotated.
+    pub rotation_period_msgs: u64,
+    /// The current history visibility of the room. The visibility will be
+    /// tracked by the room key and the key will be rotated if the visibility
+    /// changes.
+    pub history_visibility: HistoryVisibility,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl From<EncryptionSettings> for RustEncryptionSettings {
+    fn from(v: EncryptionSettings) -> Self {
+        RustEncryptionSettings {
+            algorithm: v.algorithm.into(),
+            rotation_period: Duration::from_secs(v.rotation_period),
+            rotation_period_msgs: v.rotation_period_msgs,
+            history_visibility: v.history_visibility.into(),
+            only_allow_trusted_devices: v.only_allow_trusted_devices,
+        }
     }
 }
 

@@ -138,7 +138,7 @@ impl OlmMessageHash {
         let sha = Sha256::new()
             .chain_update(sender_key.as_bytes())
             .chain_update([message_type as u8])
-            .chain_update(&ciphertext)
+            .chain_update(ciphertext)
             .finalize();
 
         Self { sender_key, hash: encode(sha.as_slice()) }

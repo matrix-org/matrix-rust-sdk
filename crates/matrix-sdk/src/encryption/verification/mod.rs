@@ -35,7 +35,10 @@ mod qrcode;
 mod requests;
 mod sas;
 
-pub use matrix_sdk_base::crypto::{format_emojis, AcceptSettings, CancelInfo, Emoji};
+pub use matrix_sdk_base::crypto::{
+    format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString,
+    SasState,
+};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{DecodingError, EncodingError, QrVerificationData},

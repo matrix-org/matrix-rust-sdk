@@ -51,26 +51,26 @@ describe(OlmMachine.name, () => {
 
     test('can receive sync changes', async () => {
         const m = await machine();
-        const toDeviceEvents = JSON.stringify({});
+        const toDeviceEvents = JSON.stringify([]);
         const changedDevices = new DeviceLists();
         const oneTimeKeyCounts = {};
         const unusedFallbackKeys = [];
 
         const receiveSyncChanges = JSON.parse(await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
 
-        expect(receiveSyncChanges).toEqual({});
+        expect(receiveSyncChanges).toEqual([]);
     });
 
     test('can get the outgoing requests that need to be send out', async () => {
         const m = await machine();
-        const toDeviceEvents = JSON.stringify({});
+        const toDeviceEvents = JSON.stringify([]);
         const changedDevices = new DeviceLists();
         const oneTimeKeyCounts = {};
         const unusedFallbackKeys = [];
 
         const receiveSyncChanges = JSON.parse(await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
 
-        expect(receiveSyncChanges).toEqual({});
+        expect(receiveSyncChanges).toEqual([]);
 
         const outgoingRequests = await m.outgoingRequests();
 
@@ -105,12 +105,12 @@ describe(OlmMachine.name, () => {
         beforeAll(async () => {
             m = await machine(new UserId('@alice:example.org'), new DeviceId('DEVICEID'));
 
-            const toDeviceEvents = JSON.stringify({});
+            const toDeviceEvents = JSON.stringify([]);
             const changedDevices = new DeviceLists();
             const oneTimeKeyCounts = {};
             const unusedFallbackKeys = [];
 
-            const receiveSyncChanges = await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys);
+            await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys);
             outgoingRequests = await m.outgoingRequests();
 
             expect(outgoingRequests).toHaveLength(2);

@@ -31,15 +31,16 @@ use ruma::{
             upload_keys,
             upload_signatures::v3::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::v3::{DeviceLists, ToDevice},
+        sync::sync_events::DeviceLists,
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
+    RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
@@ -891,11 +892,11 @@ impl OlmMachine {
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     pub async fn receive_sync_changes(
         &self,
-        to_device_events: ToDevice,
+        to_device_events: Vec<Raw<AnyToDeviceEvent>>,
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
-    ) -> OlmResult<ToDevice> {
+    ) -> OlmResult<Vec<Raw<AnyToDeviceEvent>>> {
         // Remove verification objects that have expired or are done.
         let mut events = self.verification_machine.garbage_collect();
 
@@ -912,7 +913,7 @@ impl OlmMachine {
             }
         }
 
-        for mut raw_event in to_device_events.events {
+        for mut raw_event in to_device_events {
             let event: ToDeviceEvents = match raw_event.deserialize_as() {
                 Ok(e) => e,
                 Err(e) => {
@@ -1002,10 +1003,7 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        let mut to_device = ToDevice::new();
-        to_device.events = events;
-
-        Ok(to_device)
+        Ok(events)
     }
 
     /// Request a room key from our devices.
@@ -1037,16 +1035,16 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-        device_id: &DeviceId,
-    ) -> StoreResult<VerificationState> {
+    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
         Ok(
             // First find the device corresponding to the Curve25519 identity
             // key that sent us the session (recorded upon successful
             // decryption of the `m.room_key` to-device message).
             if let Some(device) = self
-                .get_device(sender, device_id, None)
+                .get_user_devices(sender, None)
                 .await?
-                .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
+                .devices()
+                .find(|d| d.curve25519_key() == Some(session.sender_key()))
             {
                 // If the `Device` is confirmed to be the owner of the
                 // `InboundGroupSession` we will consider the session (i.e.
@@ -1058,14 +1056,14 @@ impl OlmMachine {
                 if device.is_owner_of_session(session)
                     && (device.is_our_own_device() || device.is_verified())
                 {
-                    VerificationState::Trusted
+                    (VerificationState::Trusted, Some(device.device_id().to_owned()))
                 } else {
-                    VerificationState::Untrusted
+                    (VerificationState::Untrusted, Some(device.device_id().to_owned()))
                 }
             } else {
                 // We didn't find a device, no way to know if we should trust
                 // the `InboundGroupSession` or not.
-                VerificationState::UnknownDevice
+                (VerificationState::UnknownDevice, None)
             },
         )
     }
@@ -1079,12 +1077,10 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-        device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
-        let verification_state = self.get_verification_state(session, sender, device_id).await?;
+        let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
-        let device_id = device_id.to_owned();
 
         Ok(EncryptionInfo {
             sender,
@@ -1143,8 +1139,7 @@ impl OlmMachine {
                 }
             }
 
-            let encryption_info =
-                self.get_encryption_info(&session, &event.sender, content.device_id()).await?;
+            let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
@@ -1589,7 +1584,7 @@ pub(crate) mod tests {
         api::{
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::{DeviceLists, ToDevice},
+                sync::sync_events::v3::DeviceLists,
             },
             IncomingResponse,
         },
@@ -1984,7 +1979,7 @@ pub(crate) mod tests {
         if let AnyToDeviceEvent::Dummy(e) = event {
             assert_eq!(&e.sender, alice.user_id());
         } else {
-            panic!("Wrong event type found {:?}", event);
+            panic!("Wrong event type found {event:?}");
         }
     }
 
@@ -2008,21 +2003,18 @@ pub(crate) mod tests {
         let alice_session =
             alice.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
-
         let decrypted = bob
-            .receive_sync_changes(to_device, &Default::default(), &Default::default(), None)
+            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
             .await
             .unwrap();
 
-        let event = decrypted.events[0].deserialize().unwrap();
+        let event = decrypted[0].deserialize().unwrap();
 
         if let AnyToDeviceEvent::RoomKey(event) = event {
             assert_eq!(&event.sender, alice.user_id());
             assert!(event.content.session_key.is_empty());
         } else {
-            panic!("expected RoomKeyEvent found {:?}", event);
+            panic!("expected RoomKeyEvent found {event:?}");
         }
 
         let session =
@@ -2301,7 +2293,7 @@ pub(crate) mod tests {
 
         // Bob verifies that the MAC is valid and also sends a "done" message.
         let msgs = bob.verification_machine.outgoing_messages();
-        eprintln!("{:?}", msgs);
+        eprintln!("{msgs:?}");
         assert!(msgs.len() == 1);
         let event = msgs.first().map(|r| outgoing_request_to_event(bob.user_id(), r)).unwrap();
 
@@ -2322,7 +2314,7 @@ pub(crate) mod tests {
         assert!(!alice_sas.is_done());
         assert!(!bob_device.is_verified());
         // Alices receives the done message
-        eprintln!("{:?}", event);
+        eprintln!("{event:?}");
         alice.handle_verification_event(&event).await;
 
         assert!(alice_sas.is_done());
@@ -2345,13 +2337,13 @@ pub(crate) mod tests {
             other: Default::default(),
         };
         let event = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event);
         let changed_devices = DeviceLists::new();
         let key_counts = Default::default();
 
-        let _ =
-            bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+        let _ = bob
+            .receive_sync_changes(vec![event], &changed_devices, &key_counts, None)
+            .await
+            .unwrap();
 
         let group_session = GroupSession::new(SessionConfig::version_1());
         let session_key = group_session.session_key();
@@ -2381,10 +2373,8 @@ pub(crate) mod tests {
         );
 
         let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
-        let mut to_device = ToDevice::new();
-        to_device.events.push(event.clone());
 
-        bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+        bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
 
         let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 

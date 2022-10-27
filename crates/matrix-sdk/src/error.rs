@@ -27,7 +27,7 @@ use matrix_sdk_base::{Error as SdkBaseError, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
-        client::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+        client::uiaa::{UiaaInfo, UiaaResponse},
         error::{FromHttpResponseError, IntoHttpError, ServerError},
     },
     events::tag::InvalidUserTagName,
@@ -50,6 +50,15 @@ pub enum RumaApiError {
     /// A client API response error.
     #[error(transparent)]
     ClientApi(ruma::api::client::Error),
+
+    /// A user-interactive authentication API error.
+    ///
+    /// When registering or authenticating, the Matrix server can send a
+    /// `UiaaResponse` as the error type, this is a User-Interactive
+    /// Authentication API response. This represents an error with
+    /// information about how to authenticate the user.
+    #[error(transparent)]
+    Uiaa(UiaaResponse),
 
     /// Another API response error.
     #[error(transparent)]
@@ -81,15 +90,6 @@ pub enum HttpError {
     #[error(transparent)]
     IntoHttp(#[from] IntoHttpError),
 
-    /// An error occurred while authenticating.
-    ///
-    /// When registering or authenticating the Matrix server can send a
-    /// `UiaaResponse` as the error type, this is a User-Interactive
-    /// Authentication API response. This represents an error with
-    /// information about how to authenticate the user.
-    #[error(transparent)]
-    UiaaError(#[from] FromHttpResponseError<UiaaError>),
-
     /// The server returned a status code that should be retried.
     #[error("Server returned an error {0}")]
     Server(StatusCode),
@@ -101,6 +101,18 @@ pub enum HttpError {
     /// An error occurred while refreshing the access token.
     #[error(transparent)]
     RefreshToken(#[from] RefreshTokenError),
+}
+
+impl HttpError {
+    /// If `self` is `Api(Server(Known(e)))`, returns `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
+        match self {
+            Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 /// Internal representation of errors.
@@ -188,6 +200,18 @@ pub enum Error {
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl Error {
+    /// If `self` is `Http(Api(Server(Known(e))))`, returns `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
+        match self {
+            Error::Http(e) => e.as_ruma_api_error(),
+            _ => None,
+        }
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
@@ -229,13 +253,9 @@ impl HttpError {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
-            UiaaError::AuthResponse(i),
-        ))) = self
-        {
-            Some(i)
-        } else {
-            None
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
         }
     }
 }
@@ -253,13 +273,9 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Server(
-            ServerError::Known(UiaaError::AuthResponse(i)),
-        ))) = self
-        {
-            Some(i)
-        } else {
-            None
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
         }
     }
 }
@@ -267,6 +283,12 @@ impl Error {
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
         Self::Api(err.map(|e| e.map(RumaApiError::ClientApi)))
+    }
+}
+
+impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
+    fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
+        Self::Api(err.map(|e| e.map(RumaApiError::Uiaa)))
     }
 }
 
@@ -297,7 +319,7 @@ impl From<SdkBaseError> for Error {
             _ => Self::UnknownError(anyhow::anyhow!(e).into()),
             #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
             _ => {
-                let e: Box<dyn std::error::Error + Sync + Send> = format!("{:?}", e).into();
+                let e: Box<dyn std::error::Error + Sync + Send> = format!("{e:?}").into();
                 Self::UnknownError(e)
             }
         }

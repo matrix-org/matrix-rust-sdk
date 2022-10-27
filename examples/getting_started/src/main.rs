@@ -60,28 +60,28 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    // first, we set up the client. We use the convenient client builder to set our
-    // custom homeserver URL on it
-    #[allow(unused_mut)]
-    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
+    // First, we set up the client.
 
-    // Matrix-SDK has support for pluggable, configurable state and crypto-store
-    // support we use the default sled-store (enabled by default on native
-    // architectures), to configure a local cache and store for our crypto keys
     let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-    client_builder = client_builder.sled_store(home, None).await?;
 
-    // alright, let's make that into a client
-    let client = client_builder.build().await?;
+    let client = Client::builder()
+        // We use the convenient client builder to set our custom homeserver URL on it.
+        .homeserver_url(homeserver_url)
+        // Matrix-SDK has support for pluggable, configurable state and crypto-store
+        // support we use the default sled-store (enabled by default on native
+        // architectures), to configure a local cache and store for our crypto keys
+        .sled_store(home, None)
+        .build()
+        .await?;
 
-    // then let's log that client in
+    // Then let's log that client in
     client
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
         .send()
         .await?;
 
-    // it worked!
+    // It worked!
     println!("logged in as {username}");
 
     // Now, we want our client to react to invites. Invites sent us stripped member

@@ -1,10 +1,9 @@
-use std::{collections::BTreeMap, env, path::PathBuf};
+use std::collections::BTreeMap;
 
 use clap::{Args, Subcommand};
-use serde::Deserialize;
 use xshell::{cmd, pushd};
 
-use crate::{build_docs, DenyWarnings, Result};
+use crate::{build_docs, workspace, DenyWarnings, Result};
 
 #[derive(Args)]
 pub struct CiArgs {
@@ -79,7 +78,7 @@ enum WasmFeatureSet {
 
 impl CiArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace_root()?)?;
+        let _p = pushd(&workspace::root_path()?)?;
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -133,7 +132,7 @@ fn check_clippy() -> Result<()> {
     cmd!(
         "rustup run nightly cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
-            --no-default-features --features native-tls,warp
+            --no-default-features --features native-tls,sso-login
             -- -D warnings"
     )
     .run()?;
@@ -361,15 +360,4 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn workspace_root() -> Result<PathBuf> {
-    #[derive(Deserialize)]
-    struct Metadata {
-        workspace_root: PathBuf,
-    }
-
-    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let metadata_json = cmd!("{cargo} metadata --no-deps --format-version 1").read()?;
-    Ok(serde_json::from_str::<Metadata>(&metadata_json)?.workspace_root)
 }

@@ -19,7 +19,7 @@ use ruma::{
             },
         },
         message::send_message_event::v3::Response as RoomMessageResponse,
-        sync::sync_events::v3::DeviceLists as RumaDeviceLists,
+        sync::sync_events::DeviceLists as RumaDeviceLists,
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     assign,

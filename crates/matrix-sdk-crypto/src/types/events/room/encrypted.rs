@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{DeviceId, OwnedDeviceId, RoomId};
+use ruma::{OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
@@ -250,15 +250,6 @@ impl SupportedEventEncryptionSchemes<'_> {
         }
     }
 
-    /// The ID of the sending device.
-    pub fn device_id(&self) -> &DeviceId {
-        match self {
-            SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => &c.device_id,
-            #[cfg(feature = "experimental-algorithms")]
-            SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.device_id,
-        }
-    }
-
     /// The algorithm that was used to encrypt the event content.
     pub fn algorithm(&self) -> EventEncryptionAlgorithm {
         match self {
@@ -314,13 +305,6 @@ pub struct MegolmV2AesSha2Content {
 
     /// The ID of the session used to encrypt the message.
     pub session_id: String,
-
-    /// The Curve25519 key of the sender.
-    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
-    pub sender_key: Curve25519PublicKey,
-
-    /// The ID of the sending device.
-    pub device_id: OwnedDeviceId,
 }
 
 /// An unknown and unsupported `m.room.encrypted` event content.

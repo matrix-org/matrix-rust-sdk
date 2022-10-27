@@ -30,60 +30,68 @@ impl BaseClient {
             // next_batch,
             rooms,
             lists,
+            extensions,
             // FIXME: missing compared to v3::Response
             //presence,
-            //account_data,
-            //to_device,
-            //device_lists,
-            //device_one_time_keys_count,
-            //device_unused_fallback_key_types,
             ..
         } = response;
 
-        // FIXME not yet supported by sliding sync. see
-        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-        // #[cfg(feature = "encryption")]
-        // let to_device = {
-        //     if let Some(o) = self.olm_machine().await {
-        //         // Let the crypto machine handle the sync response, this
-        //         // decrypts to-device events, but leaves room events alone.
-        //         // This makes sure that we have the decryption keys for the room
-        //         // events at hand.
-        //         o.receive_sync_changes(
-        //             to_device,
-        //             &device_lists,
-        //             &device_one_time_keys_count,
-        //             device_unused_fallback_key_types.as_deref(),
-        //         )
-        //         .await?
-        //     } else {
-        //         to_device
-        //     }
-        // };
-
-        if rooms.is_empty() {
-            // nothing for us to handle here
+        if rooms.is_empty() && extensions.is_empty() {
+            // we received a room reshuffling event only, there won't be anything for us to
+            // process. stop early
             return Ok(SyncResponse::default());
         };
+
+        let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
+
+        let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
+
+        #[cfg(feature = "e2e-encryption")]
+        let to_device_events = {
+            if let Some(e2ee) = &e2ee {
+                self.preprocess_to_device_events(
+                    to_device_events,
+                    &e2ee.device_lists,
+                    &e2ee.device_one_time_keys_count,
+                    e2ee.device_unused_fallback_key_types.as_deref(),
+                )
+                .await?
+            } else {
+                to_device_events
+            }
+        };
+
+        let (device_lists, device_one_time_keys_count) = e2ee
+            .map(|e2ee| {
+                (
+                    e2ee.device_lists,
+                    e2ee.device_one_time_keys_count
+                        .into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
 
         let store = self.store.clone();
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        // FIXME not yet supported by sliding sync.
-        // self.handle_account_data(&account_data.events, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
+            self.handle_account_data(global_data, &mut changes).await;
+        }
 
-        let _push_rules = self.get_push_rules(&changes).await?;
+        let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
-        for (room_id, room_data) in &rooms {
+        for (room_id, room_data) in rooms.into_iter() {
             if !room_data.invite_state.is_empty() {
                 let invite_states = &room_data.invite_state;
-                let room = store.get_or_create_stripped_room(room_id).await;
+                let room = store.get_or_create_stripped_room(&room_id).await;
                 let mut room_info = room.clone_info();
 
-                if let Some(r) = store.get_room(room_id) {
+                if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     changes.add_room(room_info);
@@ -96,7 +104,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
 
@@ -105,18 +113,16 @@ impl BaseClient {
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-                let user_ids = if room_data.required_state.is_empty() {
-                    None
-                } else {
-                    Some(
-                        self.handle_state(
-                            &room_data.required_state,
-                            &mut room_info,
-                            &mut changes,
-                            &mut ambiguity_cache,
-                        )
-                        .await?,
+                let mut user_ids = if !room_data.required_state.is_empty() {
+                    self.handle_state(
+                        &room_data.required_state,
+                        &mut room_info,
+                        &mut changes,
+                        &mut ambiguity_cache,
                     )
+                    .await?
+                } else {
+                    Default::default()
                 };
 
                 // FIXME not yet supported by sliding sync. see
@@ -130,36 +136,34 @@ impl BaseClient {
                 //     changes.add_receipts(&room_id, event);
                 // }
 
-                // FIXME not yet supported by sliding sync.
-                // self.handle_room_account_data(&room_id, &room_data.account_data.events, &mut
-                // changes)     .await;
+                let room_account_data = if let Some(inner_account_data) = &account_data {
+                    if let Some(events) = inner_account_data.rooms.get(&room_id) {
+                        self.handle_room_account_data(&room_id, events, &mut changes).await;
+                        Some(events.to_vec())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
 
-                // FIXME not yet supported by sliding sync.
-                // if room_data.timeline.limited {
-                //     room_info.mark_members_missing();
-                // }
+                if room_data.limited {
+                    room_info.mark_members_missing();
+                }
 
-                // let timeline = self
-                //     .handle_timeline(
-                //         &room,
-                //         room_data.timeline,
-                //         &push_rules,
-                //         &mut room_info,
-                //         &mut changes,
-                //         &mut ambiguity_cache,
-                //         &mut user_ids,
-                //     )
-                //     .await?;
-
-                // let timeline_slice = TimelineSlice::new(
-                //     timeline.events.clone(),
-                //     next_batch.clone(),
-                //     timeline.prev_batch.clone(),
-                //     timeline.limited,
-                //     true,
-                // );
-
-                // changes.add_timeline(&room_id, timeline_slice);
+                let timeline = self
+                    .handle_timeline(
+                        &room,
+                        room_data.limited,
+                        room_data.timeline,
+                        room_data.prev_batch,
+                        &push_rules,
+                        &mut user_ids,
+                        &mut room_info,
+                        &mut changes,
+                        &mut ambiguity_cache,
+                    )
+                    .await?;
 
                 #[cfg(feature = "e2e-encryption")]
                 if room_info.is_encrypted() {
@@ -168,15 +172,15 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
-                            let joined = store.get_joined_user_ids(room_id).await?;
-                            let invited = store.get_invited_user_ids(room_id).await?;
+                            let joined = store.get_joined_user_ids(&room_id).await?;
+                            let invited = store.get_invited_user_ids(&room_id).await?;
 
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
                             o.update_tracked_users(user_ids).await
                         }
 
-                        if let Some(user_ids) = user_ids {
+                        if !user_ids.is_empty() {
                             o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
                         }
                     }
@@ -187,9 +191,9 @@ impl BaseClient {
                 new_rooms.join.insert(
                     room_id.clone(),
                     JoinedRoom::new(
-                        Default::default(), //timeline,
+                        timeline,
                         v3::State::with_events(room_data.required_state.clone()),
-                        Default::default(), // room_info.account_data,
+                        room_account_data.unwrap_or_default(),
                         Default::default(), // room_info.ephemeral,
                         notification_count,
                     ),
@@ -199,9 +203,13 @@ impl BaseClient {
             }
         }
 
-        // FIXME not yet supported by sliding sync. see
-        // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-        // self.handle_account_data(&account_data.events, &mut changes).await;
+        // TODO remove this, we're processing account data events here again
+        // because we want to have the push rules in place before we process
+        // rooms and their events, but we want to create the rooms before we
+        // process the `m.direct` account data event.
+        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
+            self.handle_account_data(global_data, &mut changes).await;
+        }
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
@@ -228,10 +236,10 @@ impl BaseClient {
             notifications: changes.notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
-            account_data: Default::default(),
-            to_device: Default::default(),
-            device_lists: Default::default(),
-            device_one_time_keys_count: Default::default(),
+            account_data: account_data.map(|a| a.global).unwrap_or_default(),
+            to_device_events,
+            device_lists,
+            device_one_time_keys_count,
         })
     }
 }

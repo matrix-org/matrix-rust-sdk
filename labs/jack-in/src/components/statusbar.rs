@@ -41,7 +41,7 @@ impl MockComponent for StatusBar {
                 if let Some(dur) = self.sstate.time_to_full_sync() {
                     tabs.push(Spans::from(format!("Full sync: {}ms", dur.as_millis())));
                     if let Some(count) = self.sstate.total_rooms_count() {
-                        tabs.push(Spans::from(format!("{} rooms", count)));
+                        tabs.push(Spans::from(format!("{count} rooms")));
                     }
                 } else {
                     tabs.push(Spans::from(format!(

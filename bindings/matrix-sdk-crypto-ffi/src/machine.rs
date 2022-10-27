@@ -11,9 +11,8 @@ use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
     backups::MegolmV1BackupKey as RustBackupKey, decrypt_room_key_export, encrypt_room_key_export,
-    matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
-    EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
-    Verification as RustVerification,
+    matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey, LocalTrust,
+    OlmMachine as InnerMachine, UserIdentities, Verification as RustVerification,
 };
 use ruma::{
     api::{
@@ -46,9 +45,9 @@ use crate::{
     responses::{response_from_string, OutgoingVerificationRequest, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, ConfirmVerificationResult,
     CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
-    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, QrCode, Request,
-    RequestType, RequestVerificationResult, RoomKeyCounts, ScanResult, SignatureUploadRequest,
-    StartSasResult, UserIdentity, Verification, VerificationRequest,
+    EncryptionSettings, KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener,
+    QrCode, Request, RequestType, RequestVerificationResult, RoomKeyCounts, ScanResult,
+    SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -283,11 +282,13 @@ impl OlmMachine {
         }
     }
 
-    /// Mark the device of the given user with the given device ID as trusted.
-    pub fn mark_device_as_trusted(
+    /// Set local trust state for the device of the given user without creating
+    /// or uploading any signatures if verified
+    pub fn set_local_trust(
         &self,
         user_id: &str,
         device_id: &str,
+        trust_state: LocalTrust,
     ) -> Result<(), CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
@@ -295,7 +296,7 @@ impl OlmMachine {
             self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
 
         if let Some(device) = device {
-            self.runtime.block_on(device.set_local_trust(LocalTrust::Verified))?;
+            self.runtime.block_on(device.set_local_trust(trust_state))?;
         }
 
         Ok(())
@@ -418,7 +419,7 @@ impl OlmMachine {
         key_counts: HashMap<String, i32>,
         unused_fallback_keys: Option<Vec<String>>,
     ) -> Result<String, CryptoStoreError> {
-        let events: ToDevice = serde_json::from_str(events)?;
+        let to_device: ToDevice = serde_json::from_str(events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
         let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
             .into_iter()
@@ -436,7 +437,7 @@ impl OlmMachine {
             unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
 
         let events = self.runtime.block_on(self.inner.receive_sync_changes(
-            events,
+            to_device.events,
             &device_changes,
             &key_counts,
             unused_fallback_keys.as_deref(),
@@ -515,10 +516,13 @@ impl OlmMachine {
     ///
     /// * `users` - The list of users which are considered to be members of the
     /// room and should receive the room key.
+    ///
+    /// * `settings` - The settings that should be used for the room key.
     pub fn share_room_key(
         &self,
         room_id: &str,
         users: Vec<String>,
+        settings: EncryptionSettings,
     ) -> Result<Vec<Request>, CryptoStoreError> {
         let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
@@ -527,7 +531,7 @@ impl OlmMachine {
         let requests = self.runtime.block_on(self.inner.share_room_key(
             &room_id,
             users.iter().map(Deref::deref),
-            EncryptionSettings::default(),
+            settings,
         ))?;
 
         Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())

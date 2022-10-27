@@ -5,6 +5,10 @@ use futures_signals::{
     signal_vec::{SignalVecExt, VecDiff},
 };
 use futures_util::{pin_mut, StreamExt};
+#[cfg(feature = "experimental-room-preview")]
+use matrix_sdk::ruma::events::{
+    room::message::SyncRoomMessageEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -19,7 +23,9 @@ pub use matrix_sdk::{
 use tokio::task::JoinHandle;
 
 use super::{Client, Room, RUNTIME};
-use crate::{helpers::unwrap_or_clone_arc, messages::AnyMessage};
+use crate::helpers::unwrap_or_clone_arc;
+#[cfg(feature = "experimental-room-preview")]
+use crate::EventTimelineItem;
 
 pub struct StoppableSpawn {
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
@@ -115,21 +121,30 @@ impl SlidingSyncRoom {
         Arc::new(self.inner.unread_notifications.clone().into())
     }
 
+    pub fn full_room(&self) -> Option<Arc<Room>> {
+        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(Room::new(room)))
+    }
+}
+
+#[cfg(feature = "experimental-room-preview")]
+#[uniffi::export]
+impl SlidingSyncRoom {
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn latest_room_message(&self) -> Option<Arc<AnyMessage>> {
+    pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
         let messages = self.inner.timeline();
         // room is having the latest events at the end,
         let lock = messages.lock_ref();
-        for m in lock.iter().rev() {
-            if let Some(e) = crate::messages::sync_event_to_message(m.clone().into()) {
-                return Some(e);
+        for ev in lock.iter().rev() {
+            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+                SyncRoomMessageEvent::Original(o),
+            ))) = ev.event.deserialize()
+            {
+                let inner =
+                    matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.event.clone());
+                return Some(Arc::new(EventTimelineItem(inner)));
             }
         }
         None
-    }
-
-    pub fn full_room(&self) -> Option<Arc<Room>> {
-        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(Room::new(room)))
     }
 }
 
@@ -567,6 +582,12 @@ impl SlidingSyncBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         let view = unwrap_or_clone_arc(v);
         builder.inner = builder.inner.add_view(view.inner);
+        Arc::new(builder)
+    }
+
+    pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.with_common_extensions();
         Arc::new(builder)
     }
 

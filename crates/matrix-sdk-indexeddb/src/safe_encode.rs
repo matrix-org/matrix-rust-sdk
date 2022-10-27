@@ -61,7 +61,7 @@ pub trait SafeEncode {
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self, and append the given counter
     fn encode_with_counter(&self, i: usize) -> JsValue {
-        format!("{}{}{:016x}", self.as_encoded_string(), KEY_SEPARATOR, i).into()
+        format!("{}{KEY_SEPARATOR}{i:016x}", self.as_encoded_string()).into()
     }
 
     /// encode self into a JsValue, internally using `as_secure_string`

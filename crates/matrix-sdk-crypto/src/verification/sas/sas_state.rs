@@ -34,7 +34,7 @@ use ruma::{
                 ToDeviceKeyVerificationStartEventContent,
             },
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
-            ShortAuthenticationString, VerificationMethod,
+            ShortAuthenticationString,
         },
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
@@ -92,12 +92,16 @@ const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Struct containing the protocols that were agreed to be used for the SAS
 /// flow.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AcceptedProtocols {
-    pub method: VerificationMethod,
+    /// The key agreement protocol the device is choosing to use.
     pub key_agreement_protocol: KeyAgreementProtocol,
+    /// The hash method the device is choosing to use.
     pub hash: HashAlgorithm,
+    /// The message authentication code the device is choosing to use
     pub message_auth_code: MessageAuthenticationCode,
+    /// The SAS methods both devices involved in the verification process
+    /// understand.
     pub short_auth_string: Vec<ShortAuthenticationString>,
 }
 
@@ -116,7 +120,6 @@ impl TryFrom<AcceptV1Content> for AcceptedProtocols {
             Err(CancelCode::UnknownMethod)
         } else {
             Ok(Self {
-                method: VerificationMethod::SasV1,
                 hash: content.hash,
                 key_agreement_protocol: content.key_agreement_protocol,
                 message_auth_code: content.message_authentication_code,
@@ -163,7 +166,6 @@ impl TryFrom<&SasV1Content> for AcceptedProtocols {
             }
 
             Ok(Self {
-                method: VerificationMethod::SasV1,
                 hash: HashAlgorithm::Sha256,
                 key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
                 message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
@@ -177,7 +179,6 @@ impl TryFrom<&SasV1Content> for AcceptedProtocols {
 impl Default for AcceptedProtocols {
     fn default() -> Self {
         AcceptedProtocols {
-            method: VerificationMethod::SasV1,
             hash: HashAlgorithm::Sha256,
             key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
             message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
@@ -239,21 +240,22 @@ impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
 /// The initial SAS state.
 #[derive(Clone, Debug)]
 pub struct Created {
-    protocol_definitions: SasV1Content,
+    pub protocol_definitions: SasV1Content,
 }
 
 /// The initial SAS state if the other side started the SAS verification.
 #[derive(Clone, Debug)]
 pub struct Started {
     commitment: Base64,
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub protocol_definitions: SasV1Content,
+    pub accepted_protocols: AcceptedProtocols,
 }
 
 /// The SAS state we're going to be in after the other side accepted our
 /// verification start event.
 #[derive(Clone, Debug)]
 pub struct Accepted {
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: AcceptedProtocols,
     start_content: Arc<OwnedStartContent>,
     commitment: Base64,
 }
@@ -263,7 +265,7 @@ pub struct Accepted {
 #[derive(Clone, Debug)]
 pub struct WeAccepted {
     we_started: bool,
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: AcceptedProtocols,
     commitment: Base64,
 }
 
@@ -275,7 +277,7 @@ pub struct WeAccepted {
 pub struct KeyReceived {
     sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: AcceptedProtocols,
 }
 
 /// The SAS state we're going to be in after the user has confirmed that the
@@ -284,7 +286,7 @@ pub struct KeyReceived {
 #[derive(Clone, Debug)]
 pub struct Confirmed {
     sas: Arc<Mutex<EstablishedSas>>,
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: AcceptedProtocols,
 }
 
 /// The SAS state we're going to be in after we receive a MAC event from the
@@ -296,7 +298,7 @@ pub struct MacReceived {
     we_started: bool,
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
-    pub accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: AcceptedProtocols,
 }
 
 /// The SAS state we're going to be in after we receive a MAC event in a DM. DMs
@@ -485,7 +487,7 @@ impl SasState<Created> {
                 state: Arc::new(Accepted {
                     start_content,
                     commitment: content.commitment.clone(),
-                    accepted_protocols: accepted_protocols.into(),
+                    accepted_protocols,
                 }),
             })
         } else {
@@ -565,7 +567,8 @@ impl SasState<Started> {
                     verification_flow_id: flow_id,
 
                     state: Arc::new(Started {
-                        accepted_protocols: accepted_protocols.into(),
+                        protocol_definitions: method_content.to_owned(),
+                        accepted_protocols,
                         commitment,
                     }),
                 })
@@ -578,7 +581,7 @@ impl SasState<Started> {
     }
 
     pub fn into_we_accepted(self, methods: Vec<ShortAuthenticationString>) -> SasState<WeAccepted> {
-        let mut accepted_protocols = self.state.accepted_protocols.as_ref().to_owned();
+        let mut accepted_protocols = self.state.accepted_protocols.to_owned();
         accepted_protocols.short_auth_string = methods;
 
         // Decimal is required per spec.
@@ -596,7 +599,7 @@ impl SasState<Started> {
             started_from_request: self.started_from_request,
             state: Arc::new(WeAccepted {
                 we_started: false,
-                accepted_protocols: accepted_protocols.into(),
+                accepted_protocols,
                 commitment: self.state.commitment.clone(),
             }),
         }
@@ -658,7 +661,7 @@ impl SasState<Started> {
                 state: Arc::new(Accepted {
                     start_content,
                     commitment: content.commitment.clone(),
-                    accepted_protocols: accepted_protocols.into(),
+                    accepted_protocols,
                 }),
             })
         } else {

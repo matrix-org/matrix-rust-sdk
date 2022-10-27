@@ -94,9 +94,8 @@ impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session_meta", &self.store.session_meta())
-            .field("session_tokens", &self.store.session_tokens)
             .field("sync_token", &self.store.sync_token)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -253,10 +252,12 @@ impl BaseClient {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn handle_timeline(
+    pub(crate) async fn handle_timeline(
         &self,
         room: &Room,
-        ruma_timeline: api::sync::sync_events::v3::Timeline,
+        limited: bool,
+        events: Vec<Raw<AnySyncTimelineEvent>>,
+        prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
@@ -265,10 +266,10 @@ impl BaseClient {
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
-        let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
+        let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
-        for event in ruma_timeline.events {
+        for event in events {
             #[allow(unused_mut)]
             let mut event: SyncTimelineEvent = event.into();
 
@@ -497,7 +498,7 @@ impl BaseClient {
         Ok(user_ids)
     }
 
-    async fn handle_room_account_data(
+    pub(crate) async fn handle_room_account_data(
         &self,
         room_id: &RoomId,
         events: &[Raw<AnyRoomAccountDataEvent>],
@@ -510,7 +511,7 @@ impl BaseClient {
         }
     }
 
-    async fn handle_account_data(
+    pub(crate) async fn handle_account_data(
         &self,
         events: &[Raw<AnyGlobalAccountDataEvent>],
         changes: &mut StateChanges,
@@ -553,6 +554,31 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn preprocess_to_device_events(
+        &self,
+        to_device_events: Vec<Raw<ruma::events::AnyToDeviceEvent>>,
+        changed_devices: &api::sync::sync_events::DeviceLists,
+        one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
+        unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
+    ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
+        if let Some(o) = self.olm_machine() {
+            // Let the crypto machine handle the sync response, this
+            // decrypts to-device events, but leaves room events alone.
+            // This makes sure that we have the decryption keys for the room
+            // events at hand.
+            Ok(o.receive_sync_changes(
+                to_device_events,
+                changed_devices,
+                one_time_keys_counts,
+                unused_fallback_keys,
+            )
+            .await?)
+        } else {
+            Ok(to_device_events)
+        }
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -583,25 +609,17 @@ impl BaseClient {
         }
 
         let now = Instant::now();
+        let to_device_events = to_device.events;
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device = {
-            if let Some(o) = self.olm_machine() {
-                // Let the crypto machine handle the sync response, this
-                // decrypts to-device events, but leaves room events alone.
-                // This makes sure that we have the decryption keys for the room
-                // events at hand.
-                o.receive_sync_changes(
-                    to_device,
-                    &device_lists,
-                    &device_one_time_keys_count,
-                    device_unused_fallback_key_types.as_deref(),
-                )
-                .await?
-            } else {
-                to_device
-            }
-        };
+        let to_device_events = self
+            .preprocess_to_device_events(
+                to_device_events,
+                &device_lists,
+                &device_one_time_keys_count,
+                device_unused_fallback_key_types.as_deref(),
+            )
+            .await?;
 
         let mut changes = StateChanges::new(next_batch.clone());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
@@ -645,7 +663,9 @@ impl BaseClient {
             let timeline = self
                 .handle_timeline(
                     &room,
-                    new_info.timeline,
+                    new_info.timeline.limited,
+                    new_info.timeline.events,
+                    new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
                     &mut room_info,
@@ -684,7 +704,7 @@ impl BaseClient {
                 JoinedRoom::new(
                     timeline,
                     new_info.state,
-                    new_info.account_data,
+                    new_info.account_data.events,
                     new_info.ephemeral,
                     notification_count,
                 ),
@@ -710,7 +730,9 @@ impl BaseClient {
             let timeline = self
                 .handle_timeline(
                     &room,
-                    new_info.timeline,
+                    new_info.timeline.limited,
+                    new_info.timeline.events,
+                    new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
                     &mut room_info,
@@ -772,8 +794,8 @@ impl BaseClient {
             next_batch,
             rooms: new_rooms,
             presence,
-            account_data,
-            to_device,
+            account_data: account_data.events,
+            to_device_events,
             device_lists,
             device_one_time_keys_count: device_one_time_keys_count
                 .into_iter()

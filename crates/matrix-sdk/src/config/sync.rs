@@ -48,7 +48,6 @@ impl<'a> fmt::Debug for SyncSettings<'a> {
 
         opt_field!(filter);
         opt_field!(timeout);
-        opt_field!(token);
 
         s.field("full_state", &self.full_state).finish()
     }

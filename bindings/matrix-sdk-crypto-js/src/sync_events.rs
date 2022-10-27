@@ -9,7 +9,7 @@ use crate::{identifiers, js::downcast};
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct DeviceLists {
-    pub(crate) inner: ruma::api::client::sync::sync_events::v3::DeviceLists,
+    pub(crate) inner: ruma::api::client::sync::sync_events::DeviceLists,
 }
 
 #[wasm_bindgen]
@@ -19,7 +19,7 @@ impl DeviceLists {
     /// `changed` and `left` must be an array of `UserId`.
     #[wasm_bindgen(constructor)]
     pub fn new(changed: Option<Array>, left: Option<Array>) -> Result<DeviceLists, JsError> {
-        let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
+        let mut inner = ruma::api::client::sync::sync_events::DeviceLists::default();
 
         inner.changed = changed
             .unwrap_or_default()

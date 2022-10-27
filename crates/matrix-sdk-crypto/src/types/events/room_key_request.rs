@@ -51,6 +51,18 @@ pub struct RoomKeyRequestContent {
     pub request_id: OwnedTransactionId,
 }
 
+impl RoomKeyRequestContent {
+    /// Create a new content for a `m.room_key_request` event with the action
+    /// set to request a room key with the given `RequestedKeyInfo`.
+    pub fn new_request(
+        info: RequestedKeyInfo,
+        requesting_device_id: OwnedDeviceId,
+        request_id: OwnedTransactionId,
+    ) -> Self {
+        Self { action: Action::Request(info), requesting_device_id, request_id }
+    }
+}
+
 impl EventType for RoomKeyRequestContent {
     const EVENT_TYPE: &'static str = "m.room_key_request";
 }

@@ -247,6 +247,33 @@ enum RequestType {
     "RoomMessage",
 };
 
+enum LocalTrust {
+    "Verified",
+    "BlackListed",
+    "Ignored",
+    "Unset",
+};
+
+enum EventEncryptionAlgorithm {
+    "OlmV1Curve25519AesSha2",
+    "MegolmV1AesSha2",
+};
+
+enum HistoryVisibility {
+    "Invited",
+    "Joined",
+    "Shared",
+    "WorldReadable",
+};
+
+dictionary EncryptionSettings {
+    EventEncryptionAlgorithm algorithm;
+    u64 rotation_period;
+    u64 rotation_period_msgs;
+    HistoryVisibility history_visibility;
+    boolean only_allow_trusted_devices;
+};
+
 interface OlmMachine {
     [Throws=CryptoStoreError]
     constructor(
@@ -282,7 +309,7 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     Device? get_device([ByRef] string user_id, [ByRef] string device_id, u32 timeout);
     [Throws=CryptoStoreError]
-    void mark_device_as_trusted([ByRef] string user_id, [ByRef] string device_id);
+    void set_local_trust([ByRef] string user_id, [ByRef] string device_id, LocalTrust trust_state);
     [Throws=SignatureError]
     SignatureUploadRequest verify_device([ByRef] string user_id, [ByRef] string device_id);
     [Throws=CryptoStoreError]
@@ -294,7 +321,11 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     Request? get_missing_sessions(sequence<string> users);
     [Throws=CryptoStoreError]
-    sequence<Request> share_room_key([ByRef] string room_id, sequence<string> users);
+    sequence<Request> share_room_key(
+        [ByRef] string room_id,
+        sequence<string> users,
+        EncryptionSettings settings
+    );
 
     [Throws=CryptoStoreError]
     void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);

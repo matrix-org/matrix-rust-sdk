@@ -263,17 +263,19 @@ where
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::{
-            collections::HashMap,
+            convert::Infallible,
             io::{Error as IoError, ErrorKind as IoErrorKind},
             ops::Range,
             sync::{Arc, Mutex},
         };
 
+        use http::{Method, StatusCode};
+        use hyper::{server::conn::AddrIncoming, service::service_fn};
         use rand::{thread_rng, Rng};
+        use serde::Deserialize;
         use tokio::{net::TcpListener, sync::oneshot};
-        use tokio_stream::wrappers::TcpListenerStream;
+        use tracing::debug;
         use url::Url;
-        use warp::Filter;
 
         /// The range of ports the SSO server will try to bind to randomly.
         ///
@@ -302,14 +304,30 @@ where
             .unwrap_or("The Single Sign-On login process is complete. You can close this page now.")
             .to_owned();
 
-        let route = warp::get().and(warp::query::<HashMap<String, String>>()).map(
-            move |p: HashMap<String, String>| {
-                if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                    data_tx.send(p.get("loginToken").cloned()).unwrap();
-                }
-                http::Response::builder().body(response.clone())
-            },
-        );
+        #[derive(Deserialize)]
+        struct QueryParameters {
+            #[serde(rename = "loginToken")]
+            login_token: Option<String>,
+        }
+
+        let handle_request = move |request: http::Request<_>| {
+            if request.method() != Method::HEAD && request.method() != Method::GET {
+                return Err(StatusCode::METHOD_NOT_ALLOWED);
+            }
+
+            if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
+                let query_string = request.uri().query().unwrap_or("");
+                let query: QueryParameters = ruma::serde::urlencoded::from_str(query_string)
+                    .map_err(|_| {
+                        debug!("Failed to deserialize query parameters");
+                        StatusCode::BAD_REQUEST
+                    })?;
+
+                data_tx.send(query.login_token).unwrap();
+            }
+
+            Ok(http::Response::new(response.clone()))
+        };
 
         let listener = {
             if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
@@ -338,12 +356,24 @@ where
             }
         };
 
-        let server = warp::serve(route).serve_incoming_with_graceful_shutdown(
-            TcpListenerStream::new(listener),
-            async {
+        let incoming = AddrIncoming::from_listener(listener).unwrap();
+        let server = hyper::Server::builder(incoming)
+            .serve(tower::make::Shared::new(service_fn(move |request| {
+                let handle_request = handle_request.clone();
+                async move {
+                    match handle_request(request) {
+                        Ok(res) => Ok::<_, Infallible>(res.map(hyper::Body::from)),
+                        Err(status_code) => {
+                            let mut res = http::Response::new(hyper::Body::default());
+                            *res.status_mut() = status_code;
+                            Ok(res)
+                        }
+                    }
+                }
+            })))
+            .with_graceful_shutdown(async {
                 signal_rx.await.ok();
-            },
-        );
+            });
 
         tokio::spawn(server);
 

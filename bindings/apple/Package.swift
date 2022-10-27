@@ -5,17 +5,25 @@ import PackageDescription
 
 let package = Package(
     name: "MatrixRustSDK",
-    platforms: [.iOS(.v15)],
     products: [
         .library(name: "MatrixRustSDK",
                  targets: ["MatrixRustSDK"]),
     ],
     targets: [
-        .binaryTarget(name: "MatrixSDKFFI", path: "generated/MatrixSDKFFI.xcframework"),
         .target(name: "MatrixRustSDK",
-                dependencies: [.target(name: "MatrixSDKFFI")],
-                path: "generated/swift"),
+                path: "generated/swift",
+                swiftSettings: [
+                    .unsafeFlags(["-I", "./generated/matrix_sdk_ffi"])
+                ]),
         .testTarget(name: "MatrixRustSDKTests",
-                    dependencies: ["MatrixRustSDK"]),
+                    dependencies: ["MatrixRustSDK"],
+                    swiftSettings: [
+                        .unsafeFlags(["-I", "./generated/matrix_sdk_ffi"])
+                    ],
+                    linkerSettings: [
+                        .linkedLibrary("matrix_sdk_ffi", .when(platforms: [.macOS])),
+                        .linkedLibrary("matrix_sdk_ffiFFI", .when(platforms: [.linux])),
+                        .unsafeFlags(["-L./generated/matrix_sdk_ffi"])
+                    ])
     ]
 )
