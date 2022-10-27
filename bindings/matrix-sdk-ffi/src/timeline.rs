@@ -45,19 +45,6 @@ impl TimelineDiff {
         })
     }
 
-    pub fn change(&self) -> TimelineChange {
-        match &self.0 {
-            VecDiff::Replace { .. } => TimelineChange::Replace,
-            VecDiff::InsertAt { .. } => TimelineChange::InsertAt,
-            VecDiff::UpdateAt { .. } => TimelineChange::UpdateAt,
-            VecDiff::RemoveAt { .. } => TimelineChange::RemoveAt,
-            VecDiff::Move { .. } => TimelineChange::Move,
-            VecDiff::Push { .. } => TimelineChange::Push,
-            VecDiff::Pop {} => TimelineChange::Pop,
-            VecDiff::Clear {} => TimelineChange::Clear,
-        }
-    }
-
     pub fn replace(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
         unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::Replace { values } => values)
     }
@@ -96,6 +83,22 @@ impl TimelineDiff {
     }
 }
 
+#[uniffi::export]
+impl TimelineDiff {
+    pub fn change(&self) -> TimelineChange {
+        match &self.0 {
+            VecDiff::Replace { .. } => TimelineChange::Replace,
+            VecDiff::InsertAt { .. } => TimelineChange::InsertAt,
+            VecDiff::UpdateAt { .. } => TimelineChange::UpdateAt,
+            VecDiff::RemoveAt { .. } => TimelineChange::RemoveAt,
+            VecDiff::Move { .. } => TimelineChange::Move,
+            VecDiff::Push { .. } => TimelineChange::Push,
+            VecDiff::Pop {} => TimelineChange::Pop,
+            VecDiff::Clear {} => TimelineChange::Clear,
+        }
+    }
+}
+
 pub struct InsertAtData {
     pub index: u32,
     pub item: Arc<TimelineItem>,
@@ -111,7 +114,7 @@ pub struct MoveData {
     pub new_index: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, uniffi::Enum)]
 pub enum TimelineChange {
     Replace,
     InsertAt,
@@ -155,10 +158,6 @@ impl TimelineItem {
 pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
 
 impl EventTimelineItem {
-    pub fn key(&self) -> TimelineKey {
-        self.0.key().into()
-    }
-
     pub fn reactions(&self) -> Vec<Reaction> {
         self.0
             .reactions()
@@ -170,6 +169,10 @@ impl EventTimelineItem {
 
 #[uniffi::export]
 impl EventTimelineItem {
+    pub fn key(&self) -> TimelineKey {
+        self.0.key().into()
+    }
+
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
     }
@@ -374,7 +377,7 @@ pub struct ReactionDetails {
     pub sender: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum TimelineKey {
     TransactionId { txn_id: String },
     EventId { event_id: String },
@@ -391,7 +394,7 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct VirtualTimelineItem(matrix_sdk::room::timeline::VirtualTimelineItem);
 
 #[extension_trait]
