@@ -2,23 +2,20 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
-    config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
             account::whoami,
-            error::ErrorKind,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             media::get_content_thumbnail::v3::Method,
             session::get_login_types,
-            sync::sync_events::v3::Filter,
         },
-        events::room::MediaSource,
+        events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
         TransactionId, UInt,
     },
-    Client as MatrixClient, Error, LoopCtrl, RumaApiError, Session,
+    Client as MatrixClient, Session,
 };
+use tracing::warn;
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
@@ -49,11 +46,27 @@ pub struct Client {
 
 impl Client {
     pub fn new(client: MatrixClient, state: ClientState) -> Self {
+        let session_verification_controller: Arc<
+            matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
+        > = Default::default();
+        let ctrl = session_verification_controller.clone();
+
+        client.add_event_handler(move |ev: AnyToDeviceEvent| {
+            let ctrl = ctrl.clone();
+            async move {
+                if let Some(session_verification_controller) = &*ctrl.clone().read().await {
+                    session_verification_controller.process_to_device_message(ev).await;
+                } else {
+                    warn!("received to-device message, but verification controller isn't ready");
+                }
+            }
+        });
+
         Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
-            session_verification_controller: Arc::new(matrix_sdk::locks::RwLock::new(None)),
+            session_verification_controller,
         }
     }
 
@@ -234,7 +247,6 @@ impl Client {
             {
                 return Ok(Arc::new(session_verification_controller.clone()));
             }
-
             let user_id = self.client.user_id().context("Failed retrieving current user_id")?;
             let user_identity = self
                 .client
@@ -260,22 +272,6 @@ impl Client {
                 Err(error) => Err(anyhow!(error.to_string())),
             }
         })
-    }
-
-    /// Process a sync error and return loop control accordingly
-    fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        let mut control = LoopCtrl::Continue;
-        if let Some(RumaApiError::ClientApi(error)) = sync_error.as_ruma_api_error() {
-            if let ErrorKind::UnknownToken { soft_logout } = error.kind {
-                self.state.write().unwrap().is_soft_logout = soft_logout;
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(soft_logout);
-                }
-                control = LoopCtrl::Break
-            }
-        }
-        control
     }
 }
 
@@ -309,66 +305,6 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
-    }
-
-    pub fn start_sync(&self, timeline_limit: Option<u16>) {
-        let client = self.client.clone();
-        let state = self.state.clone();
-        let delegate = self.delegate.clone();
-        let session_verification_controller = self.session_verification_controller.clone();
-        let local_self = self.clone();
-        RUNTIME.spawn(async move {
-            let mut filter = FilterDefinition::default();
-            let mut room_filter = RoomFilter::default();
-            let mut event_filter = RoomEventFilter::default();
-            let mut timeline_filter = RoomEventFilter::default();
-
-            event_filter.lazy_load_options =
-                LazyLoadOptions::Enabled { include_redundant_members: false };
-            room_filter.state = event_filter;
-            filter.room = room_filter;
-
-            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
-            filter.room.timeline = timeline_filter;
-
-            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
-
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
-
-            client
-                .sync_with_result_callback(sync_settings, |result| async {
-                    Ok(if let Ok(sync_response) = result {
-                        if !state.read().unwrap().has_first_synced {
-                            state.write().unwrap().has_first_synced = true;
-                        }
-
-                        if state.read().unwrap().should_stop_syncing {
-                            state.write().unwrap().is_syncing = false;
-                            return Ok(LoopCtrl::Break);
-                        } else if !state.read().unwrap().is_syncing {
-                            state.write().unwrap().is_syncing = true;
-                        }
-
-                        if let Some(delegate) = &*delegate.read().unwrap() {
-                            delegate.did_receive_sync_update()
-                        }
-
-                        if let Some(session_verification_controller) =
-                            &*session_verification_controller.read().await
-                        {
-                            session_verification_controller
-                                .process_to_device_messages(sync_response.to_device_events)
-                                .await;
-                        }
-
-                        LoopCtrl::Continue
-                    } else {
-                        local_self.process_sync_error(result.err().unwrap())
-                    })
-                })
-                .await
-                .unwrap();
-        });
     }
 }
 

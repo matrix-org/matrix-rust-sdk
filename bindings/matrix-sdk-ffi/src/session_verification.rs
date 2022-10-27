@@ -106,64 +106,66 @@ impl SessionVerificationController {
         })
     }
 
-    pub async fn process_to_device_messages(&self, to_device_events: Vec<Raw<AnyToDeviceEvent>>) {
-        let sas_verification = self.sas_verification.clone();
-
-        for event in to_device_events.into_iter().filter_map(|e| e.deserialize().ok()) {
-            match event {
-                AnyToDeviceEvent::KeyVerificationReady(event) => {
-                    if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                        return;
-                    }
-                    self.start_sas_verification().await;
+    pub async fn process_to_device_message(&self, event: AnyToDeviceEvent) {
+        match event {
+            AnyToDeviceEvent::KeyVerificationReady(event) => {
+                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
+                    return;
                 }
-                AnyToDeviceEvent::KeyVerificationCancel(event) => {
-                    if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                        return;
-                    }
-
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_cancel()
-                    }
+                self.start_sas_verification().await;
+            }
+            AnyToDeviceEvent::KeyVerificationCancel(event) => {
+                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
+                    return;
                 }
-                AnyToDeviceEvent::KeyVerificationKey(event) => {
-                    if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                        return;
-                    }
 
-                    if let Some(sas_verification) = &*sas_verification.read().unwrap() {
-                        if let Some(emojis) = sas_verification.emoji() {
-                            if let Some(delegate) = &*self.delegate.read().unwrap() {
-                                let emojis = emojis
-                                    .iter()
-                                    .map(|e| {
-                                        Arc::new(SessionVerificationEmoji {
-                                            symbol: e.symbol.to_owned(),
-                                            description: e.description.to_owned(),
-                                        })
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_cancel()
+                }
+            }
+            AnyToDeviceEvent::KeyVerificationKey(event) => {
+                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
+                    return;
+                }
+
+                if let Some(sas_verification) = &*self.sas_verification.read().unwrap() {
+                    if let Some(emojis) = sas_verification.emoji() {
+                        if let Some(delegate) = &*self.delegate.read().unwrap() {
+                            let emojis = emojis
+                                .iter()
+                                .map(|e| {
+                                    Arc::new(SessionVerificationEmoji {
+                                        symbol: e.symbol.to_owned(),
+                                        description: e.description.to_owned(),
                                     })
-                                    .collect::<Vec<_>>();
+                                })
+                                .collect::<Vec<_>>();
 
-                                delegate.did_receive_verification_data(emojis);
-                            }
-                        } else if let Some(delegate) = &*self.delegate.read().unwrap() {
-                            delegate.did_fail()
+                            delegate.did_receive_verification_data(emojis);
                         }
                     } else if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_fail()
                     }
+                } else if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_fail()
                 }
-                AnyToDeviceEvent::KeyVerificationDone(event) => {
-                    if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                        return;
-                    }
-
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_finish()
-                    }
-                }
-                _ => (),
             }
+            AnyToDeviceEvent::KeyVerificationDone(event) => {
+                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
+                    return;
+                }
+
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_finish()
+                }
+            }
+            _ => (),
+        }
+    }
+
+    pub async fn process_to_device_messages(&self, to_device_events: Vec<Raw<AnyToDeviceEvent>>) {
+        for event in to_device_events.into_iter().filter_map(|e| e.deserialize().ok()) {
+            self.process_to_device_message(event).await;
         }
     }
 
