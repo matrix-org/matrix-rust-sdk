@@ -403,27 +403,43 @@ impl<'a> TimelineEventHandler<'a> {
         let item = Arc::new(TimelineItem::Event(item));
         let mut lock = self.timeline.items.lock_mut();
         match &self.flow {
-            Flow::Local { .. }
-            | Flow::Remote { position: TimelineItemPosition::End, txn_id: None, .. } => {
+            Flow::Local { .. } => {
                 lock.push_cloned(item);
             }
-            Flow::Remote { position: TimelineItemPosition::Start, txn_id: None, .. } => {
-                lock.insert_cloned(0, item);
-            }
-            Flow::Remote { txn_id: Some(txn_id), event_id, position, .. } => {
-                if let Some((idx, _old_item)) = find_event(&lock, txn_id) {
-                    // TODO: Check whether anything is different about the old and new item?
-                    lock.set_cloned(idx, item);
-                } else {
-                    debug!(
-                        %txn_id, %event_id,
-                        "Received event with transaction ID, but didn't find matching timeline item"
+            Flow::Remote { txn_id, event_id, position, raw_event, .. } => {
+                if let Some(txn_id) = txn_id {
+                    if let Some((idx, _old_item)) = find_event(&lock, txn_id) {
+                        // TODO: Check whether anything is different about the
+                        //       old and new item?
+                        lock.set_cloned(idx, item);
+                        return;
+                    } else {
+                        warn!(
+                            %txn_id, %event_id,
+                            "Received event with transaction ID, but didn't \
+                             find matching timeline item"
+                        );
+                    }
+                }
+
+                if let Some((idx, old_item)) = find_event(&lock, event_id) {
+                    warn!(
+                        ?item,
+                        ?old_item,
+                        raw = raw_event.json().get(),
+                        "Received event with an ID we already have a timeline item for"
                     );
 
-                    match position {
-                        TimelineItemPosition::Start => lock.insert_cloned(0, item),
-                        TimelineItemPosition::End => lock.push_cloned(item),
-                    }
+                    // With /messages and /sync sometimes disagreeing on order
+                    // of messages, we might want to change the position in some
+                    // circumstances, but for now this should be good enough.
+                    lock.set_cloned(idx, item);
+                    return;
+                }
+
+                match position {
+                    TimelineItemPosition::Start => lock.insert_cloned(0, item),
+                    TimelineItemPosition::End => lock.push_cloned(item),
                 }
             }
         }

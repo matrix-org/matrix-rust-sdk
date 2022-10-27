@@ -252,6 +252,12 @@ impl PartialEq<TimelineKey> for &EventId {
     }
 }
 
+impl PartialEq<TimelineKey> for &OwnedEventId {
+    fn eq(&self, key: &TimelineKey) -> bool {
+        matches!(key, TimelineKey::EventId(event_id) if event_id == *self)
+    }
+}
+
 /// Some details of an [`EventTimelineItem`] that may require server requests
 /// other than just the regular
 /// [`sync_events`][ruma::api::client::sync::sync_events].
