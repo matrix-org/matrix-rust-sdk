@@ -47,7 +47,6 @@ experimental-timeline = []
 
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
-    "anyhow",
     "dep:derive_builder",
 ]
 
