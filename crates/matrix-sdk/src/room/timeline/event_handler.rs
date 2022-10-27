@@ -58,8 +58,6 @@ impl TimelineInner {
     ) {
         let meta = TimelineEventMetadata {
             sender: own_user_id.to_owned(),
-            origin_server_ts: None,
-            raw_event: None,
             is_own_event: true,
             relations: None,
             // FIXME: Should we supply something here for encrypted rooms?
@@ -100,15 +98,15 @@ impl TimelineInner {
         let is_own_event = sender == own_user_id;
 
         let meta = TimelineEventMetadata {
-            raw_event: Some(raw),
             sender,
-            origin_server_ts: Some(event.origin_server_ts()),
             is_own_event,
             relations: event.relations().cloned(),
             encryption_info,
         };
         let flow = Flow::Remote {
             event_id: event.event_id().to_owned(),
+            origin_server_ts: event.origin_server_ts(),
+            raw_event: raw,
             txn_id: event.transaction_id().map(ToOwned::to_owned),
             position,
         };
@@ -124,6 +122,8 @@ enum Flow {
     Remote {
         event_id: OwnedEventId,
         txn_id: Option<OwnedTransactionId>,
+        origin_server_ts: MilliSecondsSinceUnixEpoch,
+        raw_event: Raw<AnySyncTimelineEvent>,
         position: TimelineItemPosition,
     },
 }
@@ -135,12 +135,24 @@ impl Flow {
             Self::Local { txn_id } => TimelineKey::TransactionId(txn_id.to_owned()),
         }
     }
+
+    fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        match self {
+            Flow::Local { .. } => None,
+            Flow::Remote { origin_server_ts, .. } => Some(*origin_server_ts),
+        }
+    }
+
+    fn raw_event(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
+        match self {
+            Flow::Local { .. } => None,
+            Flow::Remote { raw_event, .. } => Some(raw_event),
+        }
+    }
 }
 
 struct TimelineEventMetadata {
-    raw_event: Option<Raw<AnySyncTimelineEvent>>,
     sender: OwnedUserId,
-    origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
     is_own_event: bool,
     relations: Option<Relations>,
     encryption_info: Option<EncryptionInfo>,
@@ -382,10 +394,10 @@ impl<'a> TimelineEventHandler<'a> {
             sender: self.meta.sender.to_owned(),
             content,
             reactions,
-            origin_server_ts: self.meta.origin_server_ts,
+            origin_server_ts: self.flow.origin_server_ts(),
             is_own: self.meta.is_own_event,
             encryption_info: self.meta.encryption_info.clone(),
-            raw: self.meta.raw_event.clone(),
+            raw: self.flow.raw_event().cloned(),
         };
 
         let item = Arc::new(TimelineItem::Event(item));
@@ -398,7 +410,7 @@ impl<'a> TimelineEventHandler<'a> {
             Flow::Remote { position: TimelineItemPosition::Start, txn_id: None, .. } => {
                 lock.insert_cloned(0, item);
             }
-            Flow::Remote { txn_id: Some(txn_id), event_id, position } => {
+            Flow::Remote { txn_id: Some(txn_id), event_id, position, .. } => {
                 if let Some((idx, _old_item)) = find_event(&lock, txn_id) {
                     // TODO: Check whether anything is different about the old and new item?
                     lock.set_cloned(idx, item);
