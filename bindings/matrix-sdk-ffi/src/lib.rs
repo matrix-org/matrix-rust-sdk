@@ -58,6 +58,8 @@ pub use self::{
 pub struct ClientState {
     is_guest: bool,
     has_first_synced: bool,
+    is_syncing: bool,
+    should_stop_syncing: bool,
     is_soft_logout: bool,
 }
 
