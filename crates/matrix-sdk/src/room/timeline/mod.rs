@@ -29,7 +29,7 @@ use ruma::{
     events::{reaction::Relation as AnnotationRelation, AnyMessageLikeEventContent},
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
-use tracing::{debug, error, instrument};
+use tracing::{error, instrument, warn};
 
 use super::{Joined, Room};
 use crate::{
@@ -236,6 +236,6 @@ fn add_event_id(items: &TimelineInner, txn_id: &TransactionId, event_id: OwnedEv
             }
         }
     } else {
-        debug!(%txn_id, "Timeline item not found, can't mark as sent");
+        warn!(%txn_id, "Timeline item not found, can't add event ID");
     }
 }
