@@ -17,7 +17,7 @@ use matrix_sdk::ruma::{
     assign, IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
-    Client as MatrixClient, RoomListEntry as MatrixRoomEntry,
+    Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::task::JoinHandle;
@@ -516,6 +516,7 @@ impl SlidingSync {
         let inner_spawn = spawn.clone();
         {
             let mut sync_handle = self.sync_handle.write().unwrap();
+            let client = self.client.clone();
 
             if let Some(handle) = sync_handle.take() {
                 handle.abort();
@@ -528,9 +529,11 @@ impl SlidingSync {
                     let update = match stream.next().await {
                         Some(Ok(u)) => u,
                         Some(Err(e)) => {
-                            // FIXME: send this over the FFI
-                            tracing::warn!("Sliding Sync failure: {:?}", e);
-                            continue;
+                            if client.process_sync_error(e.into()) == LoopCtrl::Break {
+                                break;
+                            } else {
+                                continue;
+                            }
                         }
                         None => {
                             tracing::debug!("No update from loop, cancelled");

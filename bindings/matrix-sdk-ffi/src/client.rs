@@ -280,8 +280,7 @@ impl Client {
     }
 
     /// Process a sync error and return loop control accordingly
-    fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        let mut control = LoopCtrl::Continue;
+    pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
         if let Some(RumaApiError::ClientApi(error)) = sync_error.as_ruma_api_error() {
             if let ErrorKind::UnknownToken { soft_logout } = error.kind {
                 self.state.write().unwrap().is_soft_logout = soft_logout;
@@ -289,10 +288,12 @@ impl Client {
                     delegate.did_update_restore_token();
                     delegate.did_receive_auth_error(soft_logout);
                 }
-                control = LoopCtrl::Break
+                return LoopCtrl::Break;
             }
         }
-        control
+
+        tracing::warn!("Ignoring sync error: {:?}", sync_error);
+        LoopCtrl::Continue
     }
 }
 
