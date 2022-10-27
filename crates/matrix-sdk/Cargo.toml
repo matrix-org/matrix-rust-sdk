@@ -43,7 +43,7 @@ image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-room-preview = []
-experimental-timeline = []
+experimental-timeline = ["ruma/unstable-msc2676", "ruma/unstable-msc2677"]
 
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
