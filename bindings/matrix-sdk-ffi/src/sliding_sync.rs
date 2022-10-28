@@ -153,8 +153,6 @@ pub struct UpdateSummary {
     pub views: Vec<String>,
     pub rooms: Vec<String>,
 }
-
-#[derive(uniffi::Record)]
 pub struct RequiredState {
     pub key: String,
     pub value: String,
