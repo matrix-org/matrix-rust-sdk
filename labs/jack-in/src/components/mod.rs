@@ -15,6 +15,7 @@ mod label;
 mod logger;
 mod rooms;
 mod statusbar;
+mod input;
 
 // -- export
 pub use details::Details;
@@ -22,6 +23,7 @@ pub use label::Label;
 pub use logger::Logger;
 pub use rooms::Rooms;
 pub use statusbar::StatusBar;
+pub use input::InputText;
 
 /// ### get_block
 ///

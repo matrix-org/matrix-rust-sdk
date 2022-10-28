@@ -14,7 +14,7 @@ use tuirealm::{
 };
 
 use super::{
-    components::{Details, Label, Logger, Rooms, StatusBar},
+    components::{Details, Label, Logger, Rooms, StatusBar, InputText},
     Id, JackInEvent, MatrixPoller, Msg,
 };
 use crate::client::state::SlidingSyncState;
@@ -89,8 +89,14 @@ impl Model {
                     .constraints([Constraint::Length(35), Constraint::Min(23)].as_ref())
                     .split(chunks[1]);
 
+                let details_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(10), Constraint::Min(3)].as_ref())
+                    .split(body_chunks[1]);
+
                 self.app.view(&Id::Rooms, f, body_chunks[0]);
-                self.app.view(&Id::Details, f, body_chunks[1]);
+                self.app.view(&Id::Details, f, details_chunks[0]);
+                self.app.view(&Id::TextMessage, f, details_chunks[1]);
                 self.app.view(&Id::Status, f, chunks[2]);
                 self.app.view(&Id::Label, f, chunks[0]);
                 if self.show_logger {
@@ -138,6 +144,9 @@ impl Model {
             .is_ok());
 
         assert!(app
+            .mount(Id::TextMessage, Box::new(InputText::default()), vec![])
+            .is_ok());
+        assert!(app
             .mount(
                 Id::Rooms,
                 Box::new(
@@ -184,6 +193,12 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::DetailsBlur => {
+                    // Give focus to room list
+                    let _ = self.app.blur();
+                    assert!(self.app.active(&Id::TextMessage).is_ok());
+                    None
+                }
+                Msg::TextBlur => {
                     // Give focus to room list
                     let _ = self.app.blur();
                     assert!(self.app.active(&Id::Rooms).is_ok());

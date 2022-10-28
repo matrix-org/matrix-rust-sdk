@@ -35,6 +35,7 @@ pub enum Msg {
     Clock,
     RoomsBlur,
     DetailsBlur,
+    TextBlur,
     SelectRoom(Option<OwnedRoomId>),
     SendMessage(String),
 }
@@ -67,6 +68,7 @@ pub enum Id {
     DigitCounter,
     LetterCounter,
     Label,
+    TextMessage,
     Logger,
     Status,
     Rooms,
