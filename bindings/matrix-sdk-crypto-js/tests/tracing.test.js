@@ -68,7 +68,7 @@ describe(Tracing.name, () => {
                 };
 
                 // Do something that emits a `DEBUG` log.
-                await new OlmMachine(new UserId('@alice:example.org'), new DeviceId('foo'));
+                await OlmMachine.initialize(new UserId('@alice:example.org'), new DeviceId('foo'));
 
                 console.debug = originalConsoleDebug;
                 testPostState();

@@ -28,6 +28,16 @@ pub struct OlmMachine {
 
 #[wasm_bindgen]
 impl OlmMachine {
+    /// Constructor will always fail. To create a new `OlmMachine`, please use
+    /// the `initialize` method.
+    ///
+    /// Why this pattern? `initialize` returns a `Promise`. Returning a
+    // `Promise` from a constructor is not idiomatic in JavaScript.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<OlmMachine, JsError> {
+        Err(JsError::new("To build an `OlmMachine`, please use the `initialize` method"))
+    }
+
     /// Create a new memory based `OlmMachine`.
     ///
     /// The created machine will keep the encryption keys either in a IndexedDB
@@ -49,9 +59,7 @@ impl OlmMachine {
     ///
     /// * `store_passphrase` - The passphrase that should be used to encrypt the
     ///   IndexedDB based
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(
+    pub fn initialize(
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
         store_name: Option<String>,
