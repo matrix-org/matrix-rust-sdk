@@ -565,7 +565,7 @@ impl SlidingSync {
                     let (e2ee_uploads, resp) = futures_util::join!(client.send_outgoing_requests(), req);
                     if let Err(e) = e2ee_uploads {
                         tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
-                    };
+                    }
                     resp
                 };
                 #[cfg(not(feature = "e2e-encryption"))]
@@ -926,7 +926,7 @@ impl SlidingSyncView {
                         .0
                         .try_into()
                         .map_err(|e| {
-                            Error::BadResponse(format!("`range` not a valid int: {:}", e))
+                            Error::BadResponse(format!("`range` not a valid int: {e:}"))
                         })?;
                     let room_ids = op.room_ids.clone();
                     room_ids
@@ -1006,10 +1006,10 @@ impl SlidingSyncView {
                     let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
                         (
                             range.0.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.0` not a valid int: {:}", e))
+                                Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
                             })?,
                             range.1.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.1` not a valid int: {:}", e))
+                                Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
                             })?,
                         )
                     } else {

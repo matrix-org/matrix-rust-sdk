@@ -529,7 +529,7 @@ impl SlidingSync {
                     let update = match stream.next().await {
                         Some(Ok(u)) => u,
                         Some(Err(e)) => {
-                            if client.process_sync_error(e.into()) == LoopCtrl::Break {
+                            if client.process_sync_error(e) == LoopCtrl::Break {
                                 break;
                             } else {
                                 continue;

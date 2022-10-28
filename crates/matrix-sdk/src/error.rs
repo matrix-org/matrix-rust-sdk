@@ -193,7 +193,7 @@ pub enum Error {
     #[error(transparent)]
     ImageError(#[from] ImageError),
 
-    /// An error occurred during decryption.
+    /// An error occurred within sliding-sync
     #[cfg(feature = "sliding-sync")]
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
