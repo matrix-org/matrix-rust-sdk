@@ -14,7 +14,7 @@ use tuirealm::{
 };
 
 use super::{
-    components::{Details, Label, Logger, Rooms, StatusBar, InputText},
+    components::{Details, InputText, Label, Logger, Rooms, StatusBar},
     Id, JackInEvent, MatrixPoller, Msg,
 };
 use crate::client::state::SlidingSyncState;
@@ -91,7 +91,7 @@ impl Model {
 
                 let details_chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(10), Constraint::Min(3)].as_ref())
+                    .constraints([Constraint::Min(10), Constraint::Max(3)].as_ref())
                     .split(body_chunks[1]);
 
                 self.app.view(&Id::Rooms, f, body_chunks[0]);
@@ -143,9 +143,7 @@ impl Model {
             )
             .is_ok());
 
-        assert!(app
-            .mount(Id::TextMessage, Box::new(InputText::default()), vec![])
-            .is_ok());
+        assert!(app.mount(Id::TextMessage, Box::new(InputText::default()), vec![]).is_ok());
         assert!(app
             .mount(
                 Id::Rooms,
@@ -188,8 +186,10 @@ impl Update<Msg> for Model {
                 Msg::Clock => None,
                 Msg::RoomsBlur => {
                     // Give focus to room details
-                    let _ = self.app.blur();
-                    assert!(self.app.active(&Id::Details).is_ok());
+                    if self.sliding_sync.has_selected_room() {
+                        let _ = self.app.blur();
+                        assert!(self.app.active(&Id::Details).is_ok());
+                    }
                     None
                 }
                 Msg::DetailsBlur => {

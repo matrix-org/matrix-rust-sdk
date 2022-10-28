@@ -35,6 +35,10 @@ impl SlidingSyncState {
         &self.started
     }
 
+    pub fn has_selected_room(&self) -> bool {
+        self.selected_room.lock_ref().is_some()
+    }
+
     pub fn select_room(&self, r: Option<OwnedRoomId>) {
         self.selected_room.replace(r);
     }

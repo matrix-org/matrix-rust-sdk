@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use dialoguer::Input;
 use matrix_sdk::ruma::events::{AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent};
 use tuirealm::{
     command::{Cmd, CmdResult},
