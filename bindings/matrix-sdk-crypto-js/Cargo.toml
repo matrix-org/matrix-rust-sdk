@@ -16,7 +16,7 @@ publish = false
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Oz']
+wasm-opt = ['-Oz', '--enable-reference-types']
 
 [lib]
 crate-type = ["cdylib"]
