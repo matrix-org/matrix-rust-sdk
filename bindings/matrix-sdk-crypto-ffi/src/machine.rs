@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
@@ -15,10 +14,9 @@ use matrix_sdk_crypto::{
         SignatureVerification as RustSignatureCheckResult,
     },
     decrypt_room_key_export, encrypt_room_key_export,
-    matrix_sdk_qrcode::QrVerificationData,
     olm::ExportedRoomKey,
     store::RecoveryKey,
-    LocalTrust, OlmMachine as InnerMachine, UserIdentities, Verification as RustVerification,
+    LocalTrust, OlmMachine as InnerMachine, UserIdentities,
 };
 use ruma::{
     api::{
@@ -48,12 +46,12 @@ use zeroize::Zeroize;
 use crate::{
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
     parse_user_id,
-    responses::{response_from_string, OutgoingVerificationRequest, OwnedResponse},
-    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, ConfirmVerificationResult,
-    CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
-    EncryptionSettings, KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener,
-    QrCode, Request, RequestType, RequestVerificationResult, RoomKeyCounts, ScanResult,
-    SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
+    responses::{response_from_string, OwnedResponse},
+    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
+    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
+    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, Request, RequestType,
+    RequestVerificationResult, RoomKeyCounts, Sas, SignatureUploadRequest, StartSasResult,
+    UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -842,12 +840,18 @@ impl OlmMachine {
     ///
     /// * `user_id` - The ID of the user for which we would like to fetch the
     /// verification requests.
-    pub fn get_verification_requests(&self, user_id: &str) -> Vec<VerificationRequest> {
+    pub fn get_verification_requests(&self, user_id: &str) -> Vec<Arc<VerificationRequest>> {
         let Ok(user_id) = UserId::parse(user_id) else {
             return vec![];
         };
 
-        self.inner.get_verification_requests(&user_id).into_iter().map(|v| v.into()).collect()
+        self.inner
+            .get_verification_requests(&user_id)
+            .into_iter()
+            .map(|v| {
+                VerificationRequest { inner: v, runtime: self.runtime.handle().to_owned() }.into()
+            })
+            .collect()
     }
 
     /// Get a verification requests that we share with the given user with the
@@ -863,40 +867,12 @@ impl OlmMachine {
         &self,
         user_id: &str,
         flow_id: &str,
-    ) -> Option<VerificationRequest> {
+    ) -> Option<Arc<VerificationRequest>> {
         let user_id = UserId::parse(user_id).ok()?;
 
-        self.inner.get_verification_request(&user_id, flow_id).map(|v| v.into())
-    }
-
-    /// Accept a verification requests that we share with the given user with
-    /// the given flow id.
-    ///
-    /// This will move the verification request into the ready state.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to accept the
-    /// verification requests.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// * `methods` - A list of verification methods that we want to advertise
-    /// as supported.
-    pub fn accept_verification_request(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-        methods: Vec<String>,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-        let methods = methods.into_iter().map(VerificationMethod::from).collect();
-
-        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
-            verification.accept_with_methods(methods).map(|r| r.into())
-        } else {
-            None
-        }
+        self.inner.get_verification_request(&user_id, flow_id).map(|v| {
+            VerificationRequest { inner: v, runtime: self.runtime.handle().to_owned() }.into()
+        })
     }
 
     /// Get an m.key.verification.request content for the given user.
@@ -954,7 +930,7 @@ impl OlmMachine {
         room_id: &str,
         event_id: &str,
         methods: Vec<String>,
-    ) -> Result<Option<VerificationRequest>, CryptoStoreError> {
+    ) -> Result<Option<Arc<VerificationRequest>>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
         let event_id = EventId::parse(event_id)?;
         let room_id = RoomId::parse(room_id)?;
@@ -970,7 +946,10 @@ impl OlmMachine {
                 Some(methods),
             ));
 
-            Some(request.into())
+            Some(
+                VerificationRequest { inner: request, runtime: self.runtime.handle().to_owned() }
+                    .into(),
+            )
         } else {
             None
         })
@@ -1005,7 +984,11 @@ impl OlmMachine {
                     self.runtime.block_on(device.request_verification_with_methods(methods));
 
                 Some(RequestVerificationResult {
-                    verification: verification.into(),
+                    verification: VerificationRequest {
+                        inner: verification,
+                        runtime: self.runtime.handle().to_owned(),
+                    }
+                    .into(),
                     request: request.into(),
                 })
             } else {
@@ -1033,7 +1016,11 @@ impl OlmMachine {
             let (verification, request) =
                 self.runtime.block_on(identity.request_verification_with_methods(methods))?;
             Some(RequestVerificationResult {
-                verification: verification.into(),
+                verification: VerificationRequest {
+                    inner: verification,
+                    runtime: self.runtime.handle().to_owned(),
+                }
+                .into(),
                 request: request.into(),
             })
         } else {
@@ -1050,206 +1037,12 @@ impl OlmMachine {
     /// verification.
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn get_verification(&self, user_id: &str, flow_id: &str) -> Option<Verification> {
+    pub fn get_verification(&self, user_id: &str, flow_id: &str) -> Option<Arc<Verification>> {
         let user_id = UserId::parse(user_id).ok()?;
 
-        self.inner.get_verification(&user_id, flow_id).map(|v| match v {
-            RustVerification::SasV1(s) => Verification::SasV1 { sas: s.into() },
-            RustVerification::QrV1(qr) => Verification::QrCodeV1 { qrcode: qr.into() },
-            _ => unreachable!(),
-        })
-    }
-
-    /// Cancel a verification for the given user with the given flow id using
-    /// the given cancel code.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to cancel the
-    /// verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// * `cancel_code` - The error code for why the verification was cancelled,
-    /// manual cancellatio usually happens with `m.user` cancel code. The full
-    /// list of cancel codes can be found in the [spec]
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
-    pub fn cancel_verification(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-        cancel_code: &str,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        if let Some(request) = self.inner.get_verification_request(&user_id, flow_id) {
-            request.cancel().map(|r| r.into())
-        } else if let Some(verification) = self.inner.get_verification(&user_id, flow_id) {
-            match verification {
-                RustVerification::SasV1(v) => {
-                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
-                }
-                RustVerification::QrV1(v) => {
-                    v.cancel_with_code(cancel_code.into()).map(|r| r.into())
-                }
-                _ => unreachable!(),
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Confirm a verification was successful.
-    ///
-    /// This method should be called either if a short auth string should be
-    /// confirmed as matching, or if we want to confirm that the other side has
-    /// scanned our QR code.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to confirm the
-    /// verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn confirm_verification(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-    ) -> Result<Option<ConfirmVerificationResult>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
-
-        Ok(if let Some(verification) = self.inner.get_verification(&user_id, flow_id) {
-            match verification {
-                RustVerification::SasV1(v) => {
-                    let (requests, signature_request) = self.runtime.block_on(v.confirm())?;
-
-                    let requests = requests.into_iter().map(|r| r.into()).collect();
-
-                    Some(ConfirmVerificationResult {
-                        requests,
-                        signature_request: signature_request.map(|s| s.into()),
-                    })
-                }
-                RustVerification::QrV1(v) => v.confirm_scanning().map(|r| {
-                    ConfirmVerificationResult { requests: vec![r.into()], signature_request: None }
-                }),
-                _ => unreachable!(),
-            }
-        } else {
-            None
-        })
-    }
-
-    /// Transition from a verification request into QR code verification.
-    ///
-    /// This method should be called when one wants to display a QR code so the
-    /// other side can scan it and move the QR code verification forward.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
-    ///
-    /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
-    pub fn start_qr_verification(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-    ) -> Result<Option<QrCode>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
-
-        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
-            Ok(self.runtime.block_on(verification.generate_qr_code())?.map(|qr| qr.into()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Generate data that should be encoded as a QR code.
-    ///
-    /// This method should be called right before a QR code should be displayed,
-    /// the returned data is base64 encoded (without padding) and needs to be
-    /// decoded on the other side before it can be put through a QR code
-    /// generator.
-    ///
-    /// *Note*: You'll need to call [start_qr_verification()] before calling
-    /// this method, otherwise `None` will be returned.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// [start_qr_verification()]: #method.start_qr_verification
-    pub fn generate_qr_code(&self, user_id: &str, flow_id: &str) -> Option<String> {
-        let user_id = UserId::parse(user_id).ok()?;
         self.inner
             .get_verification(&user_id, flow_id)
-            .and_then(|v| v.qr_v1().and_then(|qr| qr.to_bytes().map(encode).ok()))
-    }
-
-    /// Pass data from a scanned QR code to an active verification request and
-    /// transition into QR code verification.
-    ///
-    /// This requires an active `VerificationRequest` to succeed, returns `None`
-    /// if no `VerificationRequest` is found or if the QR code data is invalid.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
-    ///
-    /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
-    ///
-    /// * `data` - The data that was extracted from the scanned QR code as an
-    /// base64 encoded string, without padding.
-    pub fn scan_qr_code(&self, user_id: &str, flow_id: &str, data: &str) -> Option<ScanResult> {
-        let user_id = UserId::parse(user_id).ok()?;
-        let data = decode_config(data, STANDARD_NO_PAD).ok()?;
-        let data = QrVerificationData::from_bytes(data).ok()?;
-
-        if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
-            if let Some(qr) = self.runtime.block_on(verification.scan_qr_code(data)).ok()? {
-                let request = qr.reciprocate()?;
-
-                Some(ScanResult { qr: qr.into(), request: request.into() })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Transition from a verification request into short auth string based
-    /// verification.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    /// SAS verification.
-    ///
-    /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
-    pub fn start_sas_verification(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-    ) -> Result<Option<StartSasResult>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
-
-        Ok(if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
-            self.runtime
-                .block_on(verification.start_sas())?
-                .map(|(sas, r)| StartSasResult { sas: sas.into(), request: r.into() })
-        } else {
-            None
-        })
+            .map(|v| Verification { inner: v, runtime: self.runtime.handle().to_owned() }.into())
     }
 
     /// Start short auth string verification with a device without going
@@ -1279,72 +1072,14 @@ impl OlmMachine {
             {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 
-                Some(StartSasResult { sas: sas.into(), request: request.into() })
+                Some(StartSasResult {
+                    sas: Sas { inner: sas, runtime: self.runtime.handle().to_owned() }.into(),
+                    request: request.into(),
+                })
             } else {
                 None
             },
         )
-    }
-
-    /// Accept that we're going forward with the short auth string verification.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to accept the
-    /// SAS verification.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn accept_sas_verification(
-        &self,
-        user_id: &str,
-        flow_id: &str,
-    ) -> Option<OutgoingVerificationRequest> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        self.inner.get_verification(&user_id, flow_id)?.sas_v1()?.accept().map(|r| r.into())
-    }
-
-    /// Get a list of emoji indices of the emoji representation of the short
-    /// auth string.
-    ///
-    /// *Note*: A SAS verification needs to be started and in the presentable
-    /// state for this to return the list of emoji indices, otherwise returns
-    /// `None`.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to get the
-    /// short auth string.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn get_emoji_index(&self, user_id: &str, flow_id: &str) -> Option<Vec<i32>> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        self.inner.get_verification(&user_id, flow_id).and_then(|s| {
-            s.sas_v1()
-                .and_then(|s| s.emoji_index().map(|v| v.iter().map(|i| (*i).into()).collect()))
-        })
-    }
-
-    /// Get the decimal representation of the short auth string.
-    ///
-    /// *Note*: A SAS verification needs to be started and in the presentable
-    /// state for this to return the list of decimals, otherwise returns
-    /// `None`.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The ID of the user for which we would like to get the
-    /// short auth string.
-    ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn get_decimals(&self, user_id: &str, flow_id: &str) -> Option<Vec<i32>> {
-        let user_id = UserId::parse(user_id).ok()?;
-
-        self.inner.get_verification(&user_id, flow_id).and_then(|s| {
-            s.sas_v1()
-                .and_then(|s| s.decimals().map(|v| [v.0.into(), v.1.into(), v.2.into()].to_vec()))
-        })
     }
 
     /// Create a new private cross signing identity and create a request to
