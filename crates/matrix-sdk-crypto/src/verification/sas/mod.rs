@@ -808,7 +808,7 @@ impl Sas {
             flow_id = self.flow_id().as_str(),
             ?old_state,
             ?new_state,
-            "SAS received an event and changed it's state"
+            "SAS received an event and changed its state"
         );
 
         self.update_state(state);
