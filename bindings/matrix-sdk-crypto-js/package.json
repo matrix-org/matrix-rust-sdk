@@ -37,7 +37,7 @@
         "node": ">= 10"
     },
     "scripts": {
-        "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
+        "build": "cross-env RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
         "prepack": "npm run build && npm run test",
