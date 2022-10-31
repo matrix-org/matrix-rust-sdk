@@ -38,7 +38,7 @@ impl OlmMachine {
         Err(JsError::new("To build an `OlmMachine`, please use the `initialize` method"))
     }
 
-    /// Create a new memory based `OlmMachine`.
+    /// Create a new `OlmMachine`.
     ///
     /// The created machine will keep the encryption keys either in a IndexedDB
     /// based store, or in a memory store and once the objects is dropped,
