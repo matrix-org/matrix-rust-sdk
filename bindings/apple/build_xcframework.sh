@@ -18,7 +18,7 @@ REL_TYPE_DIR="release"
 
 # iOS
 echo -e "Building for iOS [1/5]"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
+cargo +nightly build -Zbuild-std=std,panic_abort -Z build-std-features=panic_immediate_abort -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
 
 # MacOS
 echo -e "\nBuilding for macOS (Apple Silicon) [2/5]"

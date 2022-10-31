@@ -17,6 +17,7 @@ resolver = "2"
 
 [workspace.dependencies]
 ruma = { version = "0.7.4", features = ["client-api-c"] }
+ruma-common = {version = "0.10.0", default-features = false, features = ["client"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "89b9dd835b470abb339b1bd492c19f7a08ad872f" }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "89b9dd835b470abb339b1bd492c19f7a08ad872f" }
@@ -27,6 +28,10 @@ zeroize = "1.3.0"
 
 [profile.release]
 lto = true
+strip = true
+panic = "abort"
+opt-level = 'z'
+codegen-units = 1
 
 [profile.dev]
 # Copied from rust-analyzer. Saves a lot of disk space and hopefully
