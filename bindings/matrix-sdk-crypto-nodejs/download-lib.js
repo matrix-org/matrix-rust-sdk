@@ -1,6 +1,5 @@
 
 const { Agent } = require('https');
-const { whyIsNodeStillRunning } = require('why-is-node-still-running');
 const { DownloaderHelper } = require('node-downloader-helper');
 const { version } = require("./package.json");
 const { platform, arch } = process
@@ -34,8 +33,6 @@ function download_lib(libname) {
 
     dl.on('end', () => console.info('Download Completed'));
     dl.on('error', (err) => console.info('Download Failed', err));
-    dl.on('stateChanged', (err) => console.info('Download state', err));
-    dl.on('timeout', (err) => console.info('Download timeout', err));
     dl.on('progress', stats => {
         const progress = stats.progress.toFixed(1);
         const speed = byteHelper(stats.speed);
@@ -45,7 +42,7 @@ function download_lib(libname) {
         // print every one second (`progress.throttled` can be used instead)
         const currentTime = new Date();
         const elaspsedTime = currentTime - startTime;
-        if (elaspsedTime > 1000 || stats.progress === 100) {
+        if (elaspsedTime > 1000) {
             startTime = currentTime;
             console.info(`${speed}/s - ${progress}% [${downloaded}/${total}]`);
         }
