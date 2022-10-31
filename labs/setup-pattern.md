@@ -60,3 +60,13 @@ They can recommend a `docker-compose.yml` file to be used for keeping track of a
 lifecycle, and recommend the `docker-compose run bot setup` command before `docker-compose up -d`,
 to give bot operators an easy time setting it up, despite matrix's unconventional stateful nature
 (compared to other bot ecosystems).
+
+## What this means for `matrix_sdk`
+
+`matrix_sdk` could help this pattern by building in either a "create" or "open" intent for state,
+where it'll error if it can't do either.
+
+Currently I don't see this in `make_store_config`, where it seems to implicitly choose either one,
+but if it's made more explicit to *either* open the state database, *or* create it, it would help
+guide developers a lot to this pattern, which in turn could guide bot operators to follow this
+pattern as well.
