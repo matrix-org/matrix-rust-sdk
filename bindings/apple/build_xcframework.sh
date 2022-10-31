@@ -13,29 +13,30 @@ mkdir -p ${GENERATED_DIR}
 
 REL_FLAG="--release"
 REL_TYPE_DIR="release"
+BUILD_FLAGS="+nightly build -Zbuild-std=std,panic_abort -Z build-std-features=panic_immediate_abort"
 
 # Build static libs for all the different architectures
 
 # iOS
 echo -e "Building for iOS [1/5]"
-cargo +nightly build -Zbuild-std=std,panic_abort -Z build-std-features=panic_immediate_abort -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
+cargo ${BUILD_FLAGS} -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
 
 # MacOS
 echo -e "\nBuilding for macOS (Apple Silicon) [2/5]"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwin"
+cargo ${BUILD_FLAGS} -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwin"
 echo -e "\nBuilding for macOS (Intel) [3/5]"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
+cargo ${BUILD_FLAGS} -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
 
 # iOS Simulator
 echo -e "\nBuilding for iOS Simulator (Apple Silicon) [4/5]"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+cargo $BUILD_FLAGS -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
 echo -e "\nBuilding for iOS Simulator (Intel) [5/5]"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+cargo $BUILD_FLAGS -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
 echo -e "\nCreating XCFramework"
 # Lipo together the libraries for the same platform
 
-# MacOS
+# # MacOS
 lipo -create \
   "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   "${TARGET_DIR}/aarch64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
