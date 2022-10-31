@@ -1,4 +1,3 @@
-
 const { Agent } = require('https');
 const { DownloaderHelper } = require('node-downloader-helper');
 const { version } = require("./package.json");
