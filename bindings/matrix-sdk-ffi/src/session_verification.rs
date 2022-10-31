@@ -44,13 +44,6 @@ pub struct SessionVerificationController {
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
 }
 
-#[uniffi::export]
-impl SessionVerificationController {
-    pub fn is_verified(&self) -> bool {
-        self.user_identity.is_verified()
-    }
-}
-
 impl SessionVerificationController {
     pub fn new(user_identity: UserIdentity) -> Self {
         SessionVerificationController {
@@ -63,6 +56,10 @@ impl SessionVerificationController {
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
         *self.delegate.write().unwrap() = delegate;
+    }
+
+    pub fn is_verified(&self) -> bool {
+        self.user_identity.is_verified()
     }
 
     pub fn request_verification(&self) -> anyhow::Result<()> {
