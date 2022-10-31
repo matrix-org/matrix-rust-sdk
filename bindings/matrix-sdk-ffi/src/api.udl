@@ -151,6 +151,17 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+[Enum]
+interface PusherKind {
+  Http();
+  Email();
+};
+
+[Enum]
+interface PushFormat {
+  EventIdOnly();
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -195,6 +206,18 @@ interface Client {
 
     [Throws=ClientError]
     void logout();
+
+    [Throws=ClientError]
+    void set_pusher(string pushkey,
+                    PusherKind? kind,
+                    string app_id,
+                    string app_display_name,
+                    string device_display_name,
+                    string? profile_tag,
+                    string lang,
+                    string? url,
+                    PushFormat? format,
+                    string? default_payload);
 };
 
 interface Room {
@@ -359,6 +382,21 @@ interface AuthenticationService {
 
     [Throws=AuthenticationError]
     Client restore_with_access_token(string token, string device_id);
+};
+
+dictionary NotificationItem {
+    TimelineItem item;
+    string title;
+    string? subtitle;
+    boolean is_noisy;
+    string? avatar_url;
+};
+
+interface NotificationService {
+    constructor(string base_path, string user_id);
+
+    [Throws=ClientError]
+    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};

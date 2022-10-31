@@ -36,19 +36,19 @@ use ruma::{
 /// reactions and edits are also part of the item.
 #[derive(Clone)]
 pub struct EventTimelineItem {
-    pub(super) key: TimelineKey,
+    pub key: TimelineKey,
     // If this item is a local echo that has been acknowledged by the server
     // but not remote-echoed yet, this field holds the event ID from the send
     // response.
-    pub(super) event_id: Option<OwnedEventId>,
-    pub(super) sender: OwnedUserId,
-    pub(super) content: TimelineItemContent,
-    pub(super) reactions: BundledReactions,
-    pub(super) origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
-    pub(super) is_own: bool,
-    pub(super) encryption_info: Option<EncryptionInfo>,
+    pub event_id: Option<OwnedEventId>,
+    pub sender: OwnedUserId,
+    pub content: TimelineItemContent,
+    pub reactions: BundledReactions,
+    pub origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
+    pub is_own: bool,
+    pub encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
-    pub(super) raw: Option<Raw<AnySyncTimelineEvent>>,
+    pub raw: Option<Raw<AnySyncTimelineEvent>>,
 }
 
 impl fmt::Debug for EventTimelineItem {
@@ -287,12 +287,12 @@ pub enum TimelineItemContent {
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone, Debug)]
 pub struct Message {
-    pub(super) msgtype: MessageType,
+    pub msgtype: MessageType,
     // TODO: Add everything required to display the replied-to event, plus a
     // 'loading' state that is entered at first, until the user requests the
     // reply to be loaded.
-    pub(super) in_reply_to: Option<OwnedEventId>,
-    pub(super) edited: bool,
+    pub in_reply_to: Option<OwnedEventId>,
+    pub edited: bool,
 }
 
 impl Message {

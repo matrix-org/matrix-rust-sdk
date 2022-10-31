@@ -39,3 +39,4 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uniffi = { workspace = true }
 uniffi_macros = { workspace = true }
+rand = "0.8.5"

@@ -128,7 +128,7 @@ pub enum TimelineChange {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct TimelineItem(matrix_sdk::room::timeline::TimelineItem);
+pub struct TimelineItem(pub matrix_sdk::room::timeline::TimelineItem);
 
 impl TimelineItem {
     fn from_arc(arc: Arc<matrix_sdk::room::timeline::TimelineItem>) -> Arc<Self> {

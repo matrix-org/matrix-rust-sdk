@@ -50,7 +50,10 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            push::get_notifications::v3::Notification,
+            push::{
+                get_notifications::v3::Notification,
+                set_pusher::{self, v3::Pusher},
+            },
             room::create_room,
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
@@ -2363,6 +2366,12 @@ impl Client {
     /// Log out the current user
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Sets a given pusher
+    pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
+        let request = set_pusher::v3::Request::new(pusher);
         self.send(request, None).await
     }
 }

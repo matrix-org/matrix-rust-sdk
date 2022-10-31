@@ -5,25 +5,61 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
-        api::client::{
-            account::whoami,
-            error::ErrorKind,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-            media::get_content_thumbnail::v3::Method,
-            session::get_login_types,
-            sync::sync_events::v3::Filter,
+        api::{
+            self,
+            client::{
+                account::whoami,
+                error::ErrorKind,
+                filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+                media::get_content_thumbnail::v3::Method,
+                push::set_pusher::v3::PusherInit,
+                session::get_login_types,
+                sync::sync_events::v3::Filter,
+            },
         },
         events::{room::MediaSource, AnyToDeviceEvent},
+        push::PusherData,
         serde::Raw,
         TransactionId, UInt,
     },
     Client as MatrixClient, Error, LoopCtrl, RumaApiError, Session,
 };
+use serde_json::Value;
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
     RUNTIME,
 };
+
+#[derive(Clone)]
+pub enum PusherKind {
+    Http,
+    Email,
+}
+
+impl PusherKind {
+    pub fn convert(&self) -> api::client::push::PusherKind {
+        use api::client::push::PusherKind as PK;
+        match self {
+            Http => PK::Http,
+            Email => PK::Email,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum PushFormat {
+    EventIdOnly,
+}
+
+impl PushFormat {
+    pub fn convert(&self) -> matrix_sdk::ruma::push::PushFormat {
+        use matrix_sdk::ruma::push::PushFormat as PF;
+        match self {
+            EventIdOnly => PF::EventIdOnly,
+        }
+    }
+}
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -294,6 +330,52 @@ impl Client {
 
         tracing::warn!("Ignoring sync error: {:?}", sync_error);
         LoopCtrl::Continue
+    }
+
+    /// Registers a pusher with given parameters
+    pub fn set_pusher(
+        &self,
+        pushkey: String,
+        kind: Option<PusherKind>,
+        app_id: String,
+        app_display_name: String,
+        device_display_name: String,
+        profile_tag: Option<String>,
+        lang: String,
+        url: Option<String>,
+        format: Option<PushFormat>,
+        default_payload: Option<String>,
+    ) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            let mut pusher_data = PusherData::new();
+            pusher_data.url = url;
+            pusher_data.format = match format {
+                Some(fmt) => Some(fmt.convert()),
+                _ => None,
+            };
+            pusher_data.default_payload = match default_payload {
+                Some(json) => serde_json::from_str(&json)?,
+                _ => Value::Null,
+            };
+
+            let pusher_init = PusherInit {
+                pushkey: pushkey,
+                kind: match kind {
+                    Some(knd) => Some(knd.convert()),
+                    None => None,
+                },
+                app_id: app_id,
+                app_display_name: app_display_name,
+                device_display_name: device_display_name,
+                profile_tag: profile_tag,
+                lang: lang,
+                data: pusher_data,
+            };
+            match self.client.set_pusher(pusher_init.into()).await {
+                Ok(_) => Ok(()),
+                Err(error) => Err(anyhow!(error.to_string())),
+            }
+        })
     }
 }
 

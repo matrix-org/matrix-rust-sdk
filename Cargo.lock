@@ -2689,6 +2689,7 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "once_cell",
+ "rand 0.8.5",
  "sanitize-filename-reader-friendly",
  "serde",
  "serde_json",
@@ -3847,6 +3848,7 @@ dependencies = [
  "ruma-client-api",
  "ruma-common",
  "ruma-federation-api",
+ "ruma-push-gateway-api",
 ]
 
 [[package]]
@@ -3944,6 +3946,18 @@ dependencies = [
  "serde",
  "syn",
  "toml",
+]
+
+[[package]]
+name = "ruma-push-gateway-api"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dfd2f65e3377126282d444275a43aa05eecf5950344ebc5a6173abf55ba3636"
+dependencies = [
+ "js_int",
+ "ruma-common",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
