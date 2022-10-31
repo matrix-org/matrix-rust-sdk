@@ -885,7 +885,7 @@ impl CryptoStore for SledCryptoStore {
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.to_owned());
+        let already_added = !self.tracked_users_cache.insert(user.to_owned());
 
         if dirty {
             self.users_for_key_query_cache.insert(user.to_owned());
