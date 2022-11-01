@@ -7,7 +7,7 @@ const lookup = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 function base64DecToArr(sBase64) {
   const sB64Enc = sBase64.replace(/[^A-Za-z0-9+/]/g, "");
   const nInLen = sB64Enc.length;
-  const nOutLen = (nInLen / 3 + 1) >> 2;
+  const nOutLen = (nInLen * 3 + 1) >> 2;
   const taBytes = new Uint8Array(nOutLen);
 
   let nMod3;
