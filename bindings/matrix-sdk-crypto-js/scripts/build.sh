@@ -23,10 +23,13 @@ RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --ta
     echo '`;'
 } > pkg/matrix_sdk_crypto_js_bg.wasm.js
 
+# copy in the unbase64 module
+cp unbase64.js pkg/
+
 # In the javascript:
 #  1. replace the lines that load the wasm
 #  2. remove the imports of TextDecoder and TextEncoder. We rely on the global defaults.
-loadwasm='const bytes = require("../unbase64.js")(require("./matrix_sdk_crypto_js_bg.wasm.js"));'
+loadwasm='const bytes = require("./unbase64.js")(require("./matrix_sdk_crypto_js_bg.wasm.js"));'
 sed -i -e "/^const path = /,+1 c$loadwasm" \
     -e '/= require(`util`)/d' \
     pkg/matrix_sdk_crypto_js.js
