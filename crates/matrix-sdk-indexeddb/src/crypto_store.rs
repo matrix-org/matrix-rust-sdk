@@ -19,6 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use dashmap::DashSet;
+use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{

@@ -23,6 +23,7 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
+use gloo_utils::format::JsValueSerdeExt;
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
