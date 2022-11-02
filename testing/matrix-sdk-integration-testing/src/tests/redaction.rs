@@ -26,7 +26,7 @@ async fn sync_once(client: &Client) -> Result<()> {
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
@@ -96,7 +96,7 @@ async fn test_redacting_name() -> Result<()> {
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name_static() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
