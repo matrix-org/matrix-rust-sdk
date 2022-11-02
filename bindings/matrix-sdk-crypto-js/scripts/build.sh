@@ -22,7 +22,7 @@ RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --ta
 echo "module.exports = '$(base64 pkg/matrix_sdk_crypto_js_bg.wasm)';" > pkg/matrix_sdk_crypto_js_bg.wasm.js
 
 # Copy in the unbase64 module
-cp scripts/wasm.js pkg/
+cp scripts/unbase64.js pkg/
 
 # In the JavaScript:
 #  1. Replace the lines that load the Wasm,
