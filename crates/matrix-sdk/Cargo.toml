@@ -133,7 +133,7 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
-wasm-bindgen-test = "0.3.30"
+wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = "0.1.23"
