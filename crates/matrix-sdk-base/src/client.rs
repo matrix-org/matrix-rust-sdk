@@ -592,21 +592,21 @@ impl BaseClient {
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
         if room.room_type() == RoomType::Joined {
-            return Ok(room);
+            Ok(room)
+        } else {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_joined();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+
+            Ok(room)
         }
-
-        let sync_lock = self.sync_lock().read().await;
-        let mut room_info = room.clone_info();
-        room_info.mark_as_joined();
-        room_info.mark_state_partially_synced();
-        room_info.mark_members_missing(); // the own member event changed
-        let mut changes = StateChanges::default();
-        changes.add_room(room_info.clone());
-        self.store.save_changes(&changes).await?; // Update the store
-        room.update_summary(room_info); // Update the cached room handle
-        drop(sync_lock);
-
-        Ok(room)
     }
 
     /// User has left a room.
@@ -615,21 +615,21 @@ impl BaseClient {
     pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
         if room.room_type() == RoomType::Left {
-            return Ok(room);
+            Ok(room)
+        } else {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+
+            Ok(room)
         }
-
-        let sync_lock = self.sync_lock().read().await;
-        let mut room_info = room.clone_info();
-        room_info.mark_as_left();
-        room_info.mark_state_partially_synced();
-        room_info.mark_members_missing(); // the own member event changed
-        let mut changes = StateChanges::default();
-        changes.add_room(room_info.clone());
-        self.store.save_changes(&changes).await?; // Update the store
-        room.update_summary(room_info); // Update the cached room handle
-        drop(sync_lock);
-
-        Ok(room)
     }
 
     /// Get access to the store's sync lock.
