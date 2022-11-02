@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
@@ -418,17 +418,6 @@ impl Common {
     /// quick succession, in that case the return value will be `None`.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
         self.request_members().await
-    }
-
-    /// Wait for the room to be fully synced.
-    ///
-    /// This method makes sure the room that was returned when joining/leaving
-    /// rooms has been echoed back in the sync. Warning: This waits until a sync
-    /// happens and does not return if no sync is happening!
-    pub async fn sync_up(&self) {
-        while !self.is_synced() {
-            self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
-        }
     }
 
     /// Get active members for this room, includes invited, joined members.
