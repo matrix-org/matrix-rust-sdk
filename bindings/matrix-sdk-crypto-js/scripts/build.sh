@@ -16,7 +16,7 @@
 
 set -e
 
-RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg
+RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --target nodejs --scope matrix-org --out-dir pkg
 
 # Convert the Wasm into a JS file that exports the base64'ed Wasm.
 echo "module.exports = '$(base64 pkg/matrix_sdk_crypto_js_bg.wasm)';" > pkg/matrix_sdk_crypto_js_bg.wasm.js
@@ -24,11 +24,17 @@ echo "module.exports = '$(base64 pkg/matrix_sdk_crypto_js_bg.wasm)';" > pkg/matr
 # Copy in the unbase64 module
 cp scripts/unbase64.js pkg/
 
+if test "$(uname)" = "Darwin"; then
+    SEDI="-i ''"
+else
+    SEDI="-i"
+fi
+
 # In the JavaScript:
 #  1. Replace the lines that load the Wasm,
 #  2. Remove the imports of `TextDecoder` and `TextEncoder`. We rely on the global defaults.
 loadwasm='const bytes = require("./unbase64.js")(require("./matrix_sdk_crypto_js_bg.wasm.js"));'
-sed -i '' \
+sed "${SEDI}" \
     -e "/^const path = /d" \
     -e "s@^const bytes =.*@${loadwasm}@" \
     -e '/Text..coder.*= require(.util.)/d' \
