@@ -1613,46 +1613,6 @@ impl Client {
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 
-    /// Create a direct message room with the specified user.
-    #[cfg(not(feature = "e2e-encryption"))]
-    pub async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
-        };
-
-        // First we create the DM room, where we invite the user and tell the
-        // invitee that the room should be a DM.
-        let invite = &[user_id.to_owned()];
-
-        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
-            invite,
-            is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        });
-
-        let room = self.create_room(request).await?;
-
-        // Now we need to mark the room as a DM for ourselves, we fetch the
-        // existing `m.direct` event and append the room to the list of DMs we
-        // have with this user.
-        let mut content = self
-            .account()
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .unwrap_or_default();
-
-        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
-
-        // TODO We should probably save the fact that we need to send this out
-        // because otherwise we might end up in a state where we have a DM that
-        // isn't marked as one.
-        self.account().set_account_data(content).await?;
-
-        Ok(room)
-    }
-
     /// Search the homeserver's directory for public rooms with a filter.
     ///
     /// # Arguments
