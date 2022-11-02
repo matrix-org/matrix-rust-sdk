@@ -18,31 +18,43 @@ const WASM_TIMEOUT_VALUE: &str = "120";
 enum CiCommand {
     /// Check style
     Style,
+
     /// Check for typos
     Typos,
+
     /// Check clippy lints
     Clippy,
+
     /// Check documentation
     Docs,
+
     /// Run tests with a specific feature set
     TestFeatures {
         #[clap(subcommand)]
         cmd: Option<FeatureSet>,
     },
+
     /// Run tests for the appservice crate
     TestAppservice,
+
     /// Run checks for the wasm target
     Wasm {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
+
     /// Run wasm-pack tests
     WasmPack {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
+
     /// Run tests for the different crypto crate features
     TestCrypto,
+
+    /// Check that bindings can be generated
+    Bindings,
+
     /// Check that the examples compile
     Examples,
 }
@@ -91,6 +103,7 @@ impl CiArgs {
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
                 CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
                 CiCommand::TestCrypto => run_crypto_tests(),
+                CiCommand::Bindings => check_bindings(),
                 CiCommand::Examples => check_examples(),
             },
             None => {
@@ -108,6 +121,34 @@ impl CiArgs {
             }
         }
     }
+}
+
+fn check_bindings() -> Result<()> {
+    cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
+    cmd!(
+        "
+        uniffi-bindgen generate
+            --language kotlin
+            --language swift
+            --lib-file target/debug/libmatrix_sdk_ffi.a
+            --out-dir target/generated-bindings
+            bindings/matrix-sdk-ffi/src/api.udl
+        "
+    )
+    .run()?;
+    cmd!(
+        "
+        uniffi-bindgen generate
+            --language kotlin
+            --language swift
+            --lib-file target/debug/libmatrix_sdk_crypto_ffi.a
+            --out-dir target/generated-bindings
+            bindings/matrix-sdk-crypto-ffi/src/olm.udl
+        "
+    )
+    .run()?;
+
+    Ok(())
 }
 
 fn check_examples() -> Result<()> {

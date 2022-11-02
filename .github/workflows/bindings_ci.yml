@@ -16,8 +16,73 @@ env:
   CARGO_TERM_COLOR: always
   MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
   MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
+  # keep in sync with uniffi dependency in root Cargo.toml
+  UNIFFI_REV: 6ee61a46f59736f93b912f3cf45481f005c63115
 
 jobs:
+  xtask-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Check xtask cache
+        uses: actions/cache@v3
+        id: xtask-cache
+        with:
+          path: target/debug/xtask
+          key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+
+      - name: Install rust stable toolchain
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xtask
+
+  test-uniffi-codegen:
+    name: Test UniFFI bindings generation
+    needs: xtask-linux
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+
+      - name: Install Uniffi
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev ${{ env.UNIFFI_REV }}
+
+      - name: Build library & generate bindings
+        run: target/debug/xtask ci bindings
+
   test-matrix-sdk-crypto-nodejs:
     name: ${{ matrix.os-name }} [m]-crypto-nodejs, v${{ matrix.node-version }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
@@ -27,7 +92,7 @@ jobs:
       fail-fast: true
       matrix:
         os: [ubuntu-latest]
-        node-version: [14.0, 16.0, 18.0]
+        node-version: [14.0, 16.0, 18.0, 19.0]
         include:
           - os: ubuntu-latest
             os-name: 🐧
@@ -133,8 +198,37 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
         run: npm run doc
 
+  xtask-macos:
+    runs-on: macos-12
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Check xtask cache
+        uses: actions/cache@v3
+        id: xtask-cache
+        with:
+          path: target/debug/xtask
+          key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+
+      - name: Install rust stable toolchain
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xtask
+
   test-apple:
     name: matrix-rust-components-swift
+    needs: xtask-macos
     runs-on: macos-12
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -152,15 +246,20 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Get xtask
+        uses: actions/cache@v3
+        with:
+          path: target/debug/xtask
+          key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+
       - name: Install Uniffi
         uses: actions-rs/cargo@v1
         with:
           command: install
-          # keep in sync with uniffi dependency in root Cargo.toml
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev fdb769b567865d9c5c7c682a18d0c1301a039c85
+          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev ${{ env.UNIFFI_REV }}
 
       - name: Build library & bindings
-        run: cargo xtask swift build-library
+        run: target/debug/xtask swift build-library
 
       - name: Run XCTests
         working-directory: bindings/apple

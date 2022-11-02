@@ -150,6 +150,10 @@ impl TimelineItem {
             Arc::new(VirtualTimelineItem(vt))
         })
     }
+
+    pub fn fmt_debug(&self) -> String {
+        format!("{:#?}", self.0)
+    }
 }
 
 pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
@@ -192,6 +196,10 @@ impl EventTimelineItem {
 
     pub fn raw(&self) -> Option<String> {
         self.0.raw().map(|r| r.json().get().to_owned())
+    }
+
+    pub fn fmt_debug(&self) -> String {
+        format!("{:#?}", self.0)
     }
 }
 

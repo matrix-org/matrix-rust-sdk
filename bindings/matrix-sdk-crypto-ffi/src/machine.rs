@@ -629,6 +629,7 @@ impl OlmMachine {
                         .get(&DeviceKeyAlgorithm::Ed25519)
                         .cloned(),
                     forwarding_curve25519_chain: vec![],
+                    verification_state: encryption_info.verification_state,
                 }
             }
         })

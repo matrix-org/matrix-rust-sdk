@@ -28,6 +28,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
+use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
@@ -458,6 +459,10 @@ pub struct DecryptedEvent {
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
     pub forwarding_curve25519_chain: Vec<String>,
+    /// The verification state of the device that sent us the event, note this
+    /// is the state of the device at the time of decryption. It may change in
+    /// the future if a device gets verified or deleted.
+    pub verification_state: VerificationState,
 }
 
 /// Struct representing the state of our private cross signing keys, it shows

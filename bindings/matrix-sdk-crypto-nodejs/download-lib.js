@@ -1,3 +1,4 @@
+const { Agent } = require('https');
 const { DownloaderHelper } = require('node-downloader-helper');
 const { version } = require("./package.json");
 const { platform, arch } = process
@@ -22,6 +23,11 @@ function download_lib(libname) {
     console.info(`Downloading lib ${libname} from ${url}`);
     const dl = new DownloaderHelper(url, __dirname, {
         override: true,
+        httpsRequestOptions: {
+          // Disable keepalive to prevent the process hanging open.
+          // https://github.com/matrix-org/matrix-rust-sdk/issues/1160
+          agent: new Agent({ keepAlive: false }),
+        },
     });
 
     dl.on('end', () => console.info('Download Completed'));

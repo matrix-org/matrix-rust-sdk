@@ -53,7 +53,7 @@ describe(OlmMachine.name, () => {
     const room = new RoomId('!baz:matrix.org');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || user, new_device || device);
+        return OlmMachine.initialize(new_user || user, new_device || device);
     }
 
     test('can read user devices', async () => {
@@ -116,7 +116,7 @@ describe('Key Verification', () => {
     const deviceId2 = new DeviceId('bob_device');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || userId1, new_device || deviceId1);
+        return OlmMachine.initialize(new_user || userId1, new_device || deviceId1);
     }
 
     describe('SAS', () => {

@@ -25,7 +25,7 @@ require('fake-indexeddb/auto');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
-        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
+        expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
     });
 
     test('can be instantiated with a store', async () => {
@@ -36,7 +36,7 @@ describe(OlmMachine.name, () => {
         let store_passphrase = 'world';
 
         // Creating a new Olm machine.
-        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+        expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
 
         // Oh, there is 2 databases now, prefixed by `store_name`.
         let databases = await indexedDB.databases();
@@ -48,7 +48,7 @@ describe(OlmMachine.name, () => {
         ]);
 
         // Creating a new Olm machine, with the stored state.
-        expect(await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
+        expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
 
         // Same number of databases.
         expect(await indexedDB.databases()).toHaveLength(2);
@@ -62,7 +62,7 @@ describe(OlmMachine.name, () => {
             let err = null;
 
             try {
-                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+                await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
             } catch (error) {
                 err = error;
             }
@@ -77,7 +77,7 @@ describe(OlmMachine.name, () => {
             let err = null;
 
             try {
-                await new OlmMachine(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+                await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
             } catch (error) {
                 err = error;
             }
@@ -91,7 +91,7 @@ describe(OlmMachine.name, () => {
     const room = new RoomId('!baz:matrix.org');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || user, new_device || device);
+        return OlmMachine.initialize(new_user || user, new_device || device);
     }
 
     test('can read user ID', async () => {

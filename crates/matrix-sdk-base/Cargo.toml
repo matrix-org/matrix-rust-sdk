@@ -9,7 +9,7 @@ name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.62"
-version = "0.6.0"
+version = "0.6.1"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -58,4 +58,4 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.30"
+wasm-bindgen-test = "0.3.33"

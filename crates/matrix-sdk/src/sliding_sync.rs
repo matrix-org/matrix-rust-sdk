@@ -15,7 +15,6 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use anyhow::{bail, Context};
 use futures_core::stream::Stream;
 use futures_signals::signal::Mutable;
 use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
@@ -27,9 +26,20 @@ use ruma::{
     events::RoomEventType,
     OwnedRoomId, RoomId, UInt,
 };
+use thiserror::Error;
 use url::Url;
 
 use crate::{Client, Result};
+
+/// Internal representation of errors in Sliding Sync
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum Error {
+    #[error("Received response for {found} lists, yet we have {expected}.")]
+    BadViewsCount { found: usize, expected: usize },
+    #[error("The sliding sync response could not be handled: {0}")]
+    BadResponse(String),
+}
 
 /// The state the [`SlidingSyncView`] is in.
 ///
@@ -442,13 +452,15 @@ impl SlidingSync {
         &self,
         resp: v4::Response,
         views: &[SlidingSyncView],
-    ) -> anyhow::Result<UpdateSummary> {
+    ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         tracing::info!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
         if resp.lists.len() != views.len() {
-            bail!("Received response for {} lists, yet we have {}", resp.lists.len(), views.len());
+            return Err(
+                Error::BadViewsCount { found: resp.lists.len(), expected: views.len() }.into()
+            );
         }
 
         for (view, updates) in std::iter::zip(views, &resp.lists) {
@@ -497,23 +509,18 @@ impl SlidingSync {
     /// Run this stream to receive new updates from the server.
     pub async fn stream<'a>(
         &self,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<UpdateSummary>> + '_> {
+    ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_, crate::Error> {
         let views = self.views.lock_ref().to_vec();
         let extensions = self.extensions.clone();
         let client = self.client.clone();
 
-        Ok(async_stream::try_stream! {
+        Ok(async_stream::stream! {
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
-                #[cfg(feature = "e2e-encryption")]
-                if let Err(e) = client.send_outgoing_requests().await {
-                    tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
-                }
-
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
@@ -550,14 +557,39 @@ impl SlidingSync {
                     extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
                 });
                 tracing::debug!("requesting");
-                let resp = client
-                    .send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string))
-                    .await?;
+
+                let req = client.send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string));
+
+                #[cfg(feature = "e2e-encryption")]
+                let resp_res = {
+                    let (e2ee_uploads, resp) = futures_util::join!(client.send_outgoing_requests(), req);
+                    if let Err(e) = e2ee_uploads {
+                        tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
+                    }
+                    resp
+                };
+                #[cfg(not(feature = "e2e-encryption"))]
+                let resp_res = req.await;
+
+                let resp = match resp_res {
+                    Ok(r) => r,
+                    Err(e) => {
+                        yield Err(e.into());
+                        continue
+                    }
+                };
+
                 tracing::debug!("received");
 
-                let updates = self.handle_response(resp, &remaining_views).await?;
+                let updates =  match self.handle_response(resp, &remaining_views).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        yield Err(e.into());
+                        continue
+                    }
+                };
                 tracing::debug!("handled");
-                yield updates;
+                yield Ok(updates);
             }
         })
     }
@@ -878,7 +910,7 @@ impl SlidingSyncView {
     }
 
     #[tracing::instrument(skip(self, ops))]
-    fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> anyhow::Result<()> {
+    fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> Result<(), Error> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
         for op in ops {
@@ -886,9 +918,16 @@ impl SlidingSyncView {
                 v4::SlidingOp::Sync => {
                     let start: u32 = op
                         .range
-                        .context("`range` must be present for Sync and Update operation")?
+                        .ok_or_else(|| {
+                            Error::BadResponse(
+                                "`range` must be present for Sync and Update operation".to_owned(),
+                            )
+                        })?
                         .0
-                        .try_into()?;
+                        .try_into()
+                        .map_err(|e| {
+                            Error::BadResponse(format!("`range` not a valid int: {e:}"))
+                        })?;
                     let room_ids = op.room_ids.clone();
                     room_ids
                         .into_iter()
@@ -902,21 +941,41 @@ impl SlidingSyncView {
                 v4::SlidingOp::Delete => {
                     let pos: u32 = op
                         .index
-                        .context("`index` must be present for DELETE operation")?
-                        .try_into()?;
+                        .ok_or_else(|| {
+                            Error::BadResponse(
+                                "`index` must be present for DELETE operation".to_owned(),
+                            )
+                        })?
+                        .try_into()
+                        .map_err(|e| {
+                            Error::BadResponse(format!(
+                                "`index` not a valid int for DELETE: {:}",
+                                e
+                            ))
+                        })?;
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
                 v4::SlidingOp::Insert => {
                     let pos: usize = op
                         .index
-                        .context("`index` must be present for INSERT operation")?
-                        .try_into()?;
+                        .ok_or_else(|| {
+                            Error::BadResponse(
+                                "`index` must be present for INSERT operation".to_owned(),
+                            )
+                        })?
+                        .try_into()
+                        .map_err(|e| {
+                            Error::BadResponse(format!(
+                                "`index` not a valid int for INSERT: {:}",
+                                e
+                            ))
+                        })?;
                     let sliced = rooms_list.as_slice();
-                    let room = RoomListEntry::Filled(
-                        op.room_id
-                            .clone()
-                            .context("`room_id` must be present for INSERT operation")?,
-                    );
+                    let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
+                        Error::BadResponse(
+                            "`room_id` must be present for INSERT operation".to_owned(),
+                        )
+                    })?);
                     let mut dif = 0usize;
                     loop {
                         // find the next empty slot and drop it
@@ -925,7 +984,7 @@ impl SlidingSyncView {
                         let (next_p, overflown) = pos.overflowing_add(dif);
                         let check_after = !overflown && next_p < sliced.len();
                         if !check_prev && !check_after {
-                            bail!("We were asked to insert but could not find any direction to shift to");
+                            return Err(Error::BadResponse("We were asked to insert but could not find any direction to shift to".to_owned()));
                         }
 
                         if check_prev && sliced[prev_p].empty_or_invalidated() {
@@ -945,13 +1004,24 @@ impl SlidingSyncView {
                 v4::SlidingOp::Invalidate => {
                     let max_len = rooms_list.len();
                     let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
-                        (range.0.try_into()?, range.1.try_into()?)
+                        (
+                            range.0.try_into().map_err(|e| {
+                                Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
+                            })?,
+                            range.1.try_into().map_err(|e| {
+                                Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
+                            })?,
+                        )
                     } else {
-                        bail!("`range` must be given on `Invalidate` operation")
+                        return Err(Error::BadResponse(
+                            "`range` must be given on `Invalidate` operation".to_owned(),
+                        ));
                     };
 
                     if pos > end {
-                        bail!("Invalid invalidation, end smaller than start");
+                        return Err(Error::BadResponse(
+                            "Invalid invalidation, end smaller than start".to_owned(),
+                        ));
                     }
 
                     while pos < end {
@@ -983,7 +1053,7 @@ impl SlidingSyncView {
     }
 
     #[tracing::instrument(skip(self, ops))]
-    fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> anyhow::Result<bool> {
+    fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> Result<bool, Error> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
