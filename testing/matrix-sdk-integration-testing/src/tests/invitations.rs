@@ -8,8 +8,8 @@ use crate::helpers::get_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
-    let sebastian = get_client_for_user("sebastian".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
+    let sebastian = get_client_for_user("sebastian".to_owned(), true).await?;
 
     let invites = [sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;
