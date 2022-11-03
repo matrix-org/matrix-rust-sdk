@@ -65,6 +65,19 @@ pub enum RumaApiError {
     Other(ruma::api::error::MatrixError),
 }
 
+impl RumaApiError {
+    /// If `self` is `ClientApi(e)` or `Uiaa(MatrixError(e))`, returns
+    /// `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        match self {
+            Self::ClientApi(e) | Self::Uiaa(UiaaResponse::MatrixError(e)) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// An HTTP error, representing either a connection error or an error while
 /// converting the raw HTTP response into a Matrix response.
 #[derive(Error, Debug)]
@@ -103,6 +116,7 @@ pub enum HttpError {
     RefreshToken(#[from] RefreshTokenError),
 }
 
+#[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl HttpError {
     /// If `self` is `Api(Server(Known(e)))`, returns `Some(e)`.
     ///
@@ -112,6 +126,12 @@ impl HttpError {
             Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
             _ => None,
         }
+    }
+
+    /// Shorthand for
+    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
     }
 }
 
@@ -205,6 +225,7 @@ pub enum Error {
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
+#[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl Error {
     /// If `self` is `Http(Api(Server(Known(e))))`, returns `Some(e)`.
     ///
@@ -214,6 +235,12 @@ impl Error {
             Error::Http(e) => e.as_ruma_api_error(),
             _ => None,
         }
+    }
+
+    /// Shorthand for
+    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
     }
 }
 
