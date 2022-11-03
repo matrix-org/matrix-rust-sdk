@@ -22,7 +22,7 @@ enum SwiftCommand {
 
 impl SwiftArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace::root_path()?)?;
+        let _p = pushd(workspace::root_path()?)?;
 
         match self.cmd {
             SwiftCommand::BuildLibrary => build_library(),
