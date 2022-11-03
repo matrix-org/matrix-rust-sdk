@@ -314,7 +314,7 @@ async fn delete_devices() {
     let devices = &[device_id!("DEVICEID").to_owned()];
 
     if let Err(e) = client.delete_devices(devices, None).await {
-        if let Some(info) = e.uiaa_response() {
+        if let Some(info) = e.as_uiaa_response() {
             let mut auth_parameters = BTreeMap::new();
 
             let identifier = json!({

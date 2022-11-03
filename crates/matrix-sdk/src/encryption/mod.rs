@@ -693,7 +693,7 @@ impl Encryption {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
-    ///     if let Some(response) = e.uiaa_response() {
+    ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
     ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
     ///             "wordpass",

@@ -147,7 +147,7 @@ impl HttpError {
     ///
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+    pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
         match self.as_ruma_api_error() {
             Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
             _ => None,
@@ -276,7 +276,7 @@ impl Error {
     ///
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+    pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
         match self.as_ruma_api_error() {
             Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
             _ => None,

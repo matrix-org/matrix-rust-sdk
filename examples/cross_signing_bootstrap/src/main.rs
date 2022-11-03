@@ -17,7 +17,7 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
     if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
         use matrix_sdk::ruma::api::client::uiaa;
 
-        if let Some(response) = e.uiaa_response() {
+        if let Some(response) = e.as_uiaa_response() {
             let mut password = uiaa::Password::new(
                 uiaa::UserIdentifier::UserIdOrLocalpart(user_id.as_str()),
                 &password,
