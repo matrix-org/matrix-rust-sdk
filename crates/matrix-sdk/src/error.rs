@@ -306,18 +306,13 @@ impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
 impl From<SdkBaseError> for Error {
     fn from(e: SdkBaseError) -> Self {
         match e {
-            SdkBaseError::AuthenticationRequired => Self::AuthenticationRequired,
             SdkBaseError::StateStore(e) => Self::StateStore(e),
-            SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
-            SdkBaseError::IoError(e) => Self::Io(e),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
-            #[cfg(feature = "e2e-encryption")]
-            SdkBaseError::MegolmError(e) => Self::MegolmError(e),
             #[cfg(feature = "eyre")]
             _ => Self::UnknownError(eyre::eyre!(e).into()),
             #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
