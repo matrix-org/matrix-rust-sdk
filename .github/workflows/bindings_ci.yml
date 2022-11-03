@@ -181,6 +181,9 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18.0
+      
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
 
       - name: Install NPM dependencies
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
