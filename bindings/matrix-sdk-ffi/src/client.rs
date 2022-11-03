@@ -98,7 +98,7 @@ impl Client {
 
     /// Restores the client from a `RestoreToken`.
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
-        let RestoreToken { session, homeurl: _, is_guest: _, is_soft_logout } =
+        let RestoreToken { session, homeurl: _, is_soft_logout } =
             serde_json::from_str(&restore_token)?;
 
         // update soft logout state
@@ -152,7 +152,6 @@ impl Client {
             Ok(serde_json::to_string(&RestoreToken {
                 session,
                 homeurl,
-                is_guest: self.state.read().unwrap().is_guest,
                 is_soft_logout: self.state.read().unwrap().is_soft_logout,
             })?)
         })
@@ -313,11 +312,6 @@ impl Client {
     /// Indication whether we are currently syncing
     pub fn is_syncing(&self) -> bool {
         self.state.read().unwrap().has_first_synced
-    }
-
-    /// Is this a guest account?
-    pub fn is_guest(&self) -> bool {
-        self.state.read().unwrap().is_guest
     }
 
     /// Flag indicating whether the session is in soft logout mode

@@ -56,7 +56,6 @@ pub use self::{
 
 #[derive(Default, Debug)]
 pub struct ClientState {
-    is_guest: bool,
     has_first_synced: bool,
     is_syncing: bool,
     should_stop_syncing: bool,
@@ -65,7 +64,6 @@ pub struct ClientState {
 
 #[derive(Serialize, Deserialize)]
 struct RestoreToken {
-    is_guest: bool,
     homeurl: String,
     session: Session,
     #[serde(default)]
