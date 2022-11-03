@@ -49,7 +49,7 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
 
     if let Err(resp) = client.register(RegistrationRequest::new()).await {
         // FIXME: do actually check the registration types...
-        if let Some(_response) = resp.uiaa_response() {
+        if let Some(_response) = resp.as_uiaa_response() {
             let request = assign!(RegistrationRequest::new(), {
                 username: Some(username.as_ref()),
                 password: Some(username.as_ref()),

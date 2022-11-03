@@ -1898,7 +1898,7 @@ impl Client {
     /// let devices = &[device_id!("DEVICEID").to_owned()];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
-    ///     if let Some(info) = e.uiaa_response() {
+    ///     if let Some(info) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
     ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
     ///             "wordpass",

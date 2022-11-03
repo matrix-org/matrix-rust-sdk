@@ -347,7 +347,7 @@ impl AppService {
     ///
     /// # Returns
     /// This function may return a UIAA response, which should be checked for
-    /// with [`Error::uiaa_response()`].
+    /// with [`Error::as_uiaa_response()`].
     pub async fn register_virtual_user<'a>(
         &self,
         localpart: &'a str,
