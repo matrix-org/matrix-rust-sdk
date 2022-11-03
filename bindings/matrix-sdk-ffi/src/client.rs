@@ -59,7 +59,7 @@ impl Client {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
                     session_verification_controller.process_to_device_message(ev).await;
                 } else {
-                    tracing::warn!(
+                    tracing::debug!(
                         "received to-device message, but verification controller isn't ready"
                     );
                 }
