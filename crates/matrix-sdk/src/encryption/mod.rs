@@ -860,7 +860,7 @@ mod tests {
     };
     use serde_json::json;
     use wiremock::{
-        matchers::{method, path_regex},
+        matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -873,6 +873,16 @@ mod tests {
 
         let event_id = event_id!("$2:example.org");
         let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+            )
+            .mount(&server)
+            .await;
 
         Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
