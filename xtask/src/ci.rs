@@ -90,7 +90,7 @@ enum WasmFeatureSet {
 
 impl CiArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace::root_path()?)?;
+        let _p = pushd(workspace::root_path()?)?;
 
         match self.cmd {
             Some(cmd) => match cmd {
