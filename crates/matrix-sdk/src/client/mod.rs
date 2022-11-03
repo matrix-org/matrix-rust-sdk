@@ -78,8 +78,7 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerResult,
-        EventHandlerStore, SyncEvent,
+        EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
     room, Account, Error, Media, RefreshTokenError, Result, RumaApiError,
@@ -636,7 +635,6 @@ impl Client {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         self.add_event_handler_impl(handler, None)
     }
@@ -659,7 +657,6 @@ impl Client {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         self.add_event_handler_impl(handler, Some(room_id.to_owned()))
     }
