@@ -24,7 +24,7 @@ pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         device_id: device_id!("DEVICEID").to_owned(),
     };
     let client = no_retry_test_client(homeserver_url).await;
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     client
 }
