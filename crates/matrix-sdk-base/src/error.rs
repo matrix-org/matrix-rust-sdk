@@ -15,11 +15,8 @@
 
 //! Error conditions.
 
-use std::io::Error as IoError;
-
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
-use serde_json::Error as JsonError;
+use matrix_sdk_crypto::{CryptoStoreError, OlmError};
 use thiserror::Error;
 
 /// Result type of the rust-sdk.
@@ -29,11 +26,6 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Queried endpoint requires authentication but was called on an anonymous
-    /// client.
-    #[error("the queried endpoint requires authentication but was called before logging in")]
-    AuthenticationRequired,
-
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
     #[cfg(feature = "e2e-encryption")]
@@ -50,14 +42,6 @@ pub enum Error {
     #[error(transparent)]
     StateStore(#[from] crate::store::StoreError),
 
-    /// An error when (de)serializing JSON.
-    #[error(transparent)]
-    SerdeJson(#[from] JsonError),
-
-    /// An error representing IO errors.
-    #[error(transparent)]
-    IoError(#[from] IoError),
-
     /// An error occurred in the crypto store.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
@@ -67,9 +51,4 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     OlmError(#[from] OlmError),
-
-    /// An error occurred during a E2EE group operation.
-    #[cfg(feature = "e2e-encryption")]
-    #[error(transparent)]
-    MegolmError(#[from] MegolmError),
 }
