@@ -118,7 +118,9 @@ pub enum HttpError {
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl HttpError {
-    /// If `self` is `Api(Server(Known(e)))`, returns `Some(e)`.
+    /// If `self` is
+    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e)))</code>,
+    /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
@@ -227,7 +229,9 @@ pub enum Error {
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl Error {
-    /// If `self` is `Http(Api(Server(Known(e))))`, returns `Some(e)`.
+    /// If `self` is
+    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e))))</code>,
+    /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
