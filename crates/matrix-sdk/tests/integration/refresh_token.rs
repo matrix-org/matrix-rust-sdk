@@ -154,7 +154,7 @@ async fn refresh_token() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     let tokens = client.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "1234");
@@ -210,7 +210,7 @@ async fn refresh_token_not_handled() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -252,7 +252,7 @@ async fn refresh_token_handled_success() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     let mut tokens_stream = client.session_tokens_signal().to_stream();
     let (tokens_sender, tokens_receiver) = oneshot::channel::<()>();
@@ -327,7 +327,7 @@ async fn refresh_token_handled_failure() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -383,7 +383,7 @@ async fn refresh_token_handled_multi_success() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -460,7 +460,7 @@ async fn refresh_token_handled_multi_failure() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -537,7 +537,7 @@ async fn refresh_token_handled_other_error() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))

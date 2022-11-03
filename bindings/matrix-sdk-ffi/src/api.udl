@@ -152,7 +152,7 @@ interface Client {
     void login(string username, string password, string? initial_device_name, string? device_id);
 
     [Throws=ClientError]
-    void restore_login(Session session);
+    void restore_session(Session session);
 
     [Throws=ClientError]
     Session session();

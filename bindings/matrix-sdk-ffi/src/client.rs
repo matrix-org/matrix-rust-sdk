@@ -96,7 +96,7 @@ impl Client {
     }
 
     /// Restores the client from a `Session`.
-    pub fn restore_login(&self, session: Session) -> anyhow::Result<()> {
+    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
         let Session {
             access_token,
             refresh_token,
@@ -115,13 +115,13 @@ impl Client {
             user_id: user_id.try_into()?,
             device_id: device_id.into(),
         };
-        self.restore_session(session)
+        self.restore_session_inner(session)
     }
 
     /// Restores the client from a `matrix_sdk::Session`.
-    pub(crate) fn restore_session(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
+    pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.restore_login(session).await?;
+            self.client.restore_session(session).await?;
             Ok(())
         })
     }

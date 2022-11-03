@@ -238,7 +238,7 @@ async fn main() -> Result<()> {
         .transpose()?
     {
         tracing::info!("Restoring session from store");
-        client.restore_login(session).await?;
+        client.restore_session(session).await?;
     } else {
         let theme = ColorfulTheme::default();
         let password = match opt.password {

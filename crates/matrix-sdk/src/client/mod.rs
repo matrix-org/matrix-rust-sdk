@@ -486,7 +486,7 @@ impl Client {
     ///
     /// Will be `None` if the client has not been logged in.
     ///
-    /// Can be used with [`Client::restore_login`] to restore a previously
+    /// Can be used with [`Client::restore_session`] to restore a previously
     /// logged-in session.
     pub fn session(&self) -> Option<Session> {
         self.base_client().session()
@@ -960,7 +960,7 @@ impl Client {
     /// If this isn't the first login, a device ID should be provided through
     /// [`LoginBuilder::device_id`] to restore the correct stores.
     ///
-    /// Alternatively the [`restore_login`] method can be used to restore a
+    /// Alternatively the [`restore_session`] method can be used to restore a
     /// logged-in client without the password.
     ///
     /// # Arguments
@@ -995,7 +995,7 @@ impl Client {
     /// # anyhow::Ok(()) });
     /// ```
     ///
-    /// [`restore_login`]: #method.restore_login
+    /// [`restore_session`]: #method.restore_session
     pub fn login_username<'a>(
         &self,
         id: &'a (impl AsRef<str> + ?Sized),
@@ -1025,7 +1025,7 @@ impl Client {
     ///
     /// This should only be used for the first login.
     ///
-    /// The [`restore_login`] method should be used to restore a logged-in
+    /// The [`restore_session`] method should be used to restore a logged-in
     /// client after the first login.
     ///
     /// A device ID should be provided through [`LoginBuilder::device_id`] to
@@ -1068,7 +1068,7 @@ impl Client {
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
-    /// [`restore_login`]: #method.restore_login
+    /// [`restore_session`]: #method.restore_session
     pub fn login_token<'a>(&self, token: &'a str) -> LoginBuilder<'a> {
         LoginBuilder::new_token(self.clone(), token)
     }
@@ -1091,7 +1091,7 @@ impl Client {
     ///
     /// This should only be used for the first login.
     ///
-    /// The [`restore_login`] method should be used to restore a logged-in
+    /// The [`restore_session`] method should be used to restore a logged-in
     /// client after the first login.
     ///
     /// # Arguments
@@ -1130,7 +1130,7 @@ impl Client {
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`login_token`]: #method.login_token
-    /// [`restore_login`]: #method.restore_login
+    /// [`restore_session`]: #method.restore_session
     #[cfg(feature = "sso-login")]
     pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
     where
@@ -1194,7 +1194,7 @@ impl Client {
     ///     device_id: device_id!("MYDEVICEID").to_owned(),
     /// };
     ///
-    /// client.restore_login(session).await?;
+    /// client.restore_session(session).await?;
     /// # anyhow::Ok(()) });
     /// ```
     ///
@@ -1214,13 +1214,13 @@ impl Client {
     ///     client.login_username("example", "my-password").send().await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
-    /// client.restore_login(session).await?;
+    /// client.restore_session(session).await?;
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`login`]: #method.login
-    pub async fn restore_login(&self, session: Session) -> Result<()> {
-        Ok(self.inner.base_client.restore_login(session).await?)
+    pub async fn restore_session(&self, session: Session) -> Result<()> {
+        Ok(self.inner.base_client.restore_session(session).await?)
     }
 
     /// Refresh the access token.
@@ -1305,7 +1305,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
-    /// [restore the session]: Client::restore_login
+    /// [restore the session]: Client::restore_session
     pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
         #[cfg(not(target_arch = "wasm32"))]
         let lock = self.inner.refresh_token_lock.try_lock().ok();

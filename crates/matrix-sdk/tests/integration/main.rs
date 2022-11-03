@@ -45,7 +45,7 @@ async fn logged_in_client() -> (Client, MockServer) {
         device_id: device_id!("DEVICEID").to_owned(),
     };
     let (client, server) = no_retry_test_client().await;
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     (client, server)
 }

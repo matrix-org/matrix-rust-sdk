@@ -127,7 +127,7 @@ impl AuthenticationService {
             .map_err(AuthenticationError::from)?;
 
         // Restore the client using the session from the login request.
-        client.restore_session(session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
         Ok(client)
     }
 
@@ -161,7 +161,7 @@ impl AuthenticationService {
             device_id: device_id.clone(),
         };
 
-        client.restore_session(discovery_session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(discovery_session).map_err(AuthenticationError::from)?;
         let whoami = client.whoami()?;
 
         // Create the actual client with a store path from the user ID.
@@ -180,7 +180,7 @@ impl AuthenticationService {
             .map_err(AuthenticationError::from)?;
 
         // Restore the client using the session.
-        client.restore_session(session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
         Ok(client)
     }
 
