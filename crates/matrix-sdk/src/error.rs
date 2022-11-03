@@ -135,6 +135,24 @@ impl HttpError {
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
     }
+
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 /// Internal representation of errors.
@@ -246,6 +264,24 @@ impl Error {
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
     }
+
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 /// Error for the room key importing functionality.
@@ -274,46 +310,6 @@ pub enum RoomKeyImportError {
     /// An error occurred while importing the key export.
     #[error(transparent)]
     Export(#[from] KeyExportError),
-}
-
-impl HttpError {
-    /// Try to destructure the error into an universal interactive auth info.
-    ///
-    /// Some requests require universal interactive auth, doing such a request
-    /// will always fail the first time with a 401 status code, the response
-    /// body will contain info how the client can authenticate.
-    ///
-    /// The request will need to be retried, this time containing additional
-    /// authentication data.
-    ///
-    /// This method is an convenience method to get to the info the server
-    /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
-            _ => None,
-        }
-    }
-}
-
-impl Error {
-    /// Try to destructure the error into an universal interactive auth info.
-    ///
-    /// Some requests require universal interactive auth, doing such a request
-    /// will always fail the first time with a 401 status code, the response
-    /// body will contain info how the client can authenticate.
-    ///
-    /// The request will need to be retried, this time containing additional
-    /// authentication data.
-    ///
-    /// This method is an convenience method to get to the info the server
-    /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
-            _ => None,
-        }
-    }
 }
 
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
