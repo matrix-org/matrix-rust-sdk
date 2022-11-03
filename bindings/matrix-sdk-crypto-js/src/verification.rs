@@ -1034,9 +1034,9 @@ impl VerificationRequest {
     /// for this verification flow.
     #[cfg(feature = "qrcode")]
     #[wasm_bindgen(js_name = "scanQrCode")]
-    pub fn scan_qr_code(&self, data: QrCodeScan) -> Promise {
+    pub fn scan_qr_code(&self, data: &QrCodeScan) -> Promise {
         let me = self.inner.clone();
-        let qr_verification_data = data.inner;
+        let qr_verification_data = data.inner.clone();
 
         future_to_promise(
             async move { Ok(me.scan_qr_code(qr_verification_data).await?.map(Qr::from)) },
