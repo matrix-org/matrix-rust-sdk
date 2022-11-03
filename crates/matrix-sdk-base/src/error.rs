@@ -40,6 +40,11 @@ pub enum Error {
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
+    /// The room where a group session should be shared is not encrypted.
+    #[cfg(feature = "e2e-encryption")]
+    #[error("The room where a group session should be shared is not encrypted")]
+    EncryptionNotEnabled,
+
     /// A generic error returned when the state store fails not due to
     /// IO or (de)serialization.
     #[error(transparent)]

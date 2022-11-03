@@ -32,7 +32,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, MegolmError, OlmError, OlmMachine, ToDeviceRequest,
+    EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -969,7 +969,7 @@ impl BaseClient {
                     joined.iter().chain(&invited)
                 };
 
-                let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
+                let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
                 Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
