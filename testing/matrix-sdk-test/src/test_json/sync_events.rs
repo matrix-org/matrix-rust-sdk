@@ -97,13 +97,17 @@ pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "algorithm": "m.megolm.v1.aes-sha2",
+        "rotation_period_ms": 604800000,
+        "rotation_period_msgs": 100
+    })
+});
+
 pub static ENCRYPTION: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "content": {
-            "algorithm": "m.megolm.v1.aes-sha2",
-            "rotation_period_ms": 604800000,
-            "rotation_period_msgs": 100
-        },
+        "content": *ENCRYPTION_CONTENT,
         "event_id": "$143273582443PhrSn:example.org",
         "origin_server_ts": 1432735824653u64,
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",

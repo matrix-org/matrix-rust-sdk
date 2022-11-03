@@ -26,7 +26,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn edit() {
@@ -156,6 +156,8 @@ async fn echo() {
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
+
+    mock_encryption_state(&server, false).await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
