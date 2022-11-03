@@ -269,6 +269,7 @@ async fn send_request(
 
     use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
     use http::StatusCode;
+    use ruma::api::client::error::ErrorKind as ClientApiErrorKind;
 
     let mut backoff = ExponentialBackoff::default();
     let mut request = reqwest::Request::try_from(request)?;
@@ -293,7 +294,13 @@ async fn send_request(
         let error_type = if stop {
             RetryError::Permanent
         } else {
-            |err| RetryError::Transient { err, retry_after: None }
+            |err: HttpError| {
+                let retry_after = err.as_client_api_error().and_then(|e| match e.kind {
+                    ClientApiErrorKind::LimitExceeded { retry_after_ms } => retry_after_ms,
+                    _ => None,
+                });
+                RetryError::Transient { err, retry_after }
+            }
         };
 
         let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
