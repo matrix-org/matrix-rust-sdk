@@ -5,7 +5,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.62"
+rust-version = { workspace = true }
 readme = "README.md"
 
 [package.metadata.docs.rs]

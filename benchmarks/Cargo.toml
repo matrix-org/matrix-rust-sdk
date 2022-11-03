@@ -3,7 +3,7 @@ name = "benchmarks"
 description = "Matrix SDK benchmarks"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.56"
+rust-version = { workspace = true }
 version = "1.0.0"
 publish = false
 

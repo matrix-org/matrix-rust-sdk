@@ -15,6 +15,9 @@ members = [
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
+[workspace.package]
+rust-version = "1.65"
+
 [workspace.dependencies]
 ruma = { git = "https://github.com/ruma/ruma", rev = "ed100afddb5fb30f1ccf368d7e712a3a483e63bf", features = ["client-api-c"] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "ed100afddb5fb30f1ccf368d7e712a3a483e63bf" }
