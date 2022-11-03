@@ -152,10 +152,10 @@ interface Client {
     void login(string username, string password, string? initial_device_name, string? device_id);
 
     [Throws=ClientError]
-    void restore_login(string restore_token);
+    void restore_login(Session session);
 
     [Throws=ClientError]
-    string restore_token();
+    Session session();
 
     [Throws=ClientError]
     string user_id();
@@ -189,6 +189,15 @@ interface Client {
 
     [Throws=ClientError]
     void logout();
+};
+
+dictionary Session {
+    string access_token;
+    string? refresh_token;
+    string user_id;
+    string device_id;
+    string homeserver_url;
+    boolean is_soft_logout;
 };
 
 interface Room {

@@ -30,7 +30,6 @@ futures-util = { version = "0.3.17", default-features = false }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync", "socks"], version = "0.6.0" }
 once_cell = "1.10.0"
 sanitize-filename-reader-friendly = "2.2.1"
-serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = "1.0.30"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

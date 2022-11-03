@@ -2703,7 +2703,6 @@ dependencies = [
  "matrix-sdk",
  "once_cell",
  "sanitize-filename-reader-friendly",
- "serde",
  "serde_json",
  "thiserror",
  "tokio",

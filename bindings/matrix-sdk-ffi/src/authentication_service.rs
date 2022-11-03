@@ -118,7 +118,7 @@ impl AuthenticationService {
 
         // Create a new client to setup the store path now the user ID is known.
         let homeserver_url = client.homeserver();
-        let session = client.session().ok_or(AuthenticationError::SessionMissing)?;
+        let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
         let client = Arc::new(ClientBuilder::new())
             .base_path(self.base_path.clone())
             .homeserver_url(homeserver_url)

@@ -34,9 +34,7 @@ use std::io;
 
 use client::Client;
 use client_builder::ClientBuilder;
-use matrix_sdk::Session;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use uniffi_api::*;
@@ -59,14 +57,6 @@ pub struct ClientState {
     has_first_synced: bool,
     is_syncing: bool,
     should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RestoreToken {
-    homeurl: String,
-    session: Session,
-    #[serde(default)]
     is_soft_logout: bool,
 }
 
