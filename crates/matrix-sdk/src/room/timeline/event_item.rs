@@ -35,6 +35,7 @@ use ruma::{
 /// identity (see [key](Self::key)) but in many cases, additional events like
 /// reactions and edits are also part of the item.
 #[derive(Clone)]
+#[allow(missing_docs)]
 pub struct EventTimelineItem {
     pub key: TimelineKey,
     // If this item is a local echo that has been acknowledged by the server
@@ -286,6 +287,7 @@ pub enum TimelineItemContent {
 
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone, Debug)]
+#[allow(missing_docs)]
 pub struct Message {
     pub msgtype: MessageType,
     // TODO: Add everything required to display the replied-to event, plus a
@@ -313,6 +315,7 @@ impl Message {
 }
 
 #[derive(Clone, Debug)]
+#[allow(missing_docs)]
 pub struct BundledReactions {
     /// Whether all reactions are known, or some may be missing.
     ///

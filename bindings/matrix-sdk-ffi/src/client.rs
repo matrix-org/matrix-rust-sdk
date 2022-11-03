@@ -30,6 +30,7 @@ use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
     RUNTIME,
 };
+use crate::client;
 
 #[derive(Clone)]
 pub enum PusherKind {
@@ -41,8 +42,8 @@ impl PusherKind {
     pub fn convert(&self) -> api::client::push::PusherKind {
         use api::client::push::PusherKind as PK;
         match self {
-            Http => PK::Http,
-            Email => PK::Email,
+            client::PusherKind::Http => PK::Http,
+            client::PusherKind::Email => PK::Email,
         }
     }
 }
@@ -56,7 +57,7 @@ impl PushFormat {
     pub fn convert(&self) -> matrix_sdk::ruma::push::PushFormat {
         use matrix_sdk::ruma::push::PushFormat as PF;
         match self {
-            EventIdOnly => PF::EventIdOnly,
+            client::PushFormat::EventIdOnly => PF::EventIdOnly,
         }
     }
 }
