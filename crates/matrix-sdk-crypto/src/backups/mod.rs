@@ -241,43 +241,43 @@ impl BackupMachine {
 
         if let Some(user_signatures) = signatures.get(self.account.user_id()) {
             for device_key_id in user_signatures.keys() {
-                if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
-                    // No need to check our own device here, we're doing that
-                    // using the check_own_device_signature().
-                    if device_key_id.device_id() == self.account.device_id() {
-                        continue;
-                    } else {
-                        // We might iterate over some non-device signatures as well, but in this
-                        // case there's no corresponding device and we get `Ok(None)` here, so
-                        // things still work out.
-                        let device = self
-                            .store
-                            .get_device(self.store.user_id(), device_key_id.device_id())
-                            .await?;
+                if device_key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
+                    continue;
+                }
 
-                        trace!(
-                            device_id = %device_key_id.device_id(),
-                            "Checking backup auth data for device"
-                        );
+                // No need to check our own device here, we're doing that using
+                // the check_own_device_signature().
+                if device_key_id.device_id() == self.account.device_id() {
+                    continue;
+                }
 
-                        let state = if let Some(device) = device {
-                            self.backup_signed_by_device(device, signatures, auth_data)
-                        } else {
-                            trace!(
-                                device_id = %device_key_id.device_id(),
-                                "Device not found, can't check signature"
-                            );
-                            SignatureState::Missing
-                        };
+                // We might iterate over some non-device signatures as well,
+                // but in this case there's no corresponding device and we get
+                // `Ok(None)` here, so things still work out.
+                let device =
+                    self.store.get_device(self.store.user_id(), device_key_id.device_id()).await?;
 
-                        result.insert(device_key_id.device_id().to_owned(), state);
+                trace!(
+                    device_id = %device_key_id.device_id(),
+                    "Checking backup auth data for device"
+                );
 
-                        // Abort the loop if we found a trusted and valid
-                        // signature, unless we should check all of them.
-                        if state.trusted() && !compute_all_signatures {
-                            break;
-                        }
-                    }
+                let state = if let Some(device) = device {
+                    self.backup_signed_by_device(device, signatures, auth_data)
+                } else {
+                    trace!(
+                        device_id = %device_key_id.device_id(),
+                        "Device not found, can't check signature"
+                    );
+                    SignatureState::Missing
+                };
+
+                result.insert(device_key_id.device_id().to_owned(), state);
+
+                // Abort the loop if we found a trusted and valid signature,
+                // unless we should check all of them.
+                if state.trusted() && !compute_all_signatures {
+                    break;
                 }
             }
         }
