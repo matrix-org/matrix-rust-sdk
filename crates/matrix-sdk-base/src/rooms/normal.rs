@@ -426,12 +426,9 @@ impl Room {
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        let member_event =
-            if let Some(m) = self.store.get_member_event(self.room_id(), user_id).await? {
-                m
-            } else {
-                return Ok(None);
-            };
+        let Some(member_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
+            return Ok(None);
+        };
 
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());

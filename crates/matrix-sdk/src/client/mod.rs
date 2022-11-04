@@ -1312,11 +1312,8 @@ impl Client {
         let lock = self.inner.refresh_token_lock.try_lock();
 
         if let Some(mut guard) = lock {
-            let mut session_tokens = if let Some(tokens) = self.session_tokens() {
-                tokens
-            } else {
+            let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
-
                 return Err(RefreshTokenError::RefreshTokenRequired.into());
             };
 

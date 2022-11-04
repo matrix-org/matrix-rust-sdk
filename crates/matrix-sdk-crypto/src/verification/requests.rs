@@ -994,19 +994,16 @@ impl RequestState<Ready> {
             return Ok(None);
         }
 
-        let device = if let Some(device) =
-            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
-        {
-            device
-        } else {
-            warn!(
-                user_id = self.other_user_id.as_str(),
-                device_id = self.state.other_device_id.as_str(),
-                "Can't create a QR code, the device that accepted the \
-                 verification doesn't exist"
-            );
-            return Ok(None);
-        };
+        let Some(device) =
+            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await? else {
+                warn!(
+                    user_id = self.other_user_id.as_str(),
+                    device_id = self.state.other_device_id.as_str(),
+                    "Can't create a QR code, the device that accepted the \
+                    verification doesn't exist"
+                );
+                return Ok(None);
+            };
 
         let identities = self.store.get_identities(device).await?;
 
@@ -1123,9 +1120,7 @@ impl RequestState<Ready> {
             "Received a new verification start event",
         );
 
-        let device = if let Some(d) = self.store.get_device(sender, content.from_device()).await? {
-            d
-        } else {
+        let Some(device) = self.store.get_device(sender, content.from_device()).await? else {
             warn!(
                 sender = sender.as_str(),
                 device = content.from_device().as_str(),
@@ -1213,19 +1208,16 @@ impl RequestState<Ready> {
         }
 
         // TODO signal why starting the sas flow doesn't work?
-        let device = if let Some(device) =
-            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
-        {
-            device
-        } else {
-            warn!(
-                user_id = self.other_user_id.as_str(),
-                device_id = self.state.other_device_id.as_str(),
-                "Can't start the SAS verification flow, the device that \
-                accepted the verification doesn't exist"
-            );
-            return Ok(None);
-        };
+        let Some(device) =
+            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await? else {
+                warn!(
+                    user_id = self.other_user_id.as_str(),
+                    device_id = self.state.other_device_id.as_str(),
+                    "Can't start the SAS verification flow, the device that \
+                    accepted the verification doesn't exist"
+                );
+                return Ok(None);
+            };
 
         let identities = self.store.get_identities(device).await?;
 

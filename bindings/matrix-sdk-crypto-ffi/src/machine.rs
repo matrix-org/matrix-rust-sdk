@@ -797,9 +797,7 @@ impl OlmMachine {
     /// * `user_id` - The ID of the user for which we would like to fetch the
     /// verification requests.
     pub fn get_verification_requests(&self, user_id: &str) -> Vec<VerificationRequest> {
-        let user_id = if let Ok(user_id) = UserId::parse(user_id) {
-            user_id
-        } else {
+        let Ok(user_id) = UserId::parse(user_id) else {
             return vec![];
         };
 

@@ -104,9 +104,8 @@ impl AuthenticationService {
         initial_device_name: Option<String>,
         device_id: Option<String>,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let client = match &*self.client.read().unwrap() {
-            Some(client) => client.clone(),
-            None => return Err(AuthenticationError::ClientMissing),
+        let Some(client) = self.client.read().unwrap().clone() else {
+            return Err(AuthenticationError::ClientMissing);
         };
 
         // Login and ask the server for the full user ID as this could be different from
@@ -143,9 +142,8 @@ impl AuthenticationService {
         token: String,
         device_id: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        let client = match &*self.client.read().unwrap() {
-            Some(client) => client.clone(),
-            None => return Err(AuthenticationError::ClientMissing),
+        let Some(client) = self.client.read().unwrap().clone() else {
+            return Err(AuthenticationError::ClientMissing);
         };
 
         // Restore the client and ask the server for the full user ID as this

@@ -17,10 +17,7 @@ use matrix_sdk::{
     room::Room,
     ruma::events::room::{
         member::StrippedRoomMemberEvent,
-        message::{
-            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
-            TextMessageEventContent,
-        },
+        message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
     },
     Client,
 };
@@ -158,25 +155,21 @@ async fn on_stripped_state_member(
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // First, we need to unpack the message: We only want messages from rooms we are
     // still in and that are regular text messages - ignoring everything else.
-    if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
-        };
+    let Room::Joined(room) = room else { return };
+    let MessageType::Text(text_content) = event.content.msgtype else { return };
 
-        // here comes the actual "logic": when the bot see's a `!party` in the message,
-        // it responds
-        if msg_body.contains("!party") {
-            let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+    // here comes the actual "logic": when the bot see's a `!party` in the message,
+    // it responds
+    if text_content.body.contains("!party") {
+        let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
-            println!("sending");
+        println!("sending");
 
-            // send our message to the room we found the "!party" command in
-            // the last parameter is an optional transaction id which we don't
-            // care about.
-            room.send(content, None).await.unwrap();
+        // send our message to the room we found the "!party" command in
+        // the last parameter is an optional transaction id which we don't
+        // care about.
+        room.send(content, None).await.unwrap();
 
-            println!("message sent");
-        }
+        println!("message sent");
     }
 }
