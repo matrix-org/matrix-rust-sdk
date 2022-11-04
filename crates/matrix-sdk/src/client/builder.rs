@@ -380,7 +380,7 @@ impl ClientBuilder {
 
                 if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
                     authentication_issuer = Url::parse(&issuer).ok();
-                };
+                }
 
                 well_known.homeserver.base_url
             }

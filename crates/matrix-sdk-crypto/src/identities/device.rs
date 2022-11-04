@@ -208,11 +208,8 @@ impl Device {
 
     /// Get the Olm sessions that belong to this device.
     pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        if let Some(k) = self.curve25519_key() {
-            self.verification_machine.store.get_sessions(&k.to_base64()).await
-        } else {
-            Ok(None)
-        }
+        let Some(k) = self.curve25519_key() else { return Ok(None) };
+        self.verification_machine.store.get_sessions(&k.to_base64()).await
     }
 
     /// Is this device considered to be verified.

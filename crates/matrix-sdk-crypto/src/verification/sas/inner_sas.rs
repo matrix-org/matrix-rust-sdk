@@ -180,20 +180,17 @@ impl InnerSas {
         self,
         methods: Vec<ShortAuthenticationString>,
     ) -> Option<(InnerSas, OwnedAcceptContent)> {
-        if let InnerSas::Started(s) = self {
-            let sas = s.into_we_accepted(methods);
-            let content = sas.as_content();
+        let InnerSas::Started(s) = self else { return None };
+        let sas = s.into_we_accepted(methods);
+        let content = sas.as_content();
 
-            trace!(
-                flow_id = sas.verification_flow_id.as_str(),
-                accepted_protocols = ?sas.state.accepted_protocols,
-                "Accepted a SAS verification"
-            );
+        trace!(
+            flow_id = sas.verification_flow_id.as_str(),
+            accepted_protocols = ?sas.state.accepted_protocols,
+            "Accepted a SAS verification"
+        );
 
-            Some((InnerSas::WeAccepted(sas), content))
-        } else {
-            None
-        }
+        Some((InnerSas::WeAccepted(sas), content))
     }
 
     #[cfg(test)]

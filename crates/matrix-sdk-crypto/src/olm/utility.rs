@@ -147,14 +147,15 @@ fn verify_signature(
     signatures: &Signatures,
     canonical_json: &str,
 ) -> Result<(), SignatureError> {
-    if let Some(s) = signatures.get(user_id).and_then(|m| m.get(key_id)) {
-        match s {
-            Ok(Signature::Ed25519(s)) => Ok(public_key.verify(canonical_json.as_bytes(), s)?),
-            Ok(Signature::Other(_)) => Err(SignatureError::UnsupportedAlgorithm),
-            Err(_) => Err(SignatureError::InvalidSignature),
-        }
-    } else {
-        Err(SignatureError::NoSignatureFound)
+    let s = signatures
+        .get(user_id)
+        .and_then(|m| m.get(key_id))
+        .ok_or(SignatureError::NoSignatureFound)?;
+
+    match s {
+        Ok(Signature::Ed25519(s)) => Ok(public_key.verify(canonical_json.as_bytes(), s)?),
+        Ok(Signature::Other(_)) => Err(SignatureError::UnsupportedAlgorithm),
+        Err(_) => Err(SignatureError::InvalidSignature),
     }
 }
 
