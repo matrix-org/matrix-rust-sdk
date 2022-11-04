@@ -402,9 +402,8 @@ impl<'a> TimelineEventHandler<'a> {
             did_update = self.maybe_update_timeline_item(&rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
-                let mut details_entry = match reactions.bundled.entry(rel.key) {
-                    Entry::Occupied(o) => o,
-                    Entry::Vacant(_) => return None,
+                let Entry::Occupied(mut details_entry) = reactions.bundled.entry(rel.key) else {
+                    return None;
                 };
                 let details = details_entry.get_mut();
                 details.count -= uint!(1);
@@ -414,17 +413,14 @@ impl<'a> TimelineEventHandler<'a> {
                     return Some(item.with_reactions(reactions));
                 }
 
-                let senders = match &mut details.senders {
-                    TimelineDetails::Ready(senders) => senders,
-                    _ => {
-                        // FIXME: We probably want to support this somehow in
-                        //        the future, but right now it's not possible.
-                        warn!(
-                            "inconsistent state: shouldn't have a reaction_map entry for a \
-                             timeline item with incomplete reactions"
-                        );
-                        return None;
-                    }
+                let TimelineDetails::Ready(senders) = &mut details.senders else {
+                    // FIXME: We probably want to support this somehow in
+                    //        the future, but right now it's not possible.
+                    warn!(
+                        "inconsistent state: shouldn't have a reaction_map entry for a \
+                            timeline item with incomplete reactions"
+                    );
+                    return None;
                 };
 
                 if let Some(idx) = senders.iter().position(|s| *s == sender) {

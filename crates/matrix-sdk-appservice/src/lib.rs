@@ -434,10 +434,10 @@ impl AppService {
 
         // Find membership events affecting members in our namespace, and update
         // membership accordingly
-        for event in transaction.events.iter() {
-            let event = match event.deserialize() {
-                Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) => event,
-                _ => continue,
+        for raw_event in transaction.events.iter() {
+            let res = raw_event.deserialize();
+            let Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) = res else {
+                continue;
             };
             if !self.user_id_is_in_namespace(event.state_key()) {
                 continue;
@@ -468,11 +468,11 @@ impl AppService {
             let sender_localpart = self.registration.sender_localpart.clone();
 
             let task = tokio::spawn(async move {
-                let virtual_user_localpart = match virtual_user_client.user_id() {
-                    Some(user_id) => user_id.localpart(),
+                let Some(user_id) = virtual_user_client.user_id() else {
                     // The client is not logged in, skipping
-                    None => return Ok(()),
+                    return Ok(());
                 };
+                let virtual_user_localpart = user_id.localpart();
                 let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
 
                 // Clients expect events to be grouped per room, where the
@@ -483,12 +483,9 @@ impl AppService {
                 // We special-case the `sender_localpart` user which receives all events and
                 // by falling back to a membership of "join" if it's unknown.
                 for raw_event in &transaction.events {
-                    let room_id = match raw_event.deserialize_as::<EventRoomId>()?.room_id {
-                        Some(room_id) => room_id,
-                        None => {
-                            warn!("Transaction contained event with no ID");
-                            continue;
-                        }
+                    let Some(room_id) = raw_event.deserialize_as::<EventRoomId>()?.room_id else {
+                        warn!("Transaction contained event with no ID");
+                        continue;
                     };
                     let key =
                         &[USER_MEMBER, room_id.as_bytes(), b".", virtual_user_localpart.as_bytes()]

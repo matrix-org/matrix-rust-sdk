@@ -4,19 +4,18 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent,
+        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
     Client,
 };
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
+        let MessageType::Text(text_content) = event.content.msgtype else {
+            return;
         };
 
-        if msg_body.contains("!party") {
+        if text_content.body.contains("!party") {
             let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
             println!("sending");

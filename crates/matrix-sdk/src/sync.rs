@@ -93,12 +93,9 @@ impl Client {
         let mut futures = Vec::new();
         for handler in &*self.notification_handlers().await {
             for (room_id, room_notifications) in notifications {
-                let room = match self.get_room(room_id) {
-                    Some(room) => room,
-                    None => {
-                        warn!(%room_id, "Can't call notification handler, room not found");
-                        continue;
-                    }
+                let Some(room) = self.get_room(room_id) else {
+                    warn!(%room_id, "Can't call notification handler, room not found");
+                    continue;
                 };
 
                 futures.extend(room_notifications.iter().map(|notification| {

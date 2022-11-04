@@ -793,10 +793,7 @@ impl IndexeddbStateStore {
 
             for (room_id, redactions) in &changes.redactions {
                 let range = self.encode_to_range(KEYS::ROOM_STATE, room_id)?;
-                let cursor = match state.open_cursor_with_range(&range)?.await? {
-                    Some(c) => c,
-                    _ => continue,
-                };
+                let Some(cursor) = state.open_cursor_with_range(&range)?.await? else { continue };
 
                 let mut room_version = None;
 

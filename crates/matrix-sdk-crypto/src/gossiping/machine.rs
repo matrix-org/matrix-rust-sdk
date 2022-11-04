@@ -1539,15 +1539,15 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+        alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
 
         // Check that alice now does have the session.
         let session = alice_machine
@@ -1597,16 +1597,16 @@ mod tests {
             .is_none());
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-
-            assert!(session.is_none(), "We should not receive a room key from another user");
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+
+        assert!(session.is_none(), "We should not receive a room key from another user");
     }
 
     #[async_test]
@@ -1750,15 +1750,15 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+        alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
 
         // Check that alice now does have the session.
         let session = alice_machine

@@ -572,9 +572,7 @@ impl ReadOnlyDevice {
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let sender_key = if let Some(k) = self.curve25519_key() {
-            k
-        } else {
+        let Some(sender_key) = self.curve25519_key() else {
             warn!(
                 user_id = %self.user_id(),
                 device_id = %self.device_id(),
@@ -592,9 +590,7 @@ impl ReadOnlyDevice {
             None
         };
 
-        let mut session = if let Some(s) = session {
-            s
-        } else {
+        let Some(mut session) = session else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
                 but no Olm session is found",
