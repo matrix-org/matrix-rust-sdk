@@ -305,7 +305,7 @@ impl std::fmt::Debug for SledStateStore {
 }
 
 impl SledStateStore {
-    fn open_helper(
+    pub fn open_helper(
         db: Db,
         path: Option<PathBuf>,
         store_cipher: Option<Arc<StoreCipher>>,
