@@ -751,29 +751,23 @@ impl GossipMachine {
         if secret_name != &SecretName::RecoveryKey {
             match self.store.import_secret(secret_name, &event.content.secret).await {
                 Ok(_) => self.mark_as_done(request).await?,
+                // If this is a store error propagate it up the call stack.
+                Err(SecretImportError::Store(e)) => return Err(e),
+                // Otherwise warn that there was something wrong with the
+                // secret.
                 Err(e) => {
-                    // If this is a store error propagate it up
-                    // the call stack.
-                    if let SecretImportError::Store(e) = e {
-                        return Err(e);
-                    } else {
-                        // Otherwise warn that there was
-                        // something wrong with the secret.
-                        warn!(
-                            secret_name = secret_name.as_ref(),
-                            error = ?e,
-                            "Error while importing a secret"
-                        )
-                    }
+                    warn!(
+                        secret_name = secret_name.as_ref(),
+                        error = ?e,
+                        "Error while importing a secret"
+                    );
                 }
             }
         } else {
-            // Skip importing the recovery key here since
-            // we'll want to check if the public key matches
-            // to the latest version on the server. The key
-            // will not be zeroized and
-            // instead leave the key in the event and let
-            // the user import it later.
+            // Skip importing the recovery key here since we'll want to check
+            // if the public key matches to the latest version on the server.
+            // The key will not be zeroized and  instead leave the key in the
+            // event and let the user import it later.
         }
 
         Ok(())
