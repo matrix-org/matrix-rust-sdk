@@ -322,8 +322,8 @@ impl VerificationRequest {
         &self,
         data: QrVerificationData,
     ) -> Result<Option<QrVerification>, ScanError> {
-        let fut = if let InnerRequest::Ready(r) = &*self.inner.lock().unwrap() {
-            Some(QrVerification::from_scan(
+        let future = if let InnerRequest::Ready(r) = &*self.inner.lock().unwrap() {
+            QrVerification::from_scan(
                 r.store.clone(),
                 r.other_user_id.clone(),
                 r.state.other_device_id.clone(),
@@ -331,41 +331,37 @@ impl VerificationRequest {
                 data,
                 self.we_started,
                 Some(self.inner.clone().into()),
-            ))
+            )
         } else {
-            None
+            return Ok(None);
         };
 
-        if let Some(future) = fut {
-            let qr_verification = future.await?;
+        let qr_verification = future.await?;
 
-            // We may have previously started our own QR verification (e.g. two devices
-            // displaying QR code at the same time), so we need to replace it with the newly
-            // scanned code.
-            if self
-                .verification_cache
-                .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
-                .is_some()
-            {
-                debug!(
-                    user_id = %self.other_user(),
-                    flow_id = self.flow_id().as_str(),
-                    "Replacing existing QR verification"
-                );
-                self.verification_cache.replace_qr(qr_verification.clone());
-            } else {
-                debug!(
-                    user_id = %self.other_user(),
-                    flow_id = self.flow_id().as_str(),
-                    "Inserting new QR verification"
-                );
-                self.verification_cache.insert_qr(qr_verification.clone());
-            }
-
-            Ok(Some(qr_verification))
+        // We may have previously started our own QR verification (e.g. two devices
+        // displaying QR code at the same time), so we need to replace it with the newly
+        // scanned code.
+        if self
+            .verification_cache
+            .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
+            .is_some()
+        {
+            debug!(
+                user_id = %self.other_user(),
+                flow_id = self.flow_id().as_str(),
+                "Replacing existing QR verification"
+            );
+            self.verification_cache.replace_qr(qr_verification.clone());
         } else {
-            Ok(None)
+            debug!(
+                user_id = %self.other_user(),
+                flow_id = self.flow_id().as_str(),
+                "Inserting new QR verification"
+            );
+            self.verification_cache.insert_qr(qr_verification.clone());
         }
+
+        Ok(Some(qr_verification))
     }
 
     pub(crate) fn from_request(
@@ -541,31 +537,24 @@ impl VerificationRequest {
         let cancelled = Cancelled::new(true, code);
         let cancel_content = cancelled.as_content(self.flow_id());
 
-        if let OutgoingContent::ToDevice(c) = cancel_content {
-            let recipients: Vec<OwnedDeviceId> = self
-                .recipient_devices
-                .iter()
-                .filter(|&d| filter_device.map_or(true, |device| **d != *device))
-                .cloned()
-                .collect();
+        let OutgoingContent::ToDevice(c) = cancel_content else { return None };
+        let recip_devices: Vec<OwnedDeviceId> = self
+            .recipient_devices
+            .iter()
+            .filter(|&d| filter_device.map_or(true, |device| **d != *device))
+            .cloned()
+            .collect();
 
-            // We don't need to notify anyone if no recipients were present
-            // but we did have a filter device, since this means that only a
-            // single device received the `m.key.verification.request` and that
-            // device accepted the request.
-            if recipients.is_empty() && filter_device.is_some() {
-                None
-            } else {
-                Some(ToDeviceRequest::for_recipients(
-                    self.other_user(),
-                    recipients,
-                    c,
-                    TransactionId::new(),
-                ))
-            }
-        } else {
-            None
+        if recip_devices.is_empty() && filter_device.is_some() {
+            // We don't need to notify anyone if no recipients were present but
+            // we did have a filter device, since this means that only a single
+            // device received the `m.key.verification.request` and that device
+            // accepted the request.
+            return None;
         }
+
+        let recipient = self.other_user();
+        Some(ToDeviceRequest::for_recipients(recipient, recip_devices, c, TransactionId::new()))
     }
 
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
@@ -601,17 +590,16 @@ impl VerificationRequest {
     ) -> Result<(), CryptoStoreError> {
         let inner = self.inner.lock().unwrap().clone();
 
-        if let InnerRequest::Ready(s) = inner {
-            s.receive_start(sender, content, self.we_started, self.inner.clone().into()).await?;
-        } else {
+        let InnerRequest::Ready(s) = inner else {
             warn!(
                 sender = sender.as_str(),
                 device_id = content.from_device().as_str(),
                 "Received a key verification start event but we're not yet in the ready state"
             );
-        }
+            return Ok(());
+        };
 
-        Ok(())
+        s.receive_start(sender, content, self.we_started, self.inner.clone().into()).await
     }
 
     pub(crate) fn receive_done(&self, sender: &UserId, content: &DoneContent<'_>) {
@@ -628,21 +616,23 @@ impl VerificationRequest {
     }
 
     pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
-        if sender == self.other_user() {
-            trace!(
-                sender = sender.as_str(),
-                code = content.cancel_code().as_str(),
-                "Cancelling a verification request, other user has cancelled"
-            );
-            let mut inner = self.inner.lock().unwrap();
-            inner.cancel(false, content.cancel_code());
+        if sender != self.other_user() {
+            return;
+        }
 
-            if self.we_started() {
-                if let Some(request) =
-                    self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
-                {
-                    self.verification_cache.add_verification_request(request.into());
-                }
+        trace!(
+            sender = sender.as_str(),
+            code = content.cancel_code().as_str(),
+            "Cancelling a verification request, other user has cancelled"
+        );
+        let mut inner = self.inner.lock().unwrap();
+        inner.cancel(false, content.cancel_code());
+
+        if self.we_started() {
+            if let Some(request) =
+                self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
+            {
+                self.verification_cache.add_verification_request(request.into());
             }
         }
     }
@@ -726,14 +716,11 @@ impl InnerRequest {
     }
 
     fn accept(&mut self, methods: Vec<VerificationMethod>) -> Option<OutgoingContent> {
-        if let InnerRequest::Requested(s) = self {
-            let (state, content) = s.clone().accept(methods);
-            *self = InnerRequest::Ready(state);
+        let InnerRequest::Requested(s) = self else { return None };
+        let (state, content) = s.clone().accept(methods);
+        *self = InnerRequest::Ready(state);
 
-            Some(content)
-        } else {
-            None
-        }
+        Some(content)
     }
 
     fn receive_done(&mut self, content: &DoneContent<'_>) {

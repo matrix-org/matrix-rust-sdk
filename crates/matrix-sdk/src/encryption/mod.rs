@@ -479,11 +479,8 @@ impl Encryption {
     /// This can be used to check which private cross signing keys we have
     /// stored locally.
     pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
-        if let Some(machine) = self.client.olm_machine() {
-            Some(machine.cross_signing_status().await)
-        } else {
-            None
-        }
+        let machine = self.client.olm_machine()?;
+        Some(machine.cross_signing_status().await)
     }
 
     /// Get all the tracked users we know about
@@ -562,12 +559,9 @@ impl Encryption {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>, CryptoStoreError> {
-        if let Some(machine) = self.client.olm_machine() {
-            let device = machine.get_device(user_id, device_id, None).await?;
-            Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
-        } else {
-            Ok(None)
-        }
+        let Some(machine) = self.client.olm_machine() else { return Ok(None) };
+        let device = machine.get_device(user_id, device_id, None).await?;
+        Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
     }
 
     /// Get a map holding all the devices of an user.
@@ -643,20 +637,17 @@ impl Encryption {
     ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
-        if let Some(olm) = self.client.olm_machine() {
-            let identity = olm.get_identity(user_id, None).await?;
+        let Some(olm) = self.client.olm_machine() else { return Ok(None) };
+        let identity = olm.get_identity(user_id, None).await?;
 
-            Ok(identity.map(|i| match i {
-                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
-                    UserIdentity::new_own(self.client.clone(), i)
-                }
-                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                    UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
-                }
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(identity.map(|i| match i {
+            matrix_sdk_base::crypto::UserIdentities::Own(i) => {
+                UserIdentity::new_own(self.client.clone(), i)
+            }
+            matrix_sdk_base::crypto::UserIdentities::Other(i) => {
+                UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
+            }
+        }))
     }
 
     /// Create and upload a new cross signing identity.

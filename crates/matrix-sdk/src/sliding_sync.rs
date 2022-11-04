@@ -509,7 +509,7 @@ impl SlidingSync {
     /// Run this stream to receive new updates from the server.
     pub async fn stream<'a>(
         &self,
-    ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_, crate::Error> {
+    ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
         let extensions = self.extensions.clone();
         let client = self.client.clone();
@@ -525,7 +525,7 @@ impl SlidingSync {
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
 
-                for (mut generator, view) in  std::iter::zip(remaining_generators, remaining_views) {
+                for (mut generator, view) in std::iter::zip(remaining_generators, remaining_views) {
                     if let Some(request) = generator.next() {
                         requests.push(request);
                         new_remaining_generators.push(generator);

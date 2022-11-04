@@ -310,11 +310,8 @@ impl Client {
 
     /// The OIDC Provider that is trusted by the homeserver.
     pub async fn authentication_issuer(&self) -> Option<Url> {
-        if let Some(server) = &self.inner.authentication_issuer {
-            Some(server.read().await.clone())
-        } else {
-            None
-        }
+        let server = self.inner.authentication_issuer.as_ref()?;
+        Some(server.read().await.clone())
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {
@@ -1776,8 +1773,11 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver =
-            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
+        let homeserver = match homeserver {
+            Some(hs) => hs,
+            None => self.homeserver().await.to_string(),
+        };
+
         self.inner
             .http_client
             .send(

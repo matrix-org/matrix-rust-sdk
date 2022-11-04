@@ -115,50 +115,47 @@ impl Media {
             if use_cache { self.client.store().get_media_content(request).await? } else { None };
 
         if let Some(content) = content {
-            Ok(content)
-        } else {
-            let content: Vec<u8> = match &request.source {
-                MediaSource::Encrypted(file) => {
-                    let request = get_content::v3::Request::from_url(&file.url)?;
-                    let content: Vec<u8> = self.client.send(request, None).await?.file;
-
-                    #[cfg(feature = "e2e-encryption")]
-                    let content = {
-                        let mut cursor = std::io::Cursor::new(content);
-                        let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-                            &mut cursor,
-                            file.as_ref().clone().into(),
-                        )?;
-
-                        let mut decrypted = Vec::new();
-                        reader.read_to_end(&mut decrypted)?;
-
-                        decrypted
-                    };
-
-                    content
-                }
-                MediaSource::Plain(uri) => {
-                    if let MediaFormat::Thumbnail(size) = &request.format {
-                        let request = get_content_thumbnail::v3::Request::from_url(
-                            uri,
-                            size.width,
-                            size.height,
-                        )?;
-                        self.client.send(request, None).await?.file
-                    } else {
-                        let request = get_content::v3::Request::from_url(uri)?;
-                        self.client.send(request, None).await?.file
-                    }
-                }
-            };
-
-            if use_cache {
-                self.client.store().add_media_content(request, content.clone()).await?;
-            }
-
-            Ok(content)
+            return Ok(content);
         }
+
+        let content: Vec<u8> = match &request.source {
+            MediaSource::Encrypted(file) => {
+                let request = get_content::v3::Request::from_url(&file.url)?;
+                let content: Vec<u8> = self.client.send(request, None).await?.file;
+
+                #[cfg(feature = "e2e-encryption")]
+                let content = {
+                    let mut cursor = std::io::Cursor::new(content);
+                    let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
+                        &mut cursor,
+                        file.as_ref().clone().into(),
+                    )?;
+
+                    let mut decrypted = Vec::new();
+                    reader.read_to_end(&mut decrypted)?;
+
+                    decrypted
+                };
+
+                content
+            }
+            MediaSource::Plain(uri) => {
+                if let MediaFormat::Thumbnail(size) = &request.format {
+                    let request =
+                        get_content_thumbnail::v3::Request::from_url(uri, size.width, size.height)?;
+                    self.client.send(request, None).await?.file
+                } else {
+                    let request = get_content::v3::Request::from_url(uri)?;
+                    self.client.send(request, None).await?.file
+                }
+            }
+        };
+
+        if use_cache {
+            self.client.store().add_media_content(request, content.clone()).await?;
+        }
+
+        Ok(content)
     }
 
     /// Remove a media file's content from the store.
@@ -200,17 +197,11 @@ impl Media {
         event_content: impl MediaEventContent,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
-        if let Some(source) = event_content.source() {
-            Ok(Some(
-                self.get_media_content(
-                    &MediaRequest { source, format: MediaFormat::File },
-                    use_cache,
-                )
-                .await?,
-            ))
-        } else {
-            Ok(None)
-        }
+        let Some(source) = event_content.source() else { return Ok(None) };
+        let file = self
+            .get_media_content(&MediaRequest { source, format: MediaFormat::File }, use_cache)
+            .await?;
+        Ok(Some(file))
     }
 
     /// Remove the file of the given media event content from the cache.
@@ -223,7 +214,7 @@ impl Media {
     /// * `event_content` - The media event content.
     pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
         if let Some(source) = event_content.source() {
-            self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?
+            self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?;
         }
 
         Ok(())
@@ -253,17 +244,14 @@ impl Media {
         size: MediaThumbnailSize,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
-        if let Some(source) = event_content.thumbnail_source() {
-            Ok(Some(
-                self.get_media_content(
-                    &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
-                    use_cache,
-                )
-                .await?,
-            ))
-        } else {
-            Ok(None)
-        }
+        let Some(source) = event_content.thumbnail_source() else { return Ok(None) };
+        let thumbnail = self
+            .get_media_content(
+                &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
+                use_cache,
+            )
+            .await?;
+        Ok(Some(thumbnail))
     }
 
     /// Remove the thumbnail of the given media event content from the cache.

@@ -160,12 +160,9 @@ impl Common {
     /// # })
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
-        if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
-            Ok(Some(self.client.media().get_media_content(&request, true).await?))
-        } else {
-            Ok(None)
-        }
+        let Some(url) = self.avatar_url() else { return Ok(None) };
+        let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
+        Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and

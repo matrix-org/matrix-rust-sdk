@@ -449,7 +449,7 @@ impl BackupMachine {
                     .collect();
 
                 for session in &sessions {
-                    session.mark_as_backed_up()
+                    session.mark_as_backed_up();
                 }
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
@@ -470,54 +470,54 @@ impl BackupMachine {
                     expected = r.request_id.to_string().as_str(),
                     got = request_id.to_string().as_str(),
                     "Tried to mark a pending backup as sent but the request id didn't match"
-                )
+                );
             }
         } else {
             warn!(
                 request_id = request_id.to_string().as_str(),
                 "Tried to mark a pending backup as sent but there isn't a backup pending"
             );
-        }
+        };
 
         Ok(())
     }
 
     async fn backup_helper(&self) -> Result<Option<PendingBackup>, CryptoStoreError> {
-        if let Some(backup_key) = &*self.backup_key.read().await {
-            if let Some(version) = backup_key.backup_version() {
-                let sessions =
-                    self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
-
-                if !sessions.is_empty() {
-                    let key_count = sessions.len();
-                    let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
-
-                    info!(
-                        key_count = key_count,
-                        keys = ?session_record,
-                        ?backup_key,
-                        "Successfully created a room keys backup request"
-                    );
-
-                    let request = PendingBackup {
-                        request_id: TransactionId::new(),
-                        request: KeysBackupRequest { version, rooms: backup },
-                        sessions: session_record,
-                    };
-
-                    Ok(Some(request))
-                } else {
-                    trace!(?backup_key, "No room keys need to be backed up");
-                    Ok(None)
-                }
-            } else {
-                warn!("Trying to backup room keys but the backup key wasn't uploaded");
-                Ok(None)
-            }
-        } else {
+        let Some(backup_key) = &*self.backup_key.read().await else {
             warn!("Trying to backup room keys but no backup key was found");
-            Ok(None)
+            return Ok(None);
+        };
+
+        let Some(version) = backup_key.backup_version() else {
+            warn!("Trying to backup room keys but the backup key wasn't uploaded");
+            return Ok(None);
+        };
+
+        let sessions =
+            self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
+
+        if sessions.is_empty() {
+            trace!(?backup_key, "No room keys need to be backed up");
+            return Ok(None);
         }
+
+        let key_count = sessions.len();
+        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+
+        info!(
+            key_count = key_count,
+            keys = ?session_record,
+            ?backup_key,
+            "Successfully created a room keys backup request"
+        );
+
+        let request = PendingBackup {
+            request_id: TransactionId::new(),
+            request: KeysBackupRequest { version, rooms: backup },
+            sessions: session_record,
+        };
+
+        Ok(Some(request))
     }
 
     /// Backup all the non-backed up room keys we know about
