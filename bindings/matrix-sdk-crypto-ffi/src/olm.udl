@@ -161,6 +161,23 @@ interface Sas {
 
     sequence<i32>? get_emoji_indices();
     sequence<i32>? get_decimals();
+
+    void changes(SasListener callback);
+    SasState state();
+};
+
+[Enum]
+interface SasState {
+  Started();
+  Accepted();
+  KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
+  Confirmed();
+  Done();
+  Cancelled(CancelInfo cancel_info);
+};
+
+callback interface SasListener {
+    void on_change(SasState state);
 };
 
 dictionary ScanResult {
