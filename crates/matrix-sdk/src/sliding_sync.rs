@@ -1093,9 +1093,6 @@ impl SlidingSyncView {
 impl Client {
     /// Create a SlidingSyncBuilder tied to this client
     pub async fn sliding_sync(&self) -> SlidingSyncBuilder {
-        // ensure the version has been checked in before, as the proxy doesn't support
-        // that
-        let _ = self.server_versions().await;
         SlidingSyncBuilder::default().client(self.clone())
     }
 
