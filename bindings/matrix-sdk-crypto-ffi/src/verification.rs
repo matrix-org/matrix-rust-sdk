@@ -1,15 +1,81 @@
 use std::sync::Arc;
 
 use base64::{decode_config, encode_config, STANDARD_NO_PAD};
+use futures_util::{Stream, StreamExt};
 use matrix_sdk_crypto::{
     matrix_sdk_qrcode::QrVerificationData, CancelInfo as RustCancelInfo, QrVerification as InnerQr,
-    Sas as InnerSas, Verification as InnerVerification,
+    Sas as InnerSas, SasState as RustSasState, Verification as InnerVerification,
     VerificationRequest as InnerVerificationRequest,
 };
 use ruma::events::key::verification::VerificationMethod;
 use tokio::runtime::Handle;
 
 use crate::{CryptoStoreError, OutgoingVerificationRequest, SignatureUploadRequest};
+
+/// Callback that will be passed over the FFI to report changes to a SAS
+/// verification.
+pub trait SasListener: Send {
+    /// The callback that should be called on the Rust side
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The current state of the SAS verification.
+    fn on_change(&self, state: SasState);
+}
+
+impl<T: Fn(SasState)> SasListener for T
+where
+    T: Send,
+{
+    fn on_change(&self, state: SasState) {
+        self(state)
+    }
+}
+
+/// An Enum describing the state the SAS verification is in.
+pub enum SasState {
+    /// The verification has been started, the protocols that should be used
+    /// have been proposed and can be accepted.
+    Started,
+    /// The verification has been accepted and both sides agreed to a set of
+    /// protocols that will be used for the verification process.
+    Accepted,
+    /// The public keys have been exchanged and the short auth string can be
+    /// presented to the user.
+    KeysExchanged {
+        /// The emojis that represent the short auth string, will be `None` if
+        /// the emoji SAS method wasn't part of the [`AcceptedProtocols`].
+        emojis: Option<Vec<i32>>,
+        /// The list of decimals that represent the short auth string.
+        decimals: Vec<i32>,
+    },
+    /// The verification process has been confirmed from our side, we're waiting
+    /// for the other side to confirm as well.
+    Confirmed,
+    /// The verification process has been successfully concluded.
+    Done,
+    /// The verification process has been cancelled.
+    Cancelled {
+        /// Information about the reason of the cancellation.
+        cancel_info: CancelInfo,
+    },
+}
+
+impl From<RustSasState> for SasState {
+    fn from(s: RustSasState) -> Self {
+        match s {
+            RustSasState::Started { .. } => Self::Started,
+            RustSasState::Accepted { .. } => Self::Accepted,
+            RustSasState::KeysExchanged { emojis, decimals } => Self::KeysExchanged {
+                emojis: emojis.map(|e| e.indices.map(|i| i as i32).to_vec()),
+                decimals: [decimals.0.into(), decimals.1.into(), decimals.2.into()].to_vec(),
+            },
+            RustSasState::Confirmed => Self::Confirmed,
+            RustSasState::Done { .. } => Self::Done,
+            RustSasState::Cancelled(c) => Self::Cancelled { cancel_info: c.into() },
+        }
+    }
+}
 
 /// Enum representing the different verification flows we support.
 pub struct Verification {
@@ -126,6 +192,81 @@ impl Sas {
     /// `None`.
     pub fn get_decimals(&self) -> Option<Vec<i32>> {
         self.inner.decimals().map(|v| [v.0.into(), v.1.into(), v.2.into()].to_vec())
+    }
+
+    /// Listen for changes in the SAS verification process.
+    ///
+    /// The given callback will be called whenever the state changes.
+    ///
+    /// This method can be used to react to changes in the state of the
+    /// verification process, or rather the method can be used to handle
+    /// each step of the verification process.
+    ///
+    /// This method will spawn a tokio task on the Rust side, once we reach the
+    /// Done or Cancelled state, the task will stop listening for changes.
+    ///
+    /// # Flowchart
+    ///
+    /// The flow of the verification process is pictured bellow. Please note
+    /// that the process can be cancelled at each step of the process.
+    /// Either side can cancel the process.
+    ///
+    /// ```text
+    ///                ┌───────┐
+    ///                │Started│
+    ///                └───┬───┘
+    ///                    │
+    ///               ┌────⌄───┐
+    ///               │Accepted│
+    ///               └────┬───┘
+    ///                    │
+    ///            ┌───────⌄──────┐
+    ///            │Keys Exchanged│
+    ///            └───────┬──────┘
+    ///                    │
+    ///            ________⌄________
+    ///           ╱                 ╲       ┌─────────┐
+    ///          ╱   Does the short  ╲______│Cancelled│
+    ///          ╲ auth string match ╱ no   └─────────┘
+    ///           ╲_________________╱
+    ///                    │yes
+    ///                    │
+    ///               ┌────⌄────┐
+    ///               │Confirmed│
+    ///               └────┬────┘
+    ///                    │
+    ///                ┌───⌄───┐
+    ///                │  Done │
+    ///                └───────┘
+    /// ```
+    pub fn changes(&self, callback: Box<dyn SasListener>) {
+        let stream = self.inner.changes();
+
+        self.runtime.spawn(Self::changes_callback(stream, callback));
+    }
+
+    /// Get the current state of the SAS verification process.
+    pub fn state(&self) -> SasState {
+        self.inner.state().into()
+    }
+
+    async fn changes_callback(
+        mut stream: impl Stream<Item = RustSasState> + std::marker::Unpin,
+        callback: Box<dyn SasListener>,
+    ) {
+        while let Some(state) = stream.next().await {
+            // If we receive a done or a cancelled state we're at the end of our road, we
+            // break out of the loop to deallocate the stream and finish the
+            // task.
+            let should_break =
+                matches!(state, RustSasState::Done { .. } | RustSasState::Cancelled { .. });
+
+            callback.on_change(state.into());
+
+            if should_break {
+                break;
+            }
+        }
     }
 }
 
