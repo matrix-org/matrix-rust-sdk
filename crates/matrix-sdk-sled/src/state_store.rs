@@ -170,10 +170,13 @@ const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
-#[derive(Builder, Debug, PartialEq, Eq)]
+#[derive(Builder, Debug)]
 #[builder(name = "SledStateStoreBuilder", build_fn(skip))]
 pub struct SledStateStoreBuilderConfig {
+    /// Use an existing open sled database
+    db: Db,
     /// Path to the sled store files, created if not yet existing
+    #[builder(setter(custom))]
     path: PathBuf,
     /// Set the password the sled store is encrypted with (if any)
     passphrase: String,
@@ -184,21 +187,16 @@ pub struct SledStateStoreBuilderConfig {
 }
 
 impl SledStateStoreBuilder {
+    pub fn path(&mut self, path: PathBuf) {
+        self.path = Some(path.join("matrix-sdk-state"));
+    }
+
     pub fn build(&mut self) -> Result<SledStateStore> {
-        let is_temp = self.path.is_none();
-
-        let mut cfg = Config::new().temporary(is_temp);
-
-        let path = if let Some(path) = &self.path {
-            let path = path.join("matrix-sdk-state");
-
-            cfg = cfg.path(&path);
-            Some(path)
-        } else {
-            None
+        let db = match (&self.db, &self.path) {
+            (None, None) => Config::new().temporary(true).open().map_err(StoreError::backend)?,
+            (None, Some(path)) => Config::new().path(path).open().map_err(StoreError::backend)?,
+            (Some(db), _) => db.clone(),
         };
-
-        let db = cfg.open().map_err(StoreError::backend)?;
 
         let store_cipher = if let Some(passphrase) = &self.passphrase {
             if let Some(inner) = db.get("store_cipher".encode())? {
@@ -216,7 +214,7 @@ impl SledStateStoreBuilder {
             None
         };
 
-        let mut store = SledStateStore::open_helper(db, path, store_cipher)?;
+        let mut store = SledStateStore::open_helper(db, self.path.clone(), store_cipher)?;
 
         let migration_res = store.upgrade();
         if let Err(SledStoreError::MigrationConflict { path, .. }) = &migration_res {
@@ -305,7 +303,7 @@ impl std::fmt::Debug for SledStateStore {
 }
 
 impl SledStateStore {
-    pub fn open_helper(
+    fn open_helper(
         db: Db,
         path: Option<PathBuf>,
         store_cipher: Option<Arc<StoreCipher>>,
