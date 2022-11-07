@@ -170,14 +170,18 @@ const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
+#[derive(Debug, Clone)]
+enum DbOrPath {
+    Db(Db),
+    Path(PathBuf),
+}
+
 #[derive(Builder, Debug)]
 #[builder(name = "SledStateStoreBuilder", build_fn(skip))]
 pub struct SledStateStoreBuilderConfig {
     /// Use an existing open sled database
-    db: Db,
-    /// Path to the sled store files, created if not yet existing
     #[builder(setter(custom))]
-    path: PathBuf,
+    db_or_path: DbOrPath,
     /// Set the password the sled store is encrypted with (if any)
     passphrase: String,
     /// The strategy to use when a merge conflict is found, see
@@ -188,14 +192,23 @@ pub struct SledStateStoreBuilderConfig {
 
 impl SledStateStoreBuilder {
     pub fn path(&mut self, path: PathBuf) {
-        self.path = Some(path.join("matrix-sdk-state"));
+        self.db_or_path = Some(DbOrPath::Path(path.join("matrix-sdk-state")));
+    }
+
+    pub fn db(&mut self, db: Db) {
+        self.db_or_path = Some(DbOrPath::Db(db));
     }
 
     pub fn build(&mut self) -> Result<SledStateStore> {
-        let db = match (&self.db, &self.path) {
-            (None, None) => Config::new().temporary(true).open(),
-            (None, Some(path)) => Config::new().path(path).open(),
-            (Some(db), _) => Ok(db.clone()),
+        let path = match &self.db_or_path {
+            Some(DbOrPath::Path(path)) => Some(path.clone()),
+            _ => None,
+        };
+
+        let db = match &self.db_or_path {
+            None => Config::new().temporary(true).open(),
+            Some(DbOrPath::Path(path)) => Config::new().path(path).open(),
+            Some(DbOrPath::Db(db)) => Ok(db.clone()),
         }
         .map_err(StoreError::backend)?;
 
@@ -215,7 +228,7 @@ impl SledStateStoreBuilder {
             None
         };
 
-        let mut store = SledStateStore::open_helper(db, self.path.clone(), store_cipher)?;
+        let mut store = SledStateStore::open_helper(db, path, store_cipher)?;
 
         let migration_res = store.upgrade();
         if let Err(SledStoreError::MigrationConflict { path, .. }) = &migration_res {
