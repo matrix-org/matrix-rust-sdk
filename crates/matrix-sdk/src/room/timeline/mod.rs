@@ -44,8 +44,8 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
-        TimelineDetails, TimelineItemContent, TimelineKey,
+        BundledReactions, EncryptedMessage, EventTimelineItem, Message, PaginationOutcome,
+        ReactionDetails, TimelineDetails, TimelineItemContent, TimelineKey,
     },
     virtual_item::VirtualTimelineItem,
 };
