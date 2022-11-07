@@ -192,7 +192,7 @@ pub struct SledStateStoreBuilderConfig {
 
 impl SledStateStoreBuilder {
     pub fn path(&mut self, path: PathBuf) {
-        self.db_or_path = Some(DbOrPath::Path(path.join("matrix-sdk-state")));
+        self.db_or_path = Some(DbOrPath::Path(path));
     }
 
     pub fn db(&mut self, db: Db) {
@@ -200,17 +200,18 @@ impl SledStateStoreBuilder {
     }
 
     pub fn build(&mut self) -> Result<SledStateStore> {
-        let path = match &self.db_or_path {
-            Some(DbOrPath::Path(path)) => Some(path.clone()),
-            _ => None,
+        let (db, path) = match &self.db_or_path {
+            None => {
+                let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
+                (db, None)
+            }
+            Some(DbOrPath::Db(db)) => (db.clone(), None),
+            Some(DbOrPath::Path(path)) => {
+                let path = path.join("matrix-sdk-state");
+                let db = Config::new().path(&path).open().map_err(StoreError::backend)?;
+                (db, Some(path))
+            }
         };
-
-        let db = match &self.db_or_path {
-            None => Config::new().temporary(true).open(),
-            Some(DbOrPath::Path(path)) => Config::new().path(path).open(),
-            Some(DbOrPath::Db(db)) => Ok(db.clone()),
-        }
-        .map_err(StoreError::backend)?;
 
         let store_cipher = if let Some(passphrase) = &self.passphrase {
             if let Some(inner) = db.get("store_cipher".encode())? {
