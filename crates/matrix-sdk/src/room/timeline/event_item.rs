@@ -331,10 +331,7 @@ impl Message {
 
     /// Flag indicating this message can be edited by current user.
     pub fn is_editable(&self) -> bool {
-        match self.msgtype() {
-            MessageType::Text(_) => true,
-            _ => false,
-        }
+        matches!(self.msgtype(), MessageType::Text(_))
     }
 }
 
