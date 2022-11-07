@@ -193,10 +193,11 @@ impl SledStateStoreBuilder {
 
     pub fn build(&mut self) -> Result<SledStateStore> {
         let db = match (&self.db, &self.path) {
-            (None, None) => Config::new().temporary(true).open().map_err(StoreError::backend)?,
-            (None, Some(path)) => Config::new().path(path).open().map_err(StoreError::backend)?,
-            (Some(db), _) => db.clone(),
-        };
+            (None, None) => Config::new().temporary(true).open(),
+            (None, Some(path)) => Config::new().path(path).open(),
+            (Some(db), _) => Ok(db.clone()),
+        }
+        .map_err(StoreError::backend)?;
 
         let store_cipher = if let Some(passphrase) = &self.passphrase {
             if let Some(inner) = db.get("store_cipher".encode())? {
