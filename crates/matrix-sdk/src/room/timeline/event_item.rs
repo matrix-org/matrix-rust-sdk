@@ -166,6 +166,18 @@ impl EventTimelineItem {
         self.is_own
     }
 
+    /// Flag indicating this item can be edited by current user.
+    pub fn is_editable(&self) -> bool {
+        if self.is_own() {
+            match &self.content {
+                TimelineItemContent::Message(message) => message.is_editable(),
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///
@@ -315,6 +327,14 @@ impl Message {
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+
+    /// Flag indicating this message can be edited by current user.
+    pub fn is_editable(&self) -> bool {
+        match self.msgtype() {
+            MessageType::Text(_) => true,
+            _ => false,
+        }
     }
 }
 

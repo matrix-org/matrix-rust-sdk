@@ -185,6 +185,10 @@ impl EventTimelineItem {
         self.0.is_own()
     }
 
+    pub fn is_editable(&self) -> bool {
+        self.0.is_editable()
+    }
+
     pub fn content(&self) -> Arc<TimelineItemContent> {
         Arc::new(TimelineItemContent(self.0.content().clone()))
     }
