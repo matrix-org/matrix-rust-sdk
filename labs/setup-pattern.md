@@ -23,8 +23,8 @@ it's not expected that the *bot itself* has state.
 This expectation becomes especially problematic when combined with E2EE, where the running
 application has to not lose sight of it, or else it'll lose access to E2EE (group) chats.
 
-This fallacy/expectation exists both on the developer and user side of bots, and so to start fixing
-it, this pattern should/could be recommended to bot creators, as then the lifetime cycle of the bot
+This fallacy / expectation exists both on the developer and user side of bots, and so to start fixing
+it, this pattern should / could be recommended to bot creators, as then the lifetime cycle of the bot
 (and its data) is clear to every party involved, and errors are not necessarily "fatal" (or
 catastrophic while confusing).
 
@@ -43,12 +43,12 @@ some consequences, some of which are the following;
   - Instead, the bot will refuse to run at all, preventing it digging itself a deeper ditch, letting
     the operator be notified something is wrong, and either restore the state, or recover it.
 - During the setup phase, while the operator is actively interacting with the bot to set it up, an
-  E2EE recovery phrase/password/blob could be printed to the terminal for safekeeping, to be used in
+  E2EE recovery phrase / password / blob could be printed to the terminal for safekeeping, to be used in
   case the original E2EE data ever becomes lost.
   - This would be done during setup instead of a run phase to make: a. make sure the operator sees
     it, and b. if the operator forgets to point the bot's state directories to a persistent file
     system, it has already taken note of the recovery information separately, and so the problem
-    with a wedged/lost E2EE state can be resolved as long as they still have access to that
+    with a wedged / lost E2EE state can be resolved as long as they still have access to that
     information.
 
 ## Extra Notes
