@@ -522,13 +522,13 @@ impl<'a> TimelineEventHandler<'a> {
             }
         }
 
-        std::mem::drop(lock);
+        drop(lock);
 
         // See if we got the event corresponding to the fully read marker now.
         let fully_read_event_in_timeline =
             *self.timeline.fully_read_event_in_timeline.lock().unwrap();
         if !fully_read_event_in_timeline {
-            self.timeline.update_fully_read_item()
+            self.timeline.update_fully_read_item();
         }
     }
 
