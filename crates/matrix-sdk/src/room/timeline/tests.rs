@@ -26,9 +26,13 @@ use futures_util::StreamExt;
 use matrix_sdk_test::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
+    assign,
     events::{
         reaction::{self, ReactionEventContent},
-        room::{message::RoomMessageEventContent, redaction::OriginalSyncRoomRedactionEvent},
+        room::{
+            message::{self, Replacement, RoomMessageEventContent},
+            redaction::OriginalSyncRoomRedactionEvent,
+        },
         MessageLikeEventContent, OriginalSyncMessageLikeEvent,
     },
     serde::Raw,
@@ -68,6 +72,33 @@ async fn reaction_redaction() {
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 0);
+}
+
+#[async_test]
+async fn invalid_edit() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test"));
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event = item.as_event().unwrap();
+    let msg = event.content.as_message().unwrap();
+    assert_eq!(msg.body(), "test");
+
+    let msg_event_id = event.event_id().unwrap();
+
+    let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
+        relates_to: Some(message::Relation::Replacement(Replacement::new(
+            msg_event_id.to_owned(),
+            Box::new(RoomMessageEventContent::text_plain("fake")),
+        ))),
+    });
+    // Edit is from a different user than the previous event
+    timeline.handle_live_message_event(&BOB, edit);
+
+    // Can't easily test the non-arrival of an item using the stream. Instead
+    // just assert that there is still just a single item in the timeline.
+    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
 }
 
 struct TestTimeline {
