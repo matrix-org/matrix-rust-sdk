@@ -38,6 +38,7 @@ use ruma::{
     serde::Raw,
     server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
+use serde_json::{json, Value as JsonValue};
 
 use super::{TimelineInner, TimelineItem};
 
@@ -101,6 +102,44 @@ async fn invalid_edit() {
     assert_eq!(timeline.inner.items.lock_ref().len(), 1);
 }
 
+#[async_test]
+async fn edit_redacted() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    // Ruma currently fails to serialize most redacted events correctly
+    timeline.handle_live_custom_event(json!({
+        "content": {},
+        "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+        "origin_server_ts": 10,
+        "sender": "@alice:example.org",
+        "type": "m.room.message",
+        "unsigned": {
+            "redacted_because": {
+                "content": {},
+                "redacts": "$eeG0HA0FAZ37wP8kXlNkxx3K",
+                "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
+                "sender": "@alice:example.org",
+                "origin_server_ts": 5,
+                "type": "m.room.redaction",
+            },
+        },
+    }));
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
+
+    let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
+        relates_to: Some(message::Relation::Replacement(Replacement::new(
+            redacted_event_id.to_owned(),
+            Box::new(RoomMessageEventContent::text_plain("test")),
+        ))),
+    });
+    timeline.handle_live_message_event(&ALICE, edit);
+
+    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+}
+
 struct TestTimeline {
     own_user_id: OwnedUserId,
     inner: TimelineInner,
@@ -127,6 +166,11 @@ impl TestTimeline {
             unsigned: Default::default(),
         };
         let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None, &self.own_user_id);
+    }
+
+    fn handle_live_custom_event(&self, event: JsonValue) {
+        let raw = Raw::new(&event).unwrap().cast();
         self.inner.handle_live_event(raw, None, &self.own_user_id);
     }
 
