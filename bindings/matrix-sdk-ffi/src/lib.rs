@@ -34,9 +34,7 @@ use std::io;
 
 use client::Client;
 use client_builder::ClientBuilder;
-use matrix_sdk::Session;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use uniffi_api::*;
@@ -56,19 +54,9 @@ pub use self::{
 
 #[derive(Default, Debug)]
 pub struct ClientState {
-    is_guest: bool,
     has_first_synced: bool,
     is_syncing: bool,
     should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RestoreToken {
-    is_guest: bool,
-    homeurl: String,
-    session: Session,
-    #[serde(default)]
     is_soft_logout: bool,
 }
 
@@ -99,14 +87,18 @@ mod uniffi_types {
         authentication_service::{AuthenticationService, HomeserverLoginDetails},
         client::Client,
         client_builder::ClientBuilder,
-        room::Room,
-        session_verification::SessionVerificationEmoji,
+        room::{Membership, Room},
+        session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncView, StoppableSpawn,
-            UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,
+            SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
-            EventTimelineItem, Message, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+            EmoteMessageContent, EncryptedMessage, EventTimelineItem, FormattedBody, ImageInfo,
+            ImageMessageContent, InsertAtData, Message, MessageFormat, MessageType,
+            NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
+            TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey, UpdateAtData,
+            VirtualTimelineItem,
         },
     };
 }

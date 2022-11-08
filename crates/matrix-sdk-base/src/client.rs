@@ -32,7 +32,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, MegolmError, OlmError, OlmMachine, ToDeviceRequest,
+    EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -84,7 +84,7 @@ pub struct BaseClient {
     crypto_store: Arc<dyn CryptoStore>,
     /// The olm-machine that is created once the
     /// [`Session`][crate::session::Session] is set via
-    /// [`BaseClient::restore_login`]
+    /// [`BaseClient::restore_session`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
 }
@@ -153,7 +153,7 @@ impl BaseClient {
     ///
     /// If the client is currently logged in, this will return a
     /// [`Session`][crate::session::Session] object which can later be given to
-    /// [`BaseClient::restore_login`].
+    /// [`BaseClient::restore_session`].
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
@@ -198,7 +198,7 @@ impl BaseClient {
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
-        self.restore_login(session).await
+        self.restore_session(session).await
     }
 
     /// Restore a previously logged in session.
@@ -207,7 +207,7 @@ impl BaseClient {
     ///
     /// * `session` - An session that the user already has from a previous login
     ///   call.
-    pub async fn restore_login(&self, session: Session) -> Result<()> {
+    pub async fn restore_session(&self, session: Session) -> Result<()> {
         debug!(user_id = %session.user_id, device_id = %session.device_id, "Restoring login");
         self.store.restore_session(session.clone()).await?;
 
@@ -969,7 +969,7 @@ impl BaseClient {
                     joined.iter().chain(&invited)
                 };
 
-                let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
+                let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
                 Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
@@ -1145,7 +1145,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_login(Session {
+            .restore_session(Session {
                 access_token: "token".to_owned(),
                 refresh_token: None,
                 user_id: user_id.to_owned(),
@@ -1200,7 +1200,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_login(Session {
+            .restore_session(Session {
                 access_token: "token".to_owned(),
                 refresh_token: None,
                 user_id: user_id.to_owned(),

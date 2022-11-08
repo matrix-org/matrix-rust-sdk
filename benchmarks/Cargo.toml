@@ -8,7 +8,7 @@ version = "1.0.0"
 publish = false
 
 [dependencies]
-criterion = { version = "0.3.5", features = ["async", "async_tokio", "html_reports"] }
+criterion = { version = "0.4.0", features = ["async", "async_tokio", "html_reports"] }
 matrix-sdk-crypto = { path = "../crates/matrix-sdk-crypto", version = "0.6.0"}
 matrix-sdk-sled = { path = "../crates/matrix-sdk-sled", version = "0.2.0", default-features = false, features = ["crypto-store"] }
 matrix-sdk-test = { path = "../testing/matrix-sdk-test", version = "0.6.0"}
@@ -18,7 +18,7 @@ tempfile = "3.3.0"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-pprof = { version = "0.10.0", features = ["flamegraph", "criterion"] }
+pprof = { version = "0.11.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "crypto_bench"

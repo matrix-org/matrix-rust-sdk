@@ -142,7 +142,7 @@ impl<'a> VirtualUserBuilder<'a> {
             }
         };
 
-        client.restore_login(session).await?;
+        client.restore_session(session).await?;
 
         self.appservice.clients.insert(self.localpart.to_owned(), client.clone());
 

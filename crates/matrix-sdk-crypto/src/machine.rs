@@ -1585,6 +1585,7 @@ pub(crate) mod tests {
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
                 sync::sync_events::v3::DeviceLists,
+                to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
             IncomingResponse,
         },
@@ -2106,21 +2107,23 @@ pub(crate) mod tests {
 
         alice.handle_verification_event(&event).await;
 
-        let event = alice
+        let (event, request_id) = alice
             .verification_machine
             .outgoing_messages()
             .first()
-            .map(|r| outgoing_request_to_event(alice.user_id(), r))
+            .map(|r| (outgoing_request_to_event(alice.user_id(), r), r.request_id.to_owned()))
             .unwrap();
+        alice.mark_request_as_sent(&request_id, &ToDeviceResponse::new()).await.unwrap();
         bob.handle_verification_event(&event).await;
 
-        let event = bob
+        let (event, request_id) = bob
             .verification_machine
             .outgoing_messages()
             .first()
-            .map(|r| outgoing_request_to_event(bob.user_id(), r))
+            .map(|r| (outgoing_request_to_event(bob.user_id(), r), r.request_id.to_owned()))
             .unwrap();
         alice.handle_verification_event(&event).await;
+        bob.mark_request_as_sent(&request_id, &ToDeviceResponse::new()).await.unwrap();
 
         assert!(alice_sas.emoji().is_some());
         assert!(bob_sas.emoji().is_some());

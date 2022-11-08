@@ -115,3 +115,5 @@ jobs:
     name: "Trigger release Workflow"
     with:
       tag: ${{needs.prepare-release.outputs.tag}}
+    secrets:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

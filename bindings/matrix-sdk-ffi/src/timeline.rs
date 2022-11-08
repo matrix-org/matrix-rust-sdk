@@ -44,7 +44,10 @@ impl TimelineDiff {
             VecDiff::Clear {} => VecDiff::Clear {},
         })
     }
+}
 
+#[uniffi::export]
+impl TimelineDiff {
     pub fn change(&self) -> TimelineChange {
         match &self.0 {
             VecDiff::Replace { .. } => TimelineChange::Replace,
@@ -81,6 +84,13 @@ impl TimelineDiff {
         }
     }
 
+    pub fn push(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
+        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::Push { value } => value)
+    }
+}
+
+// UniFFI currently chokes on the r#
+impl TimelineDiff {
     pub fn r#move(&self) -> Option<MoveData> {
         match &self.0 {
             VecDiff::Move { old_index, new_index } => Some(MoveData {
@@ -90,17 +100,15 @@ impl TimelineDiff {
             _ => None,
         }
     }
-
-    pub fn push(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
-        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::Push { value } => value)
-    }
 }
 
+#[derive(uniffi::Record)]
 pub struct InsertAtData {
     pub index: u32,
     pub item: Arc<TimelineItem>,
 }
 
+#[derive(uniffi::Record)]
 pub struct UpdateAtData {
     pub index: u32,
     pub item: Arc<TimelineItem>,
@@ -111,7 +119,7 @@ pub struct MoveData {
     pub new_index: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, uniffi::Enum)]
 pub enum TimelineChange {
     Replace,
     InsertAt,
@@ -124,7 +132,7 @@ pub enum TimelineChange {
 }
 
 #[repr(transparent)]
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct TimelineItem(matrix_sdk::room::timeline::TimelineItem);
 
 impl TimelineItem {
@@ -156,24 +164,15 @@ impl TimelineItem {
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
 
+#[uniffi::export]
 impl EventTimelineItem {
     pub fn key(&self) -> TimelineKey {
         self.0.key().into()
     }
 
-    pub fn reactions(&self) -> Vec<Reaction> {
-        self.0
-            .reactions()
-            .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
-            .collect()
-    }
-}
-
-#[uniffi::export]
-impl EventTimelineItem {
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
     }
@@ -192,6 +191,14 @@ impl EventTimelineItem {
 
     pub fn origin_server_ts(&self) -> Option<u64> {
         self.0.origin_server_ts().map(|ts| ts.0.into())
+    }
+
+    pub fn reactions(&self) -> Vec<Reaction> {
+        self.0
+            .reactions()
+            .iter()
+            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
+            .collect()
     }
 
     pub fn raw(&self) -> Option<String> {
@@ -213,15 +220,35 @@ impl TimelineItemContent {
         unwrap_or_clone_arc_into_variant!(self, .0, C::Message(msg) => Arc::new(Message(msg)))
     }
 
+    pub fn as_unable_to_decrypt(&self) -> Option<EncryptedMessage> {
+        use matrix_sdk::room::timeline::{EncryptedMessage as E, TimelineItemContent as C};
+
+        match &self.0 {
+            C::UnableToDecrypt(utd) => Some(match utd {
+                E::OlmV1Curve25519AesSha2 { sender_key } => {
+                    let sender_key = sender_key.clone();
+                    EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key }
+                }
+                E::MegolmV1AesSha2 { session_id, .. } => {
+                    let session_id = session_id.clone();
+                    EncryptedMessage::MegolmV1AesSha2 { session_id }
+                }
+                E::Unknown => EncryptedMessage::Unknown,
+            }),
+            _ => None,
+        }
+    }
+
     pub fn is_redacted_message(&self) -> bool {
         use matrix_sdk::room::timeline::TimelineItemContent as C;
         matches!(self.0, C::RedactedMessage)
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct Message(matrix_sdk::room::timeline::Message);
 
+#[uniffi::export]
 impl Message {
     pub fn msgtype(&self) -> Option<MessageType> {
         use matrix_sdk::ruma::events::room::message::MessageType as MTy;
@@ -254,10 +281,7 @@ impl Message {
             _ => None,
         }
     }
-}
 
-#[uniffi::export]
-impl Message {
     pub fn body(&self) -> String {
         self.0.msgtype().body().to_owned()
     }
@@ -272,7 +296,7 @@ impl Message {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum MessageType {
     Emote { content: EmoteMessageContent },
     Image { content: ImageMessageContent },
@@ -280,20 +304,20 @@ pub enum MessageType {
     Text { content: TextMessageContent },
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct EmoteMessageContent {
     pub body: String,
     pub formatted: Option<FormattedBody>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct ImageMessageContent {
     pub body: String,
     pub source: Arc<MediaSource>,
     pub info: Option<ImageInfo>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct ImageInfo {
     pub height: Option<u64>,
     pub width: Option<u64>,
@@ -304,7 +328,7 @@ pub struct ImageInfo {
     pub blurhash: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct ThumbnailInfo {
     pub height: Option<u64>,
     pub width: Option<u64>,
@@ -312,19 +336,19 @@ pub struct ThumbnailInfo {
     pub size: Option<u64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct NoticeMessageContent {
     pub body: String,
     pub formatted: Option<FormattedBody>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct TextMessageContent {
     pub body: String,
     pub formatted: Option<FormattedBody>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct FormattedBody {
     pub format: MessageFormat,
     pub body: String,
@@ -342,7 +366,7 @@ impl From<&matrix_sdk::ruma::events::room::message::FormattedBody> for Formatted
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, uniffi::Enum)]
 pub enum MessageFormat {
     Html,
     Unknown,
@@ -369,7 +393,22 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
+pub enum EncryptedMessage {
+    OlmV1Curve25519AesSha2 {
+        /// The Curve25519 key of the sender.
+        sender_key: String,
+    },
+    // Other fields not included because UniFFI doesn't have the concept of
+    // deprecated fields right now.
+    MegolmV1AesSha2 {
+        /// The ID of the session used to encrypt the message.
+        session_id: String,
+    },
+    Unknown,
+}
+
+#[derive(Clone, uniffi::Record)]
 pub struct Reaction {
     pub key: String,
     pub count: u64,
@@ -382,7 +421,7 @@ pub struct ReactionDetails {
     pub sender: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum TimelineKey {
     TransactionId { txn_id: String },
     EventId { event_id: String },
@@ -399,7 +438,7 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct VirtualTimelineItem(matrix_sdk::room::timeline::VirtualTimelineItem);
 
 #[extension_trait]

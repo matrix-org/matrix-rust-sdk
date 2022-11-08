@@ -39,7 +39,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, UserId,
+    DeviceId, OwnedTransactionId, TransactionId, UserId,
 };
 use tracing::info;
 use vodozemac::{
@@ -57,6 +57,7 @@ use super::{
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
+        cache::RequestInfo,
         event_enums::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
             OwnedStartContent, StartContent,
@@ -226,6 +227,25 @@ pub struct SasState<S: Clone> {
     pub started_from_request: bool,
 }
 
+impl<S: Clone> SasState<S> {
+    fn handle_key_content(
+        &self,
+        sender: &UserId,
+        content: &KeyContent<'_>,
+    ) -> Result<EstablishedSas, CancelCode> {
+        self.check_event(sender, content.flow_id())?;
+
+        let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
+            .map_err(|_| CancelCode::from("Invalid public key"))?;
+
+        if let Some(sas) = self.inner.lock().unwrap().take() {
+            sas.diffie_hellman(their_public_key).map_err(|_| "Invalid public key".into())
+        } else {
+            Err(CancelCode::UnexpectedMessage)
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -257,6 +277,7 @@ pub struct Started {
 pub struct Accepted {
     pub accepted_protocols: AcceptedProtocols,
     start_content: Arc<OwnedStartContent>,
+    pub request_id: OwnedTransactionId,
     commitment: Base64,
 }
 
@@ -275,6 +296,22 @@ pub struct WeAccepted {
 /// From now on we can show the short auth string to the user.
 #[derive(Clone, Debug)]
 pub struct KeyReceived {
+    sas: Arc<Mutex<EstablishedSas>>,
+    we_started: bool,
+    pub request_id: OwnedTransactionId,
+    pub accepted_protocols: AcceptedProtocols,
+}
+
+#[derive(Clone, Debug)]
+pub struct KeySent {
+    we_started: bool,
+    start_content: Arc<OwnedStartContent>,
+    commitment: Base64,
+    pub accepted_protocols: AcceptedProtocols,
+}
+
+#[derive(Clone, Debug)]
+pub struct KeysExchanged {
     sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
     pub accepted_protocols: AcceptedProtocols,
@@ -487,6 +524,7 @@ impl SasState<Created> {
                 state: Arc::new(Accepted {
                     start_content,
                     commitment: content.commitment.clone(),
+                    request_id: TransactionId::new(),
                     accepted_protocols,
                 }),
             })
@@ -661,6 +699,7 @@ impl SasState<Started> {
                 state: Arc::new(Accepted {
                     start_content,
                     commitment: content.commitment.clone(),
+                    request_id: TransactionId::new(),
                     accepted_protocols,
                 }),
             })
@@ -727,35 +766,24 @@ impl SasState<WeAccepted> {
         sender: &UserId,
         content: &KeyContent<'_>,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
+        let established =
+            self.handle_key_content(sender, content).map_err(|c| self.clone().cancel(true, c))?;
 
-        let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
-            .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
-
-        let sas = self.inner.lock().unwrap().take();
-
-        if let Some(sas) = sas {
-            let established = sas
-                .diffie_hellman(their_public_key)
-                .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
-
-            Ok(SasState {
-                inner: self.inner,
-                our_public_key: self.our_public_key,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: Arc::new(KeyReceived {
-                    sas: Mutex::new(established).into(),
-                    we_started: self.state.we_started,
-                    accepted_protocols: self.state.accepted_protocols.clone(),
-                }),
-            })
-        } else {
-            Err(self.cancel(true, CancelCode::UnexpectedMessage))
-        }
+        Ok(SasState {
+            inner: self.inner,
+            our_public_key: self.our_public_key,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: Instant::now().into(),
+            started_from_request: self.started_from_request,
+            state: Arc::new(KeyReceived {
+                sas: Mutex::new(established).into(),
+                we_started: self.state.we_started,
+                request_id: TransactionId::new(),
+                accepted_protocols: self.state.accepted_protocols.clone(),
+            }),
+        })
     }
 }
 
@@ -773,49 +801,62 @@ impl SasState<Accepted> {
         sender: &UserId,
         content: &KeyContent<'_>,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
+        let established =
+            self.handle_key_content(sender, content).map_err(|c| self.clone().cancel(true, c))?;
 
-        let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
-            .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
+        let their_public_key = established.their_public_key();
 
         let commitment =
             calculate_commitment(their_public_key, &self.state.start_content.as_start_content());
 
-        if self.state.commitment != commitment {
-            Err(self.cancel(true, CancelCode::InvalidMessage))
+        if self.state.commitment == commitment {
+            Ok(SasState {
+                inner: self.inner,
+                our_public_key: self.our_public_key,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: Arc::new(KeyReceived {
+                    sas: Mutex::new(established).into(),
+                    we_started: true,
+                    request_id: self.state.request_id.to_owned(),
+                    accepted_protocols: self.state.accepted_protocols.clone(),
+                }),
+            })
         } else {
-            let sas = self.inner.lock().unwrap().take();
+            Err(self.cancel(true, CancelCode::KeyMismatch))
+        }
+    }
 
-            if let Some(sas) = sas {
-                let established = sas
-                    .diffie_hellman(their_public_key)
-                    .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
-
-                Ok(SasState {
-                    inner: self.inner,
-                    our_public_key: self.our_public_key,
-                    ids: self.ids,
-                    verification_flow_id: self.verification_flow_id,
-                    creation_time: self.creation_time,
-                    last_event_time: Instant::now().into(),
-                    started_from_request: self.started_from_request,
-                    state: Arc::new(KeyReceived {
-                        sas: Mutex::new(established).into(),
-                        we_started: true,
-                        accepted_protocols: self.state.accepted_protocols.clone(),
-                    }),
-                })
-            } else {
-                Err(self.cancel(true, CancelCode::UnexpectedMessage))
-            }
+    pub fn into_key_sent(self, request_id: &TransactionId) -> Option<SasState<KeySent>> {
+        if self.state.request_id == request_id {
+            Some(SasState {
+                inner: self.inner,
+                our_public_key: self.our_public_key,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: Arc::new(KeySent {
+                    we_started: true,
+                    start_content: self.state.start_content.clone(),
+                    commitment: self.state.commitment.clone(),
+                    accepted_protocols: self.state.accepted_protocols.clone(),
+                }),
+            })
+        } else {
+            None
         }
     }
 
     /// Get the content for the key event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> OutgoingContent {
-        match &*self.verification_flow_id {
+    pub fn as_content(&self) -> (OutgoingContent, RequestInfo) {
+        let content = match &*self.verification_flow_id {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
                     s.clone(),
@@ -833,6 +874,48 @@ impl SasState<Accepted> {
                 ),
             )
                 .into(),
+        };
+
+        (
+            content,
+            RequestInfo {
+                flow_id: (*self.verification_flow_id).to_owned(),
+                request_id: self.state.request_id.to_owned(),
+            },
+        )
+    }
+}
+
+impl SasState<KeySent> {
+    pub fn into_keys_exchanged(
+        self,
+        sender: &UserId,
+        content: &KeyContent<'_>,
+    ) -> Result<SasState<KeysExchanged>, SasState<Cancelled>> {
+        let established =
+            self.handle_key_content(sender, content).map_err(|c| self.clone().cancel(true, c))?;
+
+        let their_public_key = established.their_public_key();
+        let commitment =
+            calculate_commitment(their_public_key, &self.state.start_content.as_start_content());
+
+        if self.state.commitment == commitment {
+            Ok(SasState {
+                inner: self.inner,
+                our_public_key: self.our_public_key,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: Arc::new(KeysExchanged {
+                    sas: Mutex::new(established).into(),
+                    we_started: self.state.we_started,
+                    accepted_protocols: self.state.accepted_protocols.clone(),
+                }),
+            })
+        } else {
+            Err(self.cancel(true, CancelCode::KeyMismatch))
         }
     }
 }
@@ -842,8 +925,8 @@ impl SasState<KeyReceived> {
     ///
     /// The content needs to be automatically sent to the other side if and only
     /// if we_started is false.
-    pub fn as_content(&self) -> OutgoingContent {
-        match &*self.verification_flow_id {
+    pub fn as_content(&self) -> (OutgoingContent, RequestInfo) {
+        let content = match &*self.verification_flow_id {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
                     s.clone(),
@@ -861,9 +944,44 @@ impl SasState<KeyReceived> {
                 ),
             )
                 .into(),
-        }
+        };
+
+        (
+            content,
+            RequestInfo {
+                flow_id: (*self.verification_flow_id).to_owned(),
+                request_id: self.state.request_id.to_owned(),
+            },
+        )
     }
 
+    pub fn into_keys_exchanged(
+        self,
+        request_id: &TransactionId,
+    ) -> Option<SasState<KeysExchanged>> {
+        if self.state.request_id == request_id {
+            Some(SasState {
+                inner: self.inner,
+                our_public_key: self.our_public_key,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: KeysExchanged {
+                    sas: self.state.sas.clone(),
+                    we_started: self.state.we_started,
+                    accepted_protocols: self.state.accepted_protocols.clone(),
+                }
+                .into(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl SasState<KeysExchanged> {
     /// Get the emoji version of the short authentication string.
     ///
     /// Returns a seven tuples where the first element is the emoji and the
@@ -1315,14 +1433,19 @@ mod tests {
 
         let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), &content).unwrap();
         let content = alice.as_content();
-        let content = KeyContent::try_from(&content).unwrap();
+        let transaction_id = content.1.request_id;
+        let content = KeyContent::try_from(&content.0).unwrap();
+        let alice = alice.into_key_sent(&transaction_id).unwrap();
 
         let bob = bob.into_key_received(alice.user_id(), &content).unwrap();
 
         let content = bob.as_content();
-        let content = KeyContent::try_from(&content).unwrap();
+        let transaction_id = content.1.request_id;
+        let content = KeyContent::try_from(&content.0).unwrap();
 
-        let alice = alice.into_key_received(bob.user_id(), &content).unwrap();
+        let bob = bob.into_keys_exchanged(&transaction_id).unwrap();
+
+        let alice = alice.into_keys_exchanged(bob.user_id(), &content).unwrap();
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
@@ -1337,14 +1460,18 @@ mod tests {
 
         let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), &content).unwrap();
         let content = alice.as_content();
-        let content = KeyContent::try_from(&content).unwrap();
+        let request_id = content.1.request_id;
+        let content = KeyContent::try_from(&content.0).unwrap();
 
+        let alice = alice.into_key_sent(&request_id).unwrap();
         let bob = bob.into_key_received(alice.user_id(), &content).unwrap();
 
-        let content = bob.as_content();
+        let (content, request_info) = bob.as_content();
+        let request_id = request_info.request_id;
         let content = KeyContent::try_from(&content).unwrap();
+        let bob = bob.into_keys_exchanged(&request_id).unwrap();
 
-        let alice = alice.into_key_received(bob.user_id(), &content).unwrap();
+        let alice = alice.into_keys_exchanged(bob.user_id(), &content).unwrap();
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
@@ -1388,10 +1515,10 @@ mod tests {
         let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), &content).unwrap();
 
         let content = alice.as_content();
-        let content = KeyContent::try_from(&content).unwrap();
+        let content = KeyContent::try_from(&content.0).unwrap();
         let bob = bob.into_key_received(alice.user_id(), &content).unwrap();
         let content = bob.as_content();
-        let content = KeyContent::try_from(&content).unwrap();
+        let content = KeyContent::try_from(&content.0).unwrap();
 
         alice
             .into_key_received(bob.user_id(), &content)

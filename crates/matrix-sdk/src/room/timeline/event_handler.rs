@@ -18,9 +18,11 @@ use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        fully_read::FullyReadEvent,
         reaction::ReactionEventContent,
         room::{
-            message::{Relation, Replacement, RoomMessageEventContent},
+            encrypted::{self, RoomEncryptedEventContent},
+            message::{self, Replacement, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -36,8 +38,8 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, EventTimelineItem, Message, TimelineInner, TimelineItem, TimelineItemContent,
-    TimelineKey,
+    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineItem,
+    TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 impl TimelineInner {
@@ -112,6 +114,62 @@ impl TimelineInner {
         };
 
         TimelineEventHandler::new(meta, flow, self).handle_event(event.into())
+    }
+
+    pub(super) fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
+        let fully_read_event = match raw.deserialize() {
+            Ok(ev) => ev.content.event_id,
+            Err(error) => {
+                error!(?error, "Failed to deserialize `m.fully_read` account data");
+                return;
+            }
+        };
+
+        self.set_fully_read_event(fully_read_event);
+    }
+
+    pub(super) fn set_fully_read_event(&self, fully_read_event: OwnedEventId) {
+        {
+            let mut fully_read_lock = self.fully_read_event.lock().unwrap();
+
+            if fully_read_lock.as_ref() == Some(&fully_read_event) {
+                return;
+            }
+
+            *fully_read_lock = Some(fully_read_event);
+        }
+
+        self.update_fully_read_item();
+    }
+
+    fn update_fully_read_item(&self) {
+        let fully_read_lock = self.fully_read_event.lock().unwrap();
+
+        let fully_read_event = match &*fully_read_lock {
+            Some(event) => event,
+            None => return,
+        };
+
+        let mut items_lock = self.items.lock_mut();
+        let old_idx = find_fully_read(&items_lock);
+        let new_idx = find_event(&items_lock, fully_read_event).map(|(idx, _)| idx + 1);
+
+        match (old_idx, new_idx) {
+            (None, None) => {}
+            (None, Some(idx)) => {
+                *self.fully_read_event_in_timeline.lock().unwrap() = true;
+                let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
+                items_lock.insert_cloned(idx, item.into());
+            }
+            (Some(_), None) => {
+                // Keep the current position of the read marker, hopefully we
+                // should have a new position later.
+                *self.fully_read_event_in_timeline.lock().unwrap() = false;
+            }
+            (Some(from), Some(to)) => {
+                items_lock.move_from_to(from, to);
+            }
+        }
     }
 }
 
@@ -216,6 +274,7 @@ impl<'a> TimelineEventHandler<'a> {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
                 AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
+                AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 // TODO
                 _ => {}
             },
@@ -236,7 +295,7 @@ impl<'a> TimelineEventHandler<'a> {
 
     fn handle_room_message(&mut self, content: RoomMessageEventContent) {
         match content.relates_to {
-            Some(Relation::Replacement(re)) => {
+            Some(message::Relation::Replacement(re)) => {
                 self.handle_room_message_edit(re);
             }
             _ => {
@@ -252,7 +311,7 @@ impl<'a> TimelineEventHandler<'a> {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
-                    "Event tries to edit another user's timeline item, discarding"
+                    "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
             }
@@ -262,7 +321,14 @@ impl<'a> TimelineEventHandler<'a> {
                 TimelineItemContent::RedactedMessage => {
                     info!(
                         %event_id,
-                        "Event tries to edit a non-editable timeline item, discarding"
+                        "Edit event applies to a redacted message, discarding"
+                    );
+                    return None;
+                }
+                TimelineItemContent::UnableToDecrypt(_) => {
+                    info!(
+                        %event_id,
+                        "Edit event applies to event that couldn't be decrypted, discarding"
                     );
                     return None;
                 }
@@ -310,6 +376,18 @@ impl<'a> TimelineEventHandler<'a> {
 
         if did_update {
             lock.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+        }
+    }
+
+    fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
+        match c.relates_to {
+            Some(encrypted::Relation::Replacement(_) | encrypted::Relation::Annotation(_)) => {
+                // Do nothing for these, as they would not produce a new
+                // timeline item when decrypted either
+            }
+            _ => {
+                self.add(NewEventTimelineItem::unable_to_decrypt(c));
+            }
         }
     }
 
@@ -443,6 +521,15 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             }
         }
+
+        drop(lock);
+
+        // See if we got the event corresponding to the fully read marker now.
+        let fully_read_event_in_timeline =
+            *self.timeline.fully_read_event_in_timeline.lock().unwrap();
+        if !fully_read_event_in_timeline {
+            self.timeline.update_fully_read_item();
+        }
     }
 
     /// Returns whether an update happened
@@ -490,12 +577,12 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    pub(crate) fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
+    fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
         let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
             in_reply_to: c.relates_to.and_then(|rel| match rel {
-                Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
+                message::Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
                 _ => None,
             }),
             edited,
@@ -507,7 +594,14 @@ impl NewEventTimelineItem {
         Self { content, reactions }
     }
 
-    pub(crate) fn redacted_message() -> Self {
+    fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
+        Self {
+            content: TimelineItemContent::UnableToDecrypt(content.into()),
+            reactions: BundledReactions::default(),
+        }
+    }
+
+    fn redacted_message() -> Self {
         Self {
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),

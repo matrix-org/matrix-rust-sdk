@@ -17,7 +17,7 @@ env:
   MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
   MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
   # keep in sync with uniffi dependency in root Cargo.toml
-  UNIFFI_REV: 6ee61a46f59736f93b912f3cf45481f005c63115
+  UNIFFI_REV: 779e955f21a70e4aba43a7408f1841dcdf728b32
 
 jobs:
   xtask-linux:

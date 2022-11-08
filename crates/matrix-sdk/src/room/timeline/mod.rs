@@ -26,7 +26,10 @@ use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     assign,
-    events::{reaction::Relation as AnnotationRelation, AnyMessageLikeEventContent},
+    events::{
+        fully_read::FullyReadEventContent, reaction::Relation as AnnotationRelation,
+        AnyMessageLikeEventContent,
+    },
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
 use tracing::{error, instrument, warn};
@@ -44,8 +47,8 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        EventTimelineItem, Message, PaginationOutcome, ReactionDetails, TimelineDetails,
-        TimelineItemContent, TimelineKey,
+        EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
+        TimelineDetails, TimelineItemContent, TimelineKey,
     },
     virtual_item::VirtualTimelineItem,
 };
@@ -61,7 +64,8 @@ pub struct Timeline {
     room: room::Common,
     start_token: Mutex<Option<String>>,
     _end_token: Mutex<Option<String>>,
-    _event_handler_guard: EventHandlerDropGuard,
+    _timeline_event_handler_guard: EventHandlerDropGuard,
+    _fully_read_handler_guard: EventHandlerDropGuard,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -69,13 +73,28 @@ struct TimelineInner {
     items: MutableVec<Arc<TimelineItem>>,
     // Reaction event / txn ID => sender and reaction data
     reaction_map: Arc<Mutex<HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>>>,
+    fully_read_event: Arc<Mutex<Option<OwnedEventId>>>,
+    fully_read_event_in_timeline: Arc<Mutex<bool>>,
 }
 
 impl Timeline {
-    pub(super) fn new(room: &room::Common) -> Self {
+    pub(super) async fn new(room: &room::Common) -> Self {
         let inner = TimelineInner::default();
 
-        let handle = room.add_event_handler({
+        match room.account_data_static::<FullyReadEventContent>().await {
+            Ok(Some(fully_read)) => match fully_read.deserialize() {
+                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id),
+                Err(error) => {
+                    error!(?error, "Failed to deserialize `m.fully_read` account data")
+                }
+            },
+            Err(error) => {
+                error!(?error, "Failed to get `m.fully_read` account data from the store")
+            }
+            _ => {}
+        }
+
+        let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
             move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
                 let inner = inner.clone();
@@ -84,14 +103,27 @@ impl Timeline {
                 }
             }
         });
-        let _event_handler_guard = room.client.event_handler_drop_guard(handle);
+        let _timeline_event_handler_guard =
+            room.client.event_handler_drop_guard(timeline_event_handle);
+
+        let fully_read_handle = room.add_event_handler({
+            let inner = inner.clone();
+            move |event| {
+                let inner = inner.clone();
+                async move {
+                    inner.handle_fully_read(event);
+                }
+            }
+        });
+        let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
 
         Timeline {
             inner,
             room: room.clone(),
             start_token: Mutex::new(None),
             _end_token: Mutex::new(None),
-            _event_handler_guard,
+            _timeline_event_handler_guard,
+            _fully_read_handler_guard,
         }
     }
 
@@ -205,6 +237,15 @@ impl TimelineItem {
             _ => None,
         }
     }
+
+    /// Get the inner `VirtualTimelineItem`, if this is a
+    /// `TimelineItem::Virtual`.
+    pub fn as_virtual(&self) -> Option<&VirtualTimelineItem> {
+        match self {
+            Self::Virtual(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
@@ -217,6 +258,15 @@ fn find_event(
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         .rfind(|(_, it)| key == it.key)
+}
+
+fn find_fully_read(lock: &[Arc<TimelineItem>]) -> Option<usize> {
+    lock.iter()
+        .enumerate()
+        .rfind(|(_, item)| {
+            item.as_virtual().filter(|v| matches!(v, VirtualTimelineItem::ReadMarker)).is_some()
+        })
+        .map(|(idx, _)| idx)
 }
 
 fn add_event_id(items: &TimelineInner, txn_id: &TransactionId, event_id: OwnedEventId) {

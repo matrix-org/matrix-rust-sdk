@@ -20,6 +20,7 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{TimelineDiff, TimelineListener};
 
+#[derive(uniffi::Enum)]
 pub enum Membership {
     Invited,
     Joined,
@@ -69,6 +70,14 @@ impl Room {
         self.room.is_tombstoned()
     }
 
+    pub fn membership(&self) -> Membership {
+        match &self.room {
+            SdkRoom::Invited(_) => Membership::Invited,
+            SdkRoom::Joined(_) => Membership::Joined,
+            SdkRoom::Left(_) => Membership::Left,
+        }
+    }
+
     /// Removes the timeline.
     ///
     /// Timeline items cached in memory as well as timeline listeners are
@@ -110,21 +119,13 @@ impl Room {
         })
     }
 
-    pub fn membership(&self) -> Membership {
-        match &self.room {
-            SdkRoom::Invited(_) => Membership::Invited,
-            SdkRoom::Joined(_) => Membership::Joined,
-            SdkRoom::Left(_) => Membership::Left,
-        }
-    }
-
     pub fn add_timeline_listener(&self, listener: Box<dyn TimelineListener>) {
-        let timeline_signal = self
-            .timeline
-            .write()
-            .unwrap()
-            .get_or_insert_with(|| Arc::new(self.room.timeline()))
-            .signal();
+        let room = self.room.clone();
+
+        let timeline = RUNTIME.block_on(async move { room.timeline().await });
+
+        let timeline_signal =
+            self.timeline.write().unwrap().get_or_insert_with(|| Arc::new(timeline)).signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
         RUNTIME.spawn(timeline_signal.for_each(move |diff| {

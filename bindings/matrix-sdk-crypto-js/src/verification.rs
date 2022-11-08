@@ -484,8 +484,13 @@ impl Qr {
     /// The `to_qr_code` method can be used to instead output a QrCode
     /// object that can be rendered.
     #[wasm_bindgen(js_name = "toBytes")]
-    pub fn to_bytes(&self) -> Result<Array, JsError> {
-        Ok(self.inner.to_bytes()?.into_iter().map(JsValue::from).collect())
+    pub fn to_bytes(&self) -> Result<Uint8ClampedArray, JsError> {
+        let bytes = self.inner.to_bytes()?;
+        let output = Uint8ClampedArray::new_with_length(bytes.len() as _);
+
+        output.copy_from(&bytes);
+
+        Ok(output)
     }
 
     /// Notify the other side that we have successfully scanned the QR
@@ -754,10 +759,10 @@ impl QrCodeScan {
     /// This method is useful if you would like to do your own custom QR code
     /// decoding.
     #[wasm_bindgen(js_name = "fromBytes")]
-    pub fn from_bytes(buffer: Uint8ClampedArray) -> Result<QrCodeScan, JsError> {
+    pub fn from_bytes(buffer: &Uint8ClampedArray) -> Result<QrCodeScan, JsError> {
         let bytes = buffer.to_vec();
 
-        Ok(Self { inner: matrix_sdk_qrcode::QrVerificationData::from_bytes(&bytes)? })
+        Ok(Self { inner: matrix_sdk_qrcode::QrVerificationData::from_bytes(bytes)? })
     }
 }
 
@@ -1029,9 +1034,9 @@ impl VerificationRequest {
     /// for this verification flow.
     #[cfg(feature = "qrcode")]
     #[wasm_bindgen(js_name = "scanQrCode")]
-    pub fn scan_qr_code(&self, data: QrCodeScan) -> Promise {
+    pub fn scan_qr_code(&self, data: &QrCodeScan) -> Promise {
         let me = self.inner.clone();
-        let qr_verification_data = data.inner;
+        let qr_verification_data = data.inner.clone();
 
         future_to_promise(
             async move { Ok(me.scan_qr_code(qr_verification_data).await?.map(Qr::from)) },
