@@ -20,7 +20,9 @@ pub async fn run_client(
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
         .with_common_extensions()
-        .build()?;
+        .cold_cache("jack-in-default")
+        .build()
+        .await?;
     let stream = syncer.stream().await.expect("we can build the stream");
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
     let state = view.state.clone();

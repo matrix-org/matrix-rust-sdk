@@ -13,10 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use futures_core::stream::Stream;
-use futures_signals::signal::Mutable;
+use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
 use ruma::{
     api::client::sync::sync_events::v4::{
@@ -26,6 +33,7 @@ use ruma::{
     events::RoomEventType,
     OwnedRoomId, RoomId, UInt,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
@@ -39,6 +47,8 @@ pub enum Error {
     BadViewsCount { found: usize, expected: usize },
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
+    #[error("Builder went wrong: {0}")]
+    SlidingSyncBuilderError(#[from] SlidingSyncBuilderError),
 }
 
 /// The state the [`SlidingSyncView`] is in.
@@ -50,7 +60,7 @@ pub enum Error {
 ///
 /// If the client has been offline for a while, though, the SlidingSync might
 /// return back to `CatchingUp` at any point.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncState {
     /// Hasn't started yet
     #[default]
@@ -64,7 +74,7 @@ pub enum SlidingSyncState {
 }
 
 /// The mode by which the the [`SlidingSyncView`] is in fetching the data.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// FullSync all rooms in the background, configured with batch size
     #[default]
@@ -74,7 +84,7 @@ pub enum SlidingSyncMode {
 }
 
 /// The Entry in the sliding sync room list per sliding sync view
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`
     #[default]
@@ -101,7 +111,7 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<SyncTimelineEvent>>;
+pub type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
@@ -109,8 +119,42 @@ pub struct SlidingSyncRoom {
     room_id: OwnedRoomId,
     inner: v4::SlidingSyncRoom,
     is_loading_more: Mutable<bool>,
+    is_cold: Arc<AtomicBool>,
     prev_batch: Mutable<Option<String>>,
     timeline: AliveRoomTimeline,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FrozenSlidingSyncRoom {
+    room_id: OwnedRoomId,
+    inner: v4::SlidingSyncRoom,
+    prev_batch: Option<String>,
+    timeline: Vec<SyncTimelineEvent>,
+}
+
+impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
+    fn from(value: &SlidingSyncRoom) -> Self {
+        FrozenSlidingSyncRoom {
+            room_id: value.room_id.clone(),
+            inner: value.inner.clone(),
+            prev_batch: value.prev_batch.lock_ref().clone(),
+            timeline: value.timeline.lock_ref().to_vec(),
+        }
+    }
+}
+
+impl From<FrozenSlidingSyncRoom> for SlidingSyncRoom {
+    fn from(val: FrozenSlidingSyncRoom) -> Self {
+        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline } = val;
+        SlidingSyncRoom {
+            room_id,
+            inner,
+            is_loading_more: Mutable::new(false),
+            is_cold: Arc::new(AtomicBool::new(true)),
+            prev_batch: Mutable::new(prev_batch),
+            timeline: Arc::new(MutableVec::new_with_values(timeline)),
+        }
+    }
 }
 
 impl SlidingSyncRoom {
@@ -124,6 +168,7 @@ impl SlidingSyncRoom {
         Self {
             room_id,
             is_loading_more: Mutable::new(false),
+            is_cold: Arc::new(AtomicBool::new(false)),
             prev_batch: Mutable::new(inner.prev_batch.clone()),
             timeline: Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(timeline)),
             inner,
@@ -190,9 +235,15 @@ impl SlidingSyncRoom {
         }
 
         if !timeline.is_empty() {
-            let mut ref_timeline = self.timeline.lock_mut();
-            for e in timeline.into_iter() {
-                ref_timeline.push_cloned(e);
+            if self.is_cold.load(Ordering::Relaxed) {
+                // if we come from cold storage, we hard overwrite
+                self.timeline.lock_mut().replace_cloned(timeline);
+                self.is_cold.store(false, Ordering::Relaxed);
+            } else {
+                let mut ref_timeline = self.timeline.lock_mut();
+                for e in timeline.into_iter() {
+                    ref_timeline.push_cloned(e);
+                }
             }
         }
     }
@@ -230,7 +281,7 @@ pub struct UpdateSummary {
 
 /// The sliding sync instance
 #[derive(Clone, Debug, Builder)]
-#[builder(pattern = "owned", derive(Clone, Debug))]
+#[builder(pattern = "owned", build_fn(name = "build_no_cache"), derive(Clone, Debug))]
 pub struct SlidingSync {
     /// Customize the homeserver for sliding sync onlye
     #[builder(setter(strip_option))]
@@ -238,6 +289,10 @@ pub struct SlidingSync {
 
     #[builder(private)]
     client: Client,
+
+    /// The storage key to keep this cache at and load it from
+    #[builder(setter(strip_option))]
+    storage_key: Option<String>,
 
     // ------ Internal state
     #[builder(private, default)]
@@ -261,6 +316,56 @@ pub struct SlidingSync {
     extensions: Mutable<Option<ExtensionsConfig>>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct FrozenSlidingSync {
+    views: BTreeMap<String, FrozenSlidingSyncView>,
+    rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
+}
+
+impl From<&SlidingSync> for FrozenSlidingSync {
+    fn from(v: &SlidingSync) -> Self {
+        FrozenSlidingSync {
+            views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
+            rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
+        }
+    }
+}
+
+impl SlidingSync {
+    async fn load_from_storage(&mut self) -> Result<()> {
+        let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
+        if let Some(mut f) = self
+            .client
+            .store()
+            .get_custom_value(storage_key.as_bytes())
+            .await?
+            .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
+            .transpose()?
+        {
+            self.rooms
+                .lock_mut()
+                .replace_cloned(f.rooms.into_iter().map(|(k, v)| (k, v.into())).collect());
+            let mut views = self.views.lock_mut();
+            let mut updated_views = Vec::new();
+            while let Some(mut view) = views.pop() {
+                if let Some(frozen_view) = f.views.remove(&view.name) {
+                    view.set_from_cold(frozen_view);
+                }
+                updated_views.push(view);
+            }
+            views.replace_cloned(updated_views);
+        }
+        Ok(())
+    }
+
+    async fn cache_to_storage(&self) -> Result<()> {
+        let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
+        let v = serde_json::to_vec(&FrozenSlidingSync::from(self))?;
+        self.client.store().set_custom_value(storage_key.as_bytes(), v).await?;
+        Ok(())
+    }
+}
+
 impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
     pub fn add_fullsync_view(mut self) -> Self {
@@ -271,6 +376,18 @@ impl SlidingSyncBuilder {
                 .expect("Building default full sync view doesn't fail"),
         );
         self.views = Some(views);
+        self
+    }
+
+    /// Reset the views to None
+    pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
+        self.storage_key = Some(Some(name.to_string()));
+        self
+    }
+
+    /// Reset the views to None
+    pub fn no_cold_cache(mut self) -> Self {
+        self.storage_key = None;
         self
     }
 
@@ -376,6 +493,15 @@ impl SlidingSyncBuilder {
             .account_data = None;
         self
     }
+
+    /// Build the Sliding Sync
+    ///
+    /// if configured, load the cached data from cold storage
+    pub async fn build(self) -> Result<SlidingSync> {
+        let mut sync = self.build_no_cache().map_err(Error::SlidingSyncBuilderError)?;
+        sync.load_from_storage().await?;
+        Ok(sync)
+    }
 }
 
 impl SlidingSync {
@@ -456,52 +582,59 @@ impl SlidingSync {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         tracing::debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
-        let mut updated_views = Vec::new();
-        if resp.lists.len() != views.len() {
-            return Err(
-                Error::BadViewsCount { found: resp.lists.len(), expected: views.len() }.into()
-            );
-        }
-
-        for (view, updates) in std::iter::zip(views, &resp.lists) {
-            let count: u32 =
-                updates.count.try_into().expect("the list total count convertible into u32");
-            tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-            if !updates.ops.is_empty() && view.handle_response(count, &updates.ops)? {
-                updated_views.push(view.name.clone());
+        let update = {
+            let mut updated_views = Vec::new();
+            if resp.lists.len() != views.len() {
+                return Err(Error::BadViewsCount {
+                    found: resp.lists.len(),
+                    expected: views.len(),
+                }
+                .into());
             }
-        }
 
-        let mut rooms = Vec::new();
-        let mut rooms_map = self.rooms.lock_mut();
-        for (id, mut room_data) in resp.rooms.into_iter() {
-            let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
-                joined_room.timeline.events
-            } else {
-                let events = room_data.timeline.into_iter().map(Into::into).collect();
-                room_data.timeline = vec![];
-                events
-            };
-
-            if let Some(mut r) = rooms_map.remove(&id) {
-                r.update(&room_data, timeline);
-                rooms_map.insert_cloned(id.clone(), r);
-                rooms.push(id.clone());
-            } else {
-                rooms_map.insert_cloned(
-                    id.clone(),
-                    SlidingSyncRoom::from(id.clone(), room_data, timeline),
-                );
-                rooms.push(id);
+            for (view, updates) in std::iter::zip(views, &resp.lists) {
+                let count: u32 =
+                    updates.count.try_into().expect("the list total count convertible into u32");
+                tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
+                if !updates.ops.is_empty() && view.handle_response(count, &updates.ops)? {
+                    updated_views.push(view.name.clone());
+                }
             }
-        }
 
-        // Update the `to-device` next-batch if found.
-        if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
-            self.update_to_device_since(to_device_since)
-        }
+            let mut rooms = Vec::new();
+            let mut rooms_map = self.rooms.lock_mut();
+            for (id, mut room_data) in resp.rooms.into_iter() {
+                let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
+                    joined_room.timeline.events
+                } else {
+                    let events = room_data.timeline.into_iter().map(Into::into).collect();
+                    room_data.timeline = vec![];
+                    events
+                };
 
-        Ok(UpdateSummary { views: updated_views, rooms })
+                if let Some(mut r) = rooms_map.remove(&id) {
+                    r.update(&room_data, timeline);
+                    rooms_map.insert_cloned(id.clone(), r);
+                    rooms.push(id.clone());
+                } else {
+                    rooms_map.insert_cloned(
+                        id.clone(),
+                        SlidingSyncRoom::from(id.clone(), room_data, timeline),
+                    );
+                    rooms.push(id);
+                }
+            }
+
+            // Update the `to-device` next-batch if found.
+            if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
+                self.update_to_device_since(to_device_since)
+            }
+            UpdateSummary { views: updated_views, rooms }
+        };
+
+        self.cache_to_storage().await?;
+
+        Ok(update)
     }
 
     /// Create the inner stream for the view.
@@ -670,6 +803,32 @@ pub struct SlidingSyncView {
     #[builder(private)]
     pub rooms_updated_broadcaster:
         futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FrozenSlidingSyncView {
+    state: SlidingSyncState,
+    rooms_count: Option<u32>,
+    rooms_list: Vec<RoomListEntry>,
+}
+
+impl From<&SlidingSyncView> for FrozenSlidingSyncView {
+    fn from(v: &SlidingSyncView) -> Self {
+        FrozenSlidingSyncView {
+            state: v.state.lock_ref().clone(),
+            rooms_count: *v.rooms_count.lock_ref(),
+            rooms_list: v.rooms_list.lock_ref().to_vec(),
+        }
+    }
+}
+
+impl SlidingSyncView {
+    fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
+        let FrozenSlidingSyncView { state, rooms_count, rooms_list } = v;
+        self.state.replace(state);
+        self.rooms_count.replace(rooms_count);
+        self.rooms_list.lock_mut().replace_cloned(rooms_list);
+    }
 }
 
 // /// the default name for the full sync view
