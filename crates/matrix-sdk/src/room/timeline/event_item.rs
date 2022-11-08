@@ -168,14 +168,10 @@ impl EventTimelineItem {
 
     /// Flag indicating this timeline item can be edited by current user.
     pub fn is_editable(&self) -> bool {
-        if !self.is_own() {
-            false;
-        }
         match &self.content {
-            TimelineItemContent::Message(message) => match message.msgtype() {
-                MessageType::Text(_) => true,
-                MessageType::Emote(_) => true,
-                _ => false,
+            TimelineItemContent::Message(message) => {
+                self.is_own()
+                    && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
             },
             _ => false,
         }
