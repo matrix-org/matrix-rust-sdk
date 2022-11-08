@@ -301,6 +301,17 @@ pub enum TimelineItemContent {
     UnableToDecrypt(EncryptedMessage),
 }
 
+impl TimelineItemContent {
+    /// If `self` is of the [`Message`][Self:Message] variant, return the inner
+    /// [`Message`].
+    pub fn as_message(&self) -> Option<&Message> {
+        match self {
+            Self::Message(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -316,6 +327,13 @@ impl Message {
     /// Get the `msgtype`-specific data of this message.
     pub fn msgtype(&self) -> &MessageType {
         &self.msgtype
+    }
+
+    /// Get a reference to the message body.
+    ///
+    /// Shorthand for `.msgtype().body()`.
+    pub fn body(&self) -> &str {
+        self.msgtype.body()
     }
 
     /// Get the event ID of the event this message is replying to, if any.
