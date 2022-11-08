@@ -30,6 +30,9 @@ use ruma::{
     events::{
         reaction::{self, ReactionEventContent},
         room::{
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
             message::{self, Replacement, RoomMessageEventContent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
@@ -40,7 +43,7 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{TimelineInner, TimelineItem};
+use super::{EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent};
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -138,6 +141,36 @@ async fn edit_redacted() {
     timeline.handle_live_message_event(&ALICE, edit);
 
     assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+}
+
+#[async_test]
+async fn unable_to_decrypt() {
+    let timeline = TestTimeline::new(&ALICE);
+    timeline.handle_live_message_event(
+        &BOB,
+        RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "This can't be decrypted".to_owned(),
+                    sender_key: "whatever".to_owned(),
+                    device_id: "MyDevice".into(),
+                    session_id: "MySession".into(),
+                }
+                .into(),
+            ),
+            None,
+        ),
+    );
+    let timeline_items = timeline.inner.items.lock_ref();
+    assert_eq!(timeline_items.len(), 1);
+    let event = timeline_items[0].as_event().unwrap();
+    let session_id = assert_matches!(
+        event.content(),
+        TimelineItemContent::UnableToDecrypt(
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. },
+        ) => session_id
+    );
+    assert_eq!(session_id, "MySession");
 }
 
 struct TestTimeline {
