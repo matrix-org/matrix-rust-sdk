@@ -172,7 +172,7 @@ impl EventTimelineItem {
             TimelineItemContent::Message(message) => {
                 self.is_own()
                     && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
-            },
+            }
             _ => false,
         }
     }
