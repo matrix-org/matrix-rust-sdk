@@ -48,7 +48,7 @@ pub enum Error {
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
     #[error("Builder went wrong: {0}")]
-    SlidingSyncBuilderError(#[from] SlidingSyncBuilderError),
+    SlidingSyncBuilder(#[from] SlidingSyncBuilderError),
 }
 
 /// The state the [`SlidingSyncView`] is in.
@@ -107,6 +107,15 @@ impl RoomListEntry {
         match &self {
             RoomListEntry::Empty => None,
             RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.as_ref()),
+        }
+    }
+
+    fn freeze(&self) -> RoomListEntry {
+        match &self {
+            RoomListEntry::Empty => RoomListEntry::Empty,
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => {
+                RoomListEntry::Invalidated(b.clone())
+            }
         }
     }
 }
@@ -505,7 +514,7 @@ impl SlidingSyncBuilder {
     ///
     /// if configured, load the cached data from cold storage
     pub async fn build(self) -> Result<SlidingSync> {
-        self.build_no_cache().map_err(Error::SlidingSyncBuilderError)?.build().await
+        self.build_no_cache().map_err(Error::SlidingSyncBuilder)?.build().await
     }
 }
 
@@ -862,7 +871,6 @@ pub struct SlidingSyncView {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSyncView {
-    state: SlidingSyncState,
     rooms_count: Option<u32>,
     rooms_list: Vec<RoomListEntry>,
 }
@@ -870,17 +878,15 @@ struct FrozenSlidingSyncView {
 impl From<&SlidingSyncView> for FrozenSlidingSyncView {
     fn from(v: &SlidingSyncView) -> Self {
         FrozenSlidingSyncView {
-            state: v.state.lock_ref().clone(),
             rooms_count: *v.rooms_count.lock_ref(),
-            rooms_list: v.rooms_list.lock_ref().to_vec(),
+            rooms_list: v.rooms_list.lock_ref().iter().map(|e| e.freeze()).collect(),
         }
     }
 }
 
 impl SlidingSyncView {
     fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
-        let FrozenSlidingSyncView { state, rooms_count, rooms_list } = v;
-        self.state.replace(state);
+        let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
