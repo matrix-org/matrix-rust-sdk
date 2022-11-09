@@ -755,4 +755,7 @@ impl OlmMachine {
             passphrase,
         )?)?)
     }
+
+    /// Force to drop/close the `OlmMachine`.
+    pub fn close(self) {}
 }
