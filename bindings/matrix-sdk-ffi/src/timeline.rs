@@ -430,10 +430,7 @@ impl From<&matrix_sdk::ruma::events::room::message::VideoInfo> for VideoInfo {
         });
 
         Self {
-            duration: match info.duration {
-                Some(d) => Some(d.as_secs()),
-                _ => None,
-            },
+            duration: info.duration.map(|d| d.as_secs()),
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
             mimetype: info.mimetype.clone(),
