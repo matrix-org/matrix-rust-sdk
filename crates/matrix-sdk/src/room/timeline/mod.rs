@@ -43,6 +43,8 @@ use crate::{
 
 mod event_handler;
 mod event_item;
+#[cfg(test)]
+mod tests;
 mod virtual_item;
 
 pub use self::{
