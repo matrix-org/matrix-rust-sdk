@@ -166,6 +166,17 @@ impl EventTimelineItem {
         self.is_own
     }
 
+    /// Flag indicating this timeline item can be edited by current user.
+    pub fn is_editable(&self) -> bool {
+        match &self.content {
+            TimelineItemContent::Message(message) => {
+                self.is_own()
+                    && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
+            }
+            _ => false,
+        }
+    }
+
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///
