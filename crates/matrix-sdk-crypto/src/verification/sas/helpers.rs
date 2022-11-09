@@ -30,7 +30,7 @@ use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
 use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
 
-use super::{FlowId, OutgoingContent};
+use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::event_enums::{MacContent, StartContent},
@@ -189,6 +189,7 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     sender: &UserId,
+    mac_method: SupportedMacMethod,
     content: &MacContent<'_>,
 ) -> Result<(Vec<ReadOnlyDevice>, Vec<ReadOnlyUserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
@@ -204,14 +205,7 @@ pub fn receive_mac_event(
 
     let mut keys = content.mac().keys().map(|k| k.as_str()).collect::<Vec<_>>();
     keys.sort_unstable();
-
-    let keys =
-        Base64::parse(sas.calculate_mac_invalid_base64(&keys.join(","), &format!("{info}KEY_IDS")))
-            .expect("Can't base64-decode SAS MAC");
-
-    if keys != *content.keys() {
-        return Err(CancelCode::KeyMismatch);
-    }
+    mac_method.verify_mac(sas, &keys.join(","), &format!("{info}KEY_IDS"), content.keys())?;
 
     for (key_id, key_mac) in content.mac() {
         trace!(
@@ -227,32 +221,21 @@ pub fn receive_mac_event(
         };
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
-            let calculated_mac = Base64::parse(
-                sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{info}{key_id}")),
-            )
-            .expect("Can't base64-decode SAS MAC");
-
-            if *key_mac == calculated_mac {
-                trace!(%sender, %key_id, "Successfully verified a device key");
-                verified_devices.push(ids.other_device.clone());
-            } else {
-                return Err(CancelCode::KeyMismatch);
-            }
+            mac_method.verify_mac(sas, &key.to_base64(), &format!("{info}{key_id}"), key_mac)?;
+            trace!(%sender, %key_id, "Successfully verified a device key");
+            verified_devices.push(ids.other_device.clone());
         } else if let Some(identity) = &ids.other_identity {
             if let Some(key) = identity.master_key().get_key(&key_id) {
-                // TODO we should check that the master key signs the device,
+                // TODO: we should check that the master key signs the device,
                 // this way we know the master key also trusts the device
-                let calculated_mac = Base64::parse(
-                    sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{info}{key_id}")),
-                )
-                .expect("Can't base64-decode SAS MAC");
-
-                if *key_mac == calculated_mac {
-                    trace!(%sender, %key_id, "Successfully verified a master key");
-                    verified_identities.push(identity.clone())
-                } else {
-                    return Err(CancelCode::KeyMismatch);
-                }
+                mac_method.verify_mac(
+                    sas,
+                    &key.to_base64(),
+                    &format!("{info}{key_id}"),
+                    key_mac,
+                )?;
+                trace!(%sender, %key_id, "Successfully verified a master key");
+                verified_identities.push(identity.clone())
             }
         } else {
             warn!(
@@ -295,47 +278,37 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 /// * `ids` - The ids that are used for this SAS authentication flow.
 ///
 /// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// # Panics
-///
-/// This will panic if the public key of the other side wasn't set.
-pub fn get_mac_content(sas: &EstablishedSas, ids: &SasIds, flow_id: &FlowId) -> OutgoingContent {
+pub fn get_mac_content(
+    sas: &EstablishedSas,
+    ids: &SasIds,
+    flow_id: &FlowId,
+    mac_method: SupportedMacMethod,
+) -> OutgoingContent {
     let mut mac: BTreeMap<String, Base64> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
     let key = ids.account.identity_keys().ed25519.to_base64();
     let info = extra_mac_info_send(ids, flow_id.as_str());
 
-    mac.insert(
-        key_id.to_string(),
-        Base64::parse(sas.calculate_mac_invalid_base64(&key, &format!("{info}{key_id}")))
-            .expect("Can't base64-decode SAS MAC"),
-    );
+    mac.insert(key_id.to_string(), mac_method.calculate_mac(sas, &key, &format!("{info}{key_id}")));
 
     if let Some(own_identity) = &ids.own_identity {
         if own_identity.is_verified() {
             if let Some(key) = own_identity.master_key().get_first_key() {
                 let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
 
-                let calculated_mac = Base64::parse(
-                    sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{info}{key_id}")),
-                )
-                .expect("Can't base64-decode SAS Master key MAC");
+                let calculated_mac =
+                    mac_method.calculate_mac(sas, &key.to_base64(), &format!("{info}{key_id}"));
 
                 mac.insert(key_id, calculated_mac);
             }
         }
     }
 
-    // TODO Add the cross signing master key here if we trust/have it.
-
     let mut keys: Vec<_> = mac.keys().map(|s| s.as_str()).collect();
     keys.sort_unstable();
 
-    let keys = Base64::parse(
-        sas.calculate_mac_invalid_base64(&keys.join(","), &format!("{}KEY_IDS", &info)),
-    )
-    .expect("Can't base64-decode SAS MAC");
+    let keys = mac_method.calculate_mac(sas, &keys.join(","), &format!("{info}KEY_IDS"));
 
     match flow_id {
         FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationMac(
