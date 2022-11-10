@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 use tokio::sync::mpsc;
 use tracing::warn;
 use tuirealm::{
@@ -18,7 +19,6 @@ use super::{
     Id, JackInEvent, MatrixPoller, Msg,
 };
 use crate::client::state::SlidingSyncState;
-use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 
 pub struct Model {
     /// Application
@@ -219,7 +219,7 @@ impl Update<Msg> for Model {
                         .and_then(|id| self.client.get_joined_room(id))
                     {
                         tokio::spawn(async move {
-                            // we do that in fire and forget style
+                            // fire and forget
                             match room.send(RoomMessageEventContent::text_plain(m), None).await {
                                 Ok(_r) => tracing::info!("Message send"),
                                 Err(e) => tracing::error!("Sending message failed: {:}", e),
