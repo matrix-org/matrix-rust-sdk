@@ -18,9 +18,11 @@ use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        fully_read::FullyReadEvent,
         reaction::ReactionEventContent,
         room::{
-            message::{Relation, Replacement, RoomMessageEventContent},
+            encrypted::{self, RoomEncryptedEventContent},
+            message::{self, Replacement, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -36,8 +38,8 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, EventTimelineItem, Message, TimelineInner, TimelineItem, TimelineItemContent,
-    TimelineKey,
+    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineItem,
+    TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 impl TimelineInner {
@@ -58,8 +60,6 @@ impl TimelineInner {
     ) {
         let meta = TimelineEventMetadata {
             sender: own_user_id.to_owned(),
-            origin_server_ts: None,
-            raw_event: None,
             is_own_event: true,
             relations: None,
             // FIXME: Should we supply something here for encrypted rooms?
@@ -100,20 +100,76 @@ impl TimelineInner {
         let is_own_event = sender == own_user_id;
 
         let meta = TimelineEventMetadata {
-            raw_event: Some(raw),
             sender,
-            origin_server_ts: Some(event.origin_server_ts()),
             is_own_event,
             relations: event.relations().cloned(),
             encryption_info,
         };
         let flow = Flow::Remote {
             event_id: event.event_id().to_owned(),
+            origin_server_ts: event.origin_server_ts(),
+            raw_event: raw,
             txn_id: event.transaction_id().map(ToOwned::to_owned),
             position,
         };
 
         TimelineEventHandler::new(meta, flow, self).handle_event(event.into())
+    }
+
+    pub(super) fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
+        let fully_read_event = match raw.deserialize() {
+            Ok(ev) => ev.content.event_id,
+            Err(error) => {
+                error!(?error, "Failed to deserialize `m.fully_read` account data");
+                return;
+            }
+        };
+
+        self.set_fully_read_event(fully_read_event);
+    }
+
+    pub(super) fn set_fully_read_event(&self, fully_read_event: OwnedEventId) {
+        {
+            let mut fully_read_lock = self.fully_read_event.lock().unwrap();
+
+            if fully_read_lock.as_ref() == Some(&fully_read_event) {
+                return;
+            }
+
+            *fully_read_lock = Some(fully_read_event);
+        }
+
+        self.update_fully_read_item();
+    }
+
+    fn update_fully_read_item(&self) {
+        let fully_read_lock = self.fully_read_event.lock().unwrap();
+
+        let fully_read_event = match &*fully_read_lock {
+            Some(event) => event,
+            None => return,
+        };
+
+        let mut items_lock = self.items.lock_mut();
+        let old_idx = find_fully_read(&items_lock);
+        let new_idx = find_event(&items_lock, fully_read_event).map(|(idx, _)| idx + 1);
+
+        match (old_idx, new_idx) {
+            (None, None) => {}
+            (None, Some(idx)) => {
+                *self.fully_read_event_in_timeline.lock().unwrap() = true;
+                let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
+                items_lock.insert_cloned(idx, item.into());
+            }
+            (Some(_), None) => {
+                // Keep the current position of the read marker, hopefully we
+                // should have a new position later.
+                *self.fully_read_event_in_timeline.lock().unwrap() = false;
+            }
+            (Some(from), Some(to)) => {
+                items_lock.move_from_to(from, to);
+            }
+        }
     }
 }
 
@@ -124,6 +180,8 @@ enum Flow {
     Remote {
         event_id: OwnedEventId,
         txn_id: Option<OwnedTransactionId>,
+        origin_server_ts: MilliSecondsSinceUnixEpoch,
+        raw_event: Raw<AnySyncTimelineEvent>,
         position: TimelineItemPosition,
     },
 }
@@ -135,12 +193,24 @@ impl Flow {
             Self::Local { txn_id } => TimelineKey::TransactionId(txn_id.to_owned()),
         }
     }
+
+    fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        match self {
+            Flow::Local { .. } => None,
+            Flow::Remote { origin_server_ts, .. } => Some(*origin_server_ts),
+        }
+    }
+
+    fn raw_event(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
+        match self {
+            Flow::Local { .. } => None,
+            Flow::Remote { raw_event, .. } => Some(raw_event),
+        }
+    }
 }
 
 struct TimelineEventMetadata {
-    raw_event: Option<Raw<AnySyncTimelineEvent>>,
     sender: OwnedUserId,
-    origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
     is_own_event: bool,
     relations: Option<Relations>,
     encryption_info: Option<EncryptionInfo>,
@@ -204,6 +274,7 @@ impl<'a> TimelineEventHandler<'a> {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
                 AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
+                AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 // TODO
                 _ => {}
             },
@@ -224,7 +295,7 @@ impl<'a> TimelineEventHandler<'a> {
 
     fn handle_room_message(&mut self, content: RoomMessageEventContent) {
         match content.relates_to {
-            Some(Relation::Replacement(re)) => {
+            Some(message::Relation::Replacement(re)) => {
                 self.handle_room_message_edit(re);
             }
             _ => {
@@ -240,7 +311,7 @@ impl<'a> TimelineEventHandler<'a> {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
-                    "Event tries to edit another user's timeline item, discarding"
+                    "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
             }
@@ -250,7 +321,14 @@ impl<'a> TimelineEventHandler<'a> {
                 TimelineItemContent::RedactedMessage => {
                     info!(
                         %event_id,
-                        "Event tries to edit a non-editable timeline item, discarding"
+                        "Edit event applies to a redacted message, discarding"
+                    );
+                    return None;
+                }
+                TimelineItemContent::UnableToDecrypt(_) => {
+                    info!(
+                        %event_id,
+                        "Edit event applies to event that couldn't be decrypted, discarding"
                     );
                     return None;
                 }
@@ -298,6 +376,18 @@ impl<'a> TimelineEventHandler<'a> {
 
         if did_update {
             lock.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+        }
+    }
+
+    fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
+        match c.relates_to {
+            Some(encrypted::Relation::Replacement(_) | encrypted::Relation::Annotation(_)) => {
+                // Do nothing for these, as they would not produce a new
+                // timeline item when decrypted either
+            }
+            _ => {
+                self.add(NewEventTimelineItem::unable_to_decrypt(c));
+            }
         }
     }
 
@@ -382,38 +472,63 @@ impl<'a> TimelineEventHandler<'a> {
             sender: self.meta.sender.to_owned(),
             content,
             reactions,
-            origin_server_ts: self.meta.origin_server_ts,
+            origin_server_ts: self.flow.origin_server_ts(),
             is_own: self.meta.is_own_event,
             encryption_info: self.meta.encryption_info.clone(),
-            raw: self.meta.raw_event.clone(),
+            raw: self.flow.raw_event().cloned(),
         };
 
         let item = Arc::new(TimelineItem::Event(item));
         let mut lock = self.timeline.items.lock_mut();
         match &self.flow {
-            Flow::Local { .. }
-            | Flow::Remote { position: TimelineItemPosition::End, txn_id: None, .. } => {
+            Flow::Local { .. } => {
                 lock.push_cloned(item);
             }
-            Flow::Remote { position: TimelineItemPosition::Start, txn_id: None, .. } => {
-                lock.insert_cloned(0, item);
-            }
-            Flow::Remote { txn_id: Some(txn_id), event_id, position } => {
-                if let Some((idx, _old_item)) = find_event(&lock, txn_id) {
-                    // TODO: Check whether anything is different about the old and new item?
-                    lock.set_cloned(idx, item);
-                } else {
-                    debug!(
-                        %txn_id, %event_id,
-                        "Received event with transaction ID, but didn't find matching timeline item"
-                    );
-
-                    match position {
-                        TimelineItemPosition::Start => lock.insert_cloned(0, item),
-                        TimelineItemPosition::End => lock.push_cloned(item),
+            Flow::Remote { txn_id, event_id, position, raw_event, .. } => {
+                if let Some(txn_id) = txn_id {
+                    if let Some((idx, _old_item)) = find_event(&lock, txn_id) {
+                        // TODO: Check whether anything is different about the
+                        //       old and new item?
+                        lock.set_cloned(idx, item);
+                        return;
+                    } else {
+                        warn!(
+                            %txn_id, %event_id,
+                            "Received event with transaction ID, but didn't \
+                             find matching timeline item"
+                        );
                     }
                 }
+
+                if let Some((idx, old_item)) = find_event(&lock, event_id) {
+                    warn!(
+                        ?item,
+                        ?old_item,
+                        raw = raw_event.json().get(),
+                        "Received event with an ID we already have a timeline item for"
+                    );
+
+                    // With /messages and /sync sometimes disagreeing on order
+                    // of messages, we might want to change the position in some
+                    // circumstances, but for now this should be good enough.
+                    lock.set_cloned(idx, item);
+                    return;
+                }
+
+                match position {
+                    TimelineItemPosition::Start => lock.insert_cloned(0, item),
+                    TimelineItemPosition::End => lock.push_cloned(item),
+                }
             }
+        }
+
+        drop(lock);
+
+        // See if we got the event corresponding to the fully read marker now.
+        let fully_read_event_in_timeline =
+            *self.timeline.fully_read_event_in_timeline.lock().unwrap();
+        if !fully_read_event_in_timeline {
+            self.timeline.update_fully_read_item();
         }
     }
 
@@ -462,12 +577,12 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    pub(crate) fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
+    fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
         let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
             in_reply_to: c.relates_to.and_then(|rel| match rel {
-                Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
+                message::Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
                 _ => None,
             }),
             edited,
@@ -479,7 +594,14 @@ impl NewEventTimelineItem {
         Self { content, reactions }
     }
 
-    pub(crate) fn redacted_message() -> Self {
+    fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
+        Self {
+            content: TimelineItemContent::UnableToDecrypt(content.into()),
+            reactions: BundledReactions::default(),
+        }
+    }
+
+    fn redacted_message() -> Self {
         Self {
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),

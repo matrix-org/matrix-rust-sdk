@@ -17,12 +17,11 @@ use matrix_sdk::{
         serde::Raw,
         TransactionId, UInt,
     },
-    Client as MatrixClient, Error, LoopCtrl, RumaApiError, Session,
+    Client as MatrixClient, Error, LoopCtrl, RumaApiError,
 };
 
 use super::{
-    room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
-    RUNTIME,
+    room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
 };
 
 impl std::ops::Deref for Client {
@@ -60,7 +59,7 @@ impl Client {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
                     session_verification_controller.process_to_device_message(ev).await;
                 } else {
-                    tracing::warn!(
+                    tracing::debug!(
                         "received to-device message, but verification controller isn't ready"
                     );
                 }
@@ -96,21 +95,33 @@ impl Client {
         })
     }
 
-    /// Restores the client from a `RestoreToken`.
-    pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
-        let RestoreToken { session, homeurl: _, is_guest: _, is_soft_logout } =
-            serde_json::from_str(&restore_token)?;
+    /// Restores the client from a `Session`.
+    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
+        let Session {
+            access_token,
+            refresh_token,
+            user_id,
+            device_id,
+            homeserver_url: _,
+            is_soft_logout,
+        } = session;
 
         // update soft logout state
         self.state.write().unwrap().is_soft_logout = is_soft_logout;
 
-        self.restore_session(session)
+        let session = matrix_sdk::Session {
+            access_token,
+            refresh_token,
+            user_id: user_id.try_into()?,
+            device_id: device_id.into(),
+        };
+        self.restore_session_inner(session)
     }
 
-    /// Restores the client from a `Session`.
-    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
+    /// Restores the client from a `matrix_sdk::Session`.
+    pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.restore_login(session).await?;
+            self.client.restore_session(session).await?;
             Ok(())
         })
     }
@@ -145,16 +156,21 @@ impl Client {
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
-    pub fn restore_token(&self) -> anyhow::Result<String> {
+    pub fn session(&self) -> anyhow::Result<Session> {
         RUNTIME.block_on(async move {
-            let session = self.client.session().context("Missing session")?;
-            let homeurl = self.client.homeserver().await.into();
-            Ok(serde_json::to_string(&RestoreToken {
-                session,
-                homeurl,
-                is_guest: self.state.read().unwrap().is_guest,
-                is_soft_logout: self.state.read().unwrap().is_soft_logout,
-            })?)
+            let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
+                self.client.session().context("Missing session")?;
+            let homeserver_url = self.client.homeserver().await.into();
+            let is_soft_logout = self.state.read().unwrap().is_soft_logout;
+
+            Ok(Session {
+                access_token,
+                refresh_token,
+                user_id: user_id.to_string(),
+                device_id: device_id.to_string(),
+                homeserver_url,
+                is_soft_logout,
+            })
         })
     }
 
@@ -315,11 +331,6 @@ impl Client {
         self.state.read().unwrap().has_first_synced
     }
 
-    /// Is this a guest account?
-    pub fn is_guest(&self) -> bool {
-        self.state.read().unwrap().is_guest
-    }
-
     /// Flag indicating whether the session is in soft logout mode
     pub fn is_soft_logout(&self) -> bool {
         self.state.read().unwrap().is_soft_logout
@@ -379,6 +390,24 @@ impl Client {
                 .unwrap();
         });
     }
+}
+
+pub struct Session {
+    // Same fields as the Session type in matrix-sdk, just simpler types
+    /// The access token used for this session.
+    pub access_token: String,
+    /// The token used for [refreshing the access token], if any.
+    ///
+    /// [refreshing the access token]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub refresh_token: Option<String>,
+    /// The user the access token was issued for.
+    pub user_id: String,
+    /// The ID of the client device.
+    pub device_id: String,
+
+    // FFI-only fields (for now)
+    pub homeserver_url: String,
+    pub is_soft_logout: bool,
 }
 
 #[uniffi::export]

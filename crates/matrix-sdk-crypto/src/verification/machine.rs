@@ -31,7 +31,7 @@ use ruma::{
 use tracing::{debug, info, trace, warn};
 
 use super::{
-    cache::VerificationCache,
+    cache::{RequestInfo, VerificationCache},
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
     sas::Sas,
@@ -230,12 +230,13 @@ impl VerificationMachine {
         recipient: &UserId,
         recipient_device: &DeviceId,
         content: OutgoingContent,
+        request_id: Option<RequestInfo>,
     ) {
-        self.verifications.queue_up_content(recipient, recipient_device, content)
+        self.verifications.queue_up_content(recipient, recipient_device, content, request_id)
     }
 
-    pub fn mark_request_as_sent(&self, txn_id: &TransactionId) {
-        self.verifications.mark_request_as_sent(txn_id);
+    pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
+        self.verifications.mark_request_as_sent(request_id);
     }
 
     pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
@@ -290,7 +291,7 @@ impl VerificationMachine {
         match sas.mark_as_done().await? {
             VerificationResult::Ok => {
                 if let Some(c) = out_content {
-                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
+                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c, None);
                 }
             }
             VerificationResult::Cancel(c) => {
@@ -302,7 +303,7 @@ impl VerificationMachine {
                 self.verifications.add_request(r.into());
 
                 if let Some(c) = out_content {
-                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
+                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c, None);
                 }
             }
         }
@@ -437,6 +438,7 @@ impl VerificationMachine {
                                     event.sender(),
                                     c.from_device(),
                                     cancellation,
+                                    None,
                                 ),
                             }
                         }
@@ -445,11 +447,14 @@ impl VerificationMachine {
                 AnyVerificationContent::Accept(_) | AnyVerificationContent::Key(_) => {
                     if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
                         if sas.flow_id() == &flow_id {
-                            if let Some(content) = sas.receive_any_event(event.sender(), &content) {
+                            if let Some((content, request_info)) =
+                                sas.receive_any_event(event.sender(), &content)
+                            {
                                 self.queue_up_content(
                                     sas.other_user_id(),
                                     sas.other_device_id(),
                                     content,
+                                    request_info,
                                 );
                             }
                         } else {
@@ -463,17 +468,18 @@ impl VerificationMachine {
                             let content = s.receive_any_event(event.sender(), &content);
 
                             if s.is_done() {
-                                self.mark_sas_as_done(s, content).await?;
+                                self.mark_sas_as_done(s, content.map(|(c, _)| c)).await?;
                             } else {
                                 // Even if we are not done (yet), there might be content to send
                                 // out, e.g. in the case where we are done with our side of the
                                 // verification process, but the other side has not yet sent their
                                 // "done".
-                                if let Some(content) = content {
+                                if let Some((content, request_id)) = content {
                                     self.queue_up_content(
                                         s.other_user_id(),
                                         s.other_device_id(),
                                         content,
+                                        request_id,
                                     );
                                 }
                             }
@@ -493,7 +499,7 @@ impl VerificationMachine {
                             let content = sas.receive_any_event(event.sender(), &content);
 
                             if sas.is_done() {
-                                self.mark_sas_as_done(sas, content).await?;
+                                self.mark_sas_as_done(sas, content.map(|(c, _)| c)).await?;
                             }
                         }
                         #[cfg(feature = "qrcode")]
@@ -588,7 +594,7 @@ mod tests {
         let content = OutgoingContent::try_from(request).unwrap();
         let content = AcceptContent::try_from(&content).unwrap().into();
 
-        let content = bob.receive_any_event(alice.user_id(), &content).unwrap();
+        let (content, request_info) = bob.receive_any_event(alice.user_id(), &content).unwrap();
 
         let event = wrap_any_to_device_content(bob.user_id(), content);
 
@@ -606,6 +612,10 @@ mod tests {
         assert!(bob.receive_any_event(alice.user_id(), &content).is_none());
 
         assert!(alice.emoji().is_some());
+        // Bob can only show the emoji if it marks the request carrying the
+        // m.key.verification.key event as sent.
+        assert!(bob.emoji().is_none());
+        bob.mark_request_as_sent(&request_info.unwrap().request_id);
         assert!(bob.emoji().is_some());
         assert_eq!(alice.emoji(), bob.emoji());
 

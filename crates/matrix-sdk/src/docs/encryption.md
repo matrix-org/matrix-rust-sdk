@@ -190,7 +190,7 @@ have been uploaded and tied to a device ID.
 
 1. Log in with the password using [`Client::login_username()`].
 2. Store the access token, preferably somewhere secure.
-3. Use [`Client::restore_login()`] the next time the client starts.
+3. Use [`Client::restore_session()`] the next time the client starts.
 
 **Note** that the access token is directly connected to a device ID that
 lives on a server. If you're skipping step one of this method, remember that

@@ -454,7 +454,7 @@ impl SlidingSync {
         views: &[SlidingSyncView],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
-        tracing::info!("main client processed.");
+        tracing::debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
         if resp.lists.len() != views.len() {
@@ -565,7 +565,7 @@ impl SlidingSync {
                     let (e2ee_uploads, resp) = futures_util::join!(client.send_outgoing_requests(), req);
                     if let Err(e) = e2ee_uploads {
                         tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
-                    };
+                    }
                     resp
                 };
                 #[cfg(not(feature = "e2e-encryption"))]
@@ -1093,9 +1093,6 @@ impl SlidingSyncView {
 impl Client {
     /// Create a SlidingSyncBuilder tied to this client
     pub async fn sliding_sync(&self) -> SlidingSyncBuilder {
-        // ensure the version has been checked in before, as the proxy doesn't support
-        // that
-        let _ = self.server_versions().await;
         SlidingSyncBuilder::default().client(self.clone())
     }
 
@@ -1105,7 +1102,7 @@ impl Client {
         response: v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
-        tracing::info!("done processing on base_client");
+        tracing::debug!("done processing on base_client");
         self.handle_sync_response(response).await
     }
 }

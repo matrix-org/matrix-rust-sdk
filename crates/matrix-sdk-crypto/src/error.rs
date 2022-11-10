@@ -92,10 +92,6 @@ pub enum MegolmError {
     #[error(transparent)]
     Decode(#[from] vodozemac::DecodeError),
 
-    /// The room where a group session should be shared is not encrypted.
-    #[error("The room where a group session should be shared is not encrypted")]
-    EncryptionNotEnabled,
-
     /// The event could not have been decrypted.
     #[error(transparent)]
     Decryption(#[from] vodozemac::megolm::DecryptionError),

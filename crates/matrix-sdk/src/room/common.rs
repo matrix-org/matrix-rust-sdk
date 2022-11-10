@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
@@ -40,7 +40,7 @@ use serde::de::DeserializeOwned;
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
 use crate::{
-    event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
+    event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     room::{RoomMember, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
@@ -248,7 +248,6 @@ impl Common {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
     }
@@ -259,8 +258,8 @@ impl Common {
     /// like edits and reactions as updates of existing items rather than new
     /// independent events.
     #[cfg(feature = "experimental-timeline")]
-    pub fn timeline(&self) -> Timeline {
-        Timeline::new(self)
+    pub async fn timeline(&self) -> Timeline {
+        Timeline::new(self).await
     }
 
     /// Fetch the event with the given `EventId` in this room.

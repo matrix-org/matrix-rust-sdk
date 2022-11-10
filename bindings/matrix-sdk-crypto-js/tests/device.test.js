@@ -53,7 +53,7 @@ describe(OlmMachine.name, () => {
     const room = new RoomId('!baz:matrix.org');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || user, new_device || device);
+        return OlmMachine.initialize(new_user || user, new_device || device);
     }
 
     test('can read user devices', async () => {
@@ -116,7 +116,7 @@ describe('Key Verification', () => {
     const deviceId2 = new DeviceId('bob_device');
 
     function machine(new_user, new_device) {
-        return new OlmMachine(new_user || userId1, new_device || deviceId1);
+        return OlmMachine.initialize(new_user || userId1, new_device || deviceId1);
     }
 
     describe('SAS', () => {
@@ -707,16 +707,14 @@ describe('Key Verification', () => {
             expect(qr2.roomId).toBeUndefined();
         });
 
-        let qrCodeBytes;
-
         test('can read QR code\'s bytes', async () => {
             const qrCodeHeader = 'MATRIX';
             const qrCodeVersion = '\x02';
 
-            qrCodeBytes = qr2.toBytes();
+            const qrCodeBytes = qr2.toBytes();
 
             expect(qrCodeBytes).toHaveLength(122);
-            expect(qrCodeBytes.slice(0, 7)).toStrictEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
+            expect(Array.from(qrCodeBytes.slice(0, 7))).toEqual([...qrCodeHeader, ...qrCodeVersion].map(char => char.charCodeAt(0)));
         });
 
         test('can render QR code', async () => {
@@ -793,7 +791,7 @@ describe('Key Verification', () => {
         let qr1;
 
         test('can scan a QR code from bytes', async () => {
-            const scan = QrCodeScan.fromBytes(qrCodeBytes);
+            const scan = QrCodeScan.fromBytes(qr2.toBytes());
 
             expect(scan).toBeInstanceOf(QrCodeScan);
 

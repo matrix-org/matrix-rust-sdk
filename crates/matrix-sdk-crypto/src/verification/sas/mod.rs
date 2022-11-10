@@ -30,9 +30,10 @@ use ruma::{
     DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 pub use sas_state::AcceptedProtocols;
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 use super::{
+    cache::RequestInfo,
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
     CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
@@ -54,6 +55,41 @@ pub struct Sas {
     flow_id: Arc<FlowId>,
     we_started: bool,
     request_handle: Option<RequestHandle>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum State {
+    Created,
+    Started,
+    Accepted,
+    WeAccepted,
+    KeyReceived,
+    KeySent,
+    KeysExchanged,
+    Confirmed,
+    MacReceived,
+    WaitingForDone,
+    Done,
+    Cancelled,
+}
+
+impl From<&InnerSas> for State {
+    fn from(value: &InnerSas) -> Self {
+        match value {
+            InnerSas::Created(_) => Self::Created,
+            InnerSas::Started(_) => Self::Started,
+            InnerSas::Accepted(_) => Self::Accepted,
+            InnerSas::WeAccepted(_) => Self::WeAccepted,
+            InnerSas::KeyReceived(_) => Self::KeyReceived,
+            InnerSas::KeySent(_) => Self::KeySent,
+            InnerSas::KeysExchanged(_) => Self::KeysExchanged,
+            InnerSas::Confirmed(_) => Self::Confirmed,
+            InnerSas::MacReceived(_) => Self::MacReceived,
+            InnerSas::WaitingForDone(_) => Self::WaitingForDone,
+            InnerSas::Done(_) => Self::Done,
+            InnerSas::Cancelled(_) => Self::Cancelled,
+        }
+    }
 }
 
 /// The short auth string for the emoji method of SAS verification.
@@ -144,7 +180,13 @@ impl From<&InnerSas> for SasState {
             InnerSas::WeAccepted(s) => {
                 Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
             }
+            InnerSas::KeySent(s) => {
+                Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
+            }
             InnerSas::KeyReceived(s) => {
+                Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
+            }
+            InnerSas::KeysExchanged(s) => {
                 let emojis = if value.supports_emoji() {
                     let emojis = s.get_emoji();
                     let indices = s.get_emoji_index();
@@ -404,6 +446,8 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
+        let old_state = self.state_debug();
+
         let (request, state) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -437,6 +481,15 @@ impl Sas {
         if let Some(new_state) = state {
             self.update_state(new_state);
         }
+
+        let new_state = self.state_debug();
+
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "Accepted SAS verification"
+        );
 
         request
     }
@@ -727,11 +780,17 @@ impl Sas {
         }
     }
 
+    fn state_debug(&self) -> State {
+        (&*self.inner.lock().unwrap()).into()
+    }
+
     pub(crate) fn receive_any_event(
         &self,
         sender: &UserId,
         content: &AnyVerificationContent<'_>,
-    ) -> Option<OutgoingContent> {
+    ) -> Option<(OutgoingContent, Option<RequestInfo>)> {
+        let old_state = self.state_debug();
+
         let (content, state) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -744,9 +803,54 @@ impl Sas {
             (content, state)
         };
 
-        self.update_state(state);
+        let new_state = self.state_debug();
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "SAS received an event and changed its state"
+        );
 
+        self.update_state(state);
         content
+    }
+
+    pub(crate) fn mark_request_as_sent(&self, request_id: &TransactionId) {
+        let old_state = self.state_debug();
+
+        let state = {
+            let mut guard = self.inner.lock().unwrap();
+
+            let sas: InnerSas = (*guard).clone();
+
+            if let Some(sas) = sas.mark_request_as_sent(request_id) {
+                let state: SasState = (&sas).into();
+                *guard = sas;
+
+                Some(state)
+            } else {
+                error!(
+                    flow_id = self.flow_id().as_str(),
+                    %request_id,
+                    "Tried to mark a request as sent, but the request ID didn't match"
+                );
+                None
+            }
+        };
+
+        let new_state = self.state_debug();
+
+        debug!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            %request_id,
+            "Marked a SAS verification HTTP request as sent"
+        );
+
+        if let Some(state) = state {
+            self.update_state(state);
+        }
     }
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
@@ -873,15 +977,22 @@ mod tests {
         let content = OutgoingContent::try_from(request).unwrap();
         let content = AcceptContent::try_from(&content).unwrap();
 
-        let content = alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
+        let (content, request_info) =
+            alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
 
         matches!(alice.state(), SasState::Accepted { .. });
         matches!(bob.state(), SasState::Accepted { .. });
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());
 
+        alice.mark_request_as_sent(&request_info.unwrap().request_id);
+
         let content = KeyContent::try_from(&content).unwrap();
-        let content = bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
+        let (content, request_info) =
+            bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
+        assert!(!bob.can_be_presented());
+        matches!(bob.state(), SasState::Accepted { .. });
+        bob.mark_request_as_sent(&request_info.unwrap().request_id);
 
         assert!(bob.can_be_presented());
         matches!(bob.state(), SasState::KeysExchanged { .. });

@@ -19,6 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use dashmap::DashSet;
+use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
@@ -281,6 +282,10 @@ impl IndexeddbCryptoStore {
                 cipher
             }
         };
+
+        // Must release the database access manually as it's not done when
+        // dropping it.
+        db.close();
 
         IndexeddbCryptoStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
@@ -939,6 +944,14 @@ impl IndexeddbCryptoStore {
         };
 
         Ok(key)
+    }
+}
+
+impl Drop for IndexeddbCryptoStore {
+    fn drop(&mut self) {
+        // Must release the database access manually as it's not done when
+        // dropping it.
+        self.inner.close();
     }
 }
 

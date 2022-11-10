@@ -18,7 +18,7 @@ use dashmap::DashMap;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::{trace, warn};
 
-use super::{event_enums::OutgoingContent, Sas, Verification};
+use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
 #[cfg(feature = "qrcode")]
 use crate::QrVerification;
 use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
@@ -27,11 +27,22 @@ use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, To
 pub struct VerificationCache {
     verification: Arc<DashMap<OwnedUserId, DashMap<String, Verification>>>,
     outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
+    flow_ids_waiting_for_response: Arc<DashMap<OwnedTransactionId, (OwnedUserId, FlowId)>>,
+}
+
+#[derive(Debug)]
+pub struct RequestInfo {
+    pub flow_id: FlowId,
+    pub request_id: OwnedTransactionId,
 }
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self { verification: Default::default(), outgoing_requests: Default::default() }
+        Self {
+            verification: Default::default(),
+            outgoing_requests: Default::default(),
+            flow_ids_waiting_for_response: Default::default(),
+        }
     }
 
     #[cfg(test)]
@@ -119,7 +130,7 @@ impl VerificationCache {
     }
 
     pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
-        self.verification.get(sender).and_then(|m| m.get(flow_id).map(|v| v.clone()))
+        self.verification.get(sender)?.get(flow_id).map(|v| v.clone())
     }
 
     pub fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
@@ -183,15 +194,28 @@ impl VerificationCache {
         recipient: &UserId,
         recipient_device: &DeviceId,
         content: OutgoingContent,
+        request_info: Option<RequestInfo>,
     ) {
+        let request_id = if let Some(request_info) = request_info {
+            trace!(
+                %recipient,
+                ?request_info,
+                "Storing the request info, waiting for the request to be marked as sent"
+            );
+
+            self.flow_ids_waiting_for_response.insert(
+                request_info.request_id.to_owned(),
+                (recipient.to_owned(), request_info.flow_id),
+            );
+            request_info.request_id
+        } else {
+            TransactionId::new()
+        };
+
         match content {
             OutgoingContent::ToDevice(c) => {
-                let request = ToDeviceRequest::with_id(
-                    recipient,
-                    recipient_device.to_owned(),
-                    c,
-                    TransactionId::new(),
-                );
+                let request =
+                    ToDeviceRequest::with_id(recipient, recipient_device.to_owned(), c, request_id);
                 let request_id = request.txn_id.clone();
 
                 let request = OutgoingRequest {
@@ -203,8 +227,6 @@ impl VerificationCache {
             }
 
             OutgoingContent::Room(r, c) => {
-                let request_id = TransactionId::new();
-
                 let request = OutgoingRequest {
                     request: Arc::new(
                         RoomMessageRequest { room_id: r, txn_id: request_id.clone(), content: c }
@@ -218,7 +240,20 @@ impl VerificationCache {
         }
     }
 
-    pub fn mark_request_as_sent(&self, txn_id: &TransactionId) {
-        self.outgoing_requests.remove(txn_id);
+    pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
+        trace!(%request_id, "Marking a verification HTTP request as sent");
+        self.outgoing_requests.remove(request_id);
+
+        if let Some((user_id, flow_id)) =
+            self.flow_ids_waiting_for_response.get(request_id).as_deref()
+        {
+            if let Some(verification) = self.get(user_id, flow_id.as_str()) {
+                match verification {
+                    Verification::SasV1(s) => s.mark_request_as_sent(request_id),
+                    #[cfg(feature = "qrcode")]
+                    Verification::QrV1(_) => (),
+                }
+            }
+        }
     }
 }

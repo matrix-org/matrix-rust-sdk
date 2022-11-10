@@ -102,7 +102,12 @@ where
         self.0.poll_ready(cx)
     }
 
-    fn call(&mut self, req: http::Request<B>) -> Self::Future {
+    fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
+        // When the AppServiceRouter is nested inside another axum Router under
+        // a path that includes path parameters, those should not be received by
+        // the Path extractor used inside the `handlers` module.
+        req.extensions_mut().clear();
+
         AppServiceRouteFuture(self.0.call(req))
     }
 }

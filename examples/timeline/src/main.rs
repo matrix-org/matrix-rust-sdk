@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
 
     // Get the timeline stream and listen to it.
     let room = client.get_room(&room_id).unwrap();
-    let timeline = room.timeline();
+    let timeline = room.timeline().await;
     let mut timeline_stream = timeline.signal().to_stream();
 
     tokio::spawn(async move {

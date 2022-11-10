@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 #[cfg(feature = "experimental-room-preview")]
@@ -19,12 +21,15 @@ use ruma::events::room::message::{OriginalSyncRoomMessageEvent, Relation};
 use ruma::{
     events::{
         relation::{AnnotationChunk, AnnotationType},
-        room::message::MessageType,
+        room::{
+            encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+            message::MessageType,
+        },
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
+    OwnedUserId, TransactionId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -32,7 +37,7 @@ use ruma::{
 /// There is always one main event that gives the `EventTimelineItem` its
 /// identity (see [key](Self::key)) but in many cases, additional events like
 /// reactions and edits are also part of the item.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EventTimelineItem {
     pub(super) key: TimelineKey,
     // If this item is a local echo that has been acknowledged by the server
@@ -47,6 +52,22 @@ pub struct EventTimelineItem {
     pub(super) encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
     pub(super) raw: Option<Raw<AnySyncTimelineEvent>>,
+}
+
+impl fmt::Debug for EventTimelineItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventTimelineItem")
+            .field("key", &self.key)
+            .field("event_id", &self.event_id)
+            .field("sender", &self.sender)
+            .field("content", &self.content)
+            .field("reactions", &self.reactions)
+            .field("origin_server_ts", &self.origin_server_ts)
+            .field("is_own", &self.is_own)
+            .field("encryption_info", &self.encryption_info)
+            // skip raw, too noisy
+            .finish_non_exhaustive()
+    }
 }
 
 macro_rules! build {
@@ -145,6 +166,17 @@ impl EventTimelineItem {
         self.is_own
     }
 
+    /// Flag indicating this timeline item can be edited by current user.
+    pub fn is_editable(&self) -> bool {
+        match &self.content {
+            TimelineItemContent::Message(message) => {
+                self.is_own()
+                    && matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
+            }
+            _ => false,
+        }
+    }
+
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///
@@ -234,6 +266,12 @@ impl PartialEq<TimelineKey> for &EventId {
     }
 }
 
+impl PartialEq<TimelineKey> for &OwnedEventId {
+    fn eq(&self, key: &TimelineKey) -> bool {
+        matches!(key, TimelineKey::EventId(event_id) if event_id == *self)
+    }
+}
+
 /// Some details of an [`EventTimelineItem`] that may require server requests
 /// other than just the regular
 /// [`sync_events`][ruma::api::client::sync::sync_events].
@@ -258,6 +296,9 @@ pub enum TimelineItemContent {
 
     /// A redacted message.
     RedactedMessage,
+
+    /// An `m.room.encrypted` event that could not be decrypted.
+    UnableToDecrypt(EncryptedMessage),
 }
 
 /// An `m.room.message` event or extensible event, including edits.
@@ -285,6 +326,50 @@ impl Message {
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+}
+
+/// Metadata about an `m.room.encrypted` event that could not be decrypted.
+#[derive(Clone, Debug)]
+pub enum EncryptedMessage {
+    /// Metadata about an event using the `m.olm.v1.curve25519-aes-sha2`
+    /// algorithm.
+    OlmV1Curve25519AesSha2 {
+        /// The Curve25519 key of the sender.
+        sender_key: String,
+    },
+    /// Metadata about an event using the `m.megolm.v1.aes-sha2` algorithm.
+    MegolmV1AesSha2 {
+        /// The Curve25519 key of the sender.
+        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[doc(hidden)] // Included for Debug formatting only
+        sender_key: String,
+
+        /// The ID of the sending device.
+        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[doc(hidden)] // Included for Debug formatting only
+        device_id: OwnedDeviceId,
+
+        /// The ID of the session used to encrypt the message.
+        session_id: String,
+    },
+    /// No metadata because the event uses an unknown algorithm.
+    Unknown,
+}
+
+impl From<RoomEncryptedEventContent> for EncryptedMessage {
+    fn from(c: RoomEncryptedEventContent) -> Self {
+        match c.scheme {
+            EncryptedEventScheme::OlmV1Curve25519AesSha2(s) => {
+                Self::OlmV1Curve25519AesSha2 { sender_key: s.sender_key }
+            }
+            #[allow(deprecated)]
+            EncryptedEventScheme::MegolmV1AesSha2(s) => {
+                let MegolmV1AesSha2Content { sender_key, device_id, session_id, .. } = s;
+                Self::MegolmV1AesSha2 { sender_key, device_id, session_id }
+            }
+            _ => Self::Unknown,
+        }
     }
 }
 
