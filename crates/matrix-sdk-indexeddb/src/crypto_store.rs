@@ -283,6 +283,10 @@ impl IndexeddbCryptoStore {
             }
         };
 
+        // Must release the database access manually as it's not done when
+        // dropping it.
+        db.close();
+
         IndexeddbCryptoStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
 
@@ -940,6 +944,14 @@ impl IndexeddbCryptoStore {
         };
 
         Ok(key)
+    }
+}
+
+impl Drop for IndexeddbCryptoStore {
+    fn drop(&mut self) {
+        // Must release the database access manually as it's not done when
+        // dropping it.
+        self.inner.close();
     }
 }
 
