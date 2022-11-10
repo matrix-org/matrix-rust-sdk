@@ -252,15 +252,12 @@ jobs:
           path: target/debug/xtask
           key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
 
-      - name: Install Uniffi
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev ${{ env.UNIFFI_REV }}
-
       - name: Build library & bindings
         run: target/debug/xtask swift build-library
 
       - name: Run XCTests
         working-directory: bindings/apple
         run: swift test
+
+      - name: Build Framework
+        run: cargo xtask swift build-framework --sim-only-target=aarch64-apple-ios-sim
