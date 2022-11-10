@@ -51,8 +51,7 @@ echo -e "Generate uniffi kotlin file"
 uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" \
   --language kotlin \
   --out-dir ${GENERATED_DIR} \
-  --lib-file "${BASE_TARGET_DIR}/aarch64-apple-darwin/${RELEASE_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  --version \
+  --lib-file "${BASE_TARGET_DIR}/aarch64-apple-darwin/${RELEASE_TYPE_DIR}/libmatrix_sdk_ffi.a"
   
 # Create android library
 cd "${KOTLIN_ROOT}"
