@@ -1584,7 +1584,7 @@ pub(crate) mod tests {
         api::{
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::DeviceLists,
+                sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
             IncomingResponse,

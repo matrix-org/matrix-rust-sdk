@@ -33,7 +33,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{self, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, Replacement, RoomMessageEventContent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
         MessageLikeEventContent, OriginalSyncMessageLikeEvent,
@@ -94,7 +94,7 @@ async fn invalid_edit() {
     let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
             msg_event_id.to_owned(),
-            Box::new(RoomMessageEventContent::text_plain("fake")),
+            MessageType::text_plain("fake"),
         ))),
     });
     // Edit is from a different user than the previous event
@@ -135,7 +135,7 @@ async fn edit_redacted() {
     let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
             redacted_event_id.to_owned(),
-            Box::new(RoomMessageEventContent::text_plain("test")),
+            MessageType::text_plain("test"),
         ))),
     });
     timeline.handle_live_message_event(&ALICE, edit);

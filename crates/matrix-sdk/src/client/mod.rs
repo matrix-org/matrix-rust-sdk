@@ -1699,26 +1699,21 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            // FIXME: Use if-let chain once available
-            if let Err(Some(RumaApiError::ClientApi(error))) =
-                res.as_ref().map_err(HttpError::as_ruma_api_error)
+            if let Err(Some(ErrorKind::UnknownToken { .. })) =
+                res.as_ref().map_err(HttpError::client_api_error_kind)
             {
-                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                    let refresh_res = self.refresh_access_token().await;
-
-                    if let Err(refresh_error) = refresh_res {
-                        match &refresh_error {
-                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                                // Refreshing access tokens is not supported by
-                                // this `Session`, ignore.
-                            }
-                            _ => {
-                                return Err(refresh_error);
-                            }
+                if let Err(refresh_error) = self.refresh_access_token().await {
+                    match &refresh_error {
+                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                            // Refreshing access tokens is not supported by
+                            // this `Session`, ignore.
                         }
-                    } else {
-                        return self.send_inner(request, config, None).await;
+                        _ => {
+                            return Err(refresh_error);
+                        }
                     }
+                } else {
+                    return self.send_inner(request, config, None).await;
                 }
             }
         }
@@ -1744,26 +1739,21 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            // FIXME: Use if-let chain once available
-            if let Err(Some(RumaApiError::ClientApi(error))) =
-                res.as_ref().map_err(HttpError::as_ruma_api_error)
+            if let Err(Some(ErrorKind::UnknownToken { .. })) =
+                res.as_ref().map_err(HttpError::client_api_error_kind)
             {
-                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                    let refresh_res = self.refresh_access_token().await;
-
-                    if let Err(refresh_error) = refresh_res {
-                        match &refresh_error {
-                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                                // Refreshing access tokens is not supported by
-                                // this `Session`, ignore.
-                            }
-                            _ => {
-                                return Err(refresh_error);
-                            }
+                if let Err(refresh_error) = self.refresh_access_token().await {
+                    match &refresh_error {
+                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                            // Refreshing access tokens is not supported by
+                            // this `Session`, ignore.
                         }
-                    } else {
-                        return self.send_inner(request, config, homeserver).await;
+                        _ => {
+                            return Err(refresh_error);
+                        }
                     }
+                } else {
+                    return self.send_inner(request, config, homeserver).await;
                 }
             }
         }
@@ -1876,13 +1866,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::{
-    /// #        api::{
-    /// #            client::uiaa,
-    /// #            error::{FromHttpResponseError, ServerError},
-    /// #        },
-    /// #        device_id,
-    /// #    },
+    /// #    ruma::{api::client::uiaa, device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use futures::executor::block_on;

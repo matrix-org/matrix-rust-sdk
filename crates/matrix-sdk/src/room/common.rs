@@ -15,9 +15,10 @@ use ruma::{
         config::set_global_account_data,
         filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events::{self, v3::Direction},
+        message::get_message_events,
         room::get_room_event,
         tag::{create_tag, delete_tag},
+        Direction,
     },
     assign,
     events::{

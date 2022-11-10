@@ -250,10 +250,10 @@ impl Joined {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request =
-            assign!(set_read_marker::v3::Request::new(self.inner.room_id(), fully_read), {
-                read_receipt
-            });
+        let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id()), {
+            fully_read: Some(fully_read),
+            read_receipt,
+        });
 
         self.client.send(request, None).await?;
         Ok(())

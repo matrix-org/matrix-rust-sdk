@@ -185,15 +185,20 @@ async fn login_error() {
         .await;
 
     if let Err(err) = client.login_username("example", "wordpass").send().await {
-        if let Some(RumaApiError::ClientApi(client_api::Error { kind, message, status_code })) =
+        if let Some(RumaApiError::ClientApi(client_api::Error { status_code, body })) =
             err.as_ruma_api_error()
         {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:?}, expected `Error::RumaResponse");
         }
@@ -225,17 +230,20 @@ async fn register_error() {
 
     if let Err(err) = client.register(user).await {
         if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-            kind,
-            message,
             status_code,
+            body,
         }))) = err.as_ruma_api_error()
         {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:#?}, expected `UiaaResponse`");
         }

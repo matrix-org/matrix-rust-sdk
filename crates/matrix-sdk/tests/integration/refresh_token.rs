@@ -6,13 +6,11 @@ use futures::{
 };
 use futures_signals::signal::SignalExt;
 use matches::assert_matches;
-use matrix_sdk::{
-    config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, RumaApiError, Session,
-};
+use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
-        client::{account::register, error::ErrorKind, Error as ClientApiError},
+        client::{account::register, error::ErrorKind},
         MatrixVersion,
     },
     assign, device_id, user_id,
@@ -229,10 +227,7 @@ async fn refresh_token_not_handled() {
         .await;
 
     let res = client.whoami().await.unwrap_err();
-    assert_matches!(
-        res.as_ruma_api_error(),
-        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
-    );
+    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }));
 }
 
 #[async_test]
@@ -360,10 +355,7 @@ async fn refresh_token_handled_failure() {
         .await;
 
     let res = client.whoami().await.unwrap_err();
-    assert_matches!(
-        res.as_ruma_api_error(),
-        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
-    )
+    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 
 #[async_test]
