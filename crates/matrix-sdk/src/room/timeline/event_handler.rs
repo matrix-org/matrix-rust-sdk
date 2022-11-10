@@ -22,7 +22,7 @@ use ruma::{
         reaction::ReactionEventContent,
         room::{
             encrypted::{self, RoomEncryptedEventContent},
-            message::{self, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, Replacement, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -304,7 +304,7 @@ impl<'a> TimelineEventHandler<'a> {
         }
     }
 
-    fn handle_room_message_edit(&mut self, replacement: Replacement) {
+    fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
         let event_id = &replacement.event_id;
 
         self.maybe_update_timeline_item(event_id, "edit", |item| {
@@ -335,7 +335,7 @@ impl<'a> TimelineEventHandler<'a> {
             };
 
             let content = TimelineItemContent::Message(Message {
-                msgtype: replacement.new_content.msgtype,
+                msgtype: replacement.new_content,
                 in_reply_to: msg.in_reply_to.clone(),
                 edited: true,
             });

@@ -17,7 +17,7 @@ use matrix_sdk::{
         serde::Raw,
         TransactionId, UInt,
     },
-    Client as MatrixClient, Error, LoopCtrl, RumaApiError,
+    Client as MatrixClient, Error, LoopCtrl,
 };
 
 use super::{
@@ -297,15 +297,13 @@ impl Client {
 
     /// Process a sync error and return loop control accordingly
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        if let Some(RumaApiError::ClientApi(error)) = sync_error.as_ruma_api_error() {
-            if let ErrorKind::UnknownToken { soft_logout } = error.kind {
-                self.state.write().unwrap().is_soft_logout = soft_logout;
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(soft_logout);
-                }
-                return LoopCtrl::Break;
+        if let Some(ErrorKind::UnknownToken { soft_logout }) = sync_error.client_api_error_kind() {
+            self.state.write().unwrap().is_soft_logout = *soft_logout;
+            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                delegate.did_update_restore_token();
+                delegate.did_receive_auth_error(*soft_logout);
             }
+            return LoopCtrl::Break;
         }
 
         tracing::warn!("Ignoring sync error: {:?}", sync_error);

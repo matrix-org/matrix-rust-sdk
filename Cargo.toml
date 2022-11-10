@@ -16,7 +16,8 @@ default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-ruma = { version = "0.7.4", features = ["client-api-c"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ed100afddb5fb30f1ccf368d7e712a3a483e63bf", features = ["client-api-c"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "ed100afddb5fb30f1ccf368d7e712a3a483e63bf" }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "779e955f21a70e4aba43a7408f1841dcdf728b32" }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "779e955f21a70e4aba43a7408f1841dcdf728b32" }

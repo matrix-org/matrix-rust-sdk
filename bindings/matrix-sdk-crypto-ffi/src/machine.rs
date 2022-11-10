@@ -25,7 +25,7 @@ use ruma::{
                 upload_signatures::v3::Response as SignatureUploadResponse,
             },
             message::send_message_event::v3::Response as RoomMessageResponse,
-            sync::sync_events::v3::{DeviceLists as RumaDeviceLists, ToDevice},
+            sync::sync_events::{v3::ToDevice, DeviceLists as RumaDeviceLists},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         IncomingResponse,

@@ -39,7 +39,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common"
 matrix-sdk-crypto = { version = "0.6.0", path = "../../crates/matrix-sdk-crypto", features = ["js"] }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-indexeddb", features = ["experimental-nodejs"] }
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
-ruma = { workspace = true, features = ["js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+ruma = { workspace = true, features = ["js", "rand", "unstable-msc2677"] }
 vodozemac = { workspace = true, features = ["js"] }
 wasm-bindgen = "0.2.83"
 wasm-bindgen-futures = "0.4.33"

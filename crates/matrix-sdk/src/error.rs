@@ -28,7 +28,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::uiaa::{UiaaInfo, UiaaResponse},
-        error::{FromHttpResponseError, IntoHttpError, ServerError},
+        error::{FromHttpResponseError, IntoHttpError},
     },
     events::tag::InvalidUserTagName,
     IdParseError,
@@ -119,13 +119,13 @@ pub enum HttpError {
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl HttpError {
     /// If `self` is
-    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e)))</code>,
+    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)(e))</code>,
     /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
         match self {
-            Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
+            Self::Api(FromHttpResponseError::Server(e)) => Some(e),
             _ => None,
         }
     }
@@ -134,6 +134,15 @@ impl HttpError {
     /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -248,7 +257,7 @@ pub enum Error {
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl Error {
     /// If `self` is
-    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e))))</code>,
+    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)(e)))</code>,
     /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
@@ -263,6 +272,15 @@ impl Error {
     /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -314,19 +332,19 @@ pub enum RoomKeyImportError {
 
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::ClientApi)))
+        Self::Api(err.map(RumaApiError::ClientApi))
     }
 }
 
 impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
     fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Uiaa)))
+        Self::Api(err.map(RumaApiError::Uiaa))
     }
 }
 
 impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Other)))
+        Self::Api(err.map(RumaApiError::Other))
     }
 }
 
