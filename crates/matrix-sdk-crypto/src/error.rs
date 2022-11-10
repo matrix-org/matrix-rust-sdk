@@ -18,7 +18,7 @@ use thiserror::Error;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::store::CryptoStoreError;
-use crate::olm::SessionExportError;
+use crate::{olm::SessionExportError, types::SignedKey};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -229,8 +229,18 @@ pub enum SessionCreationError {
     OneTimeKeyUnknown(OwnedUserId, OwnedDeviceId),
 
     /// Failed to verify the one-time key signatures.
-    #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
-    InvalidSignature(OwnedUserId, OwnedDeviceId, SignatureError),
+    #[error(
+        "Failed to verify the signature of a one-time key, key: {one_time_key:?}, \
+        signing_key: {signing_key:?}: {error:?}"
+    )]
+    InvalidSignature {
+        /// The one-time key that failed the signature verification.
+        one_time_key: SignedKey,
+        /// The key that was used to verify the signature.
+        signing_key: Option<Ed25519PublicKey>,
+        /// The exact error describing why the signature verification failed.
+        error: SignatureError,
+    },
 
     /// The user's device is missing a curve25519 key.
     #[error(
