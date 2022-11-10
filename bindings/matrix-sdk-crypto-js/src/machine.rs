@@ -755,4 +755,12 @@ impl OlmMachine {
             passphrase,
         )?)?)
     }
+
+    /// Shut down the `OlmMachine`.
+    ///
+    /// The `OlmMachine` cannot be used after this method has been called.
+    ///
+    /// All associated resources will be closed too, like IndexedDB
+    /// connections.
+    pub fn close(self) {}
 }

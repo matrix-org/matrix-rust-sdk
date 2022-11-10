@@ -29,17 +29,19 @@ describe(OlmMachine.name, () => {
     });
 
     test('can be instantiated with a store', async () => {
-        // No databases.
-        expect(await indexedDB.databases()).toHaveLength(0);
-
         let store_name = 'hello';
         let store_passphrase = 'world';
+
+        const by_store_name = db => db.name.startsWith(store_name);
+
+        // No databases.
+        expect((await indexedDB.databases()).filter(by_store_name)).toHaveLength(0);
 
         // Creating a new Olm machine.
         expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
 
         // Oh, there is 2 databases now, prefixed by `store_name`.
-        let databases = await indexedDB.databases();
+        let databases = (await indexedDB.databases()).filter(by_store_name);
 
         expect(databases).toHaveLength(2);
         expect(databases).toStrictEqual([
@@ -51,7 +53,7 @@ describe(OlmMachine.name, () => {
         expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase)).toBeInstanceOf(OlmMachine);
 
         // Same number of databases.
-        expect(await indexedDB.databases()).toHaveLength(2);
+        expect((await indexedDB.databases()).filter(by_store_name)).toHaveLength(2);
     });
 
     describe('cannot be instantiated with a store', () => {
@@ -93,6 +95,45 @@ describe(OlmMachine.name, () => {
     function machine(new_user, new_device) {
         return OlmMachine.initialize(new_user || user, new_device || device);
     }
+
+    test('can drop/close', async () => {
+        m = await machine();
+        m.close();
+    })
+
+    test('can drop/close with a store', async () => {
+        let store_name = 'temporary';
+        let store_passphrase = 'temporary';
+
+        const by_store_name = db => db.name.startsWith(store_name);
+
+        // No databases.
+        expect((await indexedDB.databases()).filter(by_store_name)).toHaveLength(0);
+
+        // Creating a new Olm machine.
+        const m = await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), store_name, store_passphrase);
+        expect(m).toBeInstanceOf(OlmMachine);
+
+        // Oh, there is 2 databases now, prefixed by `store_name`.
+        let databases = (await indexedDB.databases()).filter(by_store_name);
+
+        expect(databases).toHaveLength(2);
+        expect(databases).toStrictEqual([
+            { name: `${store_name}::matrix-sdk-crypto-meta`, version: 1 },
+            { name: `${store_name}::matrix-sdk-crypto`, version: 1 },
+        ]);
+
+        // Let's force to close the `OlmMachine`.
+        m.close();
+
+        // Now we can delete the databases!
+        for (const database_name of [`${store_name}::matrix-sdk-crypto`, `${store_name}::matrix-sdk-crypto-meta`]) {
+            const deleting = indexedDB.deleteDatabase(database_name);
+            deleting.onsuccess = () => {};
+            deleting.onerror = () => { throw new Error('failed to remove the database (error)') };
+            deleting.onblocked = () => { throw new Error('failed to remove the database (blocked)') };
+        }
+    })
 
     test('can read user ID', async () => {
         expect((await machine()).userId.toString()).toStrictEqual(user.toString());
@@ -256,7 +297,7 @@ describe(OlmMachine.name, () => {
         beforeAll(async () => {
             m = await machine(user, device);
         });
-        
+
         test('can pass keysquery and keysclaim requests directly', async () => {
             {
                 // derived from https://github.com/matrix-org/matrix-rust-sdk/blob/7f49618d350fab66b7e1dc4eaf64ec25ceafd658/benchmarks/benches/crypto_bench/keys_query.json

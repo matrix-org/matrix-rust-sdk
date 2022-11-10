@@ -11,7 +11,7 @@ use matrix_sdk::{
         Room as SdkRoom,
     },
     ruma::{
-        events::room::message::{RoomMessageEvent, RoomMessageEventContent},
+        events::room::message::{Relation, Replacement, RoomMessageEvent, RoomMessageEventContent},
         EventId, UserId,
     },
 };
@@ -195,6 +195,51 @@ impl Room {
                 RoomMessageEventContent::text_markdown(msg).make_reply_to(original_message);
 
             timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await?;
+
+            Ok(())
+        })
+    }
+
+    pub fn edit(
+        &self,
+        new_msg: String,
+        original_event_id: String,
+        txn_id: Option<String>,
+    ) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send to a room that isn't in joined state"),
+        };
+
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => bail!("Timeline not set up, can't send message"),
+        };
+
+        let event_id: &EventId =
+            original_event_id.as_str().try_into().context("Failed to create EventId.")?;
+
+        RUNTIME.block_on(async move {
+            let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
+
+            let event_content = timeline_event
+                .event
+                .deserialize_as::<RoomMessageEvent>()
+                .context("Couldn't deserialise event")?;
+
+            if self.own_user_id() != event_content.sender() {
+                bail!("Can't edit an event not sent by own user")
+            }
+
+            let replacement = Replacement::new(
+                event_id.to_owned(),
+                Box::new(RoomMessageEventContent::text_markdown(new_msg.to_owned())),
+            );
+
+            let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);
+            edited_content.relates_to = Some(Relation::Replacement(replacement));
+
+            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await?;
 
             Ok(())
         })

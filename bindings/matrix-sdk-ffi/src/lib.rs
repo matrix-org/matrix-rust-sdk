@@ -97,8 +97,8 @@ mod uniffi_types {
             EmoteMessageContent, EncryptedMessage, EventTimelineItem, FormattedBody, ImageInfo,
             ImageMessageContent, InsertAtData, Message, MessageFormat, MessageType,
             NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
-            TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey, UpdateAtData,
-            VirtualTimelineItem,
+            TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey, UpdateAtData, VideoInfo,
+            VideoMessageContent, VirtualTimelineItem,
         },
     };
 }
