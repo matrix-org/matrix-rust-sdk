@@ -25,7 +25,7 @@ echo "module.exports = \`$(base64 pkg/matrix_sdk_crypto_js_bg.wasm)\`;" > pkg/ma
 {
   sed -e '/^const path = /,$d' pkg/matrix_sdk_crypto_js.js
   cat scripts/epilogue.js
-} >pkg/matrix_sdk_crypto_js.js.new
+} > pkg/matrix_sdk_crypto_js.js.new
 mv pkg/matrix_sdk_crypto_js.js.new pkg/matrix_sdk_crypto_js.js
 
 # also extend the typescript

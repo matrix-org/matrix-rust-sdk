@@ -1,4 +1,4 @@
-// Initially, 'wasm' is set to a Proxy object which will synchronously load the webassembly and
+// Initially, 'wasm' is set to a Proxy object which will synchronously load the WebAssembly module and
 // replace 'wasm' with a reference to the exports from the wasm module.
 //
 // Ideally this will never get used because the application will call initAsync instead.
@@ -26,7 +26,7 @@ __initSync = function() {
 let initPromise = null;
 
 /**
- * Load the webassembly in the background, if it has not already been loaded.
+ * Load the WebAssembly module in the background, if it has not already been loaded.
  *
  * Returns a promise which will resolve once the other methods are ready.
  *

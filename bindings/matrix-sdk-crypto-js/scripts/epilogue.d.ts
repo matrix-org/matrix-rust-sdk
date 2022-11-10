@@ -1,5 +1,5 @@
 /**
- * Load the webassembly in the background, if it has not already been loaded.
+ * Load the WebAssembly module in the background, if it has not already been loaded.
  *
  * Returns a promise which will resolve once the other methods are ready.
  *
