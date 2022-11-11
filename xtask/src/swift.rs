@@ -53,7 +53,7 @@ fn build_library() -> Result<()> {
     let static_lib_filename = "libmatrix_sdk_ffi.a";
 
     let root_directory = workspace::root_path()?;
-    let target_directory = root_directory.join("target");
+    let target_directory = workspace::target_path()?;
     let ffi_directory = root_directory.join("bindings/apple/generated/matrix_sdk_ffi");
     let library_file = ffi_directory.join(static_lib_filename);
 
@@ -112,8 +112,7 @@ fn build_for_target(target: &str, release: bool) -> Result<PathBuf> {
         cmd = cmd.arg("--release");
     }
     cmd.run()?;
-    Ok(workspace::root_path()?
-        .join("target")
+    Ok(workspace::target_path()?
         .join(target)
         .join(if release { "release" } else { "debug" })
         .join("libmatrix_sdk_ffi.a"))
