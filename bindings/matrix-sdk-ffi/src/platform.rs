@@ -43,7 +43,7 @@ mod other {
     pub fn setup_tracing(configuration: String) {
         tracing_subscriber::registry()
             .with(EnvFilter::new(configuration))
-            .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
+            .with(fmt::layer().with_ansi(true).with_writer(io::stderr))
             .init();
     }
 }
