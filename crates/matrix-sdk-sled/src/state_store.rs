@@ -179,7 +179,6 @@ enum DbOrPath {
 #[derive(Builder, Debug)]
 #[builder(name = "SledStateStoreBuilder", build_fn(skip))]
 pub struct SledStateStoreBuilderConfig {
-    /// Use an existing open sled database
     #[builder(setter(custom))]
     db_or_path: DbOrPath,
     /// Set the password the sled store is encrypted with (if any)
@@ -191,14 +190,26 @@ pub struct SledStateStoreBuilderConfig {
 }
 
 impl SledStateStoreBuilder {
+    /// Path to the sled store files, created if not yet existing
     pub fn path(&mut self, path: PathBuf) {
         self.db_or_path = Some(DbOrPath::Path(path));
     }
 
+    /// Use an existing open [`sled::Db`]
     pub fn db(&mut self, db: Db) {
         self.db_or_path = Some(DbOrPath::Db(db));
     }
 
+    /// Create a [`SledStateStore`] with the options set on this builder.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail for two general reasons:
+    ///
+    /// * Invalid path: The [`sled::Db`] could not be opened at the supplied
+    ///   path.
+    /// * Migration error: The migration to a newer version of the schema
+    ///   failed, see [`SledStoreError::MigrationConflict`].
     pub fn build(&mut self) -> Result<SledStateStore> {
         let (db, path) = match &self.db_or_path {
             None => {
