@@ -190,12 +190,16 @@ pub struct SledStateStoreBuilderConfig {
 }
 
 impl SledStateStoreBuilder {
-    /// Path to the sled store files, created if not yet existing
+    /// Path to the sled store files, created if not it doesn't exist yet.
+    ///
+    /// Mutually exclusive with [`db`][Self::db], whichever is called last wins.
     pub fn path(&mut self, path: PathBuf) {
         self.db_or_path = Some(DbOrPath::Path(path));
     }
 
-    /// Use an existing open [`sled::Db`]
+    /// Use the given [`sled::Db`].
+    ///
+    /// Mutually exclusive with [`path`][Self::path], whichever is called last wins.
     pub fn db(&mut self, db: Db) {
         self.db_or_path = Some(DbOrPath::Db(db));
     }
