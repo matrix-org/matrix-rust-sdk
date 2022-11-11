@@ -59,36 +59,16 @@ fn build_library() -> Result<()> {
 
     create_dir_all(ffi_directory.as_path())?;
 
-    cmd!("cargo build -p matrix-sdk-ffi").run()?;
+    cmd!("cargo -p matrix-sdk-ffi").run()?;
 
     fs::rename(
         target_directory.join(release_type).join(static_lib_filename),
         ffi_directory.join(static_lib_filename),
     )?;
-    generate_uniffi(&library_file, &ffi_directory)?;
-    Ok(())
-}
-
-fn generate_uniffi(library_file: &PathBuf, ffi_directory: &PathBuf) -> Result<()> {
-    let root_directory = workspace::root_path()?;
-    let udl_file = camino::Utf8PathBuf::from_path_buf(
-        root_directory.join("bindings/matrix-sdk-ffi/src/api.udl"),
-    )
-    .unwrap();
-    let outdir_overwrite = camino::Utf8PathBuf::from_path_buf(ffi_directory.clone()).unwrap();
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
-    let library_path = camino::Utf8PathBuf::from_path_buf(library_file.clone()).unwrap();
-
     create_dir_all(swift_directory.as_path())?;
 
-    uniffi_bindgen::generate_bindings(
-        udl_file.as_path(),
-        None,
-        vec!["swift"],
-        Some(outdir_overwrite.as_path()),
-        Some(library_path.as_path()),
-        false,
-    )?;
+    generate_uniffi(&library_file, &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
@@ -102,7 +82,26 @@ fn generate_uniffi(library_file: &PathBuf, ffi_directory: &PathBuf) -> Result<()
         ffi_directory.join("matrix_sdk_ffi.swift"),
         swift_directory.join("matrix_sdk_ffi.swift"),
     )?;
+    Ok(())
+}
 
+fn generate_uniffi(library_file: &PathBuf, ffi_directory: &PathBuf) -> Result<()> {
+    let root_directory = workspace::root_path()?;
+    let udl_file = camino::Utf8PathBuf::from_path_buf(
+        root_directory.join("bindings/matrix-sdk-ffi/src/api.udl"),
+    )
+    .unwrap();
+    let outdir_overwrite = camino::Utf8PathBuf::from_path_buf(ffi_directory.clone()).unwrap();
+    let library_path = camino::Utf8PathBuf::from_path_buf(library_file.clone()).unwrap();
+
+    uniffi_bindgen::generate_bindings(
+        udl_file.as_path(),
+        None,
+        vec!["swift"],
+        Some(outdir_overwrite.as_path()),
+        Some(library_path.as_path()),
+        false,
+    )?;
     Ok(())
 }
 
@@ -126,6 +125,7 @@ fn build_xcframework(
     let root_dir = workspace::root_path()?;
     let generated_dir = root_dir.join("generated");
     let headers_dir = generated_dir.join("headers");
+    let swift_dir = generated_dir.join("swift");
     create_dir_all(headers_dir.clone())?;
 
     let (libs, uniff_lib_path) = if let Some(target) = sim_only_target {
@@ -181,6 +181,8 @@ fn build_xcframework(
 
     fs::rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
 
+    fs::rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
+
     println!("-- Generate MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
     if xcframework_path.exists() {
@@ -198,10 +200,10 @@ fn build_xcframework(
     if let Some(path) = rsync_path {
         println!("-- Rsync MatrixSDKFFI.xcframework to {path:?}");
         cmd!("rsync -a --delete {generated_dir}/MatrixSDKFFI.xcframework {path}").run()?;
-        cmd!("rsync -a --delete {generated_dir}/swift/ {path}/Sources/MatrixRustSDK").run()?;
+        cmd!("rsync -a --delete {swift_dir}/ {path}/Sources/MatrixRustSDK").run()?;
     }
 
-    println!("-- All done and honkey dorey. Enjoy!");
+    println!("-- All done and hunky dory. Enjoy!");
 
     Ok(())
 }
