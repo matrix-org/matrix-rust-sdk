@@ -24,9 +24,9 @@ enum SwiftCommand {
         /// Build in release mode
         #[clap(long)]
         release: bool,
-        /// Build the simulator version only
+        /// Build the given target only
         #[clap(long)]
-        sim_only_target: Option<String>,
+        only_target: Option<String>,
         /// Where to rsync the resulting framework to
         #[clap(long)]
         rsync_path: Option<PathBuf>,
@@ -39,8 +39,8 @@ impl SwiftArgs {
 
         match self.cmd {
             SwiftCommand::BuildLibrary => build_library(),
-            SwiftCommand::BuildFramework { release, rsync_path, sim_only_target } => {
-                build_xcframework(release, sim_only_target, rsync_path)
+            SwiftCommand::BuildFramework { release, rsync_path, only_target } => {
+                build_xcframework(release, only_target, rsync_path)
             }
         }
     }
@@ -119,29 +119,21 @@ fn build_for_target(target: &str, release: bool) -> Result<PathBuf> {
 
 fn build_xcframework(
     release_mode: bool,
-    sim_only_target: Option<String>,
+    only_target: Option<String>,
     rsync_path: Option<PathBuf>,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
     let generated_dir = root_dir.join("generated");
-    let headers_dir = generated_dir.join("headers");
+    let headers_dir = generated_dir.join("ls");
     let swift_dir = generated_dir.join("swift");
     create_dir_all(headers_dir.clone())?;
+    create_dir_all(swift_dir.clone())?;
 
-    let (libs, uniff_lib_path) = if let Some(target) = sim_only_target {
-        println!("-- Building for iOS simulator 1/1");
+    let (libs, uniff_lib_path) = if let Some(target) = only_target {
+        println!("-- Building for iOS {target} 1/1");
         let ios_sim_path = build_for_target(target.as_str(), release_mode)?;
 
-        println!("-- Running Lipo for iOS sim ({target}) [1/1]");
-        // # iOS Simulator
-        let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
-        cmd!(
-            "lipo -create {ios_sim_path}
-            -output {lipo_target_sim}"
-        )
-        .run()?;
-
-        (vec![lipo_target_sim], ios_sim_path)
+        (vec![ios_sim_path.clone()], ios_sim_path)
     } else {
         println!("-- Building for iOS [1/5]");
         let ios_path = build_for_target("aarch64-apple-ios", release_mode)?;
