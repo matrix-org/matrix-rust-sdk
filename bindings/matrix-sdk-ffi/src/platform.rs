@@ -27,6 +27,7 @@ mod android {
 #[cfg(target_os = "ios")]
 mod ios {
     use std::io;
+
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     pub fn setup_tracing(configuration: String) {
         tracing_subscriber::registry()
@@ -39,6 +40,7 @@ mod ios {
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod other {
     use std::io;
+
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     pub fn setup_tracing(configuration: String) {

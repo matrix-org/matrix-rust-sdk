@@ -59,7 +59,7 @@ fn build_library() -> Result<()> {
 
     create_dir_all(ffi_directory.as_path())?;
 
-    cmd!("cargo -p matrix-sdk-ffi").run()?;
+    cmd!("cargo build -p matrix-sdk-ffi").run()?;
 
     fs::rename(
         target_directory.join(release_type).join(static_lib_filename),
