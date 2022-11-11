@@ -277,6 +277,13 @@ impl Message {
                     info: c.info.as_deref().map(Into::into),
                 },
             }),
+            MTy::File(c) => Some(MessageType::File {
+                content: FileMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            }),
             MTy::Notice(c) => Some(MessageType::Notice {
                 content: NoticeMessageContent {
                     body: c.body.clone(),
@@ -312,6 +319,7 @@ pub enum MessageType {
     Emote { content: EmoteMessageContent },
     Image { content: ImageMessageContent },
     Video { content: VideoMessageContent },
+    File { content: FileMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
 }
@@ -337,6 +345,13 @@ pub struct VideoMessageContent {
 }
 
 #[derive(Clone, uniffi::Record)]
+pub struct FileMessageContent {
+    pub body: String,
+    pub source: Arc<MediaSource>,
+    pub info: Option<FileInfo>,
+}
+
+#[derive(Clone, uniffi::Record)]
 pub struct ImageInfo {
     pub height: Option<u64>,
     pub width: Option<u64>,
@@ -357,6 +372,14 @@ pub struct VideoInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct FileInfo {
+    pub mimetype: Option<String>,
+    pub size: Option<u64>,
+    pub thumbnail_info: Option<ThumbnailInfo>,
+    pub thumbnail_source: Option<Arc<MediaSource>>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -442,6 +465,24 @@ impl From<&matrix_sdk::ruma::events::room::message::VideoInfo> for VideoInfo {
             thumbnail_info,
             thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
             blurhash: info.blurhash.clone(),
+        }
+    }
+}
+
+impl From<&matrix_sdk::ruma::events::room::message::FileInfo> for FileInfo {
+    fn from(info: &matrix_sdk::ruma::events::room::message::FileInfo) -> Self {
+        let thumbnail_info = info.thumbnail_info.as_ref().map(|info| ThumbnailInfo {
+            height: info.height.map(Into::into),
+            width: info.width.map(Into::into),
+            mimetype: info.mimetype.clone(),
+            size: info.size.map(Into::into),
+        });
+
+        Self {
+            mimetype: info.mimetype.clone(),
+            size: info.size.map(Into::into),
+            thumbnail_info,
+            thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
         }
     }
 }
