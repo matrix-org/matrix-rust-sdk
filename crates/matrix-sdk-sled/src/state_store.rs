@@ -193,15 +193,17 @@ impl SledStateStoreBuilder {
     /// Path to the sled store files, created if not it doesn't exist yet.
     ///
     /// Mutually exclusive with [`db`][Self::db], whichever is called last wins.
-    pub fn path(&mut self, path: PathBuf) {
+    pub fn path(&mut self, path: PathBuf) -> &mut SledStateStoreBuilder {
         self.db_or_path = Some(DbOrPath::Path(path));
+        self
     }
 
     /// Use the given [`sled::Db`].
     ///
     /// Mutually exclusive with [`path`][Self::path], whichever is called last wins.
-    pub fn db(&mut self, db: Db) {
+    pub fn db(&mut self, db: Db) -> &mut SledStateStoreBuilder {
         self.db_or_path = Some(DbOrPath::Db(db));
+        self
     }
 
     /// Create a [`SledStateStore`] with the options set on this builder.
@@ -213,7 +215,7 @@ impl SledStateStoreBuilder {
     /// * Invalid path: The [`sled::Db`] could not be opened at the supplied
     ///   path.
     /// * Migration error: The migration to a newer version of the schema
-    ///   failed, see [`SledStoreError::MigrationConflict`].
+    ///   failed, see `SledStoreError::MigrationConflict`.
     pub fn build(&mut self) -> Result<SledStateStore> {
         let (db, path) = match &self.db_or_path {
             None => {
