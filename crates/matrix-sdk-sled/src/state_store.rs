@@ -178,6 +178,7 @@ enum DbOrPath {
 
 #[derive(Builder, Debug)]
 #[builder(name = "SledStateStoreBuilder", build_fn(skip))]
+#[allow(dead_code)]
 pub struct SledStateStoreBuilderConfig {
     #[builder(setter(custom))]
     db_or_path: DbOrPath,
