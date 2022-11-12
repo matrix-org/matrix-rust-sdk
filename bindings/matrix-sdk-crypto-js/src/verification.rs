@@ -762,7 +762,7 @@ impl QrCodeScan {
     pub fn from_bytes(buffer: &Uint8ClampedArray) -> Result<QrCodeScan, JsError> {
         let bytes = buffer.to_vec();
 
-        Ok(Self { inner: matrix_sdk_qrcode::QrVerificationData::from_bytes(&bytes)? })
+        Ok(Self { inner: matrix_sdk_qrcode::QrVerificationData::from_bytes(bytes)? })
     }
 }
 

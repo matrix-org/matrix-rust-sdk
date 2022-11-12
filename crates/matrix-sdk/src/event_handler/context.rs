@@ -58,8 +58,6 @@ impl EventHandlerContext for room::Room {
 ///
 /// Used as a context argument for event handlers (see
 /// [`Client::add_event_handler`]).
-// FIXME: This could be made to not own the raw JSON value with some changes to
-//        the traits above, but only with GATs.
 #[derive(Clone, Debug)]
 pub struct RawEvent(Box<RawJsonValue>);
 

@@ -200,7 +200,7 @@ pub struct EventHandlerHandle {
 pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
-    type Future: Future + SendOutsideWasm + 'static;
+    type Future: EventHandlerFuture;
 
     /// Create a future for handling the given event.
     ///
@@ -210,6 +210,21 @@ pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// Returns `None` if one of the context extractors failed.
     #[doc(hidden)]
     fn handle_event(&self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
+}
+
+#[doc(hidden)]
+pub trait EventHandlerFuture:
+    Future<Output = <Self as EventHandlerFuture>::Output> + SendOutsideWasm + 'static
+{
+    type Output: EventHandlerResult;
+}
+
+impl<T> EventHandlerFuture for T
+where
+    T: Future + SendOutsideWasm + 'static,
+    <T as Future>::Output: EventHandlerResult,
+{
+    type Output = <T as Future>::Output;
 }
 
 #[doc(hidden)]
@@ -273,7 +288,6 @@ impl Client {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
             let maybe_fut =
@@ -464,8 +478,7 @@ macro_rules! impl_event_handler {
         where
             Ev: SyncEvent,
             Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
-            Fut: Future + SendOutsideWasm + 'static,
-            Fut::Output: EventHandlerResult,
+            Fut: EventHandlerFuture,
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;

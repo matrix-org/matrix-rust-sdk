@@ -1036,12 +1036,12 @@ impl ReadOnlyAccount {
             Err(e) => return Err(SessionCreationError::InvalidJson(e)),
         };
 
-        device.verify_one_time_key(&one_time_key).map_err(|e| {
-            SessionCreationError::InvalidSignature(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-                e,
-            )
+        device.verify_one_time_key(&one_time_key).map_err(|error| {
+            SessionCreationError::InvalidSignature {
+                signing_key: device.ed25519_key(),
+                one_time_key: one_time_key.clone(),
+                error,
+            }
         })?;
 
         let identity_key = device.curve25519_key().ok_or_else(|| {

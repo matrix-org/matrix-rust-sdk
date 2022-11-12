@@ -18,6 +18,7 @@ use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        fully_read::FullyReadEvent,
         reaction::ReactionEventContent,
         room::{
             encrypted::{self, RoomEncryptedEventContent},
@@ -37,8 +38,8 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, EventTimelineItem, Message, TimelineInner, TimelineItem, TimelineItemContent,
-    TimelineKey,
+    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineItem,
+    TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 impl TimelineInner {
@@ -113,6 +114,62 @@ impl TimelineInner {
         };
 
         TimelineEventHandler::new(meta, flow, self).handle_event(event.into())
+    }
+
+    pub(super) fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
+        let fully_read_event = match raw.deserialize() {
+            Ok(ev) => ev.content.event_id,
+            Err(error) => {
+                error!(?error, "Failed to deserialize `m.fully_read` account data");
+                return;
+            }
+        };
+
+        self.set_fully_read_event(fully_read_event);
+    }
+
+    pub(super) fn set_fully_read_event(&self, fully_read_event: OwnedEventId) {
+        {
+            let mut fully_read_lock = self.fully_read_event.lock().unwrap();
+
+            if fully_read_lock.as_ref() == Some(&fully_read_event) {
+                return;
+            }
+
+            *fully_read_lock = Some(fully_read_event);
+        }
+
+        self.update_fully_read_item();
+    }
+
+    fn update_fully_read_item(&self) {
+        let fully_read_lock = self.fully_read_event.lock().unwrap();
+
+        let fully_read_event = match &*fully_read_lock {
+            Some(event) => event,
+            None => return,
+        };
+
+        let mut items_lock = self.items.lock_mut();
+        let old_idx = find_fully_read(&items_lock);
+        let new_idx = find_event(&items_lock, fully_read_event).map(|(idx, _)| idx + 1);
+
+        match (old_idx, new_idx) {
+            (None, None) => {}
+            (None, Some(idx)) => {
+                *self.fully_read_event_in_timeline.lock().unwrap() = true;
+                let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
+                items_lock.insert_cloned(idx, item.into());
+            }
+            (Some(_), None) => {
+                // Keep the current position of the read marker, hopefully we
+                // should have a new position later.
+                *self.fully_read_event_in_timeline.lock().unwrap() = false;
+            }
+            (Some(from), Some(to)) => {
+                items_lock.move_from_to(from, to);
+            }
+        }
     }
 }
 
@@ -463,6 +520,15 @@ impl<'a> TimelineEventHandler<'a> {
                     TimelineItemPosition::End => lock.push_cloned(item),
                 }
             }
+        }
+
+        drop(lock);
+
+        // See if we got the event corresponding to the fully read marker now.
+        let fully_read_event_in_timeline =
+            *self.timeline.fully_read_event_in_timeline.lock().unwrap();
+        if !fully_read_event_in_timeline {
+            self.timeline.update_fully_read_item();
         }
     }
 
