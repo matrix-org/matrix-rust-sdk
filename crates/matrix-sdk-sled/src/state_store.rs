@@ -201,7 +201,8 @@ impl SledStateStoreBuilder {
 
     /// Use the given [`sled::Db`].
     ///
-    /// Mutually exclusive with [`path`][Self::path], whichever is called last wins.
+    /// Mutually exclusive with [`path`][Self::path], whichever is called last
+    /// wins.
     pub fn db(&mut self, db: Db) -> &mut SledStateStoreBuilder {
         self.db_or_path = Some(DbOrPath::Db(db));
         self
