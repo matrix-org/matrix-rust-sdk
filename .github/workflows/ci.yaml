@@ -15,7 +15,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.60.0
+          - 1.62.0
         os:
           - ubuntu-latest
     services:
@@ -59,7 +59,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.60.0
+          - 1.62.0
         os:
           - windows-latest
           - macos-latest

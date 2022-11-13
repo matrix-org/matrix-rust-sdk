@@ -19,7 +19,7 @@ This crate allows you to use your postgres/sqlite database as a state and crypto
 Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres` or `sqlite` must be enabled.
 
 ## Minimum Supported Rust Version
-The MSRV is currently 1.60.0.
+The MSRV is currently 1.62.0.
 
 Increasing the MSRV is a breaking change.
 
