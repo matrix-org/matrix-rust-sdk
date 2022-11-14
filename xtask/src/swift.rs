@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, create_dir_all},
+    fs::{create_dir_all, remove_dir_all, remove_file, rename},
     path::PathBuf,
 };
 
@@ -27,9 +27,10 @@ enum SwiftCommand {
         /// Build the given target only
         #[clap(long)]
         only_target: Option<String>,
-        /// Where to rsync the resulting framework to
+        /// Move the generated xcframework and swift sources into the given
+        /// components-folder
         #[clap(long)]
-        rsync_path: Option<PathBuf>,
+        components_path: Option<PathBuf>,
     },
 }
 
@@ -39,8 +40,8 @@ impl SwiftArgs {
 
         match self.cmd {
             SwiftCommand::BuildLibrary => build_library(),
-            SwiftCommand::BuildFramework { release, rsync_path, only_target } => {
-                build_xcframework(release, only_target, rsync_path)
+            SwiftCommand::BuildFramework { release, components_path, only_target } => {
+                build_xcframework(release, only_target, components_path)
             }
         }
     }
@@ -61,7 +62,7 @@ fn build_library() -> Result<()> {
 
     cmd!("cargo build -p matrix-sdk-ffi").run()?;
 
-    fs::rename(
+    rename(
         target_directory.join(release_type).join(static_lib_filename),
         ffi_directory.join(static_lib_filename),
     )?;
@@ -72,13 +73,13 @@ fn build_library() -> Result<()> {
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
-        fs::remove_file(module_map_file.as_path())?;
+        remove_file(module_map_file.as_path())?;
     }
 
     // TODO: Find the modulemap in the ffi directory.
-    fs::rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
+    rename(ffi_directory.join("matrix_sdk_ffiFFI.modulemap"), module_map_file)?;
     // TODO: Move all swift files.
-    fs::rename(
+    rename(
         ffi_directory.join("matrix_sdk_ffi.swift"),
         swift_directory.join("matrix_sdk_ffi.swift"),
     )?;
@@ -120,7 +121,7 @@ fn build_for_target(target: &str, release: bool) -> Result<PathBuf> {
 fn build_xcframework(
     release_mode: bool,
     only_target: Option<String>,
-    rsync_path: Option<PathBuf>,
+    components_path: Option<PathBuf>,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
     let generated_dir = root_dir.join("generated");
@@ -130,10 +131,10 @@ fn build_xcframework(
     create_dir_all(swift_dir.clone())?;
 
     let (libs, uniff_lib_path) = if let Some(target) = only_target {
-        println!("-- Building for iOS {target} 1/1");
-        let ios_sim_path = build_for_target(target.as_str(), release_mode)?;
+        println!("-- Building for {target} 1/1");
+        let build_path = build_for_target(target.as_str(), release_mode)?;
 
-        (vec![ios_sim_path.clone()], ios_sim_path)
+        (vec![build_path.clone()], build_path)
     } else {
         println!("-- Building for iOS [1/5]");
         let ios_path = build_for_target("aarch64-apple-ios", release_mode)?;
@@ -171,28 +172,46 @@ fn build_xcframework(
     println!("-- Generate uniffi files");
     generate_uniffi(&uniff_lib_path, &generated_dir)?;
 
-    fs::rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
+    rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
 
-    fs::rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
+    rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
 
     println!("-- Generate MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
     if xcframework_path.exists() {
-        fs::remove_dir_all(xcframework_path.as_path())?;
+        remove_dir_all(xcframework_path.as_path())?;
     }
     let mut cmd = cmd!("xcodebuild -create-xcframework");
     for p in libs {
         cmd = cmd.arg("-library").arg(p).arg("-headers").arg(headers_dir.as_path())
     }
-    cmd.arg("-output").arg(generated_dir.join("MatrixSDKFFI.xcframework")).run()?;
+    cmd.arg("-output").arg(xcframework_path.as_path()).run()?;
 
     // cleaning up the intermediate data
-    fs::remove_dir_all(headers_dir.as_path())?;
+    remove_dir_all(headers_dir.as_path())?;
 
-    if let Some(path) = rsync_path {
-        println!("-- Rsync MatrixSDKFFI.xcframework to {path:?}");
-        cmd!("rsync -a --delete {generated_dir}/MatrixSDKFFI.xcframework {path}").run()?;
-        cmd!("rsync -a --delete {swift_dir}/ {path}/Sources/MatrixRustSDK").run()?;
+    if let Some(path) = components_path {
+        println!("-- Copying MatrixSDKFFI.xcframework to {path:?}");
+        let framework_target = path.join("MatrixSDKFFI.xcframework");
+        let swift_target = path.join("Sources/MatrixRustSDK");
+        if framework_target.exists() {
+            remove_dir_all(framework_target.as_path())?;
+        }
+        if swift_target.exists() {
+            remove_dir_all(swift_target.as_path())?;
+        }
+        create_dir_all(framework_target.as_path())?;
+        create_dir_all(swift_target.as_path())?;
+        fs_extra::dir::copy(
+            xcframework_path.as_path(),
+            framework_target.as_path(),
+            &fs_extra::dir::CopyOptions::default(),
+        )?;
+        fs_extra::dir::copy(
+            swift_dir.as_path(),
+            framework_target.as_path(),
+            &fs_extra::dir::CopyOptions::default(),
+        )?;
     }
 
     println!("-- All done and hunky dory. Enjoy!");
