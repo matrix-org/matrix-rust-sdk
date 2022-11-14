@@ -181,7 +181,7 @@ impl HttpError {
             HttpError::Reqwest(err) => err.status() == Some(StatusCode::NOT_FOUND),
             HttpError::AuthenticationRequired => false,
             HttpError::NotClientRequest => false,
-            HttpError::Api(FromHttpResponseError::Server(ServerError::Known(err))) => {
+            HttpError::Api(FromHttpResponseError::Server(err)) => {
                 err.is_not_found()
             }
             HttpError::Api(_) => false,
