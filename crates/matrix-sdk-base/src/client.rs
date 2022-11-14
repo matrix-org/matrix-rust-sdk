@@ -925,17 +925,24 @@ impl BaseClient {
             for member in &members {
                 let member: SyncRoomMemberEvent = member.clone().into();
 
-                if self.store.get_member_event(room_id, member.state_key()).await?.is_none() {
-                    #[cfg(feature = "e2e-encryption")]
-                    match member.membership() {
-                        MembershipState::Join | MembershipState::Invite => {
-                            user_ids.insert(member.state_key().to_owned());
-                        }
-                        _ => (),
-                    }
+                // TODO: All the actions in this loop used to be done only when the membership
+                // event was not in the store before. This was changed with the new room API,
+                // because e.g. leaving a room makes members events outdated and they need to be
+                // fetched by `get_members`. Therefore, they need to be overwritten here, even
+                // if they exist.
+                // However, this makes a new problem occur where setting the member events here
+                // potentially races with the sync.
+                // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
 
-                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                #[cfg(feature = "e2e-encryption")]
+                match member.membership() {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key().to_owned());
+                    }
+                    _ => (),
                 }
+
+                ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
                 if member.state_key() == member.sender() {
                     changes
