@@ -15,7 +15,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{
         presence::PresenceEvent,
-        receipt::Receipt,
+        receipt::{Receipt, ReceiptType},
         room::{
             member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
             MediaSource,
@@ -23,7 +23,6 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
