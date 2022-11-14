@@ -401,9 +401,10 @@ where
             "cryptostore_inbound_group_session:room_id",
             session.room_id().as_bytes(),
         );
+        let raw_key = session.sender_key.to_base64();
         let sender_key = e2e.encode_key(
             "cryptostore_inbound_group_session:sender_key",
-            session.sender_key().as_bytes(),
+            raw_key.as_bytes(),
         );
         let session_id = e2e.encode_key(
             "cryptostore_inbound_group_session:session_id",
@@ -1355,7 +1356,7 @@ mod postgres_integration_test {
         }
     }
 
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }
 
 #[allow(clippy::redundant_pub_crate)]
@@ -1379,10 +1380,10 @@ mod sqlite_integration_test {
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
     async fn get_store_result(
-        name: String,
+        name: &str,
         passphrase: Option<&str>,
     ) -> crate::Result<StateStore<sqlx::sqlite::Sqlite>> {
-        let tmpdir_path = TMP_DIR.path().join(name + ".db");
+        let tmpdir_path = TMP_DIR.path().join(name.to_owned() + ".db");
         let db_url = format!("sqlite://{}", tmpdir_path.to_string_lossy());
         if !sqlx::Sqlite::database_exists(&db_url).await? {
             sqlx::Sqlite::create_database(&db_url).await?;
@@ -1395,7 +1396,7 @@ mod sqlite_integration_test {
     }
 
     #[allow(clippy::panic)]
-    async fn get_store(name: String, passphrase: Option<&str>) -> StateStore<sqlx::sqlite::Sqlite> {
+    async fn get_store(name: &str, passphrase: Option<&str>) -> StateStore<sqlx::sqlite::Sqlite> {
         match get_store_result(name, passphrase).await {
             Ok(v) => v,
             Err(e) => {
@@ -1407,7 +1408,7 @@ mod sqlite_integration_test {
     #[async_test]
     #[allow(clippy::unwrap_used)]
     async fn cryptostore_outbound_group_session() {
-        let store = get_store("cryptostore_outbound_group_session".to_owned(), None).await;
+        let store = get_store("cryptostore_outbound_group_session", None).await;
         for _ in 0..2 {
             let mut txn = store.db.begin().await.unwrap();
             let outbound_group_session = OutboundGroupSession::new(
@@ -1415,7 +1416,8 @@ mod sqlite_integration_test {
                 Arc::new(Account::new().identity_keys()),
                 room_id!("!test:localhost"),
                 EncryptionSettings::default(),
-            );
+            )
+            .unwrap();
             store
                 .save_outbound_group_session(&mut txn, outbound_group_session)
                 .await
@@ -1424,5 +1426,5 @@ mod sqlite_integration_test {
         }
     }
 
-    cryptostore_integration_tests! { integration }
+    cryptostore_integration_tests!();
 }

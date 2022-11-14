@@ -252,13 +252,28 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - The state key
     /// * `$4` - Whether or not the state is partial
     /// * `$5` - The event content
+    /// * `$5` - The event ID
     fn state_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_state
-                    (room_id, event_type, state_key, is_partial, state_event)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT(room_id, event_type, state_key) DO UPDATE SET is_partial = $4, state_event = $5
+                    (room_id, event_type, state_key, is_partial, state_event, event_id)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT(room_id, event_type, state_key) DO UPDATE SET is_partial = $4, state_event = $5, event_id = $6
+            "#,
+        )
+    }
+
+    /// Redacts a state event
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The state event ID
+    fn state_redact_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_state
+                WHERE room_id = $1 AND event_id = $2
             "#,
         )
     }

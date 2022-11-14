@@ -18,6 +18,7 @@ use ruma::{
         receipt::{Receipt, ReceiptType},
         room::{
             member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            redaction::OriginalSyncRoomRedactionEvent,
             MediaSource,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
@@ -386,12 +387,15 @@ where
         state_key: &str,
         state: Raw<AnySyncStateEvent>,
     ) -> Result<()> {
+        let decoded = state.deserialize()?;
+        let event_id = decoded.event_id();
         DB::state_upsert_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
             .bind(state_key)
             .bind(false)
             .bind(Json(state))
+            .bind(event_id.as_str())
             .execute(txn)
             .await?;
         Ok(())
@@ -823,6 +827,24 @@ where
         Ok(row.try_get("kv_value")?)
     }
 
+    /// Redact state events in a transaction
+    ///
+    /// # Errors
+    /// This function will return an error if the database query fails
+    pub(crate) async fn redact_event<'c>(
+        txn: &mut Transaction<'c, DB>,
+        room_id: &RoomId,
+        event_id: &EventId,
+        _redaction_event: &OriginalSyncRoomRedactionEvent,
+    ) -> Result<()> {
+        DB::state_redact_query()
+            .bind(room_id.as_str())
+            .bind(event_id.as_str())
+            .execute(txn)
+            .await?;
+        Ok(())
+    }
+
     /// Save state changes to the database in a transaction
     ///
     /// # Errors
@@ -896,6 +918,12 @@ where
         for (room_id, account_data) in &state_changes.room_account_data {
             for (event_type, event_data) in account_data {
                 Self::set_room_account_data(txn, room_id, event_type, event_data.clone()).await?;
+            }
+        }
+
+        for (room_id, redactions) in &state_changes.redactions {
+            for (event_id, redaction_event) in redactions {
+                Self::redact_event(txn, room_id, event_id, redaction_event).await?;
             }
         }
 
@@ -1572,7 +1600,7 @@ mod postgres_integration_test {
             .map_err(|e| StoreError::Backend(e.into()))
     }
 
-    statestore_integration_tests! { integration }
+    statestore_integration_tests!();
 }
 
 #[allow(clippy::redundant_pub_crate)]
@@ -1587,5 +1615,5 @@ mod sqlite_integration_test {
             .map_err(|e| StoreError::Backend(e.into()))
     }
 
-    statestore_integration_tests! { integration }
+    statestore_integration_tests!();
 }

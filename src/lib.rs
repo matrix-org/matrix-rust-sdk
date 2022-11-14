@@ -42,6 +42,10 @@
 
 use std::sync::Arc;
 
+// These crate imports are due to bugs, regressions, etc
+use sqlx_core as _;
+use tracing as _;
+
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::CryptostoreData;
 use helpers::{BorrowedSqlType, SqlType};
@@ -101,7 +105,6 @@ pub enum SQLStoreError {
     #[error("Failed to encode/decode data as bincode: {0}")]
     Bincode(#[from] bincode::Error),
     /// Failed to decode a JSON value
-    #[cfg(feature = "e2e-encryption")]
     #[error("Failed to encode/decode data as json: {0}")]
     Json(#[from] serde_json::Error),
     /// Failed to pickle data
