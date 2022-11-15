@@ -309,8 +309,6 @@ pub struct SlidingSyncConfig {
     #[builder(private, default)]
     views: Vec<SlidingSyncView>,
     #[builder(private, default)]
-    start_fresh: bool,
-    #[builder(private, default)]
     extensions: Option<ExtensionsConfig>,
     #[builder(private, default)]
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
@@ -324,10 +322,8 @@ impl SlidingSyncConfig {
             client,
             mut views,
             extensions,
-            start_fresh,
             subscriptions,
         } = self;
-        let pos;
         let rooms;
         if let Some(storage_key) = storage_key.as_ref() {
             if let Some(mut f) = client
@@ -342,15 +338,12 @@ impl SlidingSyncConfig {
                         view.set_from_cold(frozen_view);
                     }
                 }
-                pos = if !start_fresh { f.position } else { None };
 
                 rooms = f.rooms.into_iter().map(|(k, v)| (k, v.into())).collect();
             } else {
-                pos = None;
                 rooms = Default::default();
             }
         } else {
-            pos = None;
             rooms = Default::default();
         };
 
@@ -369,7 +362,7 @@ impl SlidingSyncConfig {
             rooms,
             extensions: Mutable::new(extensions),
 
-            pos: Mutable::new(pos),
+            pos: Mutable::new(None),
             subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
             unsubscribe: Default::default(),
         })
@@ -389,20 +382,6 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Start from the position we stored in the cache
-    ///
-    /// This might take longer on the first request if a lot of things have
-    /// happened as sliding sync is attempting to send all information since
-    /// that last position over. Only active if we've found a cached version
-    /// at the configure `cold_cache` storage key.
-    pub fn with_cached_position(self) -> Self {
-        self.start_fresh(false)
-    }
-
-    /// Start fresh regardless of whether a position was cached previously
-    pub fn with_fresh_position(self) -> Self {
-        self.start_fresh(true)
-    }
     /// Reset the views to None
     pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
         self.storage_key = Some(Some(name.to_string()));
@@ -546,7 +525,6 @@ pub struct SlidingSync {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
-    position: Option<String>,
     views: BTreeMap<String, FrozenSlidingSyncView>,
     rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
@@ -554,7 +532,6 @@ struct FrozenSlidingSync {
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(v: &SlidingSync) -> Self {
         FrozenSlidingSync {
-            position: v.pos.lock_ref().clone(),
             views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
             rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
         }

@@ -605,18 +605,6 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn with_cached_position(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.with_cached_position();
-        Arc::new(builder)
-    }
-
-    pub fn with_fresh_position(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.with_fresh_position();
-        Arc::new(builder)
-    }
-
     pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncView>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         let view = unwrap_or_clone_arc(v);
