@@ -305,50 +305,20 @@ impl GossipMachine {
         })
     }
 
-    /// Answer a room key request after we found the matching
-    /// `InboundGroupSession`.
-    async fn answer_room_key_request(
+    /// Try to encrypt the given `InboundGroupSession` for the given `Device` as
+    /// a forwarded room key.
+    ///
+    /// This method might fail if we do not share an 1-to-1 Olm session with the
+    /// given `Device`, in that case we're going to queue up an
+    /// `/keys/claim` request to be sent out and retry once the 1-to-1 Olm
+    /// session has been established.
+    async fn try_to_forward_room_key(
         &self,
         event: &RoomKeyRequestEvent,
+        device: Device,
         session: InboundGroupSession,
+        message_index: Option<u32>,
     ) -> OlmResult<Option<Session>> {
-        let device =
-            self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
-
-        let Some(device) = device else {
-            warn!(
-                user_id = %event.sender,
-                device_id = %event.content.requesting_device_id,
-                "Received a key request from an unknown device",
-            );
-            self.store.update_tracked_user(&event.sender, true).await?;
-
-            return Ok(None);
-        };
-
-        let message_index = match self.should_share_key(&device, &session).await {
-            Ok(message_index) => message_index,
-            Err(e) => {
-                if let KeyForwardDecision::ChangedSenderKey = e {
-                    warn!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        "Received a key request from a device that changed \
-                         their Curve25519 sender key"
-                    );
-                } else {
-                    debug!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        reason = ?e,
-                        "Received a key request that we won't serve",
-                    );
-                }
-
-                return Ok(None);
-            }
-        };
-
         info!(
             user_id = %device.user_id(),
             device_id = %device.device_id(),
@@ -383,6 +353,53 @@ impl GossipMachine {
                 Ok(None)
             }
             Err(e) => Err(e),
+        }
+    }
+
+    /// Answer a room key request after we found the matching
+    /// `InboundGroupSession`.
+    async fn answer_room_key_request(
+        &self,
+        event: &RoomKeyRequestEvent,
+        session: InboundGroupSession,
+    ) -> OlmResult<Option<Session>> {
+        let device =
+            self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
+
+        let Some(device) = device else {
+            warn!(
+                user_id = %event.sender,
+                device_id = %event.content.requesting_device_id,
+                "Received a key request from an unknown device",
+            );
+            self.store.update_tracked_user(&event.sender, true).await?;
+
+            return Ok(None);
+        };
+
+        match self.should_share_key(&device, &session).await {
+            Ok(message_index) => {
+                self.try_to_forward_room_key(event, device, session, message_index).await
+            }
+            Err(e) => {
+                if let KeyForwardDecision::ChangedSenderKey = e {
+                    warn!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        "Received a key request from a device that changed \
+                         their Curve25519 sender key"
+                    );
+                } else {
+                    debug!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        reason = ?e,
+                        "Received a key request that we won't serve",
+                    );
+                }
+
+                Ok(None)
+            }
         }
     }
 
