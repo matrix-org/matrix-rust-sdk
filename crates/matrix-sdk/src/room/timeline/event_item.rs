@@ -302,7 +302,7 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// If `self` is of the [`Message`][Self:Message] variant, return the inner
+    /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         match self {
