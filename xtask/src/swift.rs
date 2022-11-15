@@ -1,6 +1,6 @@
 use std::{
     fs::{create_dir_all, remove_dir_all, remove_file, rename},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use clap::{Args, Subcommand};
@@ -86,21 +86,21 @@ fn build_library() -> Result<()> {
     Ok(())
 }
 
-fn generate_uniffi(library_file: &PathBuf, ffi_directory: &PathBuf) -> Result<()> {
+fn generate_uniffi(library_file: &Path, ffi_directory: &Path) -> Result<()> {
     let root_directory = workspace::root_path()?;
     let udl_file = camino::Utf8PathBuf::from_path_buf(
         root_directory.join("bindings/matrix-sdk-ffi/src/api.udl"),
     )
     .unwrap();
-    let outdir_overwrite = camino::Utf8PathBuf::from_path_buf(ffi_directory.clone()).unwrap();
-    let library_path = camino::Utf8PathBuf::from_path_buf(library_file.clone()).unwrap();
+    let outdir_overwrite = camino::Utf8Path::from_path(ffi_directory).unwrap();
+    let library_path = camino::Utf8Path::from_path(library_file).unwrap();
 
     uniffi_bindgen::generate_bindings(
         udl_file.as_path(),
         None,
         vec!["swift"],
-        Some(outdir_overwrite.as_path()),
-        Some(library_path.as_path()),
+        Some(outdir_overwrite),
+        Some(library_path),
         false,
     )?;
     Ok(())
