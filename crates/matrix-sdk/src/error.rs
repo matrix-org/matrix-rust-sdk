@@ -28,7 +28,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::uiaa::{UiaaInfo, UiaaResponse},
-        error::{FromHttpResponseError, IntoHttpError, ServerError},
+        error::{FromHttpResponseError, IntoHttpError},
     },
     events::tag::InvalidUserTagName,
     IdParseError,
@@ -76,6 +76,18 @@ impl RumaApiError {
             _ => None,
         }
     }
+
+    /// Return whether the error was a 404 not found response.
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            RumaApiError::ClientApi(err) => err.status_code == StatusCode::NOT_FOUND,
+            RumaApiError::Uiaa(UiaaResponse::MatrixError(err)) => {
+                err.status_code == StatusCode::NOT_FOUND
+            }
+            RumaApiError::Uiaa(_) => false,
+            RumaApiError::Other(err) => err.status_code == StatusCode::NOT_FOUND,
+        }
+    }
 }
 
 /// An HTTP error, representing either a connection error or an error while
@@ -119,13 +131,13 @@ pub enum HttpError {
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl HttpError {
     /// If `self` is
-    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e)))</code>,
+    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)(e))</code>,
     /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
         match self {
-            Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
+            Self::Api(FromHttpResponseError::Server(e)) => Some(e),
             _ => None,
         }
     }
@@ -134,6 +146,15 @@ impl HttpError {
     /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -151,6 +172,23 @@ impl HttpError {
         match self.as_ruma_api_error() {
             Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
             _ => None,
+        }
+    }
+    
+    /// Return whether the error was a 404 not found response.
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            HttpError::Reqwest(err) => err.status() == Some(StatusCode::NOT_FOUND),
+            HttpError::AuthenticationRequired => false,
+            HttpError::NotClientRequest => false,
+            HttpError::Api(FromHttpResponseError::Server(err)) => {
+                err.is_not_found()
+            }
+            HttpError::Api(_) => false,
+            HttpError::IntoHttp(_) => false,
+            HttpError::Server(status) => *status == StatusCode::NOT_FOUND,
+            HttpError::UnableToCloneRequest => false,
+            HttpError::RefreshToken(_) => false,
         }
     }
 }
@@ -238,6 +276,11 @@ pub enum Error {
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 
+    /// The client is in inconsistent state. This happens when we set a room to
+    /// a specific type, but then cannot get it in this type.
+    #[error("The internal client state is inconsistent.")]
+    InconsistentState,
+
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
@@ -248,7 +291,7 @@ pub enum Error {
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl Error {
     /// If `self` is
-    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)([Known](ServerError::Known)(e))))</code>,
+    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)(e)))</code>,
     /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
@@ -263,6 +306,15 @@ impl Error {
     /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -314,19 +366,19 @@ pub enum RoomKeyImportError {
 
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::ClientApi)))
+        Self::Api(err.map(RumaApiError::ClientApi))
     }
 }
 
 impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
     fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Uiaa)))
+        Self::Api(err.map(RumaApiError::Uiaa))
     }
 }
 
 impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Other)))
+        Self::Api(err.map(RumaApiError::Other))
     }
 }
 

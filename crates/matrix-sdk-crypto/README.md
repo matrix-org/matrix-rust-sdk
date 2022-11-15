@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_crypto::{OlmMachine, OlmError};
 use ruma::{
-    api::client::sync::sync_events::v3::{ToDevice, DeviceLists},
+    api::client::sync::sync_events::{v3::ToDevice, DeviceLists},
     device_id, user_id,
 };
 

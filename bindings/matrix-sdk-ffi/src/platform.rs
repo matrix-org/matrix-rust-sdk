@@ -26,6 +26,9 @@ mod android {
 
 #[cfg(target_os = "ios")]
 mod ios {
+    use std::io;
+
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     pub fn setup_tracing(configuration: String) {
         tracing_subscriber::registry()
             .with(EnvFilter::new(configuration))

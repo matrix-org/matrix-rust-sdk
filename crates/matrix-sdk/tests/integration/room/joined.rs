@@ -19,7 +19,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn invite_user_by_id() {
@@ -256,6 +256,7 @@ async fn room_message_send() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -297,6 +298,7 @@ async fn room_attachment_send() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -346,6 +348,7 @@ async fn room_attachment_send_info() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -397,6 +400,7 @@ async fn room_attachment_send_wrong_info() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -455,6 +459,7 @@ async fn room_attachment_send_info_thumbnail() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

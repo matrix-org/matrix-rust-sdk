@@ -8,9 +8,8 @@ use matrix_sdk_appservice::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
-        RumaApiError,
     },
-    ruma::api::client::{error::ErrorKind, uiaa::UiaaResponse},
+    ruma::api::client::error::ErrorKind,
     AppService, AppServiceBuilder, AppServiceRegistration, Result,
 };
 use tracing::trace;
@@ -39,15 +38,12 @@ pub fn error_if_user_not_in_use(error: matrix_sdk_appservice::Error) -> Result<(
     // FIXME: Use if-let chain once available
     match &error {
         // If user is already in use that's OK.
-        matrix_sdk_appservice::Error::Matrix(err) => match err.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(error)))
-                if matches!(error.kind, ErrorKind::UserInUse) =>
-            {
-                Ok(())
-            }
-            // In all other cases return with an error.
-            _ => Err(error),
-        },
+        matrix_sdk_appservice::Error::Matrix(err)
+            if err.client_api_error_kind() == Some(&ErrorKind::UserInUse) =>
+        {
+            Ok(())
+        }
+        // In all other cases return with an error.
         _ => Err(error),
     }
 }

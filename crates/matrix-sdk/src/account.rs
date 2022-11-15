@@ -645,7 +645,7 @@ impl Account {
     /// if let Some(raw_content) = maybe_content {
     ///     let content = raw_content.deserialize()?;
     ///     println!("Ignored users:");
-    ///     for user_id in content.ignored_users {
+    ///     for user_id in content.ignored_users.keys() {
     ///         println!("- {user_id}");
     ///     }
     /// }
@@ -676,7 +676,8 @@ impl Account {
     /// # let client = Client::new("http://localhost:8080".parse()?).await?;
     /// # let account = client.account();
     /// use matrix_sdk::ruma::{
-    ///     events::ignored_user_list::IgnoredUserListEventContent, user_id,
+    ///     events::ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+    ///     user_id,
     /// };
     ///
     /// let mut content = account
@@ -685,7 +686,9 @@ impl Account {
     ///     .map(|c| c.deserialize())
     ///     .transpose()?
     ///     .unwrap_or_default();
-    /// content.ignored_users.push(user_id!("@foo:bar.com").to_owned());
+    /// content
+    ///     .ignored_users
+    ///     .insert(user_id!("@foo:bar.com").to_owned(), IgnoredUser::new());
     /// account.set_account_data(content).await?;
     /// # anyhow::Ok(()) };
     /// ```

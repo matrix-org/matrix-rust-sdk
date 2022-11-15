@@ -11,7 +11,10 @@ use matrix_sdk::{
         Room as SdkRoom,
     },
     ruma::{
-        events::room::message::{Relation, Replacement, RoomMessageEvent, RoomMessageEventContent},
+        events::room::message::{
+            ForwardThread, MessageType, Relation, Replacement, RoomMessageEvent,
+            RoomMessageEventContent,
+        },
         EventId, UserId,
     },
 };
@@ -58,10 +61,6 @@ impl Room {
         self.room.is_public()
     }
 
-    pub fn is_encrypted(&self) -> bool {
-        self.room.is_encrypted()
-    }
-
     pub fn is_space(&self) -> bool {
         self.room.is_space()
     }
@@ -95,6 +94,14 @@ impl Room {
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
+    }
+
+    pub fn is_encrypted(&self) -> Result<bool> {
+        let room = self.room.clone();
+        RUNTIME.block_on(async move {
+            let is_encrypted = room.is_encrypted().await?;
+            Ok(is_encrypted)
+        })
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {
@@ -191,8 +198,8 @@ impl Room {
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            let reply_content =
-                RoomMessageEventContent::text_markdown(msg).make_reply_to(original_message);
+            let reply_content = RoomMessageEventContent::text_markdown(msg)
+                .make_reply_to(original_message, ForwardThread::Yes);
 
             timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await?;
 
@@ -233,7 +240,7 @@ impl Room {
 
             let replacement = Replacement::new(
                 event_id.to_owned(),
-                Box::new(RoomMessageEventContent::text_markdown(new_msg.to_owned())),
+                MessageType::text_markdown(new_msg.to_owned()),
             );
 
             let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);

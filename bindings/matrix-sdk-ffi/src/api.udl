@@ -203,6 +203,9 @@ dictionary Session {
 interface Room {
     [Throws=ClientError]
     string display_name();
+    
+    [Throws=ClientError]
+    boolean is_encrypted();
 
     [Throws=ClientError]
     string? member_avatar_url(string user_id);

@@ -295,8 +295,8 @@ async fn send_request(
             RetryError::Permanent
         } else {
             |err: HttpError| {
-                let retry_after = err.as_client_api_error().and_then(|e| match e.kind {
-                    ClientApiErrorKind::LimitExceeded { retry_after_ms } => retry_after_ms,
+                let retry_after = err.client_api_error_kind().and_then(|kind| match kind {
+                    ClientApiErrorKind::LimitExceeded { retry_after_ms } => *retry_after_ms,
                     _ => None,
                 });
                 RetryError::Transient { err, retry_after }
