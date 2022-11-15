@@ -170,11 +170,18 @@ const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
-#[derive(Builder, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+enum DbOrPath {
+    Db(Db),
+    Path(PathBuf),
+}
+
+#[derive(Builder, Debug)]
 #[builder(name = "SledStateStoreBuilder", build_fn(skip))]
+#[allow(dead_code)]
 pub struct SledStateStoreBuilderConfig {
-    /// Path to the sled store files, created if not yet existing
-    path: PathBuf,
+    #[builder(setter(custom))]
+    db_or_path: DbOrPath,
     /// Set the password the sled store is encrypted with (if any)
     passphrase: String,
     /// The strategy to use when a merge conflict is found, see
@@ -184,21 +191,46 @@ pub struct SledStateStoreBuilderConfig {
 }
 
 impl SledStateStoreBuilder {
+    /// Path to the sled store files, created if not it doesn't exist yet.
+    ///
+    /// Mutually exclusive with [`db`][Self::db], whichever is called last wins.
+    pub fn path(&mut self, path: PathBuf) -> &mut SledStateStoreBuilder {
+        self.db_or_path = Some(DbOrPath::Path(path));
+        self
+    }
+
+    /// Use the given [`sled::Db`].
+    ///
+    /// Mutually exclusive with [`path`][Self::path], whichever is called last
+    /// wins.
+    pub fn db(&mut self, db: Db) -> &mut SledStateStoreBuilder {
+        self.db_or_path = Some(DbOrPath::Db(db));
+        self
+    }
+
+    /// Create a [`SledStateStore`] with the options set on this builder.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail for two general reasons:
+    ///
+    /// * Invalid path: The [`sled::Db`] could not be opened at the supplied
+    ///   path.
+    /// * Migration error: The migration to a newer version of the schema
+    ///   failed, see `SledStoreError::MigrationConflict`.
     pub fn build(&mut self) -> Result<SledStateStore> {
-        let is_temp = self.path.is_none();
-
-        let mut cfg = Config::new().temporary(is_temp);
-
-        let path = if let Some(path) = &self.path {
-            let path = path.join("matrix-sdk-state");
-
-            cfg = cfg.path(&path);
-            Some(path)
-        } else {
-            None
+        let (db, path) = match &self.db_or_path {
+            None => {
+                let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
+                (db, None)
+            }
+            Some(DbOrPath::Db(db)) => (db.clone(), None),
+            Some(DbOrPath::Path(path)) => {
+                let path = path.join("matrix-sdk-state");
+                let db = Config::new().path(&path).open().map_err(StoreError::backend)?;
+                (db, Some(path))
+            }
         };
-
-        let db = cfg.open().map_err(StoreError::backend)?;
 
         let store_cipher = if let Some(passphrase) = &self.passphrase {
             if let Some(inner) = db.get("store_cipher".encode())? {
