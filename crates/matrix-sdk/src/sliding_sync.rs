@@ -26,8 +26,14 @@ use futures_core::stream::Stream;
 use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
 use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
 use ruma::{
-    api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
+    api::{
+        client::{
+            error::{ErrorBody, ErrorKind},
+            sync::sync_events::v4::{
+                self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
+            },
+        },
+        error::FromHttpResponseError,
     },
     assign,
     events::RoomEventType,
@@ -37,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-use crate::{Client, Result};
+use crate::{Client, HttpError, Result, RumaApiError};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -361,6 +367,7 @@ impl SlidingSyncConfig {
             views,
             rooms,
             extensions: Mutable::new(extensions),
+            failure_count: Default::default(),
 
             pos: Mutable::new(None),
             subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
@@ -519,6 +526,9 @@ pub struct SlidingSync {
 
     /// The rooms details
     rooms: RoomsMap,
+
+    /// keeping track of retries and failure cunts
+    failure_count: Arc<std::sync::atomic::AtomicU8>,
 
     extensions: Mutable<Option<ExtensionsConfig>>,
 }
@@ -689,6 +699,7 @@ impl SlidingSync {
         let client = self.client.clone();
 
         Ok(async_stream::stream! {
+            let initial_extensions = extensions.lock_ref().clone();
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
@@ -746,8 +757,27 @@ impl SlidingSync {
                 let resp_res = req.await;
 
                 let resp = match resp_res {
-                    Ok(r) => r,
+                    Ok(r) => {
+                        self.failure_count.store(0, Ordering::Relaxed);
+                        r
+                    },
                     Err(e) => {
+                        if matches!(e, HttpError::Api(FromHttpResponseError::Server(RumaApiError::ClientApi(ruma::api::client::Error { body: ErrorBody::Standard { kind: ErrorKind::UnknownPos, .. }, .. })))) {
+                            // session expired, let's reset
+                            if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
+                                tracing::error!("session expired three times in a row");
+                                yield Err(e.into());
+                                break
+                            }
+                            tracing::warn!("Session expired. Restarting sliding sync.");
+                            remaining_generators = views
+                                .iter()
+                                .map(SlidingSyncView::request_generator)
+                                .collect();
+                            *self.pos.lock_mut() = None;
+                            *self.extensions.lock_mut() = initial_extensions.clone();
+                            continue
+                        }
                         yield Err(e.into());
                         continue
                     }
