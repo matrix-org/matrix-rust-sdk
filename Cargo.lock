@@ -5596,6 +5596,7 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "clap 4.0.18",
+ "fs_extra",
  "serde",
  "serde_json",
  "uniffi_bindgen",
