@@ -185,6 +185,10 @@ impl EventTimelineItem {
         self.0.is_own()
     }
 
+    pub fn is_editable(&self) -> bool {
+        self.0.is_editable()
+    }
+
     pub fn content(&self) -> Arc<TimelineItemContent> {
         Arc::new(TimelineItemContent(self.0.content().clone()))
     }
@@ -266,6 +270,13 @@ impl Message {
                     info: c.info.as_deref().map(Into::into),
                 },
             }),
+            MTy::Video(c) => Some(MessageType::Video {
+                content: VideoMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            }),
             MTy::Notice(c) => Some(MessageType::Notice {
                 content: NoticeMessageContent {
                     body: c.body.clone(),
@@ -300,6 +311,7 @@ impl Message {
 pub enum MessageType {
     Emote { content: EmoteMessageContent },
     Image { content: ImageMessageContent },
+    Video { content: VideoMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
 }
@@ -318,7 +330,26 @@ pub struct ImageMessageContent {
 }
 
 #[derive(Clone, uniffi::Record)]
+pub struct VideoMessageContent {
+    pub body: String,
+    pub source: Arc<MediaSource>,
+    pub info: Option<VideoInfo>,
+}
+
+#[derive(Clone, uniffi::Record)]
 pub struct ImageInfo {
+    pub height: Option<u64>,
+    pub width: Option<u64>,
+    pub mimetype: Option<String>,
+    pub size: Option<u64>,
+    pub thumbnail_info: Option<ThumbnailInfo>,
+    pub thumbnail_source: Option<Arc<MediaSource>>,
+    pub blurhash: Option<String>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct VideoInfo {
+    pub duration: Option<u64>,
     pub height: Option<u64>,
     pub width: Option<u64>,
     pub mimetype: Option<String>,
@@ -382,6 +413,28 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
         });
 
         Self {
+            height: info.height.map(Into::into),
+            width: info.width.map(Into::into),
+            mimetype: info.mimetype.clone(),
+            size: info.size.map(Into::into),
+            thumbnail_info,
+            thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
+            blurhash: info.blurhash.clone(),
+        }
+    }
+}
+
+impl From<&matrix_sdk::ruma::events::room::message::VideoInfo> for VideoInfo {
+    fn from(info: &matrix_sdk::ruma::events::room::message::VideoInfo) -> Self {
+        let thumbnail_info = info.thumbnail_info.as_ref().map(|info| ThumbnailInfo {
+            height: info.height.map(Into::into),
+            width: info.width.map(Into::into),
+            mimetype: info.mimetype.clone(),
+            size: info.size.map(Into::into),
+        });
+
+        Self {
+            duration: info.duration.map(|d| d.as_secs()),
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
             mimetype: info.mimetype.clone(),

@@ -7,11 +7,14 @@ use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    room::timeline::{TimelineDetails, TimelineItemContent, TimelineKey},
+    room::timeline::{TimelineDetails, TimelineItemContent, TimelineKey, VirtualTimelineItem},
     ruma::MilliSecondsSinceUnixEpoch,
 };
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, TimelineTestEvent};
+use matrix_sdk_test::{
+    async_test, test_json, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    TimelineTestEvent,
+};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
@@ -39,7 +42,7 @@ async fn edit() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline();
+    let timeline = room.timeline().await;
     let mut timeline_stream = timeline.signal().to_stream();
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -148,7 +151,7 @@ async fn echo() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline());
+    let timeline = Arc::new(room.timeline().await);
     let mut timeline_stream = timeline.signal().to_stream();
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
@@ -240,7 +243,7 @@ async fn back_pagination() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline());
+    let timeline = Arc::new(room.timeline().await);
     let mut timeline_stream = timeline.signal().to_stream();
 
     Mock::given(method("GET"))
@@ -291,7 +294,7 @@ async fn reaction() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline();
+    let timeline = room.timeline().await;
     let mut timeline_stream = timeline.signal().to_stream();
 
     ev_builder.add_joined_room(
@@ -383,7 +386,7 @@ async fn redacted_message() {
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline();
+    let timeline = room.timeline().await;
     let mut timeline_stream = timeline.signal().to_stream();
 
     ev_builder.add_joined_room(
@@ -424,4 +427,55 @@ async fn redacted_message() {
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
     // TODO: After adding raw timeline items, check for one here
+}
+
+#[async_test]
+async fn read_marker() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let mut timeline_stream = timeline.signal().to_stream();
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "hello",
+                "msgtype": "m.text",
+            },
+            "event_id": "$someplace:example.org",
+            "origin_server_ts": 152037280,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let message =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::FullyRead),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let marker =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
 }
