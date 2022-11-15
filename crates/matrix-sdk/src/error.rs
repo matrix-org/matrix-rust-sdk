@@ -76,18 +76,6 @@ impl RumaApiError {
             _ => None,
         }
     }
-
-    /// Return whether the error was a 404 not found response.
-    pub fn is_not_found(&self) -> bool {
-        match self {
-            RumaApiError::ClientApi(err) => err.status_code == StatusCode::NOT_FOUND,
-            RumaApiError::Uiaa(UiaaResponse::MatrixError(err)) => {
-                err.status_code == StatusCode::NOT_FOUND
-            }
-            RumaApiError::Uiaa(_) => false,
-            RumaApiError::Other(err) => err.status_code == StatusCode::NOT_FOUND,
-        }
-    }
 }
 
 /// An HTTP error, representing either a connection error or an error while
@@ -172,23 +160,6 @@ impl HttpError {
         match self.as_ruma_api_error() {
             Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
             _ => None,
-        }
-    }
-    
-    /// Return whether the error was a 404 not found response.
-    pub fn is_not_found(&self) -> bool {
-        match self {
-            HttpError::Reqwest(err) => err.status() == Some(StatusCode::NOT_FOUND),
-            HttpError::AuthenticationRequired => false,
-            HttpError::NotClientRequest => false,
-            HttpError::Api(FromHttpResponseError::Server(err)) => {
-                err.is_not_found()
-            }
-            HttpError::Api(_) => false,
-            HttpError::IntoHttp(_) => false,
-            HttpError::Server(status) => *status == StatusCode::NOT_FOUND,
-            HttpError::UnableToCloneRequest => false,
-            HttpError::RefreshToken(_) => false,
         }
     }
 }
