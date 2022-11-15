@@ -49,3 +49,13 @@ sha2 = { opt-level = 2 }
 [profile.dbg]
 inherits = "dev"
 debug = 2
+
+# Custom profile for use in (debug) builds of the binding crates, use
+# `--profile release_dbg` to select
+[profile.reldbg]
+inherits = "dev"
+incremental = false
+
+# Compile all non-workspace crate in the dependency tree with optimizations
+[profile.reldbg.package."*"]
+opt-level = 3

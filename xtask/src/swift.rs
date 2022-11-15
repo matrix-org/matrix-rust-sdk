@@ -19,14 +19,21 @@ pub struct SwiftArgs {
 enum SwiftCommand {
     /// Builds the SDK for Swift as a static lib.
     BuildLibrary,
+
     /// Builds the SDK for Swift as an XCFramework.
     BuildFramework {
-        /// Build in release mode
+        /// Build with the release profile
         #[clap(long)]
         release: bool,
+
+        /// Build with a custom profile, takes precedence over `--release`
+        #[clap(long)]
+        profile: Option<String>,
+
         /// Build the given target only
         #[clap(long)]
         only_target: Option<String>,
+
         /// Move the generated xcframework and swift sources into the given
         /// components-folder
         #[clap(long)]
@@ -40,8 +47,9 @@ impl SwiftArgs {
 
         match self.cmd {
             SwiftCommand::BuildLibrary => build_library(),
-            SwiftCommand::BuildFramework { release, components_path, only_target } => {
-                build_xcframework(release, only_target, components_path)
+            SwiftCommand::BuildFramework { release, profile, components_path, only_target } => {
+                let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
+                build_xcframework(profile, only_target, components_path)
             }
         }
     }
@@ -106,20 +114,17 @@ fn generate_uniffi(library_file: &Path, ffi_directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_for_target(target: &str, release: bool) -> Result<PathBuf> {
-    let mut cmd = cmd!("cargo build -p matrix-sdk-ffi --target {target}");
-    if release {
-        cmd = cmd.arg("--release");
-    }
-    cmd.run()?;
-    Ok(workspace::target_path()?
-        .join(target)
-        .join(if release { "release" } else { "debug" })
-        .join("libmatrix_sdk_ffi.a"))
+fn build_for_target(target: &str, profile: &str) -> Result<PathBuf> {
+    cmd!("cargo build -p matrix-sdk-ffi --target {target} --profile {profile}").run()?;
+
+    // The builtin dev profile has its files stored under target/debug, all
+    // other targets have matching directory names
+    let profile_dir_name = if profile == "dev" { "debug" } else { profile };
+    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join("libmatrix_sdk_ffi.a"))
 }
 
 fn build_xcframework(
-    release_mode: bool,
+    profile: &str,
     only_target: Option<String>,
     components_path: Option<PathBuf>,
 ) -> Result<()> {
@@ -132,22 +137,22 @@ fn build_xcframework(
 
     let (libs, uniff_lib_path) = if let Some(target) = only_target {
         println!("-- Building for {target} 1/1");
-        let build_path = build_for_target(target.as_str(), release_mode)?;
+        let build_path = build_for_target(target.as_str(), profile)?;
 
         (vec![build_path.clone()], build_path)
     } else {
         println!("-- Building for iOS [1/5]");
-        let ios_path = build_for_target("aarch64-apple-ios", release_mode)?;
+        let ios_path = build_for_target("aarch64-apple-ios", profile)?;
 
         println!("-- Building for macOS (Apple Silicon) [2/5]");
-        let darwin_arm_path = build_for_target("aarch64-apple-darwin", release_mode)?;
+        let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
         println!("-- Building for macOS (Intel) [3/5]");
-        let darwin_x86_path = build_for_target("x86_64-apple-darwin", release_mode)?;
+        let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
 
         println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
-        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", release_mode)?;
+        let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
         println!("-- Building for iOS Simulator (Intel) [5/5]");
-        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", release_mode)?;
+        let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
 
         println!("-- Running Lipo for MacOs [1/2]");
         // # MacOS
