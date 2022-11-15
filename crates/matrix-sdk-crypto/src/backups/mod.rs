@@ -30,8 +30,8 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId,
-    OwnedTransactionId, TransactionId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
+    OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -241,48 +241,53 @@ impl BackupMachine {
 
         if let Some(user_signatures) = signatures.get(self.account.user_id()) {
             for device_key_id in user_signatures.keys() {
-                if device_key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
-                    continue;
-                }
+                if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
+                    // No need to check our own device here, we're doing that using
+                    // the check_own_device_signature().
+                    if device_key_id.device_id() == self.account.device_id() {
+                        continue;
+                    }
 
-                // No need to check our own device here, we're doing that using
-                // the check_own_device_signature().
-                if device_key_id.device_id() == self.account.device_id() {
-                    continue;
-                }
+                    let state = self
+                        .test_ed25519_device_signature(
+                            device_key_id.device_id(),
+                            signatures,
+                            auth_data,
+                        )
+                        .await?;
 
-                // We might iterate over some non-device signatures as well,
-                // but in this case there's no corresponding device and we get
-                // `Ok(None)` here, so things still work out.
-                let device =
-                    self.store.get_device(self.store.user_id(), device_key_id.device_id()).await?;
+                    result.insert(device_key_id.device_id().to_owned(), state);
 
-                trace!(
-                    device_id = %device_key_id.device_id(),
-                    "Checking backup auth data for device"
-                );
-
-                let state = if let Some(device) = device {
-                    self.backup_signed_by_device(device, signatures, auth_data)
-                } else {
-                    trace!(
-                        device_id = %device_key_id.device_id(),
-                        "Device not found, can't check signature"
-                    );
-                    SignatureState::Missing
-                };
-
-                result.insert(device_key_id.device_id().to_owned(), state);
-
-                // Abort the loop if we found a trusted and valid signature,
-                // unless we should check all of them.
-                if state.trusted() && !compute_all_signatures {
-                    break;
+                    // Abort the loop if we found a trusted and valid signature,
+                    // unless we should check all of them.
+                    if state.trusted() && !compute_all_signatures {
+                        break;
+                    }
                 }
             }
         }
 
         Ok(result)
+    }
+
+    async fn test_ed25519_device_signature(
+        &self,
+        device_id: &DeviceId,
+        signatures: &Signatures,
+        auth_data: &str,
+    ) -> Result<SignatureState, CryptoStoreError> {
+        // We might iterate over some non-device signatures as well, but in this
+        // case there's no corresponding device and we get `Ok(None)` here, so
+        // things still work out.
+        let device = self.store.get_device(self.store.user_id(), device_id).await?;
+        trace!(%device_id, "Checking backup auth data for device");
+
+        if let Some(device) = device {
+            Ok(self.backup_signed_by_device(device, signatures, auth_data))
+        } else {
+            trace!(%device_id, "Device not found, can't check signature");
+            Ok(SignatureState::Missing)
+        }
     }
 
     async fn verify_auth_data_v1(
