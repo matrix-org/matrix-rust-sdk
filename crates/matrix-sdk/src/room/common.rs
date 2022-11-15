@@ -14,6 +14,7 @@ use ruma::events::{
 use ruma::{
     api::client::{
         config::set_global_account_data,
+        error::ErrorKind,
         filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
@@ -353,7 +354,7 @@ impl Common {
                 Ok(response) => {
                     Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
                 }
-                Err(err) if err.is_not_found() => None,
+                Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                 Err(err) => return Err(err.into()),
             };
 
