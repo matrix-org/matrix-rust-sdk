@@ -28,4 +28,4 @@ else
 fi
 echo "Active architecture ${ACTIVE_ARCH}"
 
-cargo xtask swift build-framework --sim-only-target=${TARGET} $*
+cargo xtask swift build-framework --profile=reldbg --sim-only-target=${TARGET} $*
