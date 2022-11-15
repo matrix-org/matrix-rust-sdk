@@ -143,7 +143,7 @@ impl Model {
             )
             .is_ok());
 
-        assert!(app.mount(Id::TextMessage, Box::new(InputText::default()), vec![]).is_ok());
+        assert!(app.mount(Id::TextMessage, Box::<InputText>::default(), vec![]).is_ok());
         assert!(app
             .mount(
                 Id::Rooms,
