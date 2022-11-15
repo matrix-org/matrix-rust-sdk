@@ -16,7 +16,6 @@
 
 use std::io::Error as IoError;
 
-use http::StatusCode;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
@@ -102,10 +101,6 @@ pub enum HttpError {
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
     IntoHttp(#[from] IntoHttpError),
-
-    /// The server returned a status code that should be retried.
-    #[error("Server returned an error {0}")]
-    Server(StatusCode),
 
     /// The given request can't be cloned and thus can't be retried.
     #[error("The request cannot be cloned")]
