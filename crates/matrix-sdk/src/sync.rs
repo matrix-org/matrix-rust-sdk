@@ -1,9 +1,9 @@
+//! The SDK's representation of the result of a `/sync` request.
+
 use std::time::Duration;
 
-use matrix_sdk_base::{
-    deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
-    instant::Instant,
-};
+use matrix_sdk_base::instant::Instant;
+pub use matrix_sdk_base::sync::*;
 use ruma::api::client::sync::sync_events;
 use tracing::{error, warn};
 

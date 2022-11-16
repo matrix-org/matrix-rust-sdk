@@ -703,7 +703,7 @@ macro_rules! statestore_integration_tests {
 
                 assert!(matches!(
                     store.get_member_event(room_id, user_id).await.unwrap(),
-                    Some(matrix_sdk_common::deserialized_responses::MemberEvent::Sync(_))
+                    Some($crate::deserialized_responses::MemberEvent::Sync(_))
                 ));
                 assert_eq!(store.get_room_infos().await.unwrap().len(), 1);
                 assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 0);
@@ -718,7 +718,7 @@ macro_rules! statestore_integration_tests {
 
                 assert!(matches!(
                     store.get_member_event(room_id, user_id).await.unwrap(),
-                    Some(matrix_sdk_common::deserialized_responses::MemberEvent::Stripped(_))
+                    Some($crate::deserialized_responses::MemberEvent::Stripped(_))
                 ));
                 assert_eq!(store.get_room_infos().await.unwrap().len(), 0);
                 assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);

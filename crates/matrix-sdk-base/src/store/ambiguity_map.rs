@@ -17,7 +17,6 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
 use ruma::{
     events::room::member::{MembershipState, SyncRoomMemberEvent},
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -25,7 +24,10 @@ use ruma::{
 use tracing::trace;
 
 use super::{Result, StateChanges};
-use crate::StateStore;
+use crate::{
+    deserialized_responses::{AmbiguityChange, MemberEvent},
+    StateStore,
+};
 
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {

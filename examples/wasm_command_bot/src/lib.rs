@@ -1,6 +1,5 @@
 use matrix_sdk::{
     config::SyncSettings,
-    deserialized_responses::SyncResponse,
     ruma::{
         events::{
             room::message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
@@ -9,6 +8,7 @@ use matrix_sdk::{
         },
         RoomId,
     },
+    sync::SyncResponse,
     Client, LoopCtrl,
 };
 use url::Url;

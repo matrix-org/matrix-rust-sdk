@@ -40,8 +40,8 @@ use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
-    deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore, StateStoreExt},
+    sync::UnreadNotificationsCount,
     MinimalStateEvent,
 };
 

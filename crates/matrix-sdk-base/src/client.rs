@@ -22,14 +22,7 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use futures_signals::signal::ReadOnlyMutable;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncTimelineEvent, Timeline,
-    },
-    instant::Instant,
-    locks::RwLock,
-};
+use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, MemoryStore as MemoryCryptoStore},
@@ -63,12 +56,14 @@ use tracing::{debug, info, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
+    deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
         StoreConfig,
     },
+    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     Session, SessionMeta, SessionTokens, StateStore,
 };
 

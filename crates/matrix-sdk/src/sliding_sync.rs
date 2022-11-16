@@ -17,7 +17,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use futures_core::stream::Stream;
 use futures_signals::signal::Mutable;
-use matrix_sdk_base::deserialized_responses::{SyncResponse, SyncTimelineEvent};
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
