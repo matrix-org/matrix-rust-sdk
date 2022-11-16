@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session,
-    SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
+    sync::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens,
+    StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
