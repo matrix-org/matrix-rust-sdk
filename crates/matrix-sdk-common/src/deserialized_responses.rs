@@ -263,39 +263,6 @@ impl Timeline {
     }
 }
 
-/// A slice of the timeline in the room.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct TimelineSlice {
-    /// The `next_batch` or `from` token used to obtain this slice
-    pub start: String,
-
-    /// The `prev_batch` or `to` token used to obtain this slice
-    /// If `None` this `TimelineSlice` is the beginning of the room
-    pub end: Option<String>,
-
-    /// Whether the number of events returned for this slice was limited
-    /// by a `limit`-filter when requesting
-    pub limited: bool,
-
-    /// A list of events.
-    pub events: Vec<SyncTimelineEvent>,
-
-    /// Whether this is a timeline slice obtained from a `SyncResponse`
-    pub sync: bool,
-}
-
-impl TimelineSlice {
-    pub fn new(
-        events: Vec<SyncTimelineEvent>,
-        start: String,
-        end: Option<String>,
-        limited: bool,
-        sync: bool,
-    ) -> Self {
-        Self { start, end, events, limited, sync }
-    }
-}
-
 /// Wrapper around both MemberEvent-Types
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
