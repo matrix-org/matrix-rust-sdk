@@ -26,7 +26,6 @@ impl Client {
         response: SyncResponse,
     ) -> Result<SyncResponse> {
         let SyncResponse {
-            next_batch: _,
             rooms,
             presence,
             account_data,
@@ -125,12 +124,10 @@ impl Client {
         &self,
         sync_settings: &mut crate::config::SyncSettings<'_>,
     ) -> Result<SyncResponse> {
-        let response = self.sync_once(sync_settings.clone()).await;
-
-        match response {
-            Ok(r) => {
-                sync_settings.token = Some(r.next_batch.clone());
-                Ok(r)
+        match self.sync_once_inner(sync_settings.clone()).await {
+            Ok((next_batch, response)) => {
+                sync_settings.token = Some(next_batch);
+                Ok(response)
             }
             Err(e) => {
                 error!("Received an invalid response: {e}");

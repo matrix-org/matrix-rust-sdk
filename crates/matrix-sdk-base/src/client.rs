@@ -659,7 +659,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
+            return Ok(SyncResponse::new());
         }
 
         let now = Instant::now();
@@ -843,14 +843,13 @@ impl BaseClient {
 
         let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
-        *self.store.sync_token.write().await = Some(next_batch.clone());
+        *self.store.sync_token.write().await = Some(next_batch);
         self.apply_changes(&changes).await;
         drop(sync_lock);
 
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch,
             rooms: new_rooms,
             presence,
             account_data: account_data.events,

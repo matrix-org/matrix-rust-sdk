@@ -75,7 +75,7 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 use crate::{
-    config::RequestConfig,
+    config::{RequestConfig, SyncSettings},
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -2001,11 +2001,15 @@ impl Client {
     /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
     /// [long polling]: #long-polling
     /// [filtered]: #filtering-events
-    #[instrument(skip(self))]
-    pub async fn sync_once(
+    pub async fn sync_once(&self, sync_settings: SyncSettings<'_>) -> Result<SyncResponse> {
+        Ok(self.sync_once_inner(sync_settings).await?.1)
+    }
+
+    #[instrument(name = "sync_once", skip(self))]
+    pub(crate) async fn sync_once_inner(
         &self,
-        sync_settings: crate::config::SyncSettings<'_>,
-    ) -> Result<SyncResponse> {
+        sync_settings: SyncSettings<'_>,
+    ) -> Result<(String, SyncResponse)> {
         // The sync might not return for quite a while due to the timeout.
         // We'll see if there's anything crypto related to send out before we
         // sync, i.e. if we closed our client after a sync but before the
@@ -2030,6 +2034,7 @@ impl Client {
         }
 
         let response = self.send(request, Some(request_config)).await?;
+        let next_batch = response.next_batch.clone();
         let response = self.process_sync(response).await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -2039,7 +2044,7 @@ impl Client {
 
         self.inner.sync_beat.notify(usize::MAX);
 
-        Ok(response)
+        Ok((next_batch, response))
     }
 
     /// Repeatedly synchronize the client state with the server.
@@ -2101,7 +2106,7 @@ impl Client {
     ///
     /// [argument docs]: #method.sync_once
     /// [`sync_with_callback`]: #method.sync_with_callback
-    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) -> Result<(), Error> {
+    pub async fn sync(&self, sync_settings: SyncSettings<'_>) -> Result<(), Error> {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
     }
 
@@ -2165,7 +2170,7 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        sync_settings: crate::config::SyncSettings<'_>,
+        sync_settings: SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
     ) -> Result<(), Error>
     where
@@ -2246,7 +2251,7 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_result_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings<'_>,
+        mut sync_settings: SyncSettings<'_>,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) -> Result<(), Error>
     where
@@ -2316,7 +2321,7 @@ impl Client {
     #[instrument(skip(self))]
     pub async fn sync_stream<'a>(
         &'a self,
-        mut sync_settings: crate::config::SyncSettings<'a>,
+        mut sync_settings: SyncSettings<'a>,
     ) -> impl Stream<Item = Result<SyncResponse>> + 'a {
         let mut last_sync_time: Option<Instant> = None;
 

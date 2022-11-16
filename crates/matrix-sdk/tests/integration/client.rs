@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
+use assert_matches::assert_matches;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -260,11 +261,9 @@ async fn sync() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let response = client.sync_once(sync_settings).await.unwrap();
+    client.sync_once(sync_settings).await.unwrap();
 
-    assert_ne!(response.next_batch, "");
-
-    assert!(client.sync_token().await.is_some());
+    assert_matches!(client.sync_token().await, Some(_));
 }
 
 #[async_test]
