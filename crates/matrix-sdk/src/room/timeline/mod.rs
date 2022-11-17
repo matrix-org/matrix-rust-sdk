@@ -73,10 +73,16 @@ pub struct Timeline {
 #[derive(Clone, Debug, Default)]
 struct TimelineInner {
     items: MutableVec<Arc<TimelineItem>>,
+    metadata: Arc<Mutex<TimelineInnerMetadata>>,
+}
+
+/// Non-signalling parts of `TimelineInner`.
+#[derive(Debug, Default)]
+struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
-    reaction_map: Arc<Mutex<HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>>>,
-    fully_read_event: Arc<Mutex<Option<OwnedEventId>>>,
-    fully_read_event_in_timeline: Arc<Mutex<bool>>,
+    reaction_map: HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    fully_read_event: Option<OwnedEventId>,
+    fully_read_event_in_timeline: bool,
 }
 
 impl Timeline {

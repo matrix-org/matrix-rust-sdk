@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::sync::{Arc, MutexGuard};
 
+use futures_signals::signal_vec::MutableVecLockMut;
 use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -38,8 +39,8 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineItem,
-    TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
+    TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 impl TimelineInner {
@@ -128,47 +129,41 @@ impl TimelineInner {
         self.set_fully_read_event(fully_read_event);
     }
 
-    pub(super) fn set_fully_read_event(&self, fully_read_event: OwnedEventId) {
-        {
-            let mut fully_read_lock = self.fully_read_event.lock().unwrap();
+    pub(super) fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
+        let mut metadata_lock = self.metadata.lock().unwrap();
 
-            if fully_read_lock.as_ref() == Some(&fully_read_event) {
-                return;
-            }
-
-            *fully_read_lock = Some(fully_read_event);
+        if metadata_lock.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
+            return;
         }
 
-        self.update_fully_read_item();
+        metadata_lock.fully_read_event = Some(fully_read_event_id);
+
+        let items_lock = self.items.lock_mut();
+        update_fully_read_item(metadata_lock, items_lock);
     }
+}
 
-    fn update_fully_read_item(&self) {
-        let fully_read_lock = self.fully_read_event.lock().unwrap();
-
-        let fully_read_event = match &*fully_read_lock {
-            Some(event) => event,
-            None => return,
-        };
-
-        let mut items_lock = self.items.lock_mut();
-        let old_idx = find_fully_read(&items_lock);
-        let new_idx = find_event(&items_lock, fully_read_event).map(|(idx, _)| idx + 1);
-
-        match (old_idx, new_idx) {
-            (None, None) => {}
-            (None, Some(idx)) => {
-                *self.fully_read_event_in_timeline.lock().unwrap() = true;
-                let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
-                items_lock.insert_cloned(idx, item.into());
-            }
-            (Some(_), None) => {
-                // Keep the current position of the read marker, hopefully we
-                // should have a new position later.
-                *self.fully_read_event_in_timeline.lock().unwrap() = false;
-            }
-            (Some(from), Some(to)) => {
-                items_lock.move_from_to(from, to);
-            }
+fn update_fully_read_item(
+    mut metadata_lock: MutexGuard<'_, TimelineInnerMetadata>,
+    mut items_lock: MutableVecLockMut<'_, Arc<TimelineItem>>,
+) {
+    let Some(fully_read_event) = &metadata_lock.fully_read_event else { return };
+    let old_idx = find_fully_read(&items_lock);
+    let new_idx = find_event(&items_lock, fully_read_event).map(|(idx, _)| idx + 1);
+    match (old_idx, new_idx) {
+        (None, None) => {}
+        (None, Some(idx)) => {
+            metadata_lock.fully_read_event_in_timeline = true;
+            let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
+            items_lock.insert_cloned(idx, item.into());
+        }
+        (Some(_), None) => {
+            // Keep the current position of the read marker, hopefully we
+            // should have a new position later.
+            metadata_lock.fully_read_event_in_timeline = false;
+        }
+        (Some(from), Some(to)) => {
+            items_lock.move_from_to(from, to);
         }
     }
 }
@@ -352,7 +347,7 @@ impl<'a> TimelineEventHandler<'a> {
         // If this is ever run in parallel for some reason though, make sure the
         // reaction lock is held for the entire time of the timeline items being
         // locked so these two things can't get out of sync.
-        let mut lock = self.timeline.reaction_map.lock().unwrap();
+        let mut lock = self.timeline.metadata.lock().unwrap();
 
         let did_update = self.maybe_update_timeline_item(event_id, "reaction", |item| {
             // Handling of reactions on redacted events is an open question.
@@ -375,7 +370,7 @@ impl<'a> TimelineEventHandler<'a> {
         });
 
         if did_update {
-            lock.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+            lock.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
         }
     }
 
@@ -397,8 +392,10 @@ impl<'a> TimelineEventHandler<'a> {
 
         // Don't release this lock until after update_timeline_item.
         // See first comment in handle_reaction for why.
-        let mut lock = self.timeline.reaction_map.lock().unwrap();
-        if let Some((sender, rel)) = lock.remove(&TimelineKey::EventId(redacts.clone())) {
+        let mut lock = self.timeline.metadata.lock().unwrap();
+        if let Some((sender, rel)) =
+            lock.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
+        {
             did_update = self.maybe_update_timeline_item(&rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
@@ -520,11 +517,11 @@ impl<'a> TimelineEventHandler<'a> {
 
         drop(lock);
 
+        let metadata_lock = self.timeline.metadata.lock().unwrap();
         // See if we got the event corresponding to the fully read marker now.
-        let fully_read_event_in_timeline =
-            *self.timeline.fully_read_event_in_timeline.lock().unwrap();
-        if !fully_read_event_in_timeline {
-            self.timeline.update_fully_read_item();
+        if !metadata_lock.fully_read_event_in_timeline {
+            let items_lock = self.timeline.items.lock_mut();
+            update_fully_read_item(metadata_lock, items_lock);
         }
     }
 
