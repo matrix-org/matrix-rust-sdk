@@ -17,14 +17,12 @@ impl Client {
         response: sync_events::v3::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().receive_sync_response(response).await?;
-        self.handle_sync_response(response).await
+        self.handle_sync_response(&response).await?;
+        Ok(response)
     }
 
     #[tracing::instrument(skip(self, response))]
-    pub(crate) async fn handle_sync_response(
-        &self,
-        response: SyncResponse,
-    ) -> Result<SyncResponse> {
+    pub(crate) async fn handle_sync_response(&self, response: &SyncResponse) -> Result<()> {
         let SyncResponse {
             next_batch: _,
             rooms,
@@ -35,7 +33,7 @@ impl Client {
             device_one_time_keys_count: _,
             ambiguity_changes: _,
             notifications,
-        } = &response;
+        } = response;
 
         self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
@@ -110,7 +108,7 @@ impl Client {
             fut.await;
         }
 
-        Ok(response)
+        Ok(())
     }
 
     async fn sleep() {
