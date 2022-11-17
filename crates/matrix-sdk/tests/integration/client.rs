@@ -263,8 +263,6 @@ async fn sync() {
     let response = client.sync_once(sync_settings).await.unwrap();
 
     assert_ne!(response.next_batch, "");
-
-    assert!(client.sync_token().await.is_some());
 }
 
 #[async_test]
@@ -370,7 +368,7 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     let room = client.get_left_room(room_id);
     assert!(room.is_none());
@@ -378,7 +376,6 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_some());
 
-    let sync_token = client.sync_token().await.unwrap();
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
