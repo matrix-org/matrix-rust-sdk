@@ -28,7 +28,7 @@ use ruma::{
     assign,
     events::{
         fully_read::FullyReadEventContent, reaction::Relation as AnnotationRelation,
-        AnyMessageLikeEventContent,
+        room_key::ToDeviceRoomKeyEvent, AnyMessageLikeEventContent,
     },
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
@@ -38,7 +38,7 @@ use super::{Joined, Room};
 use crate::{
     event_handler::EventHandlerDropGuard,
     room::{self, MessagesOptions},
-    Result,
+    Client, Result,
 };
 
 mod event_handler;
@@ -68,6 +68,7 @@ pub struct Timeline {
     _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
     _fully_read_handler_guard: EventHandlerDropGuard,
+    _room_key_handler_guard: EventHandlerDropGuard,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -125,6 +126,38 @@ impl Timeline {
         });
         let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
 
+        // Not using room.add_event_handler here because RoomKey events are
+        // to-device events that are not received in the context of a room.
+        let room_id = room.room_id().to_owned();
+        let room_key_handle = room.client.add_event_handler({
+            let inner = inner.clone();
+            move |event: ToDeviceRoomKeyEvent, client: Client| {
+                let inner = inner.clone();
+                let room_id = room_id.clone();
+                async move {
+                    if event.content.room_id != room_id {
+                        return;
+                    }
+
+                    let Some(olm_machine) = client.olm_machine() else {
+                        error!("The olm machine isn't yet available");
+                        return;
+                    };
+
+                    let session_id = event.content.session_id;
+                    let Some(own_user_id) = client.user_id() else {
+                        error!("The user's own ID isn't available");
+                        return;
+                    };
+
+                    inner
+                        .retry_event_decryption(&room_id, olm_machine, &session_id, own_user_id)
+                        .await;
+                }
+            }
+        });
+        let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
+
         Timeline {
             inner,
             room: room.clone(),
@@ -132,6 +165,7 @@ impl Timeline {
             _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
             _fully_read_handler_guard,
+            _room_key_handler_guard,
         }
     }
 

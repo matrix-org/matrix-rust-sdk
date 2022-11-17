@@ -16,7 +16,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use futures_signals::signal_vec::MutableVecLockMut;
 use indexmap::map::Entry;
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::OlmMachine;
+use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::MutexGuard};
+#[cfg(feature = "e2e-encryption")]
+use ruma::RoomId;
 use ruma::{
     events::{
         fully_read::FullyReadEvent,
@@ -50,8 +54,15 @@ impl TimelineInner {
         encryption_info: Option<EncryptionInfo>,
         own_user_id: &UserId,
     ) {
-        self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::End)
-            .await;
+        let mut timeline_meta = self.metadata.lock().await;
+        handle_remote_event(
+            raw,
+            own_user_id,
+            encryption_info,
+            TimelineItemPosition::End,
+            &mut self.items.lock_mut(),
+            &mut timeline_meta,
+        );
     }
 
     pub(super) async fn handle_local_event(
@@ -72,8 +83,8 @@ impl TimelineInner {
         let kind = TimelineEventKind::Message { content };
 
         let mut timeline_meta = self.metadata.lock().await;
-        let timeline_items = self.items.lock_mut();
-        TimelineEventHandler::new(event_meta, flow, timeline_items, &mut timeline_meta)
+        let mut timeline_items = self.items.lock_mut();
+        TimelineEventHandler::new(event_meta, flow, &mut timeline_items, &mut timeline_meta)
             .handle_event(kind);
     }
 
@@ -83,46 +94,14 @@ impl TimelineInner {
         encryption_info: Option<EncryptionInfo>,
         own_user_id: &UserId,
     ) {
-        self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::Start)
-            .await;
-    }
-
-    async fn handle_remote_event(
-        &self,
-        raw: Raw<AnySyncTimelineEvent>,
-        encryption_info: Option<EncryptionInfo>,
-        own_user_id: &UserId,
-        position: TimelineItemPosition,
-    ) {
-        let event = match raw.deserialize() {
-            Ok(ev) => ev,
-            Err(_e) => {
-                // TODO: Add some sort of error timeline item
-                return;
-            }
-        };
-
-        let sender = event.sender().to_owned();
-        let is_own_event = sender == own_user_id;
-
-        let event_meta = TimelineEventMetadata {
-            sender,
-            is_own_event,
-            relations: event.relations().cloned(),
+        handle_remote_event(
+            raw,
+            own_user_id,
             encryption_info,
-        };
-        let flow = Flow::Remote {
-            event_id: event.event_id().to_owned(),
-            origin_server_ts: event.origin_server_ts(),
-            raw_event: raw,
-            txn_id: event.transaction_id().map(ToOwned::to_owned),
-            position,
-        };
-
-        let mut timeline_meta = self.metadata.lock().await;
-        let timeline_items = self.items.lock_mut();
-        TimelineEventHandler::new(event_meta, flow, timeline_items, &mut timeline_meta)
-            .handle_event(event.into())
+            TimelineItemPosition::Start,
+            &mut self.items.lock_mut(),
+            &mut self.metadata.lock().await,
+        );
     }
 
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
@@ -154,6 +133,117 @@ impl TimelineInner {
             &mut metadata.fully_read_event_in_timeline,
         );
     }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(super) async fn retry_event_decryption(
+        &self,
+        room_id: &RoomId,
+        olm_machine: &OlmMachine,
+        for_session_id: &str,
+        own_user_id: &UserId,
+    ) {
+        use super::EncryptedMessage;
+
+        let utds_for_session: Vec<_> = self
+            .items
+            .lock_ref()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                let event_item = &item.as_event()?;
+                let utd = event_item.content.as_unable_to_decrypt()?;
+
+                match utd {
+                    EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
+                        if session_id == for_session_id =>
+                    {
+                        let TimelineKey::EventId(event_id) = &event_item.key else {
+                            error!("Key for unable-to-decrypt timeline item is not an event ID");
+                            return None;
+                        };
+                        let Some(raw) = event_item.raw.clone() else {
+                            error!("No raw event in unable-to-decrypt timeline item");
+                            return None;
+                        };
+
+                        Some((idx, event_id.to_owned(), raw))
+                    }
+                    EncryptedMessage::MegolmV1AesSha2 { .. }
+                    | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+                    | EncryptedMessage::Unknown => None,
+                }
+            })
+            .collect();
+
+        if utds_for_session.is_empty() {
+            return;
+        }
+
+        let mut metadata_lock = self.metadata.lock().await;
+        for (idx, event_id, utd) in utds_for_session.iter().rev() {
+            let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
+                Ok(ev) => ev,
+                Err(e) => {
+                    info!(
+                        %event_id, session_id = %for_session_id,
+                        "Failed to decrypt event after receiving room key: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            // Because metadata is always locked before we attempt to lock the
+            // items, this will never be contended.
+            // Because there is an `.await` in this loop, we have to re-lock
+            // this mutex every iteration because holding it across `.await`
+            // makes the future `!Send`, which makes it not event-handler-safe.
+            let mut items_lock = self.items.lock_mut();
+            handle_remote_event(
+                event.event.cast(),
+                own_user_id,
+                event.encryption_info,
+                TimelineItemPosition::Update(*idx),
+                &mut items_lock,
+                &mut metadata_lock,
+            );
+        }
+    }
+}
+
+fn handle_remote_event(
+    raw: Raw<AnySyncTimelineEvent>,
+    own_user_id: &UserId,
+    encryption_info: Option<EncryptionInfo>,
+    position: TimelineItemPosition,
+    timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
+    timeline_meta: &mut MutexGuard<'_, TimelineInnerMetadata>,
+) {
+    let event = match raw.deserialize() {
+        Ok(ev) => ev,
+        Err(_e) => {
+            // TODO: Add some sort of error timeline item
+            return;
+        }
+    };
+
+    let sender = event.sender().to_owned();
+    let is_own_event = sender == own_user_id;
+    let event_meta = TimelineEventMetadata {
+        sender,
+        is_own_event,
+        relations: event.relations().cloned(),
+        encryption_info,
+    };
+    let flow = Flow::Remote {
+        event_id: event.event_id().to_owned(),
+        origin_server_ts: event.origin_server_ts(),
+        raw_event: raw,
+        txn_id: event.transaction_id().map(ToOwned::to_owned),
+        position,
+    };
+
+    TimelineEventHandler::new(event_meta, flow, timeline_items, timeline_meta)
+        .handle_event(event.into())
 }
 
 fn update_fully_read_item(
@@ -260,27 +350,28 @@ enum TimelineEventKind {
 enum TimelineItemPosition {
     Start,
     End,
+    Update(usize),
 }
 
 // Bundles together a few things that are needed throughout the different stages
 // of handling an event (figuring out whether it should update an existing
 // timeline item, transforming that item or creating a new one, updating the
 // reactive Vec).
-struct TimelineEventHandler<'a> {
+struct TimelineEventHandler<'a, 'i> {
     meta: TimelineEventMetadata,
     flow: Flow,
-    timeline_items: MutableVecLockMut<'a, Arc<TimelineItem>>,
+    timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
     reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     event_added: bool,
 }
 
-impl<'a> TimelineEventHandler<'a> {
+impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     fn new(
         event_meta: TimelineEventMetadata,
         flow: Flow,
-        timeline_items: MutableVecLockMut<'a, Arc<TimelineItem>>,
+        timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
         timeline_meta: &'a mut TimelineInnerMetadata,
     ) -> Self {
         Self {
@@ -332,7 +423,7 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
         let event_id = &replacement.event_id;
 
-        maybe_update_timeline_item(&mut self.timeline_items, event_id, "edit", |item| {
+        maybe_update_timeline_item(self.timeline_items, event_id, "edit", |item| {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
@@ -373,7 +464,7 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
 
-        let items = &mut self.timeline_items;
+        let items = &mut *self.timeline_items;
         let did_update = maybe_update_timeline_item(items, event_id, "reaction", |item| {
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
@@ -418,7 +509,7 @@ impl<'a> TimelineEventHandler<'a> {
         if let Some((sender, rel)) =
             self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
         {
-            let items = &mut self.timeline_items;
+            let items = &mut *self.timeline_items;
             did_update = maybe_update_timeline_item(items, &rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
@@ -470,7 +561,7 @@ impl<'a> TimelineEventHandler<'a> {
         // Even if the event being redacted is a reaction (found in
         // `reaction_map`), it can still be present in the timeline items
         // directly with the raw event timeline feature (not yet implemented).
-        let items = &mut self.timeline_items;
+        let items = &mut *self.timeline_items;
         did_update |= update_timeline_item(items, &redacts, "redaction", |item| item.to_redacted());
 
         if !did_update {
@@ -502,7 +593,7 @@ impl<'a> TimelineEventHandler<'a> {
             }
             Flow::Remote { txn_id, event_id, position, raw_event, .. } => {
                 if let Some(txn_id) = txn_id {
-                    if let Some((idx, _old_item)) = find_event(&self.timeline_items, txn_id) {
+                    if let Some((idx, _old_item)) = find_event(self.timeline_items, txn_id) {
                         // TODO: Check whether anything is different about the
                         //       old and new item?
                         self.timeline_items.set_cloned(idx, item);
@@ -516,7 +607,7 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                if let Some((idx, old_item)) = find_event(&self.timeline_items, event_id) {
+                if let Some((idx, old_item)) = find_event(self.timeline_items, event_id) {
                     warn!(
                         ?item,
                         ?old_item,
@@ -534,6 +625,7 @@ impl<'a> TimelineEventHandler<'a> {
                 match position {
                     TimelineItemPosition::Start => self.timeline_items.insert_cloned(0, item),
                     TimelineItemPosition::End => self.timeline_items.push_cloned(item),
+                    TimelineItemPosition::Update(idx) => self.timeline_items.set_cloned(*idx, item),
                 }
             }
         }
@@ -541,7 +633,7 @@ impl<'a> TimelineEventHandler<'a> {
         // See if we got the event corresponding to the fully read marker now.
         if !*self.fully_read_event_in_timeline {
             update_fully_read_item(
-                &mut self.timeline_items,
+                self.timeline_items,
                 self.fully_read_event.as_deref(),
                 self.fully_read_event_in_timeline,
             );
