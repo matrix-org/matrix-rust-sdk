@@ -18,12 +18,12 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex as StdMutex},
 };
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
 use ruma::{
     assign,
     events::{
@@ -64,8 +64,8 @@ pub use self::{
 pub struct Timeline {
     inner: TimelineInner,
     room: room::Common,
-    start_token: Mutex<Option<String>>,
-    _end_token: Mutex<Option<String>>,
+    start_token: StdMutex<Option<String>>,
+    _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
     _fully_read_handler_guard: EventHandlerDropGuard,
 }
@@ -91,7 +91,7 @@ impl Timeline {
 
         match room.account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id),
+                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id).await,
                 Err(error) => {
                     error!(?error, "Failed to deserialize `m.fully_read` account data")
                 }
@@ -107,7 +107,7 @@ impl Timeline {
             move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_live_event(event, encryption_info, room.own_user_id());
+                    inner.handle_live_event(event, encryption_info, room.own_user_id()).await;
                 }
             }
         });
@@ -119,7 +119,7 @@ impl Timeline {
             move |event| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_fully_read(event);
+                    inner.handle_fully_read(event).await;
                 }
             }
         });
@@ -128,8 +128,8 @@ impl Timeline {
         Timeline {
             inner,
             room: room.clone(),
-            start_token: Mutex::new(None),
-            _end_token: Mutex::new(None),
+            start_token: StdMutex::new(None),
+            _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
             _fully_read_handler_guard,
         }
@@ -152,11 +152,13 @@ impl Timeline {
 
         let own_user_id = self.room.own_user_id();
         for room_ev in messages.chunk {
-            self.inner.handle_back_paginated_event(
-                room_ev.event.cast(),
-                room_ev.encryption_info,
-                own_user_id,
-            );
+            self.inner
+                .handle_back_paginated_event(
+                    room_ev.event.cast(),
+                    room_ev.encryption_info,
+                    own_user_id,
+                )
+                .await;
         }
 
         Ok(outcome)
@@ -213,7 +215,9 @@ impl Timeline {
         txn_id: Option<&TransactionId>,
     ) -> Result<()> {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        self.inner.handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id());
+        self.inner
+            .handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id())
+            .await;
 
         // If this room isn't actually in joined state, we'll get a server error.
         // Not ideal, but works for now.

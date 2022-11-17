@@ -44,16 +44,17 @@ use super::{
 };
 
 impl TimelineInner {
-    pub(super) fn handle_live_event(
+    pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
         own_user_id: &UserId,
     ) {
         self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::End)
+            .await;
     }
 
-    pub(super) fn handle_local_event(
+    pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
@@ -70,22 +71,23 @@ impl TimelineInner {
         let flow = Flow::Local { txn_id };
         let kind = TimelineEventKind::Message { content };
 
+        let mut timeline_meta = self.metadata.lock().await;
         let timeline_items = self.items.lock_mut();
-        let mut timeline_meta = self.metadata.lock().unwrap();
         TimelineEventHandler::new(event_meta, flow, timeline_items, &mut timeline_meta)
             .handle_event(kind);
     }
 
-    pub(super) fn handle_back_paginated_event(
+    pub(super) async fn handle_back_paginated_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
         own_user_id: &UserId,
     ) {
         self.handle_remote_event(raw, encryption_info, own_user_id, TimelineItemPosition::Start)
+            .await;
     }
 
-    fn handle_remote_event(
+    async fn handle_remote_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
@@ -117,13 +119,13 @@ impl TimelineInner {
             position,
         };
 
+        let mut timeline_meta = self.metadata.lock().await;
         let timeline_items = self.items.lock_mut();
-        let mut timeline_meta = self.metadata.lock().unwrap();
         TimelineEventHandler::new(event_meta, flow, timeline_items, &mut timeline_meta)
             .handle_event(event.into())
     }
 
-    pub(super) fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
+    pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
         let fully_read_event = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
             Err(error) => {
@@ -132,11 +134,11 @@ impl TimelineInner {
             }
         };
 
-        self.set_fully_read_event(fully_read_event);
+        self.set_fully_read_event(fully_read_event).await;
     }
 
-    pub(super) fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        let mut metadata_lock = self.metadata.lock().unwrap();
+    pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
+        let mut metadata_lock = self.metadata.lock().await;
 
         if metadata_lock.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
             return;

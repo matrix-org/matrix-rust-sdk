@@ -53,7 +53,7 @@ async fn reaction_redaction() {
     let timeline = TestTimeline::new(&ALICE);
     let mut stream = timeline.stream();
 
-    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!"));
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 0);
@@ -61,7 +61,7 @@ async fn reaction_redaction() {
     let msg_event_id = event.event_id().unwrap();
 
     let rel = reaction::Relation::new(msg_event_id.to_owned(), "+1".to_owned());
-    timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel));
+    timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
     let event = item.as_event().unwrap();
@@ -71,7 +71,7 @@ async fn reaction_redaction() {
 
     let reaction_event_id = event.event_id().unwrap();
 
-    timeline.handle_live_redaction(&BOB, reaction_event_id);
+    timeline.handle_live_redaction(&BOB, reaction_event_id).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
     let event = item.as_event().unwrap();
@@ -83,7 +83,7 @@ async fn invalid_edit() {
     let timeline = TestTimeline::new(&ALICE);
     let mut stream = timeline.stream();
 
-    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test"));
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event = item.as_event().unwrap();
     let msg = event.content.as_message().unwrap();
@@ -98,7 +98,7 @@ async fn invalid_edit() {
         ))),
     });
     // Edit is from a different user than the previous event
-    timeline.handle_live_message_event(&BOB, edit);
+    timeline.handle_live_message_event(&BOB, edit).await;
 
     // Can't easily test the non-arrival of an item using the stream. Instead
     // just assert that there is still just a single item in the timeline.
@@ -111,23 +111,25 @@ async fn edit_redacted() {
     let mut stream = timeline.stream();
 
     // Ruma currently fails to serialize most redacted events correctly
-    timeline.handle_live_custom_event(json!({
-        "content": {},
-        "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
-        "origin_server_ts": 10,
-        "sender": "@alice:example.org",
-        "type": "m.room.message",
-        "unsigned": {
-            "redacted_because": {
-                "content": {},
-                "redacts": "$eeG0HA0FAZ37wP8kXlNkxx3K",
-                "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
-                "sender": "@alice:example.org",
-                "origin_server_ts": 5,
-                "type": "m.room.redaction",
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {},
+            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 10,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "unsigned": {
+                "redacted_because": {
+                    "content": {},
+                    "redacts": "$eeG0HA0FAZ37wP8kXlNkxx3K",
+                    "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
+                    "sender": "@alice:example.org",
+                    "origin_server_ts": 5,
+                    "type": "m.room.redaction",
+                },
             },
-        },
-    }));
+        }))
+        .await;
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
@@ -138,7 +140,7 @@ async fn edit_redacted() {
             MessageType::text_plain("test"),
         ))),
     });
-    timeline.handle_live_message_event(&ALICE, edit);
+    timeline.handle_live_message_event(&ALICE, edit).await;
 
     assert_eq!(timeline.inner.items.lock_ref().len(), 1);
 }
@@ -146,21 +148,23 @@ async fn edit_redacted() {
 #[async_test]
 async fn unable_to_decrypt() {
     let timeline = TestTimeline::new(&ALICE);
-    timeline.handle_live_message_event(
-        &BOB,
-        RoomEncryptedEventContent::new(
-            EncryptedEventScheme::MegolmV1AesSha2(
-                MegolmV1AesSha2ContentInit {
-                    ciphertext: "This can't be decrypted".to_owned(),
-                    sender_key: "whatever".to_owned(),
-                    device_id: "MyDevice".into(),
-                    session_id: "MySession".into(),
-                }
-                .into(),
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            RoomEncryptedEventContent::new(
+                EncryptedEventScheme::MegolmV1AesSha2(
+                    MegolmV1AesSha2ContentInit {
+                        ciphertext: "This can't be decrypted".to_owned(),
+                        sender_key: "whatever".to_owned(),
+                        device_id: "MyDevice".into(),
+                        session_id: "MySession".into(),
+                    }
+                    .into(),
+                ),
+                None,
             ),
-            None,
-        ),
-    );
+        )
+        .await;
     let timeline_items = timeline.inner.items.lock_ref();
     assert_eq!(timeline_items.len(), 1);
     let event = timeline_items[0].as_event().unwrap();
@@ -187,7 +191,7 @@ impl TestTimeline {
         self.inner.items.signal_vec_cloned().to_stream()
     }
 
-    fn handle_live_message_event<C>(&self, sender: &UserId, content: C)
+    async fn handle_live_message_event<C>(&self, sender: &UserId, content: C)
     where
         C: MessageLikeEventContent,
     {
@@ -199,15 +203,15 @@ impl TestTimeline {
             unsigned: Default::default(),
         };
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id);
+        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }
 
-    fn handle_live_custom_event(&self, event: JsonValue) {
+    async fn handle_live_custom_event(&self, event: JsonValue) {
         let raw = Raw::new(&event).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id);
+        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }
 
-    fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
+    async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
         let ev = OriginalSyncRoomRedactionEvent {
             content: Default::default(),
             redacts: redacts.to_owned(),
@@ -217,7 +221,7 @@ impl TestTimeline {
             unsigned: Default::default(),
         };
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id);
+        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }
 }
 
