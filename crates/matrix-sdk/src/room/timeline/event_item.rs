@@ -310,6 +310,15 @@ impl TimelineItemContent {
             _ => None,
         }
     }
+
+    /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
+    /// return the inner [`EncryptedMessage`].
+    pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
+        match self {
+            Self::UnableToDecrypt(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 /// An `m.room.message` event or extensible event, including edits.
