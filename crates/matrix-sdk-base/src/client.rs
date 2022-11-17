@@ -654,7 +654,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
+            return Ok(SyncResponse::default());
         }
 
         let now = Instant::now();
@@ -845,7 +845,6 @@ impl BaseClient {
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch,
             rooms: new_rooms,
             presence,
             account_data: account_data.events,

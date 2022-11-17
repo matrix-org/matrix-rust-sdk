@@ -33,12 +33,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::deserialized_responses::AmbiguityChanges;
 
-/// The processed response of a `/sync` request.
+/// Internal representation of a `/sync` response.
+///
+/// This type is intended to be applicable regardless of the endpoint used for
+/// syncing.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
-    /// The batch token to supply in the `since` param of the next `/sync`
-    /// request.
-    pub next_batch: String,
     /// Updates to rooms.
     pub rooms: Rooms,
     /// Updates to the presence status of other users.
@@ -58,15 +58,6 @@ pub struct SyncResponse {
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
-}
-
-impl SyncResponse {
-    /// Creates a new, empty `SyncResponse`.
-    ///
-    /// Equivalent to `SyncResponse::default()`.
-    pub fn new(next_batch: String) -> Self {
-        Self { next_batch, ..Default::default() }
-    }
 }
 
 /// Updates to rooms in a [`SyncResponse`].

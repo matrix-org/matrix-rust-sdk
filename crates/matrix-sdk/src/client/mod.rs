@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use matrix_sdk_base::{
-    sync::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens,
-    StateStore, SyncOutsideWasm,
+    BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
+    SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -81,7 +81,9 @@ use crate::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
-    room, Account, Error, Media, RefreshTokenError, Result, RumaApiError,
+    room,
+    sync::SyncResponse,
+    Account, Error, Media, RefreshTokenError, Result, RumaApiError,
 };
 
 mod builder;
@@ -2030,6 +2032,7 @@ impl Client {
         }
 
         let response = self.send(request, Some(request_config)).await?;
+        let next_batch = response.next_batch.clone();
         let response = self.process_sync(response).await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -2039,7 +2042,7 @@ impl Client {
 
         self.inner.sync_beat.notify(usize::MAX);
 
-        Ok(response)
+        Ok(SyncResponse::new(next_batch, response))
     }
 
     /// Repeatedly synchronize the client state with the server.
