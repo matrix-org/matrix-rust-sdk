@@ -79,9 +79,9 @@ pub async fn run() -> Result<JsValue, JsValue> {
 
     let bot = WasmBot(client.clone());
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     client.sync_with_callback(settings, |response| bot.on_sync_response(response)).await.unwrap();
 
     Ok(JsValue::NULL)
