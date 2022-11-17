@@ -1103,6 +1103,7 @@ impl Client {
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
         tracing::debug!("done processing on base_client");
-        self.handle_sync_response(response).await
+        self.handle_sync_response(&response).await?;
+        Ok(response)
     }
 }
