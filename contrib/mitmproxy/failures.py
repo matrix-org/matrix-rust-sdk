@@ -30,13 +30,13 @@ def timeout(flow):
 # hold a tuple containing a function that may or may not create a failure and
 # the probability weight at which rate this failure should be triggered.
 #
-# The method should return an http.HTTPResponse if it should modify the
+# The method should return an http.Response if it should modify the
 # response or None if the response should be passed as is.
 FAILURES = {
     "Success": (lambda x: None, 50),
     "Gateway error":
-    (lambda _: http.HTTPResponse.make(500, b"Gateway error"), 20),
-    "Limit exeeded": (lambda _: http.HTTPResponse.make(
+    (lambda _: http.Response.make(500, b"Gateway error"), 20),
+    "Limit exeeded": (lambda _: http.Response.make(
         429,
         json.dumps({
             "errcode": "M_LIMIT_EXCEEDED",
