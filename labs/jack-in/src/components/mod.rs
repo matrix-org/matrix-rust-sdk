@@ -11,6 +11,7 @@ use super::{JackInEvent, Msg};
 
 // -- modules
 mod details;
+mod input;
 mod label;
 mod logger;
 mod rooms;
@@ -18,6 +19,7 @@ mod statusbar;
 
 // -- export
 pub use details::Details;
+pub use input::InputText;
 pub use label::Label;
 pub use logger::Logger;
 pub use rooms::Rooms;
