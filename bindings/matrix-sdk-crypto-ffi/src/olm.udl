@@ -162,7 +162,7 @@ interface Sas {
     sequence<i32>? get_emoji_indices();
     sequence<i32>? get_decimals();
 
-    void changes(SasListener callback);
+    void set_changes_listener(SasListener callback);
     SasState state();
 };
 
@@ -192,6 +192,7 @@ interface QrCode {
     string? room_id();
     boolean we_started();
     boolean is_done();
+    boolean is_cancelled();
     CancelInfo? cancel_info();
 
     boolean reciprocated();
@@ -211,6 +212,8 @@ interface VerificationRequest {
     boolean is_ready();
     boolean is_done();
     boolean is_passive();
+    boolean is_cancelled();
+    CancelInfo? cancel_info();
 
     sequence<string>? their_supported_methods();
     sequence<string>? our_supported_methods();
@@ -223,6 +226,8 @@ interface VerificationRequest {
     [Throws=CryptoStoreError]
     QrCode? start_qr_verification();
     ScanResult? scan_qr_code([ByRef] string data);
+
+    OutgoingVerificationRequest? cancel();
 };
 
 dictionary RequestVerificationResult {

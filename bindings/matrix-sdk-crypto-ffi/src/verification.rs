@@ -194,7 +194,7 @@ impl Sas {
         self.inner.decimals().map(|v| [v.0.into(), v.1.into(), v.2.into()].to_vec())
     }
 
-    /// Listen for changes in the SAS verification process.
+    /// Set a listener for changes in the SAS verification process.
     ///
     /// The given callback will be called whenever the state changes.
     ///
@@ -239,7 +239,7 @@ impl Sas {
     ///                │  Done │
     ///                └───────┘
     /// ```
-    pub fn changes(&self, callback: Box<dyn SasListener>) {
+    pub fn set_changes_listener(&self, callback: Box<dyn SasListener>) {
         let stream = self.inner.changes();
 
         self.runtime.spawn(Self::changes_callback(stream, callback));
@@ -300,6 +300,11 @@ impl QrCode {
     /// Is the QR code verification done.
     pub fn is_done(&self) -> bool {
         self.inner.is_done()
+    }
+
+    /// Has the verification flow been cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
     }
 
     /// Did we initiate the verification flow.
@@ -467,6 +472,17 @@ impl VerificationRequest {
     /// Has the verification request been answered by another device.
     pub fn is_passive(&self) -> bool {
         self.inner.is_passive()
+    }
+
+    /// Has the verification flow that been cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
+    }
+
+    /// Get info about the cancellation if the verification request has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        self.inner.cancel_info().map(|v| v.into())
     }
 
     /// Get the supported verification methods of the other side.
