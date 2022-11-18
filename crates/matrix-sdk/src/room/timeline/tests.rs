@@ -150,7 +150,7 @@ async fn edit_redacted() {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_test]
 async fn unable_to_decrypt() {
-    use std::io::Cursor;
+    use std::{io::Cursor, iter};
 
     use matrix_sdk_base::crypto::decrypt_room_key_export;
 
@@ -220,7 +220,7 @@ async fn unable_to_decrypt() {
         .retry_event_decryption(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             &olm_machine,
-            SESSION_ID,
+            iter::once(SESSION_ID).collect(),
             own_user_id,
         )
         .await;
