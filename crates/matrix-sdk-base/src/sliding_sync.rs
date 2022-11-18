@@ -1,18 +1,17 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-use matrix_sdk_common::deserialized_responses::{
-    AmbiguityChanges, JoinedRoom, Rooms, SyncResponse,
-};
 use ruma::api::client::sync::sync_events::{v3, v4};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
 
 use super::BaseClient;
 use crate::{
+    deserialized_responses::AmbiguityChanges,
     error::Result,
     rooms::RoomType,
     store::{ambiguity_map::AmbiguityCache, StateChanges},
+    sync::{JoinedRoom, Rooms, SyncResponse},
 };
 
 impl BaseClient {

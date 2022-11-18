@@ -16,10 +16,11 @@ mod helpers;
 mod inner_sas;
 mod sas_state;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal::{Mutable, SignalExt};
+use futures_util::StreamExt;
 use inner_sas::InnerSas;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
@@ -48,8 +49,7 @@ use crate::{
 /// Short authentication string object.
 #[derive(Clone, Debug)]
 pub struct Sas {
-    inner: Arc<Mutex<InnerSas>>,
-    state: Arc<Mutable<SasState>>,
+    inner: Arc<Mutable<InnerSas>>,
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
@@ -268,12 +268,12 @@ impl Sas {
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
-        self.inner.lock().unwrap().supports_emoji()
+        self.inner.lock_ref().supports_emoji()
     }
 
     /// Did this verification flow start from a verification request.
     pub fn started_from_request(&self) -> bool {
-        self.inner.lock().unwrap().started_from_request()
+        self.inner.lock_ref().started_from_request()
     }
 
     /// Is this a verification that is veryfying one of our own devices.
@@ -283,18 +283,18 @@ impl Sas {
 
     /// Have we confirmed that the short auth string matches.
     pub fn have_we_confirmed(&self) -> bool {
-        self.inner.lock().unwrap().have_we_confirmed()
+        self.inner.lock_ref().have_we_confirmed()
     }
 
     /// Has the verification been accepted by both parties.
     pub fn has_been_accepted(&self) -> bool {
-        self.inner.lock().unwrap().has_been_accepted()
+        self.inner.lock_ref().has_been_accepted()
     }
 
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &*self.inner.lock().unwrap() {
+        if let InnerSas::Cancelled(c) = &*self.inner.lock_ref() {
             Some(c.state.as_ref().clone().into())
         } else {
             None
@@ -309,7 +309,7 @@ impl Sas {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: matrix_sdk_common::instant::Instant) {
-        self.inner.lock().unwrap().set_creation_time(time)
+        self.inner.lock_mut().set_creation_time(time)
     }
 
     fn start_helper(
@@ -327,13 +327,11 @@ impl Sas {
             request_handle.is_some(),
         );
 
-        let state = (&inner).into();
         let account = identities.store.account.clone();
 
         (
             Sas {
-                inner: Arc::new(Mutex::new(inner)),
-                state: Mutable::new(state).into(),
+                inner: Arc::new(Mutable::new(inner)),
                 account,
                 identities_being_verified: identities,
                 flow_id: flow_id.into(),
@@ -414,12 +412,10 @@ impl Sas {
             request_handle.is_some(),
         )?;
 
-        let state = (&inner).into();
         let account = identities.store.account.clone();
 
         Ok(Sas {
-            inner: Arc::new(Mutex::new(inner)),
-            state: Mutable::new(state).into(),
+            inner: Arc::new(Mutable::new(inner)),
             account,
             identities_being_verified: identities,
             flow_id: flow_id.into(),
@@ -448,39 +444,30 @@ impl Sas {
     ) -> Option<OutgoingVerificationRequest> {
         let old_state = self.state_debug();
 
-        let (request, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let request = {
+            let mut guard = self.inner.lock_mut();
             let sas: InnerSas = (*guard).clone();
             let methods = settings.allowed_methods;
 
             if let Some((sas, content)) = sas.accept(methods) {
-                let state: SasState = (&sas).into();
-
                 *guard = sas;
 
-                (
-                    Some(match content {
-                        OwnedAcceptContent::ToDevice(c) => {
-                            let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                            self.content_to_request(content).into()
-                        }
-                        OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
-                            room_id,
-                            txn_id: TransactionId::new(),
-                            content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
-                        }
-                        .into(),
-                    }),
-                    Some(state),
-                )
+                Some(match content {
+                    OwnedAcceptContent::ToDevice(c) => {
+                        let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                        self.content_to_request(content).into()
+                    }
+                    OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
+                        room_id,
+                        txn_id: TransactionId::new(),
+                        content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
+                    }
+                    .into(),
+                })
             } else {
-                (None, None)
+                None
             }
         };
-
-        if let Some(new_state) = state {
-            self.update_state(new_state);
-        }
 
         let new_state = self.state_debug();
 
@@ -505,15 +492,14 @@ impl Sas {
         &self,
     ) -> Result<(Vec<OutgoingVerificationRequest>, Option<SignatureUploadRequest>), CryptoStoreError>
     {
-        let (contents, done, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let (contents, done) = {
+            let mut guard = self.inner.lock_mut();
 
             let sas: InnerSas = (*guard).clone();
             let (sas, contents) = sas.confirm();
-            let state: SasState = (&sas).into();
 
             *guard = sas;
-            (contents, guard.is_done(), state)
+            (contents, guard.is_done())
         };
 
         let mac_requests = contents
@@ -540,17 +526,10 @@ impl Sas {
                 VerificationResult::Cancel(c) => {
                     Ok((self.cancel_with_code(c).into_iter().collect(), None))
                 }
-                VerificationResult::Ok => {
-                    self.update_state(state);
-                    Ok((mac_requests, None))
-                }
-                VerificationResult::SignatureUpload(r) => {
-                    self.update_state(state);
-                    Ok((mac_requests, Some(r)))
-                }
+                VerificationResult::Ok => Ok((mac_requests, None)),
+                VerificationResult::SignatureUpload(r) => Ok((mac_requests, Some(r))),
             }
         } else {
-            self.update_state(state);
             Ok((mac_requests, None))
         }
     }
@@ -585,8 +564,8 @@ impl Sas {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let (content, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let content = {
+            let mut guard = self.inner.lock_mut();
 
             if let Some(request) = &self.request_handle {
                 request.cancel_with_code(&code);
@@ -594,21 +573,15 @@ impl Sas {
 
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(true, code);
-            let state: SasState = (&sas).into();
             *guard = sas;
 
-            (
-                content.map(|c| match c {
-                    OutgoingContent::Room(room_id, content) => {
-                        RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
-                    }
-                    OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
-                }),
-                state,
-            )
+            content.map(|c| match c {
+                OutgoingContent::Room(room_id, content) => {
+                    RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
+                }
+                OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+            })
         };
-
-        self.update_state(state);
 
         content
     }
@@ -625,22 +598,22 @@ impl Sas {
 
     /// Has the SAS verification flow timed out.
     pub fn timed_out(&self) -> bool {
-        self.inner.lock().unwrap().timed_out()
+        self.inner.lock_ref().timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
     pub fn can_be_presented(&self) -> bool {
-        self.inner.lock().unwrap().can_be_presented()
+        self.inner.lock_ref().can_be_presented()
     }
 
     /// Is the SAS flow done.
     pub fn is_done(&self) -> bool {
-        self.inner.lock().unwrap().is_done()
+        self.inner.lock_ref().is_done()
     }
 
     /// Is the SAS flow canceled.
     pub fn is_cancelled(&self) -> bool {
-        self.inner.lock().unwrap().is_cancelled()
+        self.inner.lock_ref().is_cancelled()
     }
 
     /// Get the emoji version of the short auth string.
@@ -648,7 +621,7 @@ impl Sas {
     /// Returns None if we can't yet present the short auth string, otherwise
     /// seven tuples containing the emoji and description.
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
-        self.inner.lock().unwrap().emoji()
+        self.inner.lock_ref().emoji()
     }
 
     /// Get the index of the emoji representing the short auth string
@@ -658,7 +631,7 @@ impl Sas {
     /// converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
-        self.inner.lock().unwrap().emoji_index()
+        self.inner.lock_ref().emoji_index()
     }
 
     /// Get the decimal version of the short auth string.
@@ -667,7 +640,7 @@ impl Sas {
     /// tuple containing three 4-digit integers that represent the short auth
     /// string.
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
-        self.inner.lock().unwrap().decimals()
+        self.inner.lock_ref().decimals()
     }
 
     /// Listen for changes in the SAS verification process.
@@ -759,29 +732,16 @@ impl Sas {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
-        self.state.signal_cloned().to_stream()
+        self.inner.signal_cloned().to_stream().map(|s| (&s).into())
     }
 
     /// Get the current state of the verification process.
     pub fn state(&self) -> SasState {
-        self.state.lock_ref().to_owned()
-    }
-
-    fn update_state(&self, new_state: SasState) {
-        let mut lock = self.state.lock_mut();
-
-        // Only update the state if it differs, this is important so clients don't end
-        // up printing the emoji twice. For example, the internal state might
-        // change into a MacReceived, because the other side already confirmed,
-        // but our side still needs to just show the emoji and wait for
-        // confirmation.
-        if *lock != new_state {
-            *lock = new_state;
-        }
+        (&*self.inner.lock_ref()).into()
     }
 
     fn state_debug(&self) -> State {
-        (&*self.inner.lock().unwrap()).into()
+        (&*self.inner.lock_ref()).into()
     }
 
     pub(crate) fn receive_any_event(
@@ -791,16 +751,14 @@ impl Sas {
     ) -> Option<(OutgoingContent, Option<RequestInfo>)> {
         let old_state = self.state_debug();
 
-        let (content, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let content = {
+            let mut guard = self.inner.lock_mut();
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.receive_any_event(sender, content);
 
-            let state: SasState = (&sas).into();
-
             *guard = sas;
 
-            (content, state)
+            content
         };
 
         let new_state = self.state_debug();
@@ -811,30 +769,25 @@ impl Sas {
             "SAS received an event and changed its state"
         );
 
-        self.update_state(state);
         content
     }
 
     pub(crate) fn mark_request_as_sent(&self, request_id: &TransactionId) {
         let old_state = self.state_debug();
 
-        let state = {
-            let mut guard = self.inner.lock().unwrap();
+        {
+            let mut guard = self.inner.lock_mut();
 
             let sas: InnerSas = (*guard).clone();
 
             if let Some(sas) = sas.mark_request_as_sent(request_id) {
-                let state: SasState = (&sas).into();
                 *guard = sas;
-
-                Some(state)
             } else {
                 error!(
                     flow_id = self.flow_id().as_str(),
                     %request_id,
                     "Tried to mark a request as sent, but the request ID didn't match"
                 );
-                None
             }
         };
 
@@ -847,18 +800,14 @@ impl Sas {
             %request_id,
             "Marked a SAS verification HTTP request as sent"
         );
-
-        if let Some(state) = state {
-            self.update_state(state);
-        }
     }
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
-        self.inner.lock().unwrap().verified_devices()
+        self.inner.lock_ref().verified_devices()
     }
 
     pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
-        self.inner.lock().unwrap().verified_identities()
+        self.inner.lock_ref().verified_identities()
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {

@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session,
-    SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
+    sync::SyncResponse, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens,
+    StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -310,11 +310,8 @@ impl Client {
 
     /// The OIDC Provider that is trusted by the homeserver.
     pub async fn authentication_issuer(&self) -> Option<Url> {
-        if let Some(server) = &self.inner.authentication_issuer {
-            Some(server.read().await.clone())
-        } else {
-            None
-        }
+        let server = self.inner.authentication_issuer.as_ref()?;
+        Some(server.read().await.clone())
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {
@@ -1312,11 +1309,8 @@ impl Client {
         let lock = self.inner.refresh_token_lock.try_lock();
 
         if let Some(mut guard) = lock {
-            let mut session_tokens = if let Some(tokens) = self.session_tokens() {
-                tokens
-            } else {
+            let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
-
                 return Err(RefreshTokenError::RefreshTokenRequired.into());
             };
 
@@ -1779,8 +1773,11 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver =
-            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
+        let homeserver = match homeserver {
+            Some(hs) => hs,
+            None => self.homeserver().await.to_string(),
+        };
+
         self.inner
             .http_client
             .send(

@@ -530,10 +530,7 @@ impl IndexeddbCryptoStore {
         for user_id in user_ids.iter() {
             let dirty: bool =
                 !matches!(os.get(&user_id)?.await?.map(|v| v.into_serde()), Some(Ok(false)));
-            let user = match user_id.as_string().map(UserId::parse) {
-                Some(Ok(user)) => user,
-                _ => continue,
-            };
+            let Some(Ok(user)) = user_id.as_string().map(UserId::parse) else { continue };
             self.tracked_users_cache.insert(user.clone());
 
             if dirty {

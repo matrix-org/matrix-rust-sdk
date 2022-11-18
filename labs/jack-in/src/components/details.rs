@@ -45,16 +45,9 @@ impl Details {
     }
 
     pub fn refresh_data(&mut self) {
-        let room_id =
-            if let Some(r) = self.sstate.selected_room.lock_ref().clone() { r } else { return };
-
-        let room_data = {
-            let l = self.sstate.view().rooms.lock_ref();
-            if let Some(room) = l.get(&room_id) {
-                room.clone()
-            } else {
-                return;
-            }
+        let Some(room_id) = self.sstate.selected_room.lock_ref().clone() else { return };
+        let Some(room_data) = self.sstate.view().rooms.lock_ref().get(&room_id).cloned() else {
+            return;
         };
 
         let name = room_data.name.clone().unwrap_or_else(|| "unknown".to_owned());
@@ -122,9 +115,7 @@ impl MockComponent for Details {
             .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
             .unwrap_borders();
 
-        let name = if let Some(name) = &self.name {
-            name.clone()
-        } else {
+        let Some(name) = &self.name else {
             // still empty
             frame.render_widget(
                 Table::new(vec![Row::new(vec![Cell::from(
@@ -172,7 +163,7 @@ impl MockComponent for Details {
             chunks[0],
         );
 
-        let title = (name, Alignment::Left);
+        let title = (name.to_owned(), Alignment::Left);
         let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
         let mut details = vec![];

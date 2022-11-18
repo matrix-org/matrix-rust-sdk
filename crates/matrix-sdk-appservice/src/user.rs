@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Virtual users.
+//! AppService users.
 
 use matrix_sdk::{config::RequestConfig, Client, ClientBuildError, ClientBuilder, Session};
 use ruma::{
@@ -23,9 +23,9 @@ use tracing::warn;
 
 use crate::{AppService, Result};
 
-/// Builder for a virtual user
+/// Builder for an appservice user
 #[derive(Debug)]
-pub struct VirtualUserBuilder<'a> {
+pub struct UserBuilder<'a> {
     appservice: &'a AppService,
     localpart: &'a str,
     device_id: Option<OwnedDeviceId>,
@@ -34,11 +34,11 @@ pub struct VirtualUserBuilder<'a> {
     restored_session: Option<Session>,
 }
 
-impl<'a> VirtualUserBuilder<'a> {
-    /// Create a new virtual user builder
+impl<'a> UserBuilder<'a> {
+    /// Create a new appservice user builder
     /// # Arguments
     ///
-    /// * `localpart` - The localpart of the virtual user
+    /// * `localpart` - The localpart of the appservice user
     pub fn new(appservice: &'a AppService, localpart: &'a str) -> Self {
         Self {
             appservice,
@@ -50,21 +50,21 @@ impl<'a> VirtualUserBuilder<'a> {
         }
     }
 
-    /// Set the device ID of the virtual user
+    /// Set the device ID of the appservice user
     pub fn device_id(mut self, device_id: Option<OwnedDeviceId>) -> Self {
         self.device_id = device_id;
         self
     }
 
-    /// Sets the client builder to use for the virtual user
+    /// Sets the client builder to use for the appservice user
     pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
         self.client_builder = client_builder;
         self
     }
 
-    /// Log in as the virtual user
+    /// Log in as the appservice user
     ///
-    /// In some cases it is necessary to log in as the virtual user, such as to
+    /// In some cases it is necessary to log in as the user, such as to
     /// upload device keys
     pub fn login(mut self) -> Self {
         self.log_in = true;
@@ -74,14 +74,14 @@ impl<'a> VirtualUserBuilder<'a> {
     /// Restore a persisted session
     ///
     /// This is primarily useful if you enable
-    /// [`VirtualUserBuilder::login()`] and want to restore a session
+    /// [`UserBuilder::login()`] and want to restore a session
     /// from a previous run.
     pub fn restored_session(mut self, session: Session) -> Self {
         self.restored_session = Some(session);
         self
     }
 
-    /// Build the virtual user
+    /// Build the appservice user
     ///
     /// # Errors
     /// This function returns an error if an invalid localpart is provided.
@@ -94,7 +94,7 @@ impl<'a> VirtualUserBuilder<'a> {
         if !(self.appservice.user_id_is_in_namespace(&user_id)
             || self.localpart == self.appservice.registration.sender_localpart)
         {
-            warn!("Virtual client id '{user_id}' is not in the namespace")
+            warn!("Client id '{user_id}' is not in the namespace")
         }
 
         let mut builder = self.client_builder;

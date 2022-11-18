@@ -615,30 +615,30 @@ impl SasState<Created> {
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
-        if let AcceptMethod::SasV1(content) = content.method() {
-            let accepted_protocols = AcceptedProtocols::try_from(content.clone())
-                .map_err(|c| self.clone().cancel(true, c))?;
+        let AcceptMethod::SasV1(content) = content.method() else {
+            return Err(self.cancel(true, CancelCode::UnknownMethod));
+        };
 
-            let start_content = self.as_content().into();
+        let accepted_protocols = AcceptedProtocols::try_from(content.clone())
+            .map_err(|c| self.clone().cancel(true, c))?;
 
-            Ok(SasState {
-                inner: self.inner,
-                our_public_key: self.our_public_key,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: Arc::new(Accepted {
-                    start_content,
-                    commitment: content.commitment.clone(),
-                    request_id: TransactionId::new(),
-                    accepted_protocols,
-                }),
-            })
-        } else {
-            Err(self.cancel(true, CancelCode::UnknownMethod))
-        }
+        let start_content = self.as_content().into();
+
+        Ok(SasState {
+            inner: self.inner,
+            our_public_key: self.our_public_key,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: Instant::now().into(),
+            started_from_request: self.started_from_request,
+            state: Arc::new(Accepted {
+                start_content,
+                commitment: content.commitment.clone(),
+                request_id: TransactionId::new(),
+                accepted_protocols,
+            }),
+        })
     }
 }
 
@@ -689,41 +689,44 @@ impl SasState<Started> {
             state: Arc::new(Cancelled::new(true, CancelCode::UnknownMethod)),
         };
 
-        if let StartMethod::SasV1(method_content) = content.method() {
-            let commitment = calculate_commitment(our_public_key, content);
+        let state = match content.method() {
+            StartMethod::SasV1(method_content) => {
+                let commitment = calculate_commitment(our_public_key, content);
 
-            info!(
-                public_key = our_public_key.to_base64(),
-                %commitment,
-                ?content,
-                "Calculated SAS commitment",
-            );
+                info!(
+                    public_key = our_public_key.to_base64(),
+                    %commitment,
+                    ?content,
+                    "Calculated SAS commitment",
+                );
 
-            if let Ok(accepted_protocols) = AcceptedProtocols::try_from(method_content) {
-                Ok(SasState {
-                    inner: Arc::new(Mutex::new(Some(sas))),
-                    our_public_key,
+                let Ok(accepted_protocols) = AcceptedProtocols::try_from(method_content) else {
+                    return Err(canceled());
+                };
 
-                    ids: SasIds { account, other_device, other_identity, own_identity },
-
-                    creation_time: Arc::new(Instant::now()),
-                    last_event_time: Arc::new(Instant::now()),
-                    started_from_request,
-
-                    verification_flow_id: flow_id,
-
-                    state: Arc::new(Started {
-                        protocol_definitions: method_content.to_owned(),
-                        accepted_protocols,
-                        commitment,
-                    }),
-                })
-            } else {
-                Err(canceled())
+                Started {
+                    protocol_definitions: method_content.to_owned(),
+                    accepted_protocols,
+                    commitment,
+                }
             }
-        } else {
-            Err(canceled())
-        }
+            _ => return Err(canceled()),
+        };
+
+        Ok(SasState {
+            inner: Arc::new(Mutex::new(Some(sas))),
+            our_public_key,
+
+            ids: SasIds { account, other_device, other_identity, own_identity },
+
+            creation_time: Arc::new(Instant::now()),
+            last_event_time: Arc::new(Instant::now()),
+            started_from_request,
+
+            verification_flow_id: flow_id,
+
+            state: Arc::new(state),
+        })
     }
 
     #[cfg(test)]
@@ -813,30 +816,30 @@ impl SasState<Started> {
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
-        if let AcceptMethod::SasV1(content) = content.method() {
-            let accepted_protocols = AcceptedProtocols::try_from(content.clone())
-                .map_err(|c| self.clone().cancel(true, c))?;
+        let AcceptMethod::SasV1(content) = content.method() else {
+            return Err(self.cancel(true, CancelCode::UnknownMethod));
+        };
 
-            let start_content = self.as_content().into();
+        let accepted_protocols = AcceptedProtocols::try_from(content.clone())
+            .map_err(|c| self.clone().cancel(true, c))?;
 
-            Ok(SasState {
-                inner: self.inner,
-                our_public_key: self.our_public_key,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: Arc::new(Accepted {
-                    start_content,
-                    commitment: content.commitment.clone(),
-                    request_id: TransactionId::new(),
-                    accepted_protocols,
-                }),
-            })
-        } else {
-            Err(self.cancel(true, CancelCode::UnknownMethod))
-        }
+        let start_content = self.as_content().into();
+
+        Ok(SasState {
+            inner: self.inner,
+            our_public_key: self.our_public_key,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: Instant::now().into(),
+            started_from_request: self.started_from_request,
+            state: Arc::new(Accepted {
+                start_content,
+                commitment: content.commitment.clone(),
+                request_id: TransactionId::new(),
+                accepted_protocols,
+            }),
+        })
     }
 }
 

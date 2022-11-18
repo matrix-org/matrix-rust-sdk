@@ -141,26 +141,20 @@ impl VerificationRequest {
     /// for the remainder of the verification flow.
     #[cfg(feature = "qrcode")]
     pub async fn scan_qr_code(&self, data: QrVerificationData) -> Result<Option<QrVerification>> {
-        if let Some(qr) = self.inner.scan_qr_code(data).await? {
-            if let Some(request) = qr.reciprocate() {
-                self.client.send_verification_request(request).await?;
-            }
-
-            Ok(Some(QrVerification { inner: qr, client: self.client.clone() }))
-        } else {
-            Ok(None)
+        let Some(qr) = self.inner.scan_qr_code(data).await? else { return Ok(None) };
+        if let Some(request) = qr.reciprocate() {
+            self.client.send_verification_request(request).await?;
         }
+
+        Ok(Some(QrVerification { inner: qr, client: self.client.clone() }))
     }
 
     /// Transition from this verification request into a SAS verification flow.
     pub async fn start_sas(&self) -> Result<Option<SasVerification>> {
-        if let Some((sas, request)) = self.inner.start_sas().await? {
-            self.client.send_verification_request(request).await?;
+        let Some((sas, request)) = self.inner.start_sas().await? else { return Ok(None) };
+        self.client.send_verification_request(request).await?;
 
-            Ok(Some(SasVerification { inner: sas, client: self.client.clone() }))
-        } else {
-            Ok(None)
-        }
+        Ok(Some(SasVerification { inner: sas, client: self.client.clone() }))
     }
 
     /// Cancel the verification request

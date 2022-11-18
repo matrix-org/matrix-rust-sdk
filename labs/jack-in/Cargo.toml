@@ -22,9 +22,10 @@ serde_json = "1.0.85"
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 tracing-flame = "0.2"
-tracing-subscriber = "0.3.15"
-tui-logger = "0.8.0"
-tuirealm = "~1.7.1"
+tracing-subscriber = "0.3.15" 
+tui-logger = "0.8.1"
+tuirealm = "~1.8"
+tui-realm-stdlib = "1.2.0"
 
 # file-logging specials
 tracing = { version = "0.1.35", features = ["log"] }

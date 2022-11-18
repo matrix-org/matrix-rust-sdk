@@ -22,14 +22,7 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use futures_signals::signal::ReadOnlyMutable;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncTimelineEvent, Timeline,
-    },
-    instant::Instant,
-    locks::RwLock,
-};
+use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, MemoryStore as MemoryCryptoStore},
@@ -63,12 +56,14 @@ use tracing::{debug, info, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
+    deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
         StoreConfig,
     },
+    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     Session, SessionMeta, SessionTokens, StateStore,
 };
 
@@ -591,9 +586,7 @@ impl BaseClient {
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
-        if room.room_type() == RoomType::Joined {
-            Ok(room)
-        } else {
+        if room.room_type() != RoomType::Joined {
             let _sync_lock = self.sync_lock().read().await;
 
             let mut room_info = room.clone_info();
@@ -604,9 +597,9 @@ impl BaseClient {
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
             room.update_summary(room_info); // Update the cached room handle
-
-            Ok(room)
         }
+
+        Ok(room)
     }
 
     /// User has left a room.
@@ -614,9 +607,7 @@ impl BaseClient {
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
-        if room.room_type() == RoomType::Left {
-            Ok(room)
-        } else {
+        if room.room_type() != RoomType::Left {
             let _sync_lock = self.sync_lock().read().await;
 
             let mut room_info = room.clone_info();
@@ -627,9 +618,9 @@ impl BaseClient {
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
             room.update_summary(room_info); // Update the cached room handle
-
-            Ok(room)
         }
+
+        Ok(room)
     }
 
     /// Get access to the store's sync lock.

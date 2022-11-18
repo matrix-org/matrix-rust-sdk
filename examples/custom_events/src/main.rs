@@ -19,7 +19,7 @@ use matrix_sdk::{
             macros::EventContent,
             room::{
                 member::StrippedRoomMemberEvent,
-                message::{MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent},
+                message::{MessageType, OriginalSyncRoomMessageEvent},
             },
         },
         OwnedEventId,
@@ -51,19 +51,15 @@ pub struct AckEventContent {
 
 // we want to start the ping-ack-flow on "!ping" messages.
 async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
-        };
+    let Room::Joined(room) = room else { return };
+    let MessageType::Text(text_content) = event.content.msgtype else { return };
 
-        if msg_body.contains("!ping") {
-            let content = PingEventContent {};
+    if text_content.body.contains("!ping") {
+        let content = PingEventContent {};
 
-            println!("sending ping");
-            room.send(content, None).await.unwrap();
-            println!("ping sent");
-        }
+        println!("sending ping");
+        room.send(content, None).await.unwrap();
+        println!("ping sent");
     }
 }
 

@@ -36,7 +36,7 @@ pub mod event_handler;
 mod http_client;
 pub mod media;
 pub mod room;
-mod sync;
+pub mod sync;
 
 #[cfg(feature = "sliding-sync")]
 mod sliding_sync;

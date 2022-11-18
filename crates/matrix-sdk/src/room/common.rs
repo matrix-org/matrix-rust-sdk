@@ -14,6 +14,7 @@ use ruma::events::{
 use ruma::{
     api::client::{
         config::set_global_account_data,
+        error::ErrorKind,
         filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
@@ -160,12 +161,9 @@ impl Common {
     /// # })
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
-        if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
-            Ok(Some(self.client.media().get_media_content(&request, true).await?))
-        } else {
-            Ok(None)
-        }
+        let Some(url) = self.avatar_url() else { return Ok(None) };
+        let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
+        Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
@@ -356,7 +354,7 @@ impl Common {
                 Ok(response) => {
                     Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
                 }
-                Err(err) if err.is_not_found() => None,
+                Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                 Err(err) => return Err(err.into()),
             };
 

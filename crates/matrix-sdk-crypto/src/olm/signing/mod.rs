@@ -228,13 +228,13 @@ impl PrivateCrossSigningIdentity {
             let master = MasterSigning::from_base64(self.user_id().to_owned(), master_key)?;
 
             if public_identity.master_key() == &master.public_key {
-                Ok(Some(master))
+                Some(master)
             } else {
-                Err(SecretImportError::MismatchedPublicKeys)
+                return Err(SecretImportError::MismatchedPublicKeys);
             }
         } else {
-            Ok(None)
-        }?;
+            None
+        };
 
         let user_signing = if let Some(user_signing_key) = user_signing_key {
             let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
