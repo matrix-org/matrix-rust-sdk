@@ -18,7 +18,6 @@
 
 use std::{
     collections::HashMap,
-    iter,
     sync::{Arc, Mutex as StdMutex},
 };
 
@@ -29,7 +28,7 @@ use ruma::{
     assign,
     events::{
         fully_read::FullyReadEventContent, reaction::Relation as AnnotationRelation,
-        room_key::ToDeviceRoomKeyEvent, AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent,
     },
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
@@ -39,7 +38,7 @@ use super::{Joined, Room};
 use crate::{
     event_handler::EventHandlerDropGuard,
     room::{self, MessagesOptions},
-    Client, Result,
+    Result,
 };
 
 mod event_handler;
@@ -69,6 +68,7 @@ pub struct Timeline {
     _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
     _fully_read_handler_guard: EventHandlerDropGuard,
+    #[cfg(feature = "e2e-encryption")]
     _room_key_handler_guard: EventHandlerDropGuard,
 }
 
@@ -129,8 +129,16 @@ impl Timeline {
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
+        #[cfg(feature = "e2e-encryption")]
         let room_id = room.room_id().to_owned();
+        #[cfg(feature = "e2e-encryption")]
         let room_key_handle = room.client.add_event_handler({
+            use std::iter;
+
+            use ruma::events::room_key::ToDeviceRoomKeyEvent;
+
+            use crate::Client;
+
             let inner = inner.clone();
             move |event: ToDeviceRoomKeyEvent, client: Client| {
                 let inner = inner.clone();
@@ -162,6 +170,7 @@ impl Timeline {
                 }
             }
         });
+        #[cfg(feature = "e2e-encryption")]
         let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
 
         Timeline {
@@ -171,6 +180,7 @@ impl Timeline {
             _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
             _fully_read_handler_guard,
+            #[cfg(feature = "e2e-encryption")]
             _room_key_handler_guard,
         }
     }
