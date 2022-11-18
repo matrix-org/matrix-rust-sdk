@@ -10,9 +10,15 @@ use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    backups::MegolmV1BackupKey as RustBackupKey, decrypt_room_key_export, encrypt_room_key_export,
-    matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey, LocalTrust,
-    OlmMachine as InnerMachine, UserIdentities, Verification as RustVerification,
+    backups::{
+        MegolmV1BackupKey as RustBackupKey, SignatureCheckResult as RustSignatureCheckResult,
+        SignatureState,
+    },
+    decrypt_room_key_export, encrypt_room_key_export,
+    matrix_sdk_qrcode::QrVerificationData,
+    olm::ExportedRoomKey,
+    store::RecoveryKey,
+    LocalTrust, OlmMachine as InnerMachine, UserIdentities, Verification as RustVerification,
 };
 use ruma::{
     api::{
@@ -64,6 +70,46 @@ pub struct KeyRequestPair {
     pub cancellation: Option<Request>,
     /// The actual key request.
     pub key_request: Request,
+}
+
+/// The result of a signature check of a signed JSON object.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignatureCheckResult {
+    /// The result of the signature check using the public key of our own
+    /// device.
+    pub device_signature: SignatureState,
+    /// The result of the signature check using the public key of our own
+    /// user identity.
+    pub user_identity_signature: SignatureState,
+    /// The result of signature checks using public keys of other devices we
+    /// own.
+    pub other_signatures: HashMap<String, SignatureState>,
+    /// Is the signed JSON object trusted.
+    ///
+    /// This flag tells us if the result has a valid signature from any of the
+    /// following:
+    ///
+    /// * Our own device
+    /// * Our own user identity, provided the identity is trusted as well
+    /// * Any of our own devices, provided the device is trusted as well
+    pub trusted: bool,
+}
+
+impl From<RustSignatureCheckResult> for SignatureCheckResult {
+    fn from(r: RustSignatureCheckResult) -> Self {
+        let trusted = r.trusted();
+
+        Self {
+            device_signature: r.device_signature,
+            user_identity_signature: r.user_identity_signature,
+            other_signatures: r
+                .other_signatures
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+            trusted,
+        }
+    }
 }
 
 #[uniffi::export]
@@ -1461,12 +1507,15 @@ impl OlmMachine {
     ///     }
     /// }
     /// ```
-    pub fn verify_backup(&self, backup_info: &str) -> Result<bool, CryptoStoreError> {
+    pub fn verify_backup(
+        &self,
+        backup_info: &str,
+    ) -> Result<SignatureCheckResult, CryptoStoreError> {
         let backup_info = serde_json::from_str(backup_info)?;
 
         Ok(self
             .runtime
             .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
-            .trusted())
+            .into())
     }
 }

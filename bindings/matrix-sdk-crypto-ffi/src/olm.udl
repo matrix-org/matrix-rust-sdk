@@ -431,12 +431,26 @@ interface OlmMachine {
     BackupKeys? get_backup_keys();
     boolean backup_enabled();
     [Throws=CryptoStoreError]
-    boolean verify_backup([ByRef] string auth_data);
+    SignatureCheckResult verify_backup([ByRef] string auth_data);
 };
 
 dictionary PassphraseInfo {
     string private_key_salt;
     i32 private_key_iterations;
+};
+
+dictionary SignatureCheckResult {
+    SignatureState device_signature;
+    SignatureState user_identity_signature;
+    record<DOMString, SignatureState> other_signatures;
+    boolean trusted;
+};
+
+enum SignatureState {
+    "Missing",
+    "Invalid",
+    "ValidButNotTrusted",
+    "ValidAndTrusted",
 };
 
 dictionary MegolmV1BackupKey {
