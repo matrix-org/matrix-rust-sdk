@@ -18,6 +18,7 @@
 
 use std::{
     collections::HashMap,
+    iter,
     sync::{Arc, Mutex as StdMutex},
 };
 
@@ -151,7 +152,12 @@ impl Timeline {
                     };
 
                     inner
-                        .retry_event_decryption(&room_id, olm_machine, &session_id, own_user_id)
+                        .retry_event_decryption(
+                            &room_id,
+                            olm_machine,
+                            iter::once(session_id.as_str()).collect(),
+                            own_user_id,
+                        )
                         .await;
                 }
             }
@@ -196,6 +202,47 @@ impl Timeline {
         }
 
         Ok(outcome)
+    }
+
+    /// Retry decryption of previously un-decryptable events given a list of
+    /// session IDs whose keys have been imported.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     room::timeline::Timeline, ruma::room_id,
+    /// # };
+    /// # async {
+    /// # let mut client: Client = todo!();
+    /// # let room_id = ruma::room_id!("!example:example.org");
+    /// # let timeline: Timeline = todo!();
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// let result =
+    ///     client.encryption().import_room_keys(path, "secret-passphrase").await?;
+    ///
+    /// // Given a timeline for a specific room_id
+    /// if let Some(keys_for_users) = result.keys.get(room_id) {
+    ///     let session_ids = keys_for_users.values().flatten();
+    ///     timeline.retry_decryption(session_ids).await;
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn retry_decryption<'a, S: AsRef<str> + 'a>(
+        &'a self,
+        session_ids: impl IntoIterator<Item = &'a S>,
+    ) {
+        self.inner
+            .retry_event_decryption(
+                self.room.room_id(),
+                self.room.client.olm_machine().expect("Olm machine wasn't started"),
+                session_ids.into_iter().map(AsRef::as_ref).collect(),
+                self.room.own_user_id(),
+            )
+            .await;
     }
 
     /// Get a signal of the timeline's items.

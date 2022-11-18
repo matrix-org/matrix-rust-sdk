@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
 use std::{collections::HashMap, sync::Arc};
 
 use futures_signals::signal_vec::MutableVecLockMut;
@@ -139,7 +141,7 @@ impl TimelineInner {
         &self,
         room_id: &RoomId,
         olm_machine: &OlmMachine,
-        for_session_id: &str,
+        session_ids: BTreeSet<&str>,
         own_user_id: &UserId,
     ) {
         use super::EncryptedMessage;
@@ -155,7 +157,7 @@ impl TimelineInner {
 
                 match utd {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                        if session_id == for_session_id =>
+                        if session_ids.contains(session_id.as_str()) =>
                     {
                         let TimelineKey::EventId(event_id) = &event_item.key else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
@@ -166,7 +168,7 @@ impl TimelineInner {
                             return None;
                         };
 
-                        Some((idx, event_id.to_owned(), raw))
+                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw))
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
@@ -180,12 +182,12 @@ impl TimelineInner {
         }
 
         let mut metadata_lock = self.metadata.lock().await;
-        for (idx, event_id, utd) in utds_for_session.iter().rev() {
+        for (idx, event_id, session_id, utd) in utds_for_session.iter().rev() {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
                 Err(e) => {
                     info!(
-                        %event_id, session_id = %for_session_id,
+                        %event_id, %session_id,
                         "Failed to decrypt event after receiving room key: {e}"
                     );
                     continue;
