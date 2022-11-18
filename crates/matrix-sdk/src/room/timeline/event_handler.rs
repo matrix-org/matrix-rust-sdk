@@ -352,6 +352,7 @@ enum TimelineEventKind {
 enum TimelineItemPosition {
     Start,
     End,
+    #[cfg(feature = "e2e-encryption")]
     Update(usize),
 }
 
@@ -627,6 +628,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 match position {
                     TimelineItemPosition::Start => self.timeline_items.insert_cloned(0, item),
                     TimelineItemPosition::End => self.timeline_items.push_cloned(item),
+                    #[cfg(feature = "e2e-encryption")]
                     TimelineItemPosition::Update(idx) => self.timeline_items.set_cloned(*idx, item),
                 }
             }
