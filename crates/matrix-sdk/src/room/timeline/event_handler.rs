@@ -96,13 +96,14 @@ impl TimelineInner {
         encryption_info: Option<EncryptionInfo>,
         own_user_id: &UserId,
     ) {
+        let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
             raw,
             own_user_id,
             encryption_info,
             TimelineItemPosition::Start,
             &mut self.items.lock_mut(),
-            &mut self.metadata.lock().await,
+            &mut metadata_lock,
         );
     }
 
