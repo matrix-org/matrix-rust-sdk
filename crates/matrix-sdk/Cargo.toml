@@ -42,7 +42,6 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-room-preview = []
 experimental-timeline = ["ruma/unstable-msc2677"]
 
 sliding-sync = [

@@ -1,7 +1,15 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use futures_signals::signal::Mutable;
-use matrix_sdk::{ruma::OwnedRoomId, SlidingSyncView};
+use futures::{pin_mut, StreamExt};
+use futures_signals::{
+    signal::Mutable,
+    signal_vec::{MutableVec, VecDiff},
+};
+use matrix_sdk::{room::timeline::TimelineItem, ruma::OwnedRoomId, SlidingSyncView};
+use tokio::task::JoinHandle;
 
 #[derive(Clone, Default)]
 pub struct CurrentRoomSummary {
@@ -17,7 +25,9 @@ pub struct SlidingSyncState {
     /// the current list selector for the room
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
+    tl_handle: Mutable<Option<JoinHandle<()>>>,
     pub selected_room: Mutable<Option<OwnedRoomId>>,
+    pub current_timeline: MutableVec<Arc<TimelineItem>>,
 }
 
 impl SlidingSyncState {
@@ -27,7 +37,9 @@ impl SlidingSyncState {
             view,
             first_render: None,
             full_sync: None,
+            tl_handle: Default::default(),
             selected_room: Default::default(),
+            current_timeline: Default::default(),
         }
     }
 
@@ -40,6 +52,49 @@ impl SlidingSyncState {
     }
 
     pub fn select_room(&self, r: Option<OwnedRoomId>) {
+        self.current_timeline.lock_mut().clear();
+        if let Some(c) = self.tl_handle.lock_mut().take() {
+            c.abort();
+        }
+        if let Some(room) =
+            r.as_ref().and_then(|room_id| self.view.rooms.lock_ref().get(room_id).cloned())
+        {
+            let current_timeline = self.current_timeline.clone();
+            let handle = tokio::spawn(async move {
+                let timeline = room.timeline().await;
+                let listener = timeline.stream();
+                pin_mut!(listener);
+                while let Some(diff) = listener.next().await {
+                    match diff {
+                        VecDiff::Clear {} => {
+                            current_timeline.lock_mut().clear();
+                        }
+                        VecDiff::InsertAt { index, value } => {
+                            current_timeline.lock_mut().insert_cloned(index, value);
+                        }
+                        VecDiff::Move { old_index, new_index } => {
+                            current_timeline.lock_mut().move_from_to(old_index, new_index);
+                        }
+                        VecDiff::Pop {} => {
+                            current_timeline.lock_mut().pop();
+                        }
+                        VecDiff::Push { value } => {
+                            current_timeline.lock_mut().push_cloned(value);
+                        }
+                        VecDiff::RemoveAt { index } => {
+                            current_timeline.lock_mut().remove(index);
+                        }
+                        VecDiff::Replace { values } => {
+                            current_timeline.lock_mut().replace_cloned(values);
+                        }
+                        VecDiff::UpdateAt { index, value } => {
+                            current_timeline.lock_mut().set_cloned(index, value);
+                        }
+                    }
+                }
+            });
+            *self.tl_handle.lock_mut() = Some(handle);
+        }
         self.selected_room.replace(r);
     }
 

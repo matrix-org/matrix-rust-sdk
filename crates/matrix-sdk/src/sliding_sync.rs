@@ -29,6 +29,8 @@ use ruma::{
 use thiserror::Error;
 use url::Url;
 
+#[cfg(feature = "experimental-timeline")]
+use crate::room::timeline::Timeline;
 use crate::{Client, Result};
 
 /// Internal representation of errors in Sliding Sync
@@ -106,6 +108,7 @@ pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<SyncTim
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
+    client: Client,
     room_id: OwnedRoomId,
     inner: v4::SlidingSyncRoom,
     is_loading_more: Mutable<bool>,
@@ -115,6 +118,7 @@ pub struct SlidingSyncRoom {
 
 impl SlidingSyncRoom {
     fn from(
+        client: Client,
         room_id: OwnedRoomId,
         mut inner: v4::SlidingSyncRoom,
         timeline: Vec<SyncTimelineEvent>,
@@ -122,6 +126,7 @@ impl SlidingSyncRoom {
         // we overwrite to only keep one copy
         inner.timeline = vec![];
         Self {
+            client,
             room_id,
             is_loading_more: Mutable::new(false),
             prev_batch: Mutable::new(inner.prev_batch.clone()),
@@ -146,8 +151,18 @@ impl SlidingSyncRoom {
     }
 
     /// `AliveTimeline` of this room
+    #[cfg(not(feature = "experimental-timeline"))]
     pub fn timeline(&self) -> AliveRoomTimeline {
         self.timeline.clone()
+    }
+
+    /// `Timeline` of this room
+    #[cfg(feature = "experimental-timeline")]
+    pub async fn timeline(&self) -> Timeline {
+        let current_timeline = self.timeline.lock_ref().to_vec();
+        let prev_batch = self.prev_batch.lock_ref().clone();
+        let room = self.client.get_room(&self.room_id).unwrap();
+        Timeline::with_events(&room, prev_batch, current_timeline).await
     }
 
     /// This rooms name as calculated by the server, if any
@@ -490,7 +505,7 @@ impl SlidingSync {
             } else {
                 rooms_map.insert_cloned(
                     id.clone(),
-                    SlidingSyncRoom::from(id.clone(), room_data, timeline),
+                    SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
                 );
                 rooms.push(id);
             }

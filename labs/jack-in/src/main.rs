@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
+use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
+    room::timeline::TimelineItem,
     ruma::{OwnedRoomId, OwnedUserId},
     Client,
 };
@@ -45,6 +47,7 @@ pub enum Msg {
 pub enum JackInEvent {
     Any, // match all
     SyncUpdate(client::state::SlidingSyncState),
+    RoomDataUpdate(VecDiff<TimelineItem>),
 }
 
 impl PartialOrd for JackInEvent {
