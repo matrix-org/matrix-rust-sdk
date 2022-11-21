@@ -17,7 +17,7 @@ use std::{
     collections::BTreeMap,
     fmt::Debug,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
 };
@@ -256,7 +256,7 @@ impl SlidingSyncRoom {
                 self.is_cold.store(false, Ordering::Relaxed);
             } else {
                 let mut ref_timeline = self.timeline.lock_mut();
-                for e in timeline.into_iter() {
+                for e in timeline {
                     ref_timeline.push_cloned(e);
                 }
             }
@@ -278,8 +278,7 @@ type RangeState = Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = Mutable<Option<u32>>;
 type RoomsList = Arc<MutableVec<RoomListEntry>>;
 type RoomsMap = Arc<MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
-type RoomsSubscriptions =
-    Arc<MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
+type RoomsSubscriptions = Arc<MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
 type RoomUnsubscribe = Arc<MutableVec<OwnedRoomId>>;
 type ViewsList = Arc<MutableVec<SlidingSyncView>>;
 
@@ -330,8 +329,7 @@ impl SlidingSyncConfig {
             extensions,
             subscriptions,
         } = self;
-        let rooms;
-        if let Some(storage_key) = storage_key.as_ref() {
+        let rooms = if let Some(storage_key) = storage_key.as_ref() {
             if let Some(mut f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
@@ -345,17 +343,19 @@ impl SlidingSyncConfig {
                     }
                 }
 
-                rooms = f.rooms.into_iter().map(|(k, v)| (k, v.into())).collect();
+                f.rooms.into_iter().map(|(k, v)| (k, v.into())).collect()
             } else {
-                rooms = Default::default();
+                Default::default()
             }
         } else {
-            rooms = Default::default();
+            Default::default()
         };
 
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
         // map the roomsmap into the views:
-        views.iter_mut().for_each(|v| v.rooms = rooms.clone());
+        for v in &mut views {
+            v.rooms = rooms.clone()
+        }
 
         let views = Arc::new(MutableVec::new_with_values(views));
 
@@ -379,29 +379,28 @@ impl SlidingSyncConfig {
 impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
     pub fn add_fullsync_view(mut self) -> Self {
-        let mut views = self.views.clone().unwrap_or_default();
+        let views = self.views.get_or_insert_with(Default::default);
         views.push(
             SlidingSyncViewBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
         );
-        self.views = Some(views);
         self
     }
 
-    /// Reset the views to None
+    /// The cold cache key to read from and store the frozen state at
     pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
         self.storage_key = Some(Some(name.to_string()));
         self
     }
 
-    /// Reset the views to None
+    /// Do not use the cold cache
     pub fn no_cold_cache(mut self) -> Self {
         self.storage_key = None;
         self
     }
 
-    /// Reset the views to None
+    /// Reset the views to `None`
     pub fn no_views(mut self) -> Self {
         self.views = None;
         self
@@ -409,9 +408,8 @@ impl SlidingSyncBuilder {
 
     /// Add the given view to the list of views
     pub fn add_view(mut self, v: SlidingSyncView) -> Self {
-        let mut views = self.views.clone().unwrap_or_default();
+        let views = self.views.get_or_insert_with(Default::default);
         views.push(v);
-        self.views = Some(views);
         self
     }
 
@@ -528,7 +526,7 @@ pub struct SlidingSync {
     rooms: RoomsMap,
 
     /// keeping track of retries and failure cunts
-    failure_count: Arc<std::sync::atomic::AtomicU8>,
+    failure_count: Arc<AtomicU8>,
 
     extensions: Mutable<Option<ExtensionsConfig>>,
 }
