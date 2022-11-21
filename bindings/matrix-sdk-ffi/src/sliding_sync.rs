@@ -13,13 +13,14 @@ use matrix_sdk::ruma::{
     assign, IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
-    Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
+    room::timeline::Timeline, Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::task::JoinHandle;
+use tracing::error;
 
 use super::{Client, Room, RUNTIME};
-use crate::{helpers::unwrap_or_clone_arc, EventTimelineItem};
+use crate::{helpers::unwrap_or_clone_arc, EventTimelineItem, TimelineDiff, TimelineListener};
 
 pub struct StoppableSpawn {
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
@@ -83,6 +84,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
+    timeline: RwLock<Option<Arc<Timeline>>>,
     client: Client,
 }
 
@@ -118,14 +120,41 @@ impl SlidingSyncRoom {
     pub fn full_room(&self) -> Option<Arc<Room>> {
         self.client.get_room(self.inner.room_id()).map(|room| Arc::new(Room::new(room)))
     }
-}
 
-#[uniffi::export]
-impl SlidingSyncRoom {
+    /// Removes the timeline.
+    ///
+    /// Timeline items cached in memory as well as timeline listeners are
+    /// dropped.
+    pub fn remove_timeline(&self) {
+        *self.timeline.write().unwrap() = None;
+    }
+
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
         let item = self.inner.latest_event()?;
         Some(Arc::new(EventTimelineItem(item)))
+    }
+}
+
+impl SlidingSyncRoom {
+    pub fn add_timeline_listener(&self, listener: Box<dyn TimelineListener>) {
+        let timeline = RUNTIME.block_on(async move { self.inner.timeline().await });
+
+        let timeline_signal =
+            self.timeline.write().unwrap().get_or_insert_with(|| Arc::new(timeline)).signal();
+
+        let listener: Arc<dyn TimelineListener> = listener.into();
+        RUNTIME.spawn(timeline_signal.for_each(move |diff| {
+            let listener = listener.clone();
+            let fut = RUNTIME
+                .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+
+            async move {
+                if let Err(e) = fut.await {
+                    error!("Timeline listener error: {e}");
+                }
+            }
+        }));
     }
 }
 
@@ -460,10 +489,13 @@ impl SlidingSync {
     }
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
-        Ok(self
-            .inner
-            .get_room(OwnedRoomId::try_from(room_id)?)
-            .map(|inner| Arc::new(SlidingSyncRoom { inner, client: self.client.clone() })))
+        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|inner| {
+            Arc::new(SlidingSyncRoom {
+                inner,
+                client: self.client.clone(),
+                timeline: Default::default(),
+            })
+        }))
     }
 
     pub fn get_rooms(
@@ -479,7 +511,13 @@ impl SlidingSync {
             .get_rooms(actual_ids.into_iter())
             .into_iter()
             .map(|o| {
-                o.map(|inner| Arc::new(SlidingSyncRoom { inner, client: self.client.clone() }))
+                o.map(|inner| {
+                    Arc::new(SlidingSyncRoom {
+                        inner,
+                        client: self.client.clone(),
+                        timeline: Default::default(),
+                    })
+                })
             })
             .collect())
     }

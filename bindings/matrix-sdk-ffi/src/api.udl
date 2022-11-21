@@ -114,7 +114,9 @@ interface SlidingSyncView {
     StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
 };
 
-interface SlidingSyncRoom {};
+interface SlidingSyncRoom {
+    void add_timeline_listener(TimelineListener listener);
+};
 
 interface SlidingSync {
     void set_observer(SlidingSyncObserver? observer);
