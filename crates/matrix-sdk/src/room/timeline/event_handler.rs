@@ -698,16 +698,14 @@ impl NewEventTimelineItem {
     }
 
     fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
-        Self {
-            content: TimelineItemContent::UnableToDecrypt(content.into()),
-            reactions: BundledReactions::default(),
-        }
+        Self::from_content(TimelineItemContent::UnableToDecrypt(content.into()))
     }
 
     fn redacted_message() -> Self {
-        Self {
-            content: TimelineItemContent::RedactedMessage,
-            reactions: BundledReactions::default(),
-        }
+        Self::from_content(TimelineItemContent::RedactedMessage)
+    }
+
+    fn from_content(content: TimelineItemContent) -> Self {
+        Self { content, reactions: BundledReactions::default() }
     }
 }
