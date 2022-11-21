@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
@@ -23,7 +23,7 @@ use ruma::{
             encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
             message::MessageType,
         },
-        AnySyncTimelineEvent,
+        AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
@@ -266,6 +266,27 @@ pub enum TimelineItemContent {
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
+
+    /// A message-like event that failed to deserialize.
+    FailedToParseMessageLike {
+        /// The event `type`.
+        event_type: MessageLikeEventType,
+
+        /// The deserialization error.
+        error: Arc<serde_json::Error>,
+    },
+
+    /// A state event that failed to deserialize.
+    FailedToParseState {
+        /// The event `type`.
+        event_type: StateEventType,
+
+        /// The state key.
+        state_key: String,
+
+        /// The deserialization error.
+        error: Arc<serde_json::Error>,
+    },
 }
 
 impl TimelineItemContent {
