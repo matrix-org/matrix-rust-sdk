@@ -35,7 +35,7 @@ use ruma::{
             },
         },
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, Relations,
+        AnySyncTimelineEvent, MessageLikeEventType, Relations, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -48,6 +48,7 @@ use super::{
     find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
     TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
+use crate::events::SyncTimelineEventWithoutContent;
 
 impl TimelineInner {
     pub(super) async fn handle_live_event(
@@ -221,32 +222,38 @@ fn handle_remote_event(
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut MutexGuard<'_, TimelineInnerMetadata>,
 ) {
-    let event = match raw.deserialize() {
-        Ok(ev) => ev,
-        Err(_e) => {
-            // TODO: Add some sort of error timeline item
-            return;
-        }
-    };
+    let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
+        match raw.deserialize() {
+            Ok(event) => (
+                event.event_id().to_owned(),
+                event.sender().to_owned(),
+                event.origin_server_ts(),
+                event.transaction_id().map(ToOwned::to_owned),
+                event.relations().cloned(),
+                event.into(),
+            ),
+            Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
+                Ok(event) => (
+                    event.event_id().to_owned(),
+                    event.sender().to_owned(),
+                    event.origin_server_ts(),
+                    event.transaction_id().map(ToOwned::to_owned),
+                    event.relations().cloned(),
+                    TimelineEventKind::failed_to_parse(event, e),
+                ),
+                Err(e) => {
+                    warn!("Failed to deserialize timeline event: {e}");
+                    return;
+                }
+            },
+        };
 
-    let sender = event.sender().to_owned();
     let is_own_event = sender == own_user_id;
-    let event_meta = TimelineEventMetadata {
-        sender,
-        is_own_event,
-        relations: event.relations().cloned(),
-        encryption_info,
-    };
-    let flow = Flow::Remote {
-        event_id: event.event_id().to_owned(),
-        origin_server_ts: event.origin_server_ts(),
-        raw_event: raw,
-        txn_id: event.transaction_id().map(ToOwned::to_owned),
-        position,
-    };
+    let event_meta = TimelineEventMetadata { sender, is_own_event, relations, encryption_info };
+    let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
     TimelineEventHandler::new(event_meta, flow, timeline_items, timeline_meta)
-        .handle_event(event.into())
+        .handle_event(event_kind)
 }
 
 fn update_fully_read_item(
@@ -320,12 +327,52 @@ struct TimelineEventMetadata {
 
 #[derive(Clone)]
 enum TimelineEventKind {
-    Message { content: AnyMessageLikeEventContent },
+    Message {
+        content: AnyMessageLikeEventContent,
+    },
     RedactedMessage,
-    Redaction { redacts: OwnedEventId, content: RoomRedactionEventContent },
+    Redaction {
+        redacts: OwnedEventId,
+        content: RoomRedactionEventContent,
+    },
     // FIXME: Split further for state keys of different type
-    State { _content: AnyStateEventContent },
+    State {
+        _content: AnyStateEventContent,
+    },
     RedactedState, // AnyRedactedStateEventContent
+    FailedToParseMessageLike {
+        event_type: MessageLikeEventType,
+        error: Arc<serde_json::Error>,
+    },
+    FailedToParseState {
+        event_type: StateEventType,
+        state_key: String,
+        error: Arc<serde_json::Error>,
+    },
+}
+
+impl TimelineEventKind {
+    fn failed_to_parse(event: SyncTimelineEventWithoutContent, error: serde_json::Error) -> Self {
+        let error = Arc::new(error);
+        match event {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+        }
+    }
 }
 
 impl From<AnySyncTimelineEvent> for TimelineEventKind {
@@ -404,8 +451,15 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content)
             }
-            // TODO: State events
-            _ => {}
+            TimelineEventKind::State { .. } | TimelineEventKind::RedactedState => {
+                // TODO
+            }
+            TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
+                self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
+            }
+            TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
+                self.add(NewEventTimelineItem::failed_to_parse_state(event_type, state_key, error));
+            }
         }
 
         if !self.event_added {
@@ -446,6 +500,14 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     info!(
                         %event_id,
                         "Edit event applies to event that couldn't be decrypted, discarding"
+                    );
+                    return None;
+                }
+                TimelineItemContent::FailedToParseMessageLike { .. }
+                | TimelineItemContent::FailedToParseState { .. } => {
+                    info!(
+                        %event_id,
+                        "Edit event applies to event that couldn't be parsed, discarding"
                     );
                     return None;
                 }
@@ -703,6 +765,21 @@ impl NewEventTimelineItem {
 
     fn redacted_message() -> Self {
         Self::from_content(TimelineItemContent::RedactedMessage)
+    }
+
+    fn failed_to_parse_message_like(
+        event_type: MessageLikeEventType,
+        error: Arc<serde_json::Error>,
+    ) -> NewEventTimelineItem {
+        Self::from_content(TimelineItemContent::FailedToParseMessageLike { event_type, error })
+    }
+
+    fn failed_to_parse_state(
+        event_type: StateEventType,
+        state_key: String,
+        error: Arc<serde_json::Error>,
+    ) -> NewEventTimelineItem {
+        Self::from_content(TimelineItemContent::FailedToParseState { event_type, state_key, error })
     }
 
     fn from_content(content: TimelineItemContent) -> Self {
