@@ -16,8 +16,6 @@ use std::fmt;
 
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
-#[cfg(feature = "experimental-room-preview")]
-use ruma::events::room::message::{OriginalSyncRoomMessageEvent, Relation};
 use ruma::{
     events::{
         relation::{AnnotationChunk, AnnotationType},
@@ -85,37 +83,6 @@ macro_rules! build {
 }
 
 impl EventTimelineItem {
-    #[cfg(feature = "experimental-room-preview")]
-    #[doc(hidden)] // FIXME: Remove. Used for matrix-sdk-ffi temporarily.
-    pub fn _new(ev: OriginalSyncRoomMessageEvent, raw: Raw<AnySyncTimelineEvent>) -> Self {
-        let edited = ev.unsigned.relations.as_ref().map_or(false, |r| r.replace.is_some());
-        let reactions = ev
-            .unsigned
-            .relations
-            .and_then(|r| r.annotation)
-            .map(BundledReactions::from)
-            .unwrap_or_default();
-
-        Self {
-            key: TimelineKey::EventId(ev.event_id),
-            event_id: None,
-            sender: ev.sender,
-            content: TimelineItemContent::Message(Message {
-                msgtype: ev.content.msgtype,
-                in_reply_to: ev.content.relates_to.and_then(|rel| match rel {
-                    Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
-                    _ => None,
-                }),
-                edited,
-            }),
-            reactions,
-            origin_server_ts: Some(ev.origin_server_ts),
-            is_own: false,         // FIXME: Potentially wrong
-            encryption_info: None, // FIXME: Potentially wrong
-            raw: Some(raw),
-        }
-    }
-
     /// Get the [`TimelineKey`] of this item.
     pub fn key(&self) -> &TimelineKey {
         &self.key

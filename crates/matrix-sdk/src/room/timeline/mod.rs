@@ -23,7 +23,10 @@ use std::{
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    locks::Mutex,
+};
 use ruma::{
     assign,
     events::{
@@ -89,7 +92,22 @@ struct TimelineInnerMetadata {
 
 impl Timeline {
     pub(super) async fn new(room: &room::Common) -> Self {
+        Self::with_events(room, None, Vec::new()).await
+    }
+
+    pub(crate) async fn with_events(
+        room: &room::Common,
+        prev_token: Option<String>,
+        events: Vec<SyncTimelineEvent>,
+    ) -> Self {
         let inner = TimelineInner::default();
+        let own_user_id = room.own_user_id();
+
+        for ev in events.into_iter().rev() {
+            inner
+                .handle_back_paginated_event(ev.event.cast(), ev.encryption_info, own_user_id)
+                .await;
+        }
 
         match room.account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
@@ -176,7 +194,7 @@ impl Timeline {
         Timeline {
             inner,
             room: room.clone(),
-            start_token: StdMutex::new(None),
+            start_token: StdMutex::new(prev_token),
             _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
             _fully_read_handler_guard,
@@ -253,6 +271,11 @@ impl Timeline {
                 self.room.own_user_id(),
             )
             .await;
+    }
+
+    /// Get the latest of the timeline's items.
+    pub fn latest(&self) -> Option<Arc<TimelineItem>> {
+        self.inner.items.lock_ref().last().cloned()
     }
 
     /// Get a signal of the timeline's items.

@@ -12,10 +12,6 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
-[features]
-default = ["experimental-room-preview"] # the whole crate is still very experimental, so this is fine
-experimental-room-preview = ["matrix-sdk/experimental-room-preview"]
-
 [build-dependencies]
 uniffi_build = { workspace = true, features = ["builtin-bindgen"] }
 
