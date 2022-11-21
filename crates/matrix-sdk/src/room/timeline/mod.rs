@@ -22,11 +22,8 @@ use std::{
 };
 
 use futures_core::Stream;
-use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    locks::Mutex,
-};
+use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
@@ -43,10 +40,12 @@ use crate::{
 
 mod event_handler;
 mod event_item;
+mod inner;
 #[cfg(test)]
 mod tests;
 mod virtual_item;
 
+use self::inner::TimelineInner;
 pub use self::{
     event_item::{
         EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
@@ -70,12 +69,6 @@ pub struct Timeline {
     _fully_read_handler_guard: EventHandlerDropGuard,
     #[cfg(feature = "e2e-encryption")]
     _room_key_handler_guard: EventHandlerDropGuard,
-}
-
-#[derive(Clone, Debug, Default)]
-struct TimelineInner {
-    items: MutableVec<Arc<TimelineItem>>,
-    metadata: Arc<Mutex<TimelineInnerMetadata>>,
 }
 
 /// Non-signalling parts of `TimelineInner`.
