@@ -95,10 +95,15 @@ impl BaseClient {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     room_info.mark_state_partially_synced();
-                    changes.add_room(room_info);
+                    changes.add_room(room_id.clone(), room_info);
                 }
 
-                self.handle_invited_state(invite_states.as_slice(), &mut room_info, &mut changes);
+                self.handle_invited_state(
+                    invite_states.as_slice(),
+                    &room_id,
+                    &mut room_info,
+                    &mut changes,
+                );
 
                 new_rooms.invite.insert(
                     room_id.clone(),
@@ -118,6 +123,7 @@ impl BaseClient {
                 let mut user_ids = if !room_data.required_state.is_empty() {
                     self.handle_state(
                         &room_data.required_state,
+                        &room_id,
                         &mut room_info,
                         &mut changes,
                         &mut ambiguity_cache,
@@ -201,7 +207,7 @@ impl BaseClient {
                     ),
                 );
 
-                changes.add_room(room_info);
+                changes.add_room(room_id, room_info);
             }
         }
 

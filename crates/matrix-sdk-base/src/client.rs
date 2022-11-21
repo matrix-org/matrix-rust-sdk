@@ -366,7 +366,10 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &mut push_context {
-                        self.update_push_room_context(context, user_id, room_info, changes).await;
+                        self.update_push_room_context(
+                            context, user_id, room_id, room_info, changes,
+                        )
+                        .await;
                     } else {
                         push_context = self.get_push_room_context(room, room_info, changes).await?;
                     }
@@ -410,6 +413,7 @@ impl BaseClient {
     pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
+        room_id: &RoomId,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
     ) {
@@ -429,21 +433,19 @@ impl BaseClient {
                         .insert(e.state_key().to_owned(), raw_event.clone());
                 }
                 Err(err) => {
-                    warn!(
-                        room_id = %room_info.room_id,
-                        "Couldn't deserialize stripped state event: {err:?}",
-                    );
+                    warn!(%room_id, "Couldn't deserialize stripped state event: {err:?}");
                 }
             }
         }
 
-        changes.stripped_members.insert(room_info.room_id().to_owned(), members);
-        changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
+        changes.stripped_members.insert(room_id.to_owned(), members);
+        changes.stripped_state.insert(room_id.to_owned(), state_events);
     }
 
     pub(crate) async fn handle_state(
         &self,
         events: &[Raw<AnySyncStateEvent>],
+        room_id: &RoomId,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
@@ -452,8 +454,6 @@ impl BaseClient {
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
-
-        let room_id = room_info.room_id.clone();
 
         for raw_event in events {
             let event = match raw_event.deserialize() {
@@ -467,7 +467,7 @@ impl BaseClient {
             room_info.handle_state_event(&event);
 
             if let AnySyncStateEvent::RoomMember(member) = event {
-                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
+                ambiguity_cache.handle_event(changes, room_id, &member).await?;
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
@@ -529,8 +529,10 @@ impl BaseClient {
                 }
             };
 
-            if let AnyGlobalAccountDataEvent::Direct(e) = &event {
-                for (user_id, rooms) in e.content.iter() {
+            let event_type = event.event_type();
+
+            if let AnyGlobalAccountDataEvent::Direct(e) = event {
+                for (user_id, rooms) in e.content.0 {
                     for room_id in rooms {
                         trace!(
                             room_id = room_id.as_str(),
@@ -538,19 +540,19 @@ impl BaseClient {
                             "Marking room as direct room"
                         );
 
-                        if let Some(room) = changes.room_infos.get_mut(room_id) {
+                        if let Some(room) = changes.room_infos.get_mut(&room_id) {
                             room.base_info.dm_targets.insert(user_id.clone());
-                        } else if let Some(room) = self.store.get_room(room_id) {
+                        } else if let Some(room) = self.store.get_room(&room_id) {
                             let mut info = room.clone_info();
                             if info.base_info.dm_targets.insert(user_id.clone()) {
-                                changes.add_room(info);
+                                changes.add_room(room_id, info);
                             }
                         }
                     }
                 }
             }
 
-            account_data.insert(event.event_type(), raw_event.clone());
+            account_data.insert(event_type, raw_event.clone());
         }
 
         changes.account_data = account_data;
@@ -594,7 +596,7 @@ impl BaseClient {
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
             let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
+            changes.add_room(room_id.to_owned(), room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
             room.update_summary(room_info); // Update the cached room handle
         }
@@ -615,7 +617,7 @@ impl BaseClient {
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
             let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
+            changes.add_room(room_id.to_owned(), room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
             room.update_summary(room_info); // Update the cached room handle
         }
@@ -691,6 +693,7 @@ impl BaseClient {
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &room_id,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -750,7 +753,7 @@ impl BaseClient {
             room_info.update_notification_count(notification_count);
 
             new_rooms.join.insert(
-                room_id,
+                room_id.clone(),
                 JoinedRoom::new(
                     timeline,
                     new_info.state,
@@ -760,7 +763,7 @@ impl BaseClient {
                 ),
             );
 
-            changes.add_room(room_info);
+            changes.add_room(room_id, room_info);
         }
 
         for (room_id, new_info) in rooms.leave {
@@ -772,6 +775,7 @@ impl BaseClient {
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &room_id,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -795,7 +799,7 @@ impl BaseClient {
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
-            changes.add_room(room_info);
+            changes.add_room(room_id.to_owned(), room_info);
             new_rooms
                 .leave
                 .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
@@ -809,12 +813,17 @@ impl BaseClient {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited();
                 room_info.mark_state_fully_synced();
-                changes.add_room(room_info);
+                changes.add_room(room_id.clone(), room_info);
             }
 
-            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
+            self.handle_invited_state(
+                &new_info.invite_state.events,
+                &room_id,
+                &mut room_info,
+                &mut changes,
+            );
 
-            changes.add_stripped_room(room_info);
+            changes.add_stripped_room(room_id.clone(), room_info);
 
             new_rooms.invite.insert(room_id, new_info);
         }
@@ -957,7 +966,7 @@ impl BaseClient {
             }
 
             changes.ambiguity_maps = ambiguity_cache.cache;
-            changes.add_room(room_info);
+            changes.add_room(room_id.to_owned(), room_info);
 
             self.store.save_changes(&changes).await?;
             self.apply_changes(&changes).await;
@@ -1146,15 +1155,13 @@ impl BaseClient {
         &self,
         push_rules: &mut PushConditionRoomCtx,
         user_id: &UserId,
+        room_id: &RoomId,
         room_info: &RoomInfo,
         changes: &StateChanges,
     ) {
-        let room_id = &room_info.room_id;
-
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-        if let Some(member) =
-            changes.members.get(&**room_id).and_then(|members| members.get(user_id))
+        if let Some(member) = changes.members.get(room_id).and_then(|members| members.get(user_id))
         {
             push_rules.user_display_name = member
                 .as_original()
@@ -1164,7 +1171,7 @@ impl BaseClient {
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
-            .get(&**room_id)
+            .get(room_id)
             .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize().ok())
         {

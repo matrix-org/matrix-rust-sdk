@@ -27,7 +27,7 @@ use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo,
+    MinimalStateEvent, RoomIdAndInfo,
 };
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 use ruma::{
@@ -640,18 +640,22 @@ impl SledStateStore {
                     }
 
                     for (room_id, room_info) in &changes.room_infos {
+                        let room_id_and_info =
+                            RoomIdAndInfo::from_parts(room_id.clone(), room_info.clone());
                         rooms.insert(
                             self.encode_key(ROOM, room_id),
-                            self.serialize_value(room_info)
+                            self.serialize_value(&room_id_and_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                         stripped_rooms.remove(self.encode_key(STRIPPED_ROOM_INFO, room_id))?;
                     }
 
-                    for (room_id, info) in &changes.stripped_room_infos {
+                    for (room_id, room_info) in &changes.stripped_room_infos {
+                        let room_id_and_info =
+                            RoomIdAndInfo::from_parts(room_id.clone(), room_info.clone());
                         stripped_rooms.insert(
                             self.encode_key(STRIPPED_ROOM_INFO, room_id),
-                            self.serialize_value(&info)
+                            self.serialize_value(&room_id_and_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                         rooms.remove(self.encode_key(ROOM, room_id))?;
@@ -725,11 +729,11 @@ impl SledStateStore {
                     .get(self.encode_key(ROOM_INFO, room_id))
                     .ok()
                     .flatten()
-                    .map(|r| self.deserialize_value::<RoomInfo>(&r))
+                    .map(|r| self.deserialize_value::<RoomIdAndInfo>(&r))
                     .transpose()
                     .ok()
                     .flatten()
-                    .and_then(|info| info.room_version().cloned())
+                    .and_then(|info| info.into_parts().1.room_version().cloned())
                     .unwrap_or_else(|| {
                         warn!(%room_id, "Unable to find the room version, assume version 9");
                         RoomVersionId::V9
@@ -1006,7 +1010,7 @@ impl SledStateStore {
         .map_err(StoreError::backend)
     }
 
-    pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
+    pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomIdAndInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
             stream::iter(db.room_info.iter().map(move |r| db.deserialize_value(&r?.1)))
@@ -1015,7 +1019,9 @@ impl SledStateStore {
         .map_err(Into::into)
     }
 
-    pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
+    pub async fn get_stripped_room_infos(
+        &self,
+    ) -> Result<impl Stream<Item = Result<RoomIdAndInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
             stream::iter(db.stripped_room_infos.iter().map(move |r| db.deserialize_value(&r?.1)))
@@ -1408,7 +1414,7 @@ impl StateStore for SledStateStore {
         self.get_joined_user_ids(room_id).await?.try_collect().await
     }
 
-    async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+    async fn get_room_infos(&self) -> StoreResult<Vec<RoomIdAndInfo>> {
         self.get_room_infos()
             .await
             .map_err::<StoreError, _>(Into::into)?
@@ -1417,7 +1423,7 @@ impl StateStore for SledStateStore {
             .map_err::<StoreError, _>(Into::into)
     }
 
-    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomIdAndInfo>> {
         self.get_stripped_room_infos()
             .await
             .map_err::<StoreError, _>(Into::into)?

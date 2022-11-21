@@ -29,7 +29,7 @@ use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo,
+    MinimalStateEvent, RoomIdAndInfo,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -608,9 +608,11 @@ impl IndexeddbStateStore {
             let room_infos = tx.object_store(KEYS::ROOM_INFOS)?;
             let stripped_room_infos = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
+                let room_id_and_info =
+                    RoomIdAndInfo::from_parts(room_id.clone(), room_info.clone());
                 room_infos.put_key_val(
                     &self.encode_key(KEYS::ROOM_INFOS, room_id),
-                    &self.serialize_event(&room_info)?,
+                    &self.serialize_event(&room_id_and_info)?,
                 )?;
                 stripped_room_infos.delete(&self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id))?;
             }
@@ -629,10 +631,12 @@ impl IndexeddbStateStore {
         if !changes.stripped_room_infos.is_empty() {
             let stripped_room_infos = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
             let room_infos = tx.object_store(KEYS::ROOM_INFOS)?;
-            for (room_id, info) in &changes.stripped_room_infos {
+            for (room_id, room_info) in &changes.stripped_room_infos {
+                let room_id_and_info =
+                    RoomIdAndInfo::from_parts(room_id.clone(), room_info.clone());
                 stripped_room_infos.put_key_val(
                     &self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id),
-                    &self.serialize_event(&info)?,
+                    &self.serialize_event(&room_id_and_info)?,
                 )?;
                 room_infos.delete(&self.encode_key(KEYS::ROOM_INFOS, room_id))?;
             }
@@ -807,8 +811,8 @@ impl IndexeddbStateStore {
                                     room_version.replace(room_info
                                         .get(&self.encode_key(KEYS::ROOM_INFOS, room_id))?
                                         .await?
-                                        .and_then(|f| self.deserialize_event::<RoomInfo>(f).ok())
-                                        .and_then(|info| info.room_version().cloned())
+                                        .and_then(|f| self.deserialize_event::<RoomIdAndInfo>(f).ok())
+                                        .and_then(|info| info.into_parts().1.room_version().cloned())
                                         .unwrap_or_else(|| {
                                             warn!(%room_id, "Unable to find the room version, assume version 9");
                                             RoomVersionId::V9
@@ -998,7 +1002,7 @@ impl IndexeddbStateStore {
             .collect::<Vec<_>>())
     }
 
-    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    pub async fn get_room_infos(&self) -> Result<Vec<RoomIdAndInfo>> {
         let entries: Vec<_> = self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -1006,13 +1010,13 @@ impl IndexeddbStateStore {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<RoomInfo>(f).ok())
+            .filter_map(|f| self.deserialize_event(f).ok())
             .collect();
 
         Ok(entries)
     }
 
-    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomIdAndInfo>> {
         let entries = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -1306,11 +1310,11 @@ impl StateStore for IndexeddbStateStore {
         self.get_joined_user_ids(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+    async fn get_room_infos(&self) -> StoreResult<Vec<RoomIdAndInfo>> {
         self.get_room_infos().await.map_err(|e| e.into())
     }
 
-    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomIdAndInfo>> {
         self.get_stripped_room_infos().await.map_err(|e| e.into())
     }
 

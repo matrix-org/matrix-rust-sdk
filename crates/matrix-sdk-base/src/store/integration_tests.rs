@@ -114,7 +114,7 @@ macro_rules! statestore_integration_tests {
                 let pushrules_event = pushrules_raw.deserialize().unwrap();
                 changes.add_account_data(pushrules_event, pushrules_raw);
 
-                let mut room = RoomInfo::new(room_id, RoomType::Joined);
+                let mut room = RoomInfo::new(RoomType::Joined);
                 room.mark_as_left();
 
                 let tag_json: &JsonValue = &test_json::TAG;
@@ -191,9 +191,9 @@ macro_rules! statestore_integration_tests {
                 changes.ambiguity_maps.insert(room_id.to_owned(), room_ambiguity_map);
                 changes.profiles.insert(room_id.to_owned(), room_profiles);
                 changes.members.insert(room_id.to_owned(), room_members);
-                changes.add_room(room);
+                changes.add_room(room_id.to_owned(), room);
 
-                let mut stripped_room = RoomInfo::new(stripped_room_id, RoomType::Invited);
+                let mut stripped_room = RoomInfo::new(RoomType::Invited);
 
                 let stripped_name_json: &JsonValue = &test_json::NAME_STRIPPED;
                 let stripped_name_raw = serde_json::from_value::<Raw<AnyStrippedStateEvent>>(
@@ -213,7 +213,7 @@ macro_rules! statestore_integration_tests {
                     )]),
                 );
 
-                changes.add_stripped_room(stripped_room);
+                changes.add_stripped_room(stripped_room_id.to_owned(), stripped_room);
 
                 let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
                 let stripped_member_event =
@@ -698,7 +698,7 @@ macro_rules! statestore_integration_tests {
                     .entry(room_id.to_owned())
                     .or_default()
                     .insert(user_id.to_owned(), membership_event());
-                changes.add_room(RoomInfo::new(room_id, RoomType::Left));
+                changes.add_room(room_id.to_owned(), RoomInfo::new(RoomType::Left));
                 store.save_changes(&changes).await.unwrap();
 
                 assert!(matches!(
@@ -713,7 +713,7 @@ macro_rules! statestore_integration_tests {
 
                 let mut changes = StateChanges::default();
                 changes.add_stripped_member(room_id, custom_stripped_membership_event(user_id));
-                changes.add_stripped_room(RoomInfo::new(room_id, RoomType::Invited));
+                changes.add_stripped_room(room_id.to_owned(), RoomInfo::new(RoomType::Invited));
                 store.save_changes(&changes).await.unwrap();
 
                 assert!(matches!(

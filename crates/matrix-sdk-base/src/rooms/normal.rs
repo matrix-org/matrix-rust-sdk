@@ -32,8 +32,8 @@ use ruma::{
         RoomAccountDataEventType,
     },
     room::RoomType as CreateRoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
-    RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
+    RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -87,18 +87,19 @@ impl Room {
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
-        let room_info = RoomInfo::new(room_id, room_type);
-        Self::restore(own_user_id, store, room_info)
+        let room_info = RoomInfo::new(room_type);
+        Self::restore(own_user_id, store, room_id, room_info)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<dyn StateStore>,
+        room_id: &RoomId,
         room_info: RoomInfo,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
-            room_id: room_info.room_id.clone(),
+            room_id: room_id.into(),
             store,
             inner: Arc::new(SyncRwLock::new(room_info)),
         }
@@ -503,10 +504,8 @@ impl Room {
 /// The underlying pure data structure for joined and left rooms.
 ///
 /// Holds all the info needed to persist a room into the state store.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct RoomInfo {
-    /// The unique room id of the room.
-    pub(crate) room_id: Arc<RoomId>,
     /// The type of the room.
     pub(crate) room_type: RoomType,
     /// The unread notifications counts.
@@ -518,14 +517,86 @@ pub struct RoomInfo {
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
     /// How much we know about this room.
-    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
     pub(crate) sync_info: SyncInfo,
     /// Whether or not the encryption info was been synced.
-    #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
     pub(crate) encryption_state_synced: bool,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
+}
+
+/// (De)serializable form of `RoomInfo` with an additional `OwnedRoomId`.
+///
+/// Meant to be used by state-store crates to persist the `RoomInfo`.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RoomIdAndInfo {
+    room_id: OwnedRoomId,
+    room_type: RoomType,
+    notification_counts: UnreadNotificationsCount,
+    summary: RoomSummary,
+    members_synced: bool,
+    last_prev_batch: Option<String>,
+    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
+    sync_info: SyncInfo,
+    #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
+    encryption_state_synced: bool,
+    base_info: BaseRoomInfo,
+}
+
+impl RoomIdAndInfo {
+    /// Create a `RoomIdAndInfo` from a room ID and `RoomInfo`.
+    pub fn from_parts(room_id: OwnedRoomId, info: RoomInfo) -> Self {
+        let RoomInfo {
+            room_type,
+            notification_counts,
+            summary,
+            members_synced,
+            last_prev_batch,
+            sync_info,
+            encryption_state_synced,
+            base_info,
+        } = info;
+
+        Self {
+            room_id,
+            room_type,
+            notification_counts,
+            summary,
+            members_synced,
+            last_prev_batch,
+            sync_info,
+            encryption_state_synced,
+            base_info,
+        }
+    }
+
+    /// Convert a `RoomIdAndInfo` to a room ID and `RoomInfo`.
+    pub fn into_parts(self) -> (OwnedRoomId, RoomInfo) {
+        let Self {
+            room_id,
+            room_type,
+            notification_counts,
+            summary,
+            members_synced,
+            last_prev_batch,
+            sync_info,
+            encryption_state_synced,
+            base_info,
+        } = self;
+
+        let info = RoomInfo {
+            room_type,
+            notification_counts,
+            summary,
+            members_synced,
+            last_prev_batch,
+            sync_info,
+            encryption_state_synced,
+            base_info,
+        };
+
+        (room_id, info)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -565,9 +636,8 @@ fn encryption_state_default() -> bool {
 
 impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
-    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+    pub fn new(room_type: RoomType) -> Self {
         Self {
-            room_id: room_id.into(),
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
@@ -723,11 +793,6 @@ impl RoomInfo {
             .and_then(|ev| ev.as_original())
             .map(|ev| ev.content.alt_aliases.as_ref())
             .unwrap_or_default()
-    }
-
-    /// Get the room ID of this room.
-    pub fn room_id(&self) -> &RoomId {
-        &self.room_id
     }
 
     /// Get the room version of this room.

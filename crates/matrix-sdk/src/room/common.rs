@@ -345,8 +345,9 @@ impl Common {
 
             let _guard = mutex.lock().await;
 
+            let room_id = self.inner.room_id();
             let request = get_state_events_for_key::v3::Request::new(
-                self.inner.room_id(),
+                room_id,
                 StateEventType::RoomEncryption,
                 "",
             );
@@ -363,12 +364,12 @@ impl Common {
             room_info.mark_encryption_state_synced();
             room_info.set_encryption_event(response.clone());
             let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
+            changes.add_room(room_id.to_owned(), room_info.clone());
             self.client.store().save_changes(&changes).await?;
             self.update_summary(room_info);
             drop(sync_lock);
 
-            self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
+            self.client.inner.encryption_state_request_locks.remove(room_id);
 
             Ok(response)
         }

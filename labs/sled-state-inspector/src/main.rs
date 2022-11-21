@@ -3,7 +3,7 @@ use std::{fmt::Debug, sync::Arc};
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
-use matrix_sdk_base::{RoomInfo, StateStore};
+use matrix_sdk_base::StateStore;
 use matrix_sdk_sled::SledStateStore;
 use ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId};
 use rustyline::{
@@ -72,14 +72,13 @@ impl InspectorHelper {
     }
 
     fn complete_rooms(&self, arg: Option<&&str>) -> Vec<Pair> {
-        let rooms: Vec<RoomInfo> =
-            block_on(async { StateStore::get_room_infos(&*self.store).await.unwrap() });
+        let rooms = block_on(async { StateStore::get_room_infos(&*self.store).await.unwrap() });
 
         rooms
             .into_iter()
-            .map(|r| Pair {
-                display: r.room_id().to_string(),
-                replacement: format!("{} ", r.room_id()),
+            .map(|room_id_and_info| {
+                let room_id = room_id_and_info.into_parts().0;
+                Pair { display: room_id.to_string(), replacement: format!("{room_id} ") }
             })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
@@ -242,7 +241,7 @@ impl Inspector {
     }
 
     async fn list_rooms(&self) {
-        let rooms: Vec<RoomInfo> = StateStore::get_room_infos(&*self.store).await.unwrap();
+        let rooms = StateStore::get_room_infos(&*self.store).await.unwrap();
         self.printer.pretty_print_struct(&rooms);
     }
 

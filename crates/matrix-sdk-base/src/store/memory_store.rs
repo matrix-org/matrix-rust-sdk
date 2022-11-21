@@ -41,7 +41,7 @@ use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
-    MinimalRoomMemberEvent,
+    MinimalRoomMemberEvent, RoomIdAndInfo,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -466,12 +466,18 @@ impl MemoryStore {
             .unwrap_or_default()
     }
 
-    fn get_room_infos(&self) -> Vec<RoomInfo> {
-        self.room_info.iter().map(|r| r.clone()).collect()
+    fn get_room_infos(&self) -> Vec<RoomIdAndInfo> {
+        self.room_info
+            .iter()
+            .map(|r| RoomIdAndInfo::from_parts(r.key().clone(), r.value().clone()))
+            .collect()
     }
 
-    fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
-        self.stripped_room_infos.iter().map(|r| r.clone()).collect()
+    fn get_stripped_room_infos(&self) -> Vec<RoomIdAndInfo> {
+        self.stripped_room_infos
+            .iter()
+            .map(|r| RoomIdAndInfo::from_parts(r.key().clone(), r.value().clone()))
+            .collect()
     }
 
     async fn get_account_data_event(
@@ -654,11 +660,11 @@ impl StateStore for MemoryStore {
         Ok(self.get_joined_user_ids(room_id))
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    async fn get_room_infos(&self) -> Result<Vec<RoomIdAndInfo>> {
         Ok(self.get_room_infos())
     }
 
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomIdAndInfo>> {
         Ok(self.get_stripped_room_infos())
     }
 

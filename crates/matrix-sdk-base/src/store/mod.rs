@@ -71,7 +71,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
-    MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
+    MinimalRoomMemberEvent, Room, RoomIdAndInfo, Session, SessionMeta, SessionTokens,
 };
 
 pub(crate) mod ambiguity_map;
@@ -237,10 +237,10 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
+    async fn get_room_infos(&self) -> Result<Vec<RoomIdAndInfo>>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>>;
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomIdAndInfo>>;
 
     /// Get all the users that use the given display name in the given room.
     ///
@@ -542,13 +542,15 @@ impl Store {
     /// Restore the access to the Store from the given `Session`, overwrites any
     /// previously existing access to the Store.
     pub async fn restore_session(&self, session: Session) -> Result<()> {
-        for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+        for room_id_and_info in self.inner.get_room_infos().await? {
+            let (room_id, room_info) = room_id_and_info.into_parts();
+            let room = Room::restore(&session.user_id, self.inner.clone(), &room_id, room_info);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
-        for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+        for room_id_and_info in self.inner.get_stripped_room_infos().await? {
+            let (room_id, room_info) = room_id_and_info.into_parts();
+            let room = Room::restore(&session.user_id, self.inner.clone(), &room_id, room_info);
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
@@ -735,13 +737,13 @@ impl StateChanges {
     }
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
-    pub fn add_room(&mut self, room: RoomInfo) {
-        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
+    pub fn add_room(&mut self, room_id: OwnedRoomId, room: RoomInfo) {
+        self.room_infos.insert(room_id, room);
     }
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
-    pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.stripped_room_infos.insert(room.room_id.as_ref().to_owned(), room);
+    pub fn add_stripped_room(&mut self, room_id: OwnedRoomId, room: RoomInfo) {
+        self.stripped_room_infos.insert(room_id, room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
