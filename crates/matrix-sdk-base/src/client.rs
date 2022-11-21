@@ -25,8 +25,7 @@ use futures_signals::signal::ReadOnlyMutable;
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
+    store::CryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -108,15 +107,10 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "e2e-encryption")]
-        let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
-
         BaseClient {
-            store,
+            store: Store::new(config.state_store),
             #[cfg(feature = "e2e-encryption")]
-            crypto_store,
+            crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
         }
