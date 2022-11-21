@@ -318,6 +318,16 @@ struct TimelineEventMetadata {
     encryption_info: Option<EncryptionInfo>,
 }
 
+#[derive(Clone)]
+enum TimelineEventKind {
+    Message { content: AnyMessageLikeEventContent },
+    RedactedMessage,
+    Redaction { redacts: OwnedEventId, content: RoomRedactionEventContent },
+    // FIXME: Split further for state keys of different type
+    State { _content: AnyStateEventContent },
+    RedactedState, // AnyRedactedStateEventContent
+}
+
 impl From<AnySyncTimelineEvent> for TimelineEventKind {
     fn from(event: AnySyncTimelineEvent) -> Self {
         match event {
@@ -338,16 +348,6 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
             },
         }
     }
-}
-
-#[derive(Clone)]
-enum TimelineEventKind {
-    Message { content: AnyMessageLikeEventContent },
-    RedactedMessage,
-    Redaction { redacts: OwnedEventId, content: RoomRedactionEventContent },
-    // FIXME: Split further for state keys of different type
-    State { _content: AnyStateEventContent },
-    RedactedState, // AnyRedactedStateEventContent
 }
 
 enum TimelineItemPosition {
