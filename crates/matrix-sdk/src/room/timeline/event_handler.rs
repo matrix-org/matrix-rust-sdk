@@ -439,10 +439,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             let msg = match &item.content {
                 TimelineItemContent::Message(msg) => msg,
                 TimelineItemContent::RedactedMessage => {
-                    info!(
-                        %event_id,
-                        "Edit event applies to a redacted message, discarding"
-                    );
+                    info!(%event_id, "Edit event applies to a redacted message, discarding");
                     return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
