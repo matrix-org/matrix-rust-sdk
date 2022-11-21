@@ -32,9 +32,11 @@ pub enum Membership {
     Left,
 }
 
+type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
+
 pub struct Room {
     room: SdkRoom,
-    timeline: RwLock<Option<Arc<Timeline>>>,
+    timeline: TimelineLock,
 }
 
 #[uniffi::export]
@@ -90,7 +92,10 @@ impl Room {
 
 impl Room {
     pub fn new(room: SdkRoom) -> Self {
-        Room { room, timeline: RwLock::default() }
+        Room { room, timeline: Default::default() }
+    }
+    pub fn with_timeline(room: SdkRoom, timeline: TimelineLock) -> Self {
+        Room { room, timeline }
     }
 
     pub fn display_name(&self) -> Result<String> {

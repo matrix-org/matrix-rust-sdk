@@ -84,7 +84,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
-    timeline: RwLock<Option<Arc<Timeline>>>,
+    timeline: Arc<RwLock<Option<Arc<Timeline>>>>,
     client: Client,
 }
 
@@ -118,7 +118,9 @@ impl SlidingSyncRoom {
     }
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
-        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(Room::new(room)))
+        self.client
+            .get_room(self.inner.room_id())
+            .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
 
     /// Removes the timeline.
