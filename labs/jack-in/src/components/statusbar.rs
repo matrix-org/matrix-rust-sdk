@@ -34,7 +34,8 @@ impl MockComponent for StatusBar {
         let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
         let tabs = {
-            let mut tabs = vec![];
+            let mut tabs =
+                vec![Spans::from(format!("Current state: {:?}", self.sstate.current_state()))];
             if let Some(dur) = self.sstate.time_to_first_render() {
                 tabs.push(Spans::from(format!("First view: {}ms", dur.as_millis())));
 
