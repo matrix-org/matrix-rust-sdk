@@ -27,7 +27,7 @@ pub use error::{
 };
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
-pub use machine::{KeyRequestPair, OlmMachine, SignatureCheckResult};
+pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
     backups::SignatureState,

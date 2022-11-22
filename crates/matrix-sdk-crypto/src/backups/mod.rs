@@ -85,21 +85,21 @@ impl From<PendingBackup> for OutgoingRequest {
     }
 }
 
-/// The result of a signature check of a signed JSON object.
+/// The result of a signature verification of a signed JSON object.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SignatureCheckResult {
-    /// The result of the signature check using the public key of our own
+pub struct SignatureVerification {
+    /// The result of the signature verification using the public key of our own
     /// device.
     pub device_signature: SignatureState,
-    /// The result of the signature check using the public key of our own
+    /// The result of the signature verification using the public key of our own
     /// user identity.
     pub user_identity_signature: SignatureState,
-    /// The result of signature checks using public keys of other devices we
-    /// own.
+    /// The result of the signature verification using public keys of other
+    /// devices we own.
     pub other_signatures: BTreeMap<OwnedDeviceId, SignatureState>,
 }
 
-impl SignatureCheckResult {
+impl SignatureVerification {
     /// Is the result considered to be trusted?
     ///
     /// This tells us if the result has a valid signature from any of the
@@ -294,7 +294,7 @@ impl BackupMachine {
         &self,
         auth_data: MegolmV1AuthData,
         compute_all_signatures: bool,
-    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+    ) -> Result<SignatureVerification, CryptoStoreError> {
         trace!(?auth_data, "Verifying backup auth data");
 
         let serialized_auth_data = match auth_data.to_canonical_json() {
@@ -327,7 +327,7 @@ impl BackupMachine {
             Default::default()
         };
 
-        Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
+        Ok(SignatureVerification { device_signature, user_identity_signature, other_signatures })
     }
 
     /// Verify some backup info that we downloaded from the server.
@@ -348,7 +348,7 @@ impl BackupMachine {
         &self,
         backup_info: RoomKeyBackupInfo,
         compute_all_signatures: bool,
-    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+    ) -> Result<SignatureVerification, CryptoStoreError> {
         trace!(?backup_info, "Verifying backup auth data");
 
         if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {

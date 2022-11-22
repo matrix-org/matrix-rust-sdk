@@ -431,7 +431,7 @@ interface OlmMachine {
     BackupKeys? get_backup_keys();
     boolean backup_enabled();
     [Throws=CryptoStoreError]
-    SignatureCheckResult verify_backup([ByRef] string auth_data);
+    SignatureVerification verify_backup([ByRef] string auth_data);
 };
 
 dictionary PassphraseInfo {
@@ -439,10 +439,10 @@ dictionary PassphraseInfo {
     i32 private_key_iterations;
 };
 
-dictionary SignatureCheckResult {
+dictionary SignatureVerification {
     SignatureState device_signature;
     SignatureState user_identity_signature;
-    record<DOMString, SignatureState> other_signatures;
+    record<DOMString, SignatureState> other_devices_signatures;
     boolean trusted;
 };
 
