@@ -11,8 +11,8 @@ use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
     backups::{
-        MegolmV1BackupKey as RustBackupKey, SignatureCheckResult as RustSignatureCheckResult,
-        SignatureState,
+        MegolmV1BackupKey as RustBackupKey, SignatureState,
+        SignatureVerification as RustSignatureCheckResult,
     },
     decrypt_room_key_export, encrypt_room_key_export,
     matrix_sdk_qrcode::QrVerificationData,
@@ -72,18 +72,18 @@ pub struct KeyRequestPair {
     pub key_request: Request,
 }
 
-/// The result of a signature check of a signed JSON object.
+/// The result of a signature verification of a signed JSON object.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SignatureCheckResult {
-    /// The result of the signature check using the public key of our own
+pub struct SignatureVerification {
+    /// The result of the signature verification using the public key of our own
     /// device.
     pub device_signature: SignatureState,
-    /// The result of the signature check using the public key of our own
+    /// The result of the signature verification using the public key of our own
     /// user identity.
     pub user_identity_signature: SignatureState,
-    /// The result of signature checks using public keys of other devices we
-    /// own.
-    pub other_signatures: HashMap<String, SignatureState>,
+    /// The result of the signature verification using public keys of other
+    /// devices we own.
+    pub other_devices_signatures: HashMap<String, SignatureState>,
     /// Is the signed JSON object trusted.
     ///
     /// This flag tells us if the result has a valid signature from any of the
@@ -95,14 +95,14 @@ pub struct SignatureCheckResult {
     pub trusted: bool,
 }
 
-impl From<RustSignatureCheckResult> for SignatureCheckResult {
+impl From<RustSignatureCheckResult> for SignatureVerification {
     fn from(r: RustSignatureCheckResult) -> Self {
         let trusted = r.trusted();
 
         Self {
             device_signature: r.device_signature,
             user_identity_signature: r.user_identity_signature,
-            other_signatures: r
+            other_devices_signatures: r
                 .other_signatures
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
@@ -1510,7 +1510,7 @@ impl OlmMachine {
     pub fn verify_backup(
         &self,
         backup_info: &str,
-    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+    ) -> Result<SignatureVerification, CryptoStoreError> {
         let backup_info = serde_json::from_str(backup_info)?;
 
         Ok(self
