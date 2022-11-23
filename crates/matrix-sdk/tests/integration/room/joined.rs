@@ -310,7 +310,7 @@ async fn room_attachment_send() {
         .send_attachment(
             "image",
             &mime::IMAGE_JPEG,
-            "Hello world".as_bytes(),
+            "Hello world".as_bytes().to_vec(),
             AttachmentConfig::new(),
         )
         .await
@@ -364,7 +364,7 @@ async fn room_attachment_send_info() {
     }));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes().to_vec(), config)
         .await
         .unwrap();
 
@@ -417,7 +417,7 @@ async fn room_attachment_send_wrong_info() {
     }));
 
     let response =
-        room.send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config).await;
+        room.send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes().to_vec(), config).await;
 
     response.unwrap_err();
 }
@@ -484,7 +484,7 @@ async fn room_attachment_send_info_thumbnail() {
     }));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes().to_vec(), config)
         .await
         .unwrap();
 
