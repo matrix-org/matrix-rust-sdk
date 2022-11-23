@@ -654,7 +654,7 @@ impl Joined {
     ///     room.send_attachment(
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
-    ///         &image,
+    ///         image,
     ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
