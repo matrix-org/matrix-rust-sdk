@@ -277,6 +277,7 @@ fn update_fully_read_item(
             *fully_read_event_in_timeline = false;
         }
         (Some(from), Some(to)) => {
+            *fully_read_event_in_timeline = true;
             items_lock.move_from_to(from, to);
         }
     }
