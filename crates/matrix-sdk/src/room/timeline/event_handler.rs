@@ -278,7 +278,11 @@ fn update_read_marker(
         }
         (Some(from), Some(to)) => {
             *fully_read_event_in_timeline = true;
-            items_lock.move_from_to(from, to);
+
+            // The read marker can't move backwards.
+            if from < to {
+                items_lock.move_from_to(from, to);
+            }
         }
     }
 }
