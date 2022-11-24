@@ -386,7 +386,7 @@ fn find_event(
         .rfind(|(_, it)| key == it.key)
 }
 
-fn find_fully_read(lock: &[Arc<TimelineItem>]) -> Option<usize> {
+fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
     lock.iter()
         .enumerate()
         .rfind(|(_, item)| {

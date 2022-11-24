@@ -45,7 +45,7 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
+    find_event, find_read_marker, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
     TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 use crate::events::SyncTimelineEventWithoutContent;
@@ -131,7 +131,7 @@ impl TimelineInner {
 
         let mut items_lock = self.items.lock_mut();
         let metadata = &mut *metadata_lock;
-        update_fully_read_item(
+        update_read_marker(
             &mut items_lock,
             metadata.fully_read_event.as_deref(),
             &mut metadata.fully_read_event_in_timeline,
@@ -256,15 +256,15 @@ fn handle_remote_event(
         .handle_event(event_kind)
 }
 
-fn update_fully_read_item(
+fn update_read_marker(
     items_lock: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     fully_read_event: Option<&EventId>,
     fully_read_event_in_timeline: &mut bool,
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
-    let old_idx = find_fully_read(items_lock);
-    let new_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx);
-    match (old_idx, new_idx) {
+    let read_marker_idx = find_read_marker(items_lock);
+    let fully_read_event_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx);
+    match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
             *fully_read_event_in_timeline = true;
@@ -695,9 +695,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
-        // See if we got the event corresponding to the fully read marker now.
+        // See if we got the event corresponding to the read marker now.
         if !*self.fully_read_event_in_timeline {
-            update_fully_read_item(
+            update_read_marker(
                 self.timeline_items,
                 self.fully_read_event.as_deref(),
                 self.fully_read_event_in_timeline,
