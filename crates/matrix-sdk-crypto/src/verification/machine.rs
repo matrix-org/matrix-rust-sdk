@@ -641,6 +641,7 @@ mod tests {
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[allow(unknown_lints, clippy::unchecked_duration_subtraction)]
     #[async_test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
