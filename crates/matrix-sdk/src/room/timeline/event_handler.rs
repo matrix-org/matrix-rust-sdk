@@ -256,13 +256,13 @@ fn update_fully_read_item(
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
     let old_idx = find_fully_read(items_lock);
-    let new_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx + 1);
+    let new_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx);
     match (old_idx, new_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
             *fully_read_event_in_timeline = true;
             let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
-            items_lock.insert_cloned(idx, item.into());
+            items_lock.insert_cloned(idx + 1, item.into());
         }
         (Some(_), None) => {
             // Keep the current position of the read marker, hopefully we
