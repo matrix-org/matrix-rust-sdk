@@ -247,7 +247,7 @@ pub struct UpdateSummary {
 #[derive(Clone, Debug, Builder)]
 #[builder(pattern = "owned", derive(Clone, Debug))]
 pub struct SlidingSync {
-    /// Customize the homeserver for sliding sync onlye
+    /// Customize the homeserver for sliding sync only
     #[builder(setter(strip_option))]
     homeserver: Option<Url>,
 
