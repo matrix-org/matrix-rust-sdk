@@ -256,11 +256,15 @@ async fn update_read_marker() {
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
-    timeline.inner.set_fully_read_event(event_id).await;
+    timeline.inner.set_fully_read_event(event_id.clone()).await;
     assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 1, new_index: 2 }));
 
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
+
+    // Nothing should happen if the fully read event is set back to the same event
+    // as before.
+    timeline.inner.set_fully_read_event(event_id).await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
