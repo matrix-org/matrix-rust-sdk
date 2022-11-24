@@ -45,7 +45,9 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent};
+use super::{
+    EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+};
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -233,6 +235,27 @@ async fn unable_to_decrypt() {
     assert_matches!(&event.encryption_info, Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
+}
+
+#[async_test]
+async fn update_read_marker() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("A")).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.inner.set_fully_read_event(event_id).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
+
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("B")).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.inner.set_fully_read_event(event_id).await;
+    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 1, new_index: 2 }));
 }
 
 struct TestTimeline {
