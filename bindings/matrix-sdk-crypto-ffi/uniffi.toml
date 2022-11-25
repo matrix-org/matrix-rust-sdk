@@ -1,5 +1,5 @@
 [bindings.kotlin]
-package_name = "org.matrix.sdk.crypto"
+package_name = "org.matrix.rustcomponents.sdk.crypto"
 
 [bindings.swift]
 module_name = "MatrixSDKCrypto"

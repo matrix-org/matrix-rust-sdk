@@ -42,7 +42,7 @@ android {
 
 android.libraryVariants.all { variant ->
     def sourceSet = variant.sourceSets.find { it.name == variant.name }
-    sourceSet.java.srcDir new File(buildDir, "generated/source/uniffi/${variant.name}/java")
+    sourceSet.java.srcDir new File(buildDir, "generated/source/${variant.name}")
 }
 
 dependencies {

@@ -23,6 +23,5 @@ dependencyResolutionManagement {
 rootProject.name = "MatrixKotlinRustSDK"
 include ':crypto:crypto-android'
 include ':crypto:crypto-jvm'
-include ':crypto:crypto-jvm'
 include ':sdk:sdk-jvm'
 include ':sdk:sdk-android'
