@@ -220,14 +220,14 @@ impl SlidingSyncRoom {
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
-        self.timeline_no_fully_read_tracking().await.with_fully_read_tracking().await
+        self.timeline_no_fully_read_tracking().with_fully_read_tracking().await
     }
 
-    async fn timeline_no_fully_read_tracking(&self) -> Timeline {
+    fn timeline_no_fully_read_tracking(&self) -> Timeline {
         let current_timeline = self.timeline.lock_ref().to_vec();
         let prev_batch = self.prev_batch.lock_ref().clone();
         let room = self.client.get_room(&self.room_id).unwrap();
-        Timeline::with_events(&room, prev_batch, current_timeline).await
+        Timeline::with_events(&room, prev_batch, current_timeline)
     }
 
     /// The latest timeline item of this room.
@@ -235,8 +235,8 @@ impl SlidingSyncRoom {
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
     #[cfg(feature = "experimental-timeline")]
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.timeline_no_fully_read_tracking().await.latest_event()
+    pub fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.timeline_no_fully_read_tracking().latest_event()
     }
 
     /// This rooms name as calculated by the server, if any

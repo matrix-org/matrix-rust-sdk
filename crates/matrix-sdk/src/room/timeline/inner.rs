@@ -1,7 +1,11 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_signals::signal_vec::{MutableVec, MutableVecLockMut};
-use matrix_sdk_base::{crypto::OlmMachine, deserialized_responses::EncryptionInfo, locks::Mutex};
+use matrix_sdk_base::{
+    crypto::OlmMachine,
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    locks::Mutex,
+};
 use ruma::{
     events::{fully_read::FullyReadEvent, AnyMessageLikeEventContent, AnySyncTimelineEvent},
     serde::Raw,
@@ -18,13 +22,33 @@ use super::{
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub(super) struct TimelineInner {
     pub(super) items: MutableVec<Arc<TimelineItem>>,
-    pub(super) metadata: Arc<Mutex<TimelineInnerMetadata>>,
+    pub(super) metadata: Mutex<TimelineInnerMetadata>,
 }
 
 impl TimelineInner {
+    pub(super) fn add_initial_events(
+        &mut self,
+        events: Vec<SyncTimelineEvent>,
+        own_user_id: &UserId,
+    ) {
+        let timeline_meta = self.metadata.get_mut();
+        let timeline_items = &mut self.items.lock_mut();
+
+        for event in events {
+            handle_remote_event(
+                event.event,
+                own_user_id,
+                event.encryption_info,
+                TimelineItemPosition::End,
+                timeline_items,
+                timeline_meta,
+            );
+        }
+    }
+
     pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
