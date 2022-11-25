@@ -22,17 +22,10 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use futures_signals::signal::ReadOnlyMutable;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncTimelineEvent, Timeline,
-    },
-    instant::Instant,
-};
+use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
+    store::CryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -62,12 +55,14 @@ use tracing::{debug, info, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
+    deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
         StoreConfig,
     },
+    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     Session, SessionMeta, SessionTokens, StateStore,
 };
 
@@ -112,15 +107,10 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "e2e-encryption")]
-        let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
-
         BaseClient {
-            store,
+            store: Store::new(config.state_store),
             #[cfg(feature = "e2e-encryption")]
-            crypto_store,
+            crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
         }
@@ -164,6 +154,12 @@ impl BaseClient {
     /// Get all the rooms this client knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.store.get_rooms()
+    }
+
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        self.store.get_or_create_room(room_id, room_type).await
     }
 
     /// Get all the rooms this client knows about.
@@ -579,6 +575,53 @@ impl BaseClient {
         }
     }
 
+    /// User has joined a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
+        if room.room_type() != RoomType::Joined {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_joined();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+        }
+
+        Ok(room)
+    }
+
+    /// User has left a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
+        if room.room_type() != RoomType::Left {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+        }
+
+        Ok(room)
+    }
+
+    /// Get access to the store's sync lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        self.store.sync_lock()
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -605,7 +648,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
+            return Ok(SyncResponse::default());
         }
 
         let now = Instant::now();
@@ -637,6 +680,7 @@ impl BaseClient {
 
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
+            room_info.mark_state_fully_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -717,6 +761,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -757,6 +802,7 @@ impl BaseClient {
             if let Some(r) = self.store.get_room(&room_id) {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited();
+                room_info.mark_state_fully_synced();
                 changes.add_room(room_info);
             }
 
@@ -784,14 +830,15 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
+        let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
         *self.store.sync_token.write().await = Some(next_batch.clone());
         self.apply_changes(&changes).await;
+        drop(sync_lock);
 
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch,
             rooms: new_rooms,
             presence,
             account_data: account_data.events,
@@ -862,31 +909,38 @@ impl BaseClient {
             for member in &members {
                 let member: SyncRoomMemberEvent = member.clone().into();
 
-                if self.store.get_member_event(room_id, member.state_key()).await?.is_none() {
-                    #[cfg(feature = "e2e-encryption")]
-                    match member.membership() {
-                        MembershipState::Join | MembershipState::Invite => {
-                            user_ids.insert(member.state_key().to_owned());
-                        }
-                        _ => (),
+                // TODO: All the actions in this loop used to be done only when the membership
+                // event was not in the store before. This was changed with the new room API,
+                // because e.g. leaving a room makes members events outdated and they need to be
+                // fetched by `get_members`. Therefore, they need to be overwritten here, even
+                // if they exist.
+                // However, this makes a new problem occur where setting the member events here
+                // potentially races with the sync.
+                // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
+
+                #[cfg(feature = "e2e-encryption")]
+                match member.membership() {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key().to_owned());
                     }
+                    _ => (),
+                }
 
-                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
-                    if member.state_key() == member.sender() {
-                        changes
-                            .profiles
-                            .entry(room_id.to_owned())
-                            .or_default()
-                            .insert(member.sender().to_owned(), member.borrow().into());
-                    }
-
+                if member.state_key() == member.sender() {
                     changes
-                        .members
+                        .profiles
                         .entry(room_id.to_owned())
                         .or_default()
-                        .insert(member.state_key().to_owned(), member);
+                        .insert(member.sender().to_owned(), member.borrow().into());
                 }
+
+                changes
+                    .members
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(member.state_key().to_owned(), member);
             }
 
             #[cfg(feature = "e2e-encryption")]

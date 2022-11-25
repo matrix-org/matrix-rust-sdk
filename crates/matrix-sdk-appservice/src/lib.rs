@@ -20,8 +20,7 @@
 //! - [x] ship with functionality to configure your webserver crate or simply
 //!   run the webserver for you
 //! - [x] receive and validate requests from the homeserver correctly
-//! - [x] allow calling the homeserver with proper virtual user identity
-//!   assertion
+//! - [x] allow calling the homeserver with proper user identity assertion
 //! - [x] have consistent room state by leveraging matrix-sdk's state store
 //! - [ ] provide E2EE support by leveraging matrix-sdk's crypto store
 //!
@@ -34,7 +33,7 @@
 //!
 //! The crate relies on the appservice registration being always in sync with
 //! the actual registration used by the homeserver. That's because it's required
-//! for the access tokens and because membership states for virtual users are
+//! for the access tokens and because membership states for appservice users are
 //! determined based on the registered namespaces.
 //!
 //! # Quickstart
@@ -60,7 +59,7 @@
 //! )
 //! .build()
 //! .await?;
-//! appservice.virtual_user(None).await?.add_event_handler(
+//! appservice.user(None).await?.add_event_handler(
 //!     |_ev: SyncRoomMemberEvent| async {
 //!         // do stuff
 //!     },
@@ -109,12 +108,12 @@ use tracing::{debug, info, warn};
 mod error;
 pub mod event_handler;
 pub mod registration;
-pub mod virtual_user;
+pub mod user;
 mod webserver;
 
 pub use registration::AppServiceRegistration;
 use registration::NamespaceCache;
-pub use virtual_user::VirtualUserBuilder;
+pub use user::UserBuilder;
 pub use webserver::AppServiceRouter;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -172,13 +171,13 @@ impl AppServiceBuilder {
         }
     }
 
-    /// Set the client builder to use for the virtual user.
+    /// Set the client builder to use for the appservice user.
     pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
         self.client_builder = Some(client_builder);
         self
     }
 
-    /// Set the default `[RequestConfig]` to use for virtual users.
+    /// Set the default `[RequestConfig]` to use for appservice users.
     pub fn default_request_config(mut self, default_request_config: RequestConfig) -> Self {
         self.default_request_config = Some(default_request_config);
         self
@@ -186,10 +185,10 @@ impl AppServiceBuilder {
 
     /// Build the AppService.
     ///
-    /// This will also construct a [`virtual_user()`][AppService::virtual_user]
-    /// for the `sender_localpart` of the given registration. This virtual
+    /// This will also construct an appservice [`user()`][AppService::user]
+    /// for the `sender_localpart` of the given registration. This
     /// user can be used to register an event handler for all incoming
-    /// events. Other virtual users only receive events if they're known to
+    /// events. Other appservice users only receive events if they're known to
     /// be a member of a room.
     pub async fn build(self) -> Result<AppService> {
         let homeserver_url = self.homeserver_url;
@@ -212,12 +211,12 @@ impl AppServiceBuilder {
         };
         if let Some(client_builder) = self.client_builder {
             appservice
-                .virtual_user_builder(&sender_localpart)
+                .user_builder(&sender_localpart)
                 .client_builder(client_builder)
                 .build()
                 .await?;
         } else {
-            appservice.virtual_user_builder(&sender_localpart).build().await?;
+            appservice.user_builder(&sender_localpart).build().await?;
         }
         Ok(appservice)
     }
@@ -233,7 +232,7 @@ impl AppService {
         AppServiceBuilder::new(homeserver_url, server_name, registration)
     }
 
-    /// Create a virtual user client.
+    /// Create an appservice user client.
     ///
     /// Will create and return a client that's configured to [assert the
     /// identity] on outgoing homeserver requests that need authentication.
@@ -242,50 +241,50 @@ impl AppService {
     /// based on the `localpart`. The cached client can be retrieved by calling
     /// this method again.
     ///
-    /// Note that if you want to do actions like joining rooms with a virtual
+    /// Note that if you want to do actions like joining rooms with a
     /// user it needs to be registered first.
-    /// [`register_virtual_user()`][Self::register_virtual_user] can be used
+    /// [`register_user()`][Self::register_user] can be used
     /// for that purpose.
     ///
     /// # Arguments
     ///
-    /// * `localpart` - Used for constructing the virtual user accordingly. If
-    ///   `None` is given it uses the `sender_localpart` from the registration.
+    /// * `localpart` - Used for constructing the user accordingly. If `None` is
+    ///   given it uses the `sender_localpart` from the registration.
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn virtual_user(&self, localpart: Option<&str>) -> Result<Client> {
+    pub async fn user(&self, localpart: Option<&str>) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
         let builder = match self.default_request_config {
             Some(config) => self
-                .virtual_user_builder(localpart)
+                .user_builder(localpart)
                 .client_builder(Client::builder().request_config(config)),
-            None => self.virtual_user_builder(localpart),
+            None => self.user_builder(localpart),
         };
         builder.build().await
     }
 
-    /// Same as [`virtual_user()`][Self::virtual_user] but with
+    /// Same as [`user()`][Self::user] but with
     /// the ability to pass in a [`ClientBuilder`].
     ///
     /// Since this method is a singleton follow-up calls with different
     /// [`ClientBuilder`]s will be ignored.
-    pub async fn virtual_user_with_client_builder(
+    pub async fn user_with_client_builder(
         &self,
         localpart: Option<&str>,
         builder: ClientBuilder,
     ) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
-        self.virtual_user_builder(localpart).client_builder(builder).build().await
+        self.user_builder(localpart).client_builder(builder).build().await
     }
 
-    /// Create a new virtual user builder for the given `localpart`.
-    pub fn virtual_user_builder<'a>(&'a self, localpart: &'a str) -> VirtualUserBuilder<'a> {
-        VirtualUserBuilder::new(self, localpart)
+    /// Create a new appservice user builder for the given `localpart`.
+    pub fn user_builder<'a>(&'a self, localpart: &'a str) -> UserBuilder<'a> {
+        UserBuilder::new(self, localpart)
     }
 
-    /// Get the map containing all constructed virtual user clients.
-    pub fn virtual_users(&self) -> Arc<DashMap<Localpart, Client>> {
+    /// Get the map containing all constructed appservice user clients.
+    pub fn users(&self) -> Arc<DashMap<Localpart, Client>> {
         self.clients.clone()
     }
 
@@ -337,8 +336,8 @@ impl AppService {
         *self.event_handler.rooms.lock().await = Some(handler);
     }
 
-    /// Register a virtual user by sending a [`register::v3::Request`] to the
-    /// homeserver.
+    /// Register an appservice user by sending a [`register::v3::Request`] to
+    /// the homeserver.
     ///
     /// # Arguments
     ///
@@ -348,7 +347,7 @@ impl AppService {
     /// # Returns
     /// This function may return a UIAA response, which should be checked for
     /// with [`Error::as_uiaa_response()`].
-    pub async fn register_virtual_user<'a>(
+    pub async fn register_user<'a>(
         &self,
         localpart: &'a str,
         device_id: Option<&'a DeviceId>,
@@ -362,7 +361,7 @@ impl AppService {
             device_id,
         });
 
-        let client = self.virtual_user(None).await?;
+        let client = self.user(None).await?;
         client.register(request).await?;
         self.set_user_registered(localpart).await?;
 
@@ -371,7 +370,7 @@ impl AppService {
 
     /// Add the given localpart to the database of registered localparts.
     async fn set_user_registered(&self, localpart: impl AsRef<str>) -> Result<()> {
-        let client = self.virtual_user(None).await?;
+        let client = self.user(None).await?;
         client
             .store()
             .set_custom_value(
@@ -384,7 +383,7 @@ impl AppService {
 
     /// Get whether a localpart is listed in the database as registered.
     async fn is_user_registered(&self, localpart: impl AsRef<str>) -> Result<bool> {
-        let client = self.virtual_user(None).await?;
+        let client = self.user(None).await?;
         let key = [USER_KEY, localpart.as_ref().as_bytes()].concat();
         let store = client.store().get_custom_value(&key).await?;
         let registered =
@@ -423,21 +422,21 @@ impl AppService {
     }
 
     /// Receive an incoming [transaction], pushing the contained events to
-    /// active virtual clients.
+    /// active clients.
     ///
     /// [transaction]: https://spec.matrix.org/v1.2/application-service-api/#put_matrixappv1transactionstxnid
     async fn receive_transaction(
         &self,
         transaction: push_events::v1::IncomingRequest,
     ) -> Result<()> {
-        let sender_localpart_client = self.virtual_user(None).await?;
+        let sender_localpart_client = self.user(None).await?;
 
         // Find membership events affecting members in our namespace, and update
         // membership accordingly
-        for event in transaction.events.iter() {
-            let event = match event.deserialize() {
-                Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) => event,
-                _ => continue,
+        for raw_event in transaction.events.iter() {
+            let res = raw_event.deserialize();
+            let Ok(AnyTimelineEvent::State(AnyStateEvent::RoomMember(event))) = res else {
+                continue;
             };
             if !self.user_id_is_in_namespace(event.state_key()) {
                 continue;
@@ -461,18 +460,18 @@ impl AppService {
         // Spawn a task for each client that constructs and pushes a sync event
         let mut tasks: Vec<JoinHandle<_>> = Vec::new();
         let transaction = Arc::new(transaction);
-        for virtual_user_client in self.clients.iter() {
+        for user_client in self.clients.iter() {
             let client = sender_localpart_client.clone();
-            let virtual_user_client = virtual_user_client.clone();
+            let user_client = user_client.clone();
             let transaction = transaction.clone();
             let sender_localpart = self.registration.sender_localpart.clone();
 
             let task = tokio::spawn(async move {
-                let virtual_user_localpart = match virtual_user_client.user_id() {
-                    Some(user_id) => user_id.localpart(),
+                let Some(user_id) = user_client.user_id() else {
                     // The client is not logged in, skipping
-                    None => return Ok(()),
+                    return Ok(());
                 };
+                let user_localpart = user_id.localpart();
                 let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
 
                 // Clients expect events to be grouped per room, where the
@@ -483,22 +482,16 @@ impl AppService {
                 // We special-case the `sender_localpart` user which receives all events and
                 // by falling back to a membership of "join" if it's unknown.
                 for raw_event in &transaction.events {
-                    let room_id = match raw_event.deserialize_as::<EventRoomId>()?.room_id {
-                        Some(room_id) => room_id,
-                        None => {
-                            warn!("Transaction contained event with no ID");
-                            continue;
-                        }
+                    let Some(room_id) = raw_event.deserialize_as::<EventRoomId>()?.room_id else {
+                        warn!("Transaction contained event with no ID");
+                        continue;
                     };
-                    let key =
-                        &[USER_MEMBER, room_id.as_bytes(), b".", virtual_user_localpart.as_bytes()]
-                            .concat();
+                    let key = &[USER_MEMBER, room_id.as_bytes(), b".", user_localpart.as_bytes()]
+                        .concat();
                     let membership = match client.store().get_custom_value(key).await? {
                         Some(value) => String::from_utf8(value).ok().map(MembershipState::from),
                         // Assume the `sender_localpart` user is in every known room
-                        None if virtual_user_localpart == sender_localpart => {
-                            Some(MembershipState::Join)
-                        }
+                        None if user_localpart == sender_localpart => Some(MembershipState::Join),
                         None => None,
                     };
 
@@ -518,10 +511,10 @@ impl AppService {
                             response.rooms.invite.entry(room_id).or_default();
                         }
                         Some(unknown) => debug!("Unknown membership type: {unknown}"),
-                        None => debug!("Assuming {virtual_user_localpart} is not in {room_id}"),
+                        None => debug!("Assuming {user_localpart} is not in {room_id}"),
                     }
                 }
-                virtual_user_client.receive_transaction(&transaction.txn_id, response).await?;
+                user_client.receive_transaction(&transaction.txn_id, response).await?;
                 Ok::<_, Error>(())
             });
 
@@ -617,7 +610,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_register_virtual_user() -> Result<()> {
+    async fn test_register_user() -> Result<()> {
         let server = MockServer::start().await;
         let appservice = appservice(Some(server.uri()), None).await?;
 
@@ -640,7 +633,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        appservice.register_virtual_user(localpart, None).await?;
+        appservice.register_user(localpart, None).await?;
 
         Ok(())
     }
@@ -683,7 +676,7 @@ mod tests {
 
         #[allow(clippy::mutex_atomic)]
         let on_state_member = Arc::new(Mutex::new(false));
-        appservice.virtual_user(None).await?.add_event_handler({
+        appservice.user(None).await?.add_event_handler({
             let on_state_member = on_state_member.clone();
             move |_ev: OriginalSyncRoomMemberEvent| {
                 *on_state_member.lock().unwrap() = true;
@@ -835,7 +828,7 @@ mod tests {
 
         #[allow(clippy::mutex_atomic)]
         let on_state_member = Arc::new(Mutex::new(false));
-        appservice.virtual_user(None).await?.add_event_handler({
+        appservice.user(None).await?.add_event_handler({
             let on_state_member = on_state_member.clone();
             move |_ev: OriginalSyncRoomMemberEvent| {
                 *on_state_member.lock().unwrap() = true;
@@ -904,7 +897,7 @@ mod tests {
             .unwrap();
 
         let members = appservice
-            .virtual_user(None)
+            .user(None)
             .await?
             .get_room(room_id)
             .expect("Expected room to be available")
@@ -995,8 +988,8 @@ mod tests {
         ];
         let appservice = appservice(None, None).await?;
 
-        let alice = appservice.virtual_user(Some("_appservice_alice")).await?;
-        let bob = appservice.virtual_user(Some("_appservice_bob")).await?;
+        let alice = appservice.user(Some("_appservice_alice")).await?;
+        let bob = appservice.user(Some("_appservice_bob")).await?;
         appservice
             .receive_transaction(push_events::v1::IncomingRequest::new("dontcare".into(), json))
             .await?;

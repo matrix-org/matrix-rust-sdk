@@ -3,6 +3,7 @@ use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
+    StateChanges,
 };
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "e2e-encryption")]
@@ -13,18 +14,21 @@ use ruma::events::{
 use ruma::{
     api::client::{
         config::set_global_account_data,
+        error::ErrorKind,
         filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events::{self, v3::Direction},
+        message::get_message_events,
         room::get_room_event,
+        state::get_state_events_for_key,
         tag::{create_tag, delete_tag},
+        Direction,
     },
     assign,
     events::{
         direct::DirectEventContent,
         room::{
-            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
-            MediaSource,
+            encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            server_acl::RoomServerAclEventContent, MediaSource,
         },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
@@ -39,10 +43,11 @@ use serde::de::DeserializeOwned;
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
+use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{RoomMember, RoomType},
+    room::{Left, RoomMember, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -95,21 +100,22 @@ impl Common {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left.
-    pub(crate) async fn leave(&self) -> Result<()> {
+    pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
+        self.client.send(request, None).await?;
 
-        Ok(())
+        let base_room = self.client.base_client().room_left(self.room_id()).await?;
+        Left::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method.
-    pub(crate) async fn join(&self) -> Result<()> {
+    pub(crate) async fn join(&self) -> Result<Joined> {
         let request = join_room_by_id::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
-
-        Ok(())
+        let response = self.client.send(request, None).await?;
+        let base_room = self.client.base_client().room_joined(&response.room_id).await?;
+        Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Get the inner client saved in this room instance.
@@ -117,6 +123,12 @@ impl Common {
     /// Returns the client this room is part of.
     pub fn client(&self) -> Client {
         self.client.clone()
+    }
+
+    /// Get the sync state of this room, i.e. whether it was fully synced with
+    /// the server.
+    pub fn is_synced(&self) -> bool {
+        self.inner.is_state_fully_synced()
     }
 
     /// Gets the avatar of this room, if set.
@@ -149,12 +161,9 @@ impl Common {
     /// # })
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
-        if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
-            Ok(Some(self.client.media().get_media_content(&request, true).await?))
-        } else {
-            Ok(None)
-        }
+        let Some(url) = self.avatar_url() else { return Ok(None) };
+        let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
+        Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
@@ -311,6 +320,70 @@ impl Common {
             self.client.inner.members_request_locks.remove(self.inner.room_id());
 
             Ok(Some(response))
+        }
+    }
+
+    async fn request_encryption_state(&self) -> Result<Option<RoomEncryptionEventContent>> {
+        if let Some(mutex) = self
+            .client
+            .inner
+            .encryption_state_request_locks
+            .get(self.inner.room_id())
+            .map(|m| m.clone())
+        {
+            // If a encryption state request is already going on, await the release of
+            // the lock.
+            _ = mutex.lock().await;
+
+            Ok(None)
+        } else {
+            let mutex = Arc::new(Mutex::new(()));
+            self.client
+                .inner
+                .encryption_state_request_locks
+                .insert(self.inner.room_id().to_owned(), mutex.clone());
+
+            let _guard = mutex.lock().await;
+
+            let request = get_state_events_for_key::v3::Request::new(
+                self.inner.room_id(),
+                StateEventType::RoomEncryption,
+                "",
+            );
+            let response = match self.client.send(request, None).await {
+                Ok(response) => {
+                    Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
+                }
+                Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
+                Err(err) => return Err(err.into()),
+            };
+
+            let sync_lock = self.client.base_client().sync_lock().read().await;
+            let mut room_info = self.inner.clone_info();
+            room_info.mark_encryption_state_synced();
+            room_info.set_encryption_event(response.clone());
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.client.store().save_changes(&changes).await?;
+            self.update_summary(room_info);
+            drop(sync_lock);
+
+            self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
+
+            Ok(response)
+        }
+    }
+
+    /// Check whether this room is encrypted. If the room encryption state is
+    /// not synced yet, it will send a request to fetch it.
+    ///
+    /// Returns true if the room is encrypted, otherwise false.
+    pub async fn is_encrypted(&self) -> Result<bool> {
+        if !self.is_encryption_state_synced() {
+            let encryption = self.request_encryption_state().await?;
+            Ok(encryption.is_some())
+        } else {
+            Ok(self.inner.is_encrypted())
         }
     }
 

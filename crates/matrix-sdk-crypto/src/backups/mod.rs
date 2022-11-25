@@ -30,8 +30,8 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId,
-    OwnedTransactionId, TransactionId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
+    OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -85,21 +85,21 @@ impl From<PendingBackup> for OutgoingRequest {
     }
 }
 
-/// The result of a signature check of a signed JSON object.
+/// The result of a signature verification of a signed JSON object.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SignatureCheckResult {
-    /// The result of the signature check using the public key of our own
+pub struct SignatureVerification {
+    /// The result of the signature verification using the public key of our own
     /// device.
     pub device_signature: SignatureState,
-    /// The result of the signature check using the public key of our own
+    /// The result of the signature verification using the public key of our own
     /// user identity.
     pub user_identity_signature: SignatureState,
-    /// The result of signature checks using public keys of other devices we
-    /// own.
+    /// The result of the signature verification using public keys of other
+    /// devices we own.
     pub other_signatures: BTreeMap<OwnedDeviceId, SignatureState>,
 }
 
-impl SignatureCheckResult {
+impl SignatureVerification {
     /// Is the result considered to be trusted?
     ///
     /// This tells us if the result has a valid signature from any of the
@@ -242,41 +242,26 @@ impl BackupMachine {
         if let Some(user_signatures) = signatures.get(self.account.user_id()) {
             for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
-                    // No need to check our own device here, we're doing that
-                    // using the check_own_device_signature().
+                    // No need to check our own device here, we're doing that using
+                    // the check_own_device_signature().
                     if device_key_id.device_id() == self.account.device_id() {
                         continue;
-                    } else {
-                        // We might iterate over some non-device signatures as well, but in this
-                        // case there's no corresponding device and we get `Ok(None)` here, so
-                        // things still work out.
-                        let device = self
-                            .store
-                            .get_device(self.store.user_id(), device_key_id.device_id())
-                            .await?;
+                    }
 
-                        trace!(
-                            device_id = %device_key_id.device_id(),
-                            "Checking backup auth data for device"
-                        );
+                    let state = self
+                        .test_ed25519_device_signature(
+                            device_key_id.device_id(),
+                            signatures,
+                            auth_data,
+                        )
+                        .await?;
 
-                        let state = if let Some(device) = device {
-                            self.backup_signed_by_device(device, signatures, auth_data)
-                        } else {
-                            trace!(
-                                device_id = %device_key_id.device_id(),
-                                "Device not found, can't check signature"
-                            );
-                            SignatureState::Missing
-                        };
+                    result.insert(device_key_id.device_id().to_owned(), state);
 
-                        result.insert(device_key_id.device_id().to_owned(), state);
-
-                        // Abort the loop if we found a trusted and valid
-                        // signature, unless we should check all of them.
-                        if state.trusted() && !compute_all_signatures {
-                            break;
-                        }
+                    // Abort the loop if we found a trusted and valid signature,
+                    // unless we should check all of them.
+                    if state.trusted() && !compute_all_signatures {
+                        break;
                     }
                 }
             }
@@ -285,11 +270,31 @@ impl BackupMachine {
         Ok(result)
     }
 
+    async fn test_ed25519_device_signature(
+        &self,
+        device_id: &DeviceId,
+        signatures: &Signatures,
+        auth_data: &str,
+    ) -> Result<SignatureState, CryptoStoreError> {
+        // We might iterate over some non-device signatures as well, but in this
+        // case there's no corresponding device and we get `Ok(None)` here, so
+        // things still work out.
+        let device = self.store.get_device(self.store.user_id(), device_id).await?;
+        trace!(%device_id, "Checking backup auth data for device");
+
+        if let Some(device) = device {
+            Ok(self.backup_signed_by_device(device, signatures, auth_data))
+        } else {
+            trace!(%device_id, "Device not found, can't check signature");
+            Ok(SignatureState::Missing)
+        }
+    }
+
     async fn verify_auth_data_v1(
         &self,
         auth_data: MegolmV1AuthData,
         compute_all_signatures: bool,
-    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+    ) -> Result<SignatureVerification, CryptoStoreError> {
         trace!(?auth_data, "Verifying backup auth data");
 
         let serialized_auth_data = match auth_data.to_canonical_json() {
@@ -322,7 +327,7 @@ impl BackupMachine {
             Default::default()
         };
 
-        Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
+        Ok(SignatureVerification { device_signature, user_identity_signature, other_signatures })
     }
 
     /// Verify some backup info that we downloaded from the server.
@@ -343,7 +348,7 @@ impl BackupMachine {
         &self,
         backup_info: RoomKeyBackupInfo,
         compute_all_signatures: bool,
-    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+    ) -> Result<SignatureVerification, CryptoStoreError> {
         trace!(?backup_info, "Verifying backup auth data");
 
         if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {
@@ -449,7 +454,7 @@ impl BackupMachine {
                     .collect();
 
                 for session in &sessions {
-                    session.mark_as_backed_up()
+                    session.mark_as_backed_up();
                 }
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
@@ -470,54 +475,54 @@ impl BackupMachine {
                     expected = r.request_id.to_string().as_str(),
                     got = request_id.to_string().as_str(),
                     "Tried to mark a pending backup as sent but the request id didn't match"
-                )
+                );
             }
         } else {
             warn!(
                 request_id = request_id.to_string().as_str(),
                 "Tried to mark a pending backup as sent but there isn't a backup pending"
             );
-        }
+        };
 
         Ok(())
     }
 
     async fn backup_helper(&self) -> Result<Option<PendingBackup>, CryptoStoreError> {
-        if let Some(backup_key) = &*self.backup_key.read().await {
-            if let Some(version) = backup_key.backup_version() {
-                let sessions =
-                    self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
-
-                if !sessions.is_empty() {
-                    let key_count = sessions.len();
-                    let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
-
-                    info!(
-                        key_count = key_count,
-                        keys = ?session_record,
-                        ?backup_key,
-                        "Successfully created a room keys backup request"
-                    );
-
-                    let request = PendingBackup {
-                        request_id: TransactionId::new(),
-                        request: KeysBackupRequest { version, rooms: backup },
-                        sessions: session_record,
-                    };
-
-                    Ok(Some(request))
-                } else {
-                    trace!(?backup_key, "No room keys need to be backed up");
-                    Ok(None)
-                }
-            } else {
-                warn!("Trying to backup room keys but the backup key wasn't uploaded");
-                Ok(None)
-            }
-        } else {
+        let Some(backup_key) = &*self.backup_key.read().await else {
             warn!("Trying to backup room keys but no backup key was found");
-            Ok(None)
+            return Ok(None);
+        };
+
+        let Some(version) = backup_key.backup_version() else {
+            warn!("Trying to backup room keys but the backup key wasn't uploaded");
+            return Ok(None);
+        };
+
+        let sessions =
+            self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
+
+        if sessions.is_empty() {
+            trace!(?backup_key, "No room keys need to be backed up");
+            return Ok(None);
         }
+
+        let key_count = sessions.len();
+        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+
+        info!(
+            key_count = key_count,
+            keys = ?session_record,
+            ?backup_key,
+            "Successfully created a room keys backup request"
+        );
+
+        let request = PendingBackup {
+            request_id: TransactionId::new(),
+            request: KeysBackupRequest { version, rooms: backup },
+            sessions: session_record,
+        };
+
+        Ok(Some(request))
     }
 
     /// Backup all the non-backed up room keys we know about

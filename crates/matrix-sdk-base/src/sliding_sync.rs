@@ -1,18 +1,17 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-use matrix_sdk_common::deserialized_responses::{
-    AmbiguityChanges, JoinedRoom, Rooms, SyncResponse,
-};
 use ruma::api::client::sync::sync_events::{v3, v4};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
 
 use super::BaseClient;
 use crate::{
+    deserialized_responses::AmbiguityChanges,
     error::Result,
     rooms::RoomType,
     store::{ambiguity_map::AmbiguityCache, StateChanges},
+    sync::{JoinedRoom, Rooms, SyncResponse},
 };
 
 impl BaseClient {
@@ -90,10 +89,12 @@ impl BaseClient {
                 let invite_states = &room_data.invite_state;
                 let room = store.get_or_create_stripped_room(&room_id).await;
                 let mut room_info = room.clone_info();
+                room_info.mark_state_partially_synced();
 
                 if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
+                    room_info.mark_state_partially_synced();
                     changes.add_room(room_info);
                 }
 
@@ -107,6 +108,7 @@ impl BaseClient {
                 let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
+                room_info.mark_state_partially_synced();
 
                 // FIXME not yet supported by sliding sync.
                 // room_info.update_summary(&room_data.summary);
@@ -230,7 +232,6 @@ impl BaseClient {
         tracing::debug!("applied changes");
 
         Ok(SyncResponse {
-            next_batch: "test".into(),
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications: changes.notifications,

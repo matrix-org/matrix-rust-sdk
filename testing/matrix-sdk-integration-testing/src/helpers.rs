@@ -3,6 +3,7 @@ use std::{collections::HashMap, option_env};
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    config::RequestConfig,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     Client,
 };
@@ -14,9 +15,15 @@ static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex:
 
 #[ctor::ctor]
 fn init_logging() {
+    use tracing::Level;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(Level::TRACE.into())
+                .from_env()
+                .unwrap(),
+        )
         .with(tracing_subscriber::fmt::layer().with_test_writer())
         .init();
 }
@@ -29,7 +36,7 @@ pub fn test_server_conf() -> (String, String) {
     )
 }
 
-pub async fn get_client_for_user(username: String) -> Result<Client> {
+pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Result<Client> {
     let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
         return Ok(client.clone());
@@ -39,12 +46,16 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
 
     let tmp_dir = tempdir()?;
 
-    let client = Client::builder()
+    let client_builder = Client::builder()
         .user_agent("matrix-sdk-integation-tests")
-        .sled_store(tmp_dir.path(), None)
         .homeserver_url(homeserver_url)
-        .build()
-        .await?;
+        .request_config(RequestConfig::short_retry());
+    let client = if use_sled_store {
+        client_builder.sled_store(tmp_dir.path(), None).build().await?
+    } else {
+        client_builder.build().await?
+    };
+
     // safe to assume we have not registered this user yet, but ignore if we did
 
     if let Err(resp) = client.register(RegistrationRequest::new()).await {

@@ -208,11 +208,8 @@ impl Device {
 
     /// Get the Olm sessions that belong to this device.
     pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        if let Some(k) = self.curve25519_key() {
-            self.verification_machine.store.get_sessions(&k.to_base64()).await
-        } else {
-            Ok(None)
-        }
+        let Some(k) = self.curve25519_key() else { return Ok(None) };
+        self.verification_machine.store.get_sessions(&k.to_base64()).await
     }
 
     /// Is this device considered to be verified.
@@ -572,9 +569,7 @@ impl ReadOnlyDevice {
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let sender_key = if let Some(k) = self.curve25519_key() {
-            k
-        } else {
+        let Some(sender_key) = self.curve25519_key() else {
             warn!(
                 user_id = %self.user_id(),
                 device_id = %self.device_id(),
@@ -592,9 +587,7 @@ impl ReadOnlyDevice {
             None
         };
 
-        let mut session = if let Some(s) = session {
-            s
-        } else {
+        let Some(mut session) = session else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
                 but no Olm session is found",

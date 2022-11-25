@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use matrix_sdk::ruma::events::{AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent};
+use chrono::{offset::Local, DateTime};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
@@ -23,7 +23,7 @@ pub struct Details {
     liststate: ListState,
     name: Option<String>,
     state_events_counts: Vec<(String, usize)>,
-    current_room_timeline: Vec<AnyTimelineEvent>,
+    current_room_timeline: Vec<String>,
 }
 
 impl Details {
@@ -45,16 +45,9 @@ impl Details {
     }
 
     pub fn refresh_data(&mut self) {
-        let room_id =
-            if let Some(r) = self.sstate.selected_room.lock_ref().clone() { r } else { return };
-
-        let room_data = {
-            let l = self.sstate.view().rooms.lock_ref();
-            if let Some(room) = l.get(&room_id) {
-                room.clone()
-            } else {
-                return;
-            }
+        let Some(room_id) = self.sstate.selected_room.lock_ref().clone() else { return };
+        let Some(room_data) = self.sstate.view().rooms.lock_ref().get(&room_id).cloned() else {
+            return;
         };
 
         let name = room_data.name.clone().unwrap_or_else(|| "unknown".to_owned());
@@ -75,15 +68,25 @@ impl Details {
             state_events.iter().map(|(k, l)| (k.clone(), l.len())).collect();
         state_events_counts.sort_by_key(|(_, count)| *count);
 
-        let mut timeline: Vec<AnyTimelineEvent> = room_data
-            .timeline()
+        let timeline: Vec<String> = self
+            .sstate
+            .current_timeline
             .lock_ref()
             .iter()
-            .filter_map(|d| d.event.deserialize().ok())
-            .map(|e| e.into_full_event(room_id.clone()))
+            .filter_map(|t| t.as_event()) // we ignore virtual events
+            .filter_map(|e| e.content().as_message().map(|m| (e, m)))
+            .map(|(e, m)| {
+                format!(
+                    "[{}] {}: {}",
+                    e.origin_server_ts()
+                        .and_then(|r| r.to_system_time())
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                    m.body()
+                )
+            })
             .collect();
-        timeline.reverse();
-
         self.current_room_timeline = timeline;
         self.name = Some(name);
         self.state_events_counts = state_events_counts;
@@ -122,9 +125,7 @@ impl MockComponent for Details {
             .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
             .unwrap_borders();
 
-        let name = if let Some(name) = &self.name {
-            name.clone()
-        } else {
+        let Some(name) = &self.name else {
             // still empty
             frame.render_widget(
                 Table::new(vec![Row::new(vec![Cell::from(
@@ -172,31 +173,11 @@ impl MockComponent for Details {
             chunks[0],
         );
 
-        let title = (name, Alignment::Left);
+        let title = (name.to_owned(), Alignment::Left);
         let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
-        let mut details = vec![];
-
-        for e in self.current_room_timeline.iter() {
-            let body = {
-                match e {
-                    AnyTimelineEvent::MessageLike(m) => {
-                        if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) = m {
-                            m.content.body().to_owned()
-                        } else {
-                            m.event_type().to_string()
-                        }
-                    }
-                    AnyTimelineEvent::State(s) => s.event_type().to_string(),
-                }
-            };
-            details.push(ListItem::new(format!(
-                "[{}] {}: {}",
-                e.origin_server_ts().as_secs(),
-                e.sender().as_str(),
-                body
-            )));
-        }
+        let details: Vec<_> =
+            self.current_room_timeline.iter().map(|e| ListItem::new(e.clone())).collect();
 
         frame.render_stateful_widget(
             List::new(details)

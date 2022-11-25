@@ -276,10 +276,8 @@ impl Account {
     ) -> OlmResult<Option<(Session, String)>> {
         let s = self.store.get_sessions(&sender_key.to_base64()).await?;
 
-        // We don't have any existing sessions, return early.
-        let sessions = if let Some(s) = s {
-            s
-        } else {
+        let Some(sessions) = s else {
+            // We don't have any existing sessions, return early.
             return Ok(None);
         };
 
@@ -442,22 +440,21 @@ impl Account {
             // ensures that we receive the room key even if we don't have access
             // to the device.
             if !matches!(event, AnyDecryptedOlmEvent::RoomKey(_)) {
-                if let Some(device) =
-                    self.store.get_device_from_curve_key(event.sender(), sender_key).await?
-                {
-                    if let Some(key) = device.ed25519_key() {
-                        if key != event.keys().ed25519 {
-                            return Err(EventError::MismatchedKeys(
-                                key.into(),
-                                event.keys().ed25519.into(),
-                            )
-                            .into());
-                        }
-                    } else {
+                let Some(device) =
+                    self.store.get_device_from_curve_key(event.sender(), sender_key).await? else {
                         return Err(EventError::MissingSigningKey.into());
-                    }
-                } else {
+                    };
+
+                let Some(key) = device.ed25519_key() else {
                     return Err(EventError::MissingSigningKey.into());
+                };
+
+                if key != event.keys().ed25519 {
+                    return Err(EventError::MismatchedKeys(
+                        key.into(),
+                        event.keys().ed25519.into(),
+                    )
+                    .into());
                 }
             }
 
@@ -1036,12 +1033,12 @@ impl ReadOnlyAccount {
             Err(e) => return Err(SessionCreationError::InvalidJson(e)),
         };
 
-        device.verify_one_time_key(&one_time_key).map_err(|e| {
-            SessionCreationError::InvalidSignature(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-                e,
-            )
+        device.verify_one_time_key(&one_time_key).map_err(|error| {
+            SessionCreationError::InvalidSignature {
+                signing_key: device.ed25519_key(),
+                one_time_key: one_time_key.clone(),
+                error,
+            }
         })?;
 
         let identity_key = device.curve25519_key().ok_or_else(|| {

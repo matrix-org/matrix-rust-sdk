@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.62"
+rust-version = { workspace = true }
 version = "0.6.0"
 
 [package.metadata.docs.rs]
@@ -44,7 +44,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
 pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
-ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"] }
+ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
 serde = { version = "1.0.136", features = ["derive", "rc"] }
 serde_json = "1.0.79"
 sha2 = "0.10.2"

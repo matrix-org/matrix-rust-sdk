@@ -1,17 +1,14 @@
 use matrix_sdk::{
     config::SyncSettings,
-    deserialized_responses::SyncResponse,
     ruma::{
         events::{
-            room::message::{
-                MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
-                TextMessageEventContent,
-            },
+            room::message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             SyncMessageLikeEvent,
         },
         RoomId,
     },
+    sync::SyncResponse,
     Client, LoopCtrl,
 };
 use url::Url;
@@ -22,23 +19,11 @@ struct WasmBot(Client);
 
 impl WasmBot {
     async fn on_room_message(&self, room_id: &RoomId, event: &OriginalSyncRoomMessageEvent) {
-        let msg_body = if let OriginalSyncRoomMessageEvent {
-            content:
-                RoomMessageEventContent {
-                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                    ..
-                },
-            ..
-        } = event
-        {
-            msg_body
-        } else {
-            return;
-        };
+        let MessageType::Text(text_content) = &event.content.msgtype else { return };
 
-        console::log_1(&format!("Received message event {:?}", &msg_body).into());
+        console::log_1(&format!("Received message event {:?}", &text_content.body).into());
 
-        if msg_body.contains("!party") {
+        if text_content.body.contains("!party") {
             let content = AnyMessageLikeEventContent::RoomMessage(
                 RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉"),
             );
@@ -94,9 +79,9 @@ pub async fn run() -> Result<JsValue, JsValue> {
 
     let bot = WasmBot(client.clone());
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     client.sync_with_callback(settings, |response| bot.on_sync_response(response)).await.unwrap();
 
     Ok(JsValue::NULL)

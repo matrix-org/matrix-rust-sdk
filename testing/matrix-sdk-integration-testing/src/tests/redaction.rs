@@ -14,27 +14,29 @@ use matrix_sdk::{
 
 use crate::helpers::get_client_for_user;
 
-async fn sync_once(client: &Client) -> Result<()> {
-    let settings = match client.sync_token().await {
+async fn sync_once(client: &Client, sync_token: Option<String>) -> Result<String> {
+    let settings = match sync_token {
         Some(token) => SyncSettings::default().token(token),
         None => SyncSettings::default(),
     };
-    client.sync_once(settings).await?;
-    Ok(())
+    let sync_token = client.sync_once(settings).await?.next_batch;
+    Ok(sync_token)
 }
 
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
     });
 
-    let room_id = tamatoa.create_room(request).await?.room_id;
+    let mut sync_token = None;
+    let room = tamatoa.create_room(request).await?;
+    let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
         if tamatoa.get_joined_room(&room_id).is_some() {
             break;
         }
@@ -50,7 +52,7 @@ async fn test_redacting_name() -> Result<()> {
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state event
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
 
         if room.name().is_some() {
             break;
@@ -73,7 +75,7 @@ async fn test_redacting_name() -> Result<()> {
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state ev
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
 
         if room.name().is_none() {
             break;
@@ -95,15 +97,17 @@ async fn test_redacting_name() -> Result<()> {
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name_static() -> Result<()> {
-    let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
+    let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
     });
 
-    let room_id = tamatoa.create_room(request).await?.room_id;
+    let mut sync_token = None;
+    let room = tamatoa.create_room(request).await?;
+    let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
         if tamatoa.get_joined_room(&room_id).is_some() {
             break;
         }
@@ -119,7 +123,7 @@ async fn test_redacting_name_static() -> Result<()> {
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state event
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
 
         if room.name().is_some() {
             break;
@@ -140,7 +144,7 @@ async fn test_redacting_name_static() -> Result<()> {
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
         // messages over and send us the new state ev
-        sync_once(&tamatoa).await?;
+        sync_token = Some(sync_once(&tamatoa, sync_token).await?);
 
         if room.name().is_none() {
             break;

@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.62"
+rust-version = { workspace = true }
 version = "0.6.2"
 
 [package.metadata.docs.rs]
@@ -42,8 +42,7 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-room-preview = []
-experimental-timeline = ["ruma/unstable-msc2676", "ruma/unstable-msc2677"]
+experimental-timeline = ["ruma/unstable-msc2677"]
 
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",

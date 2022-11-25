@@ -20,6 +20,8 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
+mod platform;
+
 pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
@@ -30,13 +32,10 @@ pub mod sliding_sync;
 pub mod timeline;
 mod uniffi_api;
 
-use std::io;
-
 use client::Client;
 use client_builder::ClientBuilder;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
@@ -72,13 +71,7 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
-#[uniffi::export]
-fn setup_tracing(configuration: String) {
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
-        .init();
-}
+pub use platform::*;
 
 mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
@@ -94,11 +87,11 @@ mod uniffi_types {
             SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
-            EmoteMessageContent, EncryptedMessage, EventTimelineItem, FormattedBody, ImageInfo,
-            ImageMessageContent, InsertAtData, Message, MessageFormat, MessageType,
-            NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
-            TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey, UpdateAtData, VideoInfo,
-            VideoMessageContent, VirtualTimelineItem,
+            EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,
+            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, Message, MessageFormat,
+            MessageType, NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo,
+            TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey,
+            UpdateAtData, VideoInfo, VideoMessageContent, VirtualTimelineItem,
         },
     };
 }

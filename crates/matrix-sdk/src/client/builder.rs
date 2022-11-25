@@ -380,7 +380,7 @@ impl ClientBuilder {
 
                 if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
                     authentication_issuer = Url::parse(&issuer).ok();
-                };
+                }
 
                 well_known.homeserver.base_url
             }
@@ -400,6 +400,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             key_claim_lock: Default::default(),
             members_request_locks: Default::default(),
+            encryption_state_request_locks: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),

@@ -35,6 +35,7 @@ use tracing::debug;
 #[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
+use super::Left;
 use crate::{
     attachment::AttachmentConfig, error::HttpResult, room::Common, BaseRoom, Client, Result,
     RoomType,
@@ -83,7 +84,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    pub async fn leave(&self) -> Result<()> {
+    pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
@@ -250,10 +251,10 @@ impl Joined {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request =
-            assign!(set_read_marker::v3::Request::new(self.inner.room_id(), fully_read), {
-                read_receipt
-            });
+        let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id()), {
+            fully_read: Some(fully_read),
+            read_receipt,
+        });
 
         self.client.send(request, None).await?;
         Ok(())
@@ -296,7 +297,7 @@ impl Joined {
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
-        if !self.is_encrypted() {
+        if !self.is_encrypted().await? {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
             self.send_state_event(content).await?;
@@ -380,6 +381,19 @@ impl Joined {
         }
 
         Ok(())
+    }
+
+    /// Wait for the room to be fully synced.
+    ///
+    /// This method makes sure the room that was returned when joining a room
+    /// has been echoed back in the sync.
+    /// Warning: This waits until a sync happens and does not return if no sync
+    /// is happening! It can also return early when the room is not a joined
+    /// room anymore!
+    pub async fn sync_up(&self) {
+        while !self.is_synced() && self.room_type() == RoomType::Joined {
+            self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
+        }
     }
 
     /// Send a room message to this room.
@@ -550,7 +564,7 @@ impl Joined {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        let (content, event_type) = if self.is_encrypted() {
+        let (content, event_type) = if self.is_encrypted().await? {
             // Reactions are currently famously not encrypted, skip encrypting
             // them until they are.
             if event_type == "m.reaction" {
@@ -729,7 +743,7 @@ impl Joined {
         config: AttachmentConfig<'_>,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
-        let content = if self.is_encrypted() {
+        let content = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
                     body,

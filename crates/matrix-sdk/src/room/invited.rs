@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use thiserror::Error;
 
+use super::{Joined, Left};
 use crate::{
     room::{Common, RoomMember},
     BaseRoom, Client, Error, Result, RoomType,
@@ -52,12 +53,12 @@ impl Invited {
     }
 
     /// Reject the invitation.
-    pub async fn reject_invitation(&self) -> Result<()> {
+    pub async fn reject_invitation(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
     /// Accept the invitation.
-    pub async fn accept_invitation(&self) -> Result<()> {
+    pub async fn accept_invitation(&self) -> Result<Joined> {
         self.inner.join().await
     }
 

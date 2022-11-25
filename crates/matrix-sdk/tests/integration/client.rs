@@ -185,15 +185,20 @@ async fn login_error() {
         .await;
 
     if let Err(err) = client.login_username("example", "wordpass").send().await {
-        if let Some(RumaApiError::ClientApi(client_api::Error { kind, message, status_code })) =
+        if let Some(RumaApiError::ClientApi(client_api::Error { status_code, body })) =
             err.as_ruma_api_error()
         {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:?}, expected `Error::RumaResponse");
         }
@@ -225,17 +230,20 @@ async fn register_error() {
 
     if let Err(err) = client.register(user).await {
         if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-            kind,
-            message,
             status_code,
+            body,
         }))) = err.as_ruma_api_error()
         {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:#?}, expected `UiaaResponse`");
         }
@@ -255,8 +263,6 @@ async fn sync() {
     let response = client.sync_once(sync_settings).await.unwrap();
 
     assert_ne!(response.next_batch, "");
-
-    assert!(client.sync_token().await.is_some());
 }
 
 #[async_test]
@@ -362,7 +368,7 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     let room = client.get_left_room(room_id);
     assert!(room.is_none());
@@ -370,7 +376,6 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_some());
 
-    let sync_token = client.sync_token().await.unwrap();
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
@@ -398,7 +403,7 @@ async fn join_room_by_id() {
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        client.join_room_by_id(room_id).await.unwrap().room_id,
+        client.join_room_by_id(room_id).await.unwrap().room_id(),
         room_id
     );
 }
@@ -423,7 +428,7 @@ async fn join_room_by_id_or_alias() {
             .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
             .await
             .unwrap()
-            .room_id,
+            .room_id(),
         room_id!("!testroom:example.org")
     );
 }

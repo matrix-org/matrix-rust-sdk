@@ -432,7 +432,7 @@ impl IdentityManager {
 
                     let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                         match &mut i {
-                            ReadOnlyUserIdentities::Own(ref mut identity) => {
+                            ReadOnlyUserIdentities::Own(identity) => {
                                 let user_signing = if let Some(s) = response
                                     .user_signing_keys
                                     .get(user_id)
@@ -452,7 +452,7 @@ impl IdentityManager {
                                     .update(master_key, self_signing, user_signing)
                                     .map(|_| (i, false))
                             }
-                            ReadOnlyUserIdentities::Other(ref mut identity) => {
+                            ReadOnlyUserIdentities::Other(identity) => {
                                 identity.update(master_key, self_signing).map(|_| (i, false))
                             }
                         }

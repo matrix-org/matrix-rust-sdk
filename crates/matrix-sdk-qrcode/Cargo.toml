@@ -8,7 +8,7 @@ homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 readme = "README.md"
-rust-version = "1.62"
+rust-version = { workspace = true }
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [package.metadata.docs.rs]
@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 base64 = "0.13.0"
 byteorder = "1.4.3"
 qrcode = { version = "0.12.0", default-features = false }
-ruma-common = "0.10.0"
+ruma-common = { workspace = true }
 thiserror = "1.0.30"
 vodozemac = { workspace = true }
 

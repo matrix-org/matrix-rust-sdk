@@ -505,16 +505,15 @@ pub(crate) struct Store {
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
+    /// A lock to synchronize access to the store, such that data by the sync is
+    /// never overwritten. The sync processing is supposed to use write access,
+    /// such that only it is currently accessing the store overall. Other things
+    /// might acquire read access, such that access to different rooms can be
+    /// parallelized.
+    sync_lock: Arc<RwLock<()>>,
 }
 
 impl Store {
-    /// Create a new Store with the default `MemoryStore`
-    pub fn open_memory_store() -> Self {
-        let inner = Arc::new(MemoryStore::new());
-
-        Self::new(inner)
-    }
-
     /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
@@ -524,7 +523,13 @@ impl Store {
             sync_token: Default::default(),
             rooms: Default::default(),
             stripped_rooms: Default::default(),
+            sync_lock: Default::default(),
         }
+    }
+
+    /// Get access to the syncing lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        &self.sync_lock
     }
 
     /// Restore the access to the Store from the given `Session`, overwrites any
@@ -810,11 +815,11 @@ impl StateChanges {
 ///
 /// let store_config = StoreConfig::new();
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Option<Arc<dyn CryptoStore>>,
-    pub(crate) state_store: Option<Arc<dyn StateStore>>,
+    pub(crate) crypto_store: Arc<dyn CryptoStore>,
+    pub(crate) state_store: Arc<dyn StateStore>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -828,7 +833,11 @@ impl StoreConfig {
     /// Create a new default `StoreConfig`.
     #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            #[cfg(feature = "e2e-encryption")]
+            crypto_store: Arc::new(matrix_sdk_crypto::store::MemoryStore::new()),
+            state_store: Arc::new(MemoryStore::new()),
+        }
     }
 
     /// Set a custom implementation of a `CryptoStore`.
@@ -836,13 +845,19 @@ impl StoreConfig {
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: impl IntoCryptoStore) -> Self {
-        self.crypto_store = Some(store.into_crypto_store());
+        self.crypto_store = store.into_crypto_store();
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
-        self.state_store = Some(store.into_state_store());
+        self.state_store = store.into_state_store();
         self
+    }
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }

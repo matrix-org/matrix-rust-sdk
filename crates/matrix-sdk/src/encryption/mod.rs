@@ -38,7 +38,6 @@ pub use matrix_sdk_base::crypto::{
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
-use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::OwnedDeviceId;
 use ruma::{
@@ -227,15 +226,10 @@ impl Client {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn create_dm_room(
-        &self,
-        user_id: OwnedUserId,
-    ) -> Result<Option<room::Joined>> {
+    pub(crate) async fn create_dm_room(&self, user_id: OwnedUserId) -> Result<room::Joined> {
         use ruma::{
             api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
         };
-
-        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
         // First we create the DM room, where we invite the user and tell the
         // invitee that the room should be a DM.
@@ -247,7 +241,7 @@ impl Client {
             preset: Some(RoomPreset::TrustedPrivateChat),
         });
 
-        let response = self.send(request, None).await?;
+        let room = self.create_room(request).await?;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
@@ -260,21 +254,14 @@ impl Client {
             .transpose()?
             .unwrap_or_default();
 
-        content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
+        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
 
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
         self.account().set_account_data(content).await?;
 
-        // If the room is already in our store, fetch it, otherwise wait for a
-        // sync to be done which should put the room into our store.
-        if let Some(room) = self.get_joined_room(&response.room_id) {
-            Ok(Some(room))
-        } else {
-            self.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
-            Ok(self.get_joined_room(&response.room_id))
-        }
+        Ok(room)
     }
 
     /// Claim one-time keys creating new Olm sessions.
@@ -492,11 +479,8 @@ impl Encryption {
     /// This can be used to check which private cross signing keys we have
     /// stored locally.
     pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
-        if let Some(machine) = self.client.olm_machine() {
-            Some(machine.cross_signing_status().await)
-        } else {
-            None
-        }
+        let machine = self.client.olm_machine()?;
+        Some(machine.cross_signing_status().await)
     }
 
     /// Get all the tracked users we know about
@@ -575,12 +559,9 @@ impl Encryption {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>, CryptoStoreError> {
-        if let Some(machine) = self.client.olm_machine() {
-            let device = machine.get_device(user_id, device_id, None).await?;
-            Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
-        } else {
-            Ok(None)
-        }
+        let Some(machine) = self.client.olm_machine() else { return Ok(None) };
+        let device = machine.get_device(user_id, device_id, None).await?;
+        Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
     }
 
     /// Get a map holding all the devices of an user.
@@ -656,20 +637,17 @@ impl Encryption {
     ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
-        if let Some(olm) = self.client.olm_machine() {
-            let identity = olm.get_identity(user_id, None).await?;
+        let Some(olm) = self.client.olm_machine() else { return Ok(None) };
+        let identity = olm.get_identity(user_id, None).await?;
 
-            Ok(identity.map(|i| match i {
-                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
-                    UserIdentity::new_own(self.client.clone(), i)
-                }
-                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                    UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
-                }
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(identity.map(|i| match i {
+            matrix_sdk_base::crypto::UserIdentities::Own(i) => {
+                UserIdentity::new_own(self.client.clone(), i)
+            }
+            matrix_sdk_base::crypto::UserIdentities::Other(i) => {
+                UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
+            }
+        }))
     }
 
     /// Create and upload a new cross signing identity.
@@ -873,7 +851,7 @@ mod tests {
     };
     use serde_json::json;
     use wiremock::{
-        matchers::{method, path_regex},
+        matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -886,6 +864,16 @@ mod tests {
 
         let event_id = event_id!("$2:example.org");
         let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+            )
+            .mount(&server)
+            .await;
 
         Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
@@ -907,7 +895,7 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_joined_room(room_id).expect("Room should exist");
-        assert!(room.is_encrypted());
+        assert!(room.is_encrypted().await.expect("Getting encryption state"));
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Relation::new(event_id.into(), "🐈".to_owned()));

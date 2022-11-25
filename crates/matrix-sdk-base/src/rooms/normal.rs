@@ -40,8 +40,8 @@ use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
-    deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore, StateStoreExt},
+    sync::UnreadNotificationsCount,
     MinimalStateEvent,
 };
 
@@ -129,7 +129,7 @@ impl Room {
         self.inner.read().unwrap().notification_counts
     }
 
-    /// Check if the room has it's members fully synced.
+    /// Check if the room has its members fully synced.
     ///
     /// Members might be missing if lazy member loading was enabled for the
     /// sync.
@@ -137,6 +137,27 @@ impl Room {
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
         self.inner.read().unwrap().members_synced
+    }
+
+    /// Check if the room states have been synced
+    ///
+    /// States might be missing if we have only seen the room_id of this Room
+    /// so far, for example as the response for a `create_room` request without
+    /// being synced yet.
+    ///
+    /// Returns true if the state is fully synced, false otherwise.
+    pub fn is_state_fully_synced(&self) -> bool {
+        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
+    }
+
+    /// Check if the room has its encryption event synced.
+    ///
+    /// The encryption event can be missing when the room hasn't appeared in
+    /// sync yet.
+    ///
+    /// Returns true if the encryption state is synced, false otherwise.
+    pub fn is_encryption_state_synced(&self) -> bool {
+        self.inner.read().unwrap().encryption_state_synced
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
@@ -405,12 +426,9 @@ impl Room {
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        let member_event =
-            if let Some(m) = self.store.get_member_event(self.room_id(), user_id).await? {
-                m
-            } else {
-                return Ok(None);
-            };
+        let Some(member_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
+            return Ok(None);
+        };
 
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
@@ -499,9 +517,50 @@ pub struct RoomInfo {
     pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
+    /// How much we know about this room.
+    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
+    pub(crate) sync_info: SyncInfo,
+    /// Whether or not the encryption info was been synced.
+    #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
+    pub(crate) encryption_state_synced: bool,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) enum SyncInfo {
+    /// We only know the room exists and whether it is in invite / joined / left
+    /// state.
+    ///
+    /// This is the case when we have a limited sync or only seen the room
+    /// because of a request we've done, like a room creation event.
+    NoState,
+
+    /// Some states have been synced, but they might have been filtered or is
+    /// stale, as it is from a room we've left.
+    PartiallySynced,
+
+    /// We have all the latest state events.
+    FullySynced,
+}
+
+impl SyncInfo {
+    // The sync_info field introduced a new field in the database schema, but to
+    // avoid a database migration, we let serde assume that if the room is in
+    // the database, yet the field isn't, we have synced it before this field
+    // was introduced - which was a a full sync.
+    fn complete() -> Self {
+        SyncInfo::FullySynced
+    }
+}
+
+// The encryption_state_synced field introduced a new field in the database
+// schema, but to avoid a database migration, we let serde assume that if
+// the room is in the database, yet the field isn't, we have synced it
+// before this field was introduced - which was a a full sync.
+fn encryption_state_default() -> bool {
+    true
 }
 
 impl RoomInfo {
@@ -514,33 +573,60 @@ impl RoomInfo {
             summary: Default::default(),
             members_synced: false,
             last_prev_batch: None,
+            sync_info: SyncInfo::NoState,
+            encryption_state_synced: false,
             base_info: BaseRoomInfo::new(),
         }
     }
 
-    /// Mark this Room as joined
+    /// Mark this Room as joined.
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
-    /// Mark this Room as left
+    /// Mark this Room as left.
     pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
-    /// Mark this Room as invited
+    /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
         self.room_type = RoomType::Invited;
     }
 
-    /// Mark this Room as having all the members synced
+    /// Mark this Room as having all the members synced.
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    /// Mark this Room still missing member information
+    /// Mark this Room still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
+    }
+
+    /// Mark this Room still missing some state information.
+    pub fn mark_state_partially_synced(&mut self) {
+        self.sync_info = SyncInfo::PartiallySynced;
+    }
+
+    /// Mark this Room still having all state synced.
+    pub fn mark_state_fully_synced(&mut self) {
+        self.sync_info = SyncInfo::FullySynced;
+    }
+
+    /// Mark this Room still having no state synced.
+    pub fn mark_state_not_synced(&mut self) {
+        self.sync_info = SyncInfo::NoState;
+    }
+
+    /// Mark this Room as having the encryption state synced.
+    pub fn mark_encryption_state_synced(&mut self) {
+        self.encryption_state_synced = true;
+    }
+
+    /// Mark this Room still missing encryption state information.
+    pub fn mark_encryption_state_missing(&mut self) {
+        self.encryption_state_synced = false;
     }
 
     /// Set the `prev_batch`-token.
@@ -555,9 +641,14 @@ impl RoomInfo {
         }
     }
 
-    /// Whether this is an encrypted Room
+    /// Returns whether this is an encrypted Room.
     pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
+    }
+
+    /// Set the encryption event content in this room.
+    pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) {
+        self.base_info.encryption = event;
     }
 
     /// Handle the given state event.

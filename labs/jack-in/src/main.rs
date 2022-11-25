@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
+use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
+    room::timeline::TimelineItem,
     ruma::{OwnedRoomId, OwnedUserId},
     Client,
 };
@@ -35,7 +37,9 @@ pub enum Msg {
     Clock,
     RoomsBlur,
     DetailsBlur,
+    TextBlur,
     SelectRoom(Option<OwnedRoomId>),
+    SendMessage(String),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -43,6 +47,7 @@ pub enum Msg {
 pub enum JackInEvent {
     Any, // match all
     SyncUpdate(client::state::SlidingSyncState),
+    RoomDataUpdate(VecDiff<TimelineItem>),
 }
 
 impl PartialOrd for JackInEvent {
@@ -66,6 +71,7 @@ pub enum Id {
     DigitCounter,
     LetterCounter,
     Label,
+    TextMessage,
     Logger,
     Status,
     Rooms,
@@ -276,7 +282,7 @@ async fn main() -> Result<()> {
         .map(|s| format!("{s} ({user_id})"))
         .unwrap_or_else(|| format!("{user_id}"));
     let poller = MatrixPoller(rx);
-    let mut model = Model::new(start_sync, model_tx, poller);
+    let mut model = Model::new(start_sync, model_tx, poller, client);
     model.set_title(format!("{display_name} via {}", opt.sliding_sync_proxy));
     run_ui(model).await;
 

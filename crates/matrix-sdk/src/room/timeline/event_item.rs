@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
-#[cfg(feature = "experimental-room-preview")]
-use ruma::events::room::message::{OriginalSyncRoomMessageEvent, Relation};
 use ruma::{
     events::{
         relation::{AnnotationChunk, AnnotationType},
@@ -25,7 +23,7 @@ use ruma::{
             encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
             message::MessageType,
         },
-        AnySyncTimelineEvent,
+        AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
@@ -85,37 +83,6 @@ macro_rules! build {
 }
 
 impl EventTimelineItem {
-    #[cfg(feature = "experimental-room-preview")]
-    #[doc(hidden)] // FIXME: Remove. Used for matrix-sdk-ffi temporarily.
-    pub fn _new(ev: OriginalSyncRoomMessageEvent, raw: Raw<AnySyncTimelineEvent>) -> Self {
-        let edited = ev.unsigned.relations.as_ref().map_or(false, |r| r.replace.is_some());
-        let reactions = ev
-            .unsigned
-            .relations
-            .and_then(|r| r.annotation)
-            .map(BundledReactions::from)
-            .unwrap_or_default();
-
-        Self {
-            key: TimelineKey::EventId(ev.event_id),
-            event_id: None,
-            sender: ev.sender,
-            content: TimelineItemContent::Message(Message {
-                msgtype: ev.content.msgtype,
-                in_reply_to: ev.content.relates_to.and_then(|rel| match rel {
-                    Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
-                    _ => None,
-                }),
-                edited,
-            }),
-            reactions,
-            origin_server_ts: Some(ev.origin_server_ts),
-            is_own: false,         // FIXME: Potentially wrong
-            encryption_info: None, // FIXME: Potentially wrong
-            raw: Some(raw),
-        }
-    }
-
     /// Get the [`TimelineKey`] of this item.
     pub fn key(&self) -> &TimelineKey {
         &self.key
@@ -299,14 +266,44 @@ pub enum TimelineItemContent {
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
+
+    /// A message-like event that failed to deserialize.
+    FailedToParseMessageLike {
+        /// The event `type`.
+        event_type: MessageLikeEventType,
+
+        /// The deserialization error.
+        error: Arc<serde_json::Error>,
+    },
+
+    /// A state event that failed to deserialize.
+    FailedToParseState {
+        /// The event `type`.
+        event_type: StateEventType,
+
+        /// The state key.
+        state_key: String,
+
+        /// The deserialization error.
+        error: Arc<serde_json::Error>,
+    },
 }
 
 impl TimelineItemContent {
-    /// If `self` is of the [`Message`][Self:Message] variant, return the inner
+    /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         match self {
             Self::Message(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
+    /// return the inner [`EncryptedMessage`].
+    pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
+        match self {
+            Self::UnableToDecrypt(v) => Some(v),
             _ => None,
         }
     }

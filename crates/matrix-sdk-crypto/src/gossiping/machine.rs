@@ -305,6 +305,57 @@ impl GossipMachine {
         })
     }
 
+    /// Try to encrypt the given `InboundGroupSession` for the given `Device` as
+    /// a forwarded room key.
+    ///
+    /// This method might fail if we do not share an 1-to-1 Olm session with the
+    /// given `Device`, in that case we're going to queue up an
+    /// `/keys/claim` request to be sent out and retry once the 1-to-1 Olm
+    /// session has been established.
+    async fn try_to_forward_room_key(
+        &self,
+        event: &RoomKeyRequestEvent,
+        device: Device,
+        session: InboundGroupSession,
+        message_index: Option<u32>,
+    ) -> OlmResult<Option<Session>> {
+        info!(
+            user_id = %device.user_id(),
+            device_id = %device.device_id(),
+            session_id = session.session_id(),
+            room_id = %session.room_id,
+            ?message_index,
+            "Serving a room key request",
+        );
+
+        match self.forward_room_key(&session, &device, message_index).await {
+            Ok(s) => Ok(Some(s)),
+            Err(OlmError::MissingSession) => {
+                info!(
+                    user_id = %device.user_id(),
+                    device_id = %device.device_id(),
+                    session_id = session.session_id(),
+                    "Key request is missing an Olm session, \
+                     putting the request in the wait queue",
+                );
+                self.handle_key_share_without_session(device, event.to_owned().into());
+
+                Ok(None)
+            }
+            Err(OlmError::SessionExport(e)) => {
+                warn!(
+                    user_id = %device.user_id(),
+                    device_id = %device.device_id(),
+                    session_id = session.session_id(),
+                    "Can't serve a room key request, the session \
+                     can't be exported into a forwarded room key: {e:?}",
+                );
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Answer a room key request after we found the matching
     /// `InboundGroupSession`.
     async fn answer_room_key_request(
@@ -315,68 +366,7 @@ impl GossipMachine {
         let device =
             self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
-        if let Some(device) = device {
-            match self.should_share_key(&device, &session).await {
-                Err(e) => {
-                    if let KeyForwardDecision::ChangedSenderKey = e {
-                        warn!(
-                            user_id = device.user_id().as_str(),
-                            device_id = device.device_id().as_str(),
-                            "Received a key request from a device that changed \
-                            their Curve25519 sender key"
-                        );
-                    } else {
-                        debug!(
-                            user_id = device.user_id().as_str(),
-                            device_id = device.device_id().as_str(),
-                            reason = ?e,
-                            "Received a key request that we won't serve",
-                        );
-                    }
-
-                    Ok(None)
-                }
-                Ok(message_index) => {
-                    info!(
-                        user_id = %device.user_id(),
-                        device_id = %device.device_id(),
-                        session_id = session.session_id(),
-                        room_id = %session.room_id,
-                        ?message_index,
-                        "Serving a room key request",
-                    );
-
-                    match self.forward_room_key(&session, &device, message_index).await {
-                        Ok(s) => Ok(Some(s)),
-                        Err(OlmError::MissingSession) => {
-                            info!(
-                                user_id = %device.user_id(),
-                                device_id = %device.device_id(),
-                                session_id = session.session_id(),
-                                "Key request is missing an Olm session, \
-                                putting the request in the wait queue",
-                            );
-                            self.handle_key_share_without_session(device, event.to_owned().into());
-
-                            Ok(None)
-                        }
-                        Err(OlmError::SessionExport(e)) => {
-                            warn!(
-                                user_id = %device.user_id(),
-                                device_id = %device.device_id(),
-                                session_id = session.session_id(),
-                                "Can't serve a room key request, the session \
-                                can't be exported into a forwarded room key: \
-                                {:?}",
-                                e
-                            );
-                            Ok(None)
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-        } else {
+        let Some(device) = device else {
             warn!(
                 user_id = %event.sender,
                 device_id = %event.content.requesting_device_id,
@@ -384,7 +374,32 @@ impl GossipMachine {
             );
             self.store.update_tracked_user(&event.sender, true).await?;
 
-            Ok(None)
+            return Ok(None);
+        };
+
+        match self.should_share_key(&device, &session).await {
+            Ok(message_index) => {
+                self.try_to_forward_room_key(event, device, session, message_index).await
+            }
+            Err(e) => {
+                if let KeyForwardDecision::ChangedSenderKey = e {
+                    warn!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        "Received a key request from a device that changed \
+                         their Curve25519 sender key"
+                    );
+                } else {
+                    debug!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        reason = ?e,
+                        "Received a key request that we won't serve",
+                    );
+                }
+
+                Ok(None)
+            }
         }
     }
 
@@ -751,29 +766,23 @@ impl GossipMachine {
         if secret_name != &SecretName::RecoveryKey {
             match self.store.import_secret(secret_name, &event.content.secret).await {
                 Ok(_) => self.mark_as_done(request).await?,
+                // If this is a store error propagate it up the call stack.
+                Err(SecretImportError::Store(e)) => return Err(e),
+                // Otherwise warn that there was something wrong with the
+                // secret.
                 Err(e) => {
-                    // If this is a store error propagate it up
-                    // the call stack.
-                    if let SecretImportError::Store(e) = e {
-                        return Err(e);
-                    } else {
-                        // Otherwise warn that there was
-                        // something wrong with the secret.
-                        warn!(
-                            secret_name = secret_name.as_ref(),
-                            error = ?e,
-                            "Error while importing a secret"
-                        )
-                    }
+                    warn!(
+                        secret_name = secret_name.as_ref(),
+                        error = ?e,
+                        "Error while importing a secret"
+                    );
                 }
             }
         } else {
-            // Skip importing the recovery key here since
-            // we'll want to check if the public key matches
-            // to the latest version on the server. The key
-            // will not be zeroized and
-            // instead leave the key in the event and let
-            // the user import it later.
+            // Skip importing the recovery key here since we'll want to check
+            // if the public key matches to the latest version on the server.
+            // The key will not be zeroized and  instead leave the key in the
+            // event and let the user import it later.
         }
 
         Ok(())
@@ -925,25 +934,18 @@ impl GossipMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        if let Some(info) = event.room_key_info() {
-            if let Some(request) =
-                self.store.get_secret_request_by_info(&info.clone().into()).await?
-            {
-                if self.should_accept_forward(&request, sender_key).await? {
-                    self.accept_forwarded_room_key(&request, sender_key, event).await
-                } else {
-                    warn!(
-                         sender = %event.sender,
-                         %sender_key,
-                         room_id = %info.room_id(),
-                         session_id = info.session_id(),
-                         "Received a forwarded room key from an unknown device, or \
-                          from a device that the key request recipient doesn't own",
-                    );
+        let Some(info) = event.room_key_info() else {
+            warn!(
+                sender = event.sender.as_str(),
+                sender_key = sender_key.to_base64(),
+                algorithm = %event.content.algorithm(),
+                "Received a forwarded room key with an unsupported algorithm",
+            );
+            return Ok(None);
+        };
 
-                    Ok(None)
-                }
-            } else {
+        let Some(request) =
+            self.store.get_secret_request_by_info(&info.clone().into()).await? else {
                 warn!(
                     sender = %event.sender,
                     sender_key = %sender_key,
@@ -953,15 +955,19 @@ impl GossipMachine {
                     algorithm = %info.algorithm(),
                     "Received a forwarded room key that we didn't request",
                 );
+                return Ok(None);
+            };
 
-                Ok(None)
-            }
+        if self.should_accept_forward(&request, sender_key).await? {
+            self.accept_forwarded_room_key(&request, sender_key, event).await
         } else {
             warn!(
-                sender = event.sender.as_str(),
-                sender_key = sender_key.to_base64(),
-                algorithm = %event.content.algorithm(),
-                "Received a forwarded room key with an unsupported algorithm",
+                 sender = %event.sender,
+                 %sender_key,
+                 room_id = %info.room_id(),
+                 session_id = info.session_id(),
+                 "Received a forwarded room key from an unknown device, or \
+                  from a device that the key request recipient doesn't own",
             );
 
             Ok(None)
@@ -1545,15 +1551,15 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+        alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
 
         // Check that alice now does have the session.
         let session = alice_machine
@@ -1603,16 +1609,16 @@ mod tests {
             .is_none());
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-
-            assert!(session.is_none(), "We should not receive a room key from another user");
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+
+        assert!(session.is_none(), "We should not receive a room key from another user");
     }
 
     #[async_test]
@@ -1756,15 +1762,15 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
-            let session = alice_machine
-                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
-                .await
-                .unwrap();
-            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
-        } else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
             panic!("Invalid decrypted event type");
-        }
+        };
+
+        let session = alice_machine
+            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .await
+            .unwrap();
+        alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
 
         // Check that alice now does have the session.
         let session = alice_machine

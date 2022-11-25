@@ -701,45 +701,41 @@ impl IdentitiesBeingVerified {
     ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
         let device = self.store.get_device(self.other_user_id(), self.other_device_id()).await?;
 
-        if let Some(device) = device {
-            if device.keys() == self.device_being_verified.keys() {
-                if verified_devices.map_or(false, |v| v.contains(&device)) {
-                    trace!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        "Marking device as verified.",
-                    );
-
-                    device.set_trust_state(LocalTrust::Verified);
-
-                    Ok(Some(device))
-                } else {
-                    info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        "The interactive verification process didn't verify \
-                        the device",
-                    );
-
-                    Ok(None)
-                }
-            } else {
-                warn!(
-                    user_id = device.user_id().as_str(),
-                    device_id = device.device_id().as_str(),
-                    "The device keys have changed while an interactive \
-                     verification was going on, not marking the device as verified.",
-                );
-                Ok(None)
-            }
-        } else {
+        let Some(device) = device else {
             let device = &self.device_being_verified;
-
             info!(
                 user_id = device.user_id().as_str(),
                 device_id = device.device_id().as_str(),
-                "The device was deleted while an interactive verification was \
-                 going on.",
+                "The device was deleted while an interactive verification was going on.",
+            );
+            return Ok(None);
+        };
+
+        if device.keys() != self.device_being_verified.keys() {
+            warn!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "The device keys have changed while an interactive verification \
+                 was going on, not marking the device as verified.",
+            );
+            return Ok(None);
+        }
+
+        if verified_devices.map_or(false, |v| v.contains(&device)) {
+            trace!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "Marking device as verified.",
+            );
+
+            device.set_trust_state(LocalTrust::Verified);
+
+            Ok(Some(device))
+        } else {
+            info!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "The interactive verification process didn't verify the device",
             );
 
             Ok(None)

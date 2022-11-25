@@ -19,7 +19,7 @@ use matrix_sdk::{
             macros::EventContent,
             room::{
                 member::StrippedRoomMemberEvent,
-                message::{MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent},
+                message::{MessageType, OriginalSyncRoomMessageEvent},
             },
         },
         OwnedEventId,
@@ -51,19 +51,15 @@ pub struct AckEventContent {
 
 // we want to start the ping-ack-flow on "!ping" messages.
 async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
-        };
+    let Room::Joined(room) = room else { return };
+    let MessageType::Text(text_content) = event.content.msgtype else { return };
 
-        if msg_body.contains("!ping") {
-            let content = PingEventContent {};
+    if text_content.body.contains("!ping") {
+        let content = PingEventContent {};
 
-            println!("sending ping");
-            room.send(content, None).await.unwrap();
-            println!("ping sent");
-        }
+        println!("sending ping");
+        room.send(content, None).await.unwrap();
+        println!("ping sent");
     }
 }
 
@@ -86,7 +82,7 @@ async fn on_ping_event(event: SyncPingEvent, room: Room) {
 async fn sync_loop(client: Client) -> anyhow::Result<()> {
     // invite acceptance as in the getting-started-client
     client.add_event_handler(on_stripped_state_member);
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
     // our customisation:
     //  - send `PingEvent` on `!ping` in any room
@@ -94,7 +90,7 @@ async fn sync_loop(client: Client) -> anyhow::Result<()> {
     //  - send `AckEvent` on `PingEvent` in any room
     client.add_event_handler(on_ping_event);
 
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?; // this essentially loops until we kill the bot
 
     Ok(())

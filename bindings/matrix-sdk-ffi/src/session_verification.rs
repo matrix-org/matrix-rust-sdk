@@ -173,11 +173,10 @@ impl SessionVerificationController {
     }
 
     fn is_transaction_id_valid(&self, transaction_id: String) -> bool {
-        if let Some(verification) = &*self.verification_request.read().unwrap() {
-            return verification.flow_id() == transaction_id;
+        match &*self.verification_request.read().unwrap() {
+            Some(verification) => verification.flow_id() == transaction_id,
+            None => false,
         }
-
-        false
     }
 
     async fn start_sas_verification(&self) {

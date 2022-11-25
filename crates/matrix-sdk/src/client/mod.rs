@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, SendOutsideWasm, Session, SessionMeta,
-    SessionTokens, StateStore, SyncOutsideWasm,
+    BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
+    SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -81,7 +81,9 @@ use crate::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
-    room, Account, Error, Media, RefreshTokenError, Result, RumaApiError,
+    room,
+    sync::SyncResponse,
+    Account, Error, Media, RefreshTokenError, Result, RumaApiError,
 };
 
 mod builder;
@@ -147,6 +149,8 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    /// Locks for requests on the encryption state of rooms.
+    pub(crate) encryption_state_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -308,11 +312,8 @@ impl Client {
 
     /// The OIDC Provider that is trusted by the homeserver.
     pub async fn authentication_issuer(&self) -> Option<Url> {
-        if let Some(server) = &self.inner.authentication_issuer {
-            Some(server.read().await.clone())
-        } else {
-            None
-        }
+        let server = self.inner.authentication_issuer.as_ref()?;
+        Some(server.read().await.clone())
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {
@@ -1310,11 +1311,8 @@ impl Client {
         let lock = self.inner.refresh_token_lock.try_lock();
 
         if let Some(mut guard) = lock {
-            let mut session_tokens = if let Some(tokens) = self.session_tokens() {
-                tokens
-            } else {
+            let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
-
                 return Err(RefreshTokenError::RefreshTokenRequired.into());
             };
 
@@ -1496,12 +1494,11 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(
-        &self,
-        room_id: &RoomId,
-    ) -> HttpResult<join_room_by_id::v3::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join a room by `RoomId`.
@@ -1517,11 +1514,13 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+        let base_room = self.base_client().room_joined(&response.room_id).await?;
+        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1601,9 +1600,13 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> HttpResult<create_room::v3::Response> {
+    ) -> HttpResult<room::Joined> {
         let request = room.into();
-        self.send(request, None).await
+        let response = self.send(request, None).await?;
+
+        let base_room =
+            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+        Ok(room::Joined::new(self, base_room).unwrap())
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
@@ -1699,26 +1702,21 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            // FIXME: Use if-let chain once available
-            if let Err(Some(RumaApiError::ClientApi(error))) =
-                res.as_ref().map_err(HttpError::as_ruma_api_error)
+            if let Err(Some(ErrorKind::UnknownToken { .. })) =
+                res.as_ref().map_err(HttpError::client_api_error_kind)
             {
-                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                    let refresh_res = self.refresh_access_token().await;
-
-                    if let Err(refresh_error) = refresh_res {
-                        match &refresh_error {
-                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                                // Refreshing access tokens is not supported by
-                                // this `Session`, ignore.
-                            }
-                            _ => {
-                                return Err(refresh_error);
-                            }
+                if let Err(refresh_error) = self.refresh_access_token().await {
+                    match &refresh_error {
+                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                            // Refreshing access tokens is not supported by
+                            // this `Session`, ignore.
                         }
-                    } else {
-                        return self.send_inner(request, config, None).await;
+                        _ => {
+                            return Err(refresh_error);
+                        }
                     }
+                } else {
+                    return self.send_inner(request, config, None).await;
                 }
             }
         }
@@ -1744,26 +1742,21 @@ impl Client {
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
         if self.inner.handle_refresh_tokens {
-            // FIXME: Use if-let chain once available
-            if let Err(Some(RumaApiError::ClientApi(error))) =
-                res.as_ref().map_err(HttpError::as_ruma_api_error)
+            if let Err(Some(ErrorKind::UnknownToken { .. })) =
+                res.as_ref().map_err(HttpError::client_api_error_kind)
             {
-                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
-                    let refresh_res = self.refresh_access_token().await;
-
-                    if let Err(refresh_error) = refresh_res {
-                        match &refresh_error {
-                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                                // Refreshing access tokens is not supported by
-                                // this `Session`, ignore.
-                            }
-                            _ => {
-                                return Err(refresh_error);
-                            }
+                if let Err(refresh_error) = self.refresh_access_token().await {
+                    match &refresh_error {
+                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                            // Refreshing access tokens is not supported by
+                            // this `Session`, ignore.
                         }
-                    } else {
-                        return self.send_inner(request, config, homeserver).await;
+                        _ => {
+                            return Err(refresh_error);
+                        }
                     }
+                } else {
+                    return self.send_inner(request, config, homeserver).await;
                 }
             }
         }
@@ -1782,8 +1775,11 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver =
-            if let Some(h) = homeserver { h } else { self.homeserver().await.to_string() };
+        let homeserver = match homeserver {
+            Some(hs) => hs,
+            None => self.homeserver().await.to_string(),
+        };
+
         self.inner
             .http_client
             .send(
@@ -1876,13 +1872,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::{
-    /// #        api::{
-    /// #            client::uiaa,
-    /// #            error::{FromHttpResponseError, ServerError},
-    /// #        },
-    /// #        device_id,
-    /// #    },
+    /// #    ruma::{api::client::uiaa, device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use futures::executor::block_on;
@@ -2042,6 +2032,7 @@ impl Client {
         }
 
         let response = self.send(request, Some(request_config)).await?;
+        let next_batch = response.next_batch.clone();
         let response = self.process_sync(response).await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -2051,7 +2042,7 @@ impl Client {
 
         self.inner.sync_beat.notify(usize::MAX);
 
-        Ok(response)
+        Ok(SyncResponse::new(next_batch, response))
     }
 
     /// Repeatedly synchronize the client state with the server.
@@ -2347,7 +2338,7 @@ impl Client {
 
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
-    pub async fn sync_token(&self) -> Option<String> {
+    pub(crate) async fn sync_token(&self) -> Option<String> {
         self.inner.base_client.sync_token().await
     }
 

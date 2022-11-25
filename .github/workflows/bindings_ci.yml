@@ -61,7 +61,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
           profile: minimal
           override: true
 
@@ -243,6 +243,9 @@ jobs:
           profile: minimal
           override: true
 
+      - name: Install aarch64-apple-ios target
+        run: rustup target install aarch64-apple-ios
+
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
@@ -252,15 +255,12 @@ jobs:
           path: target/debug/xtask
           key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
 
-      - name: Install Uniffi
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev ${{ env.UNIFFI_REV }}
-
       - name: Build library & bindings
         run: target/debug/xtask swift build-library
 
       - name: Run XCTests
         working-directory: bindings/apple
         run: swift test
+
+      - name: Build Framework
+        run: cargo xtask swift build-framework --only-target=aarch64-apple-ios

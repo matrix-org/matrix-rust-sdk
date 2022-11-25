@@ -10,11 +10,12 @@ file-logging = ["dep:log4rs"]
 
 [dependencies]
 app_dirs2 = "2"
+chrono = "0.4.23"
 dialoguer = "0.10.2"
 eyre = "0.6"
 futures = { version = "0.3.1" }
 futures-signals = "0.3.24"
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync"], version = "0.6.0" }
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "sliding-sync", "experimental-timeline"], version = "0.6.0" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
 matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled", features = ["state-store", "crypto-store"], version = "0.2.0" }
 sanitize-filename-reader-friendly = "2.2.1"
@@ -23,8 +24,9 @@ structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 tracing-flame = "0.2"
 tracing-subscriber = "0.3.15"
-tui-logger = "0.8.0"
-tuirealm = "~1.7.1"
+tui-logger = "0.8.1"
+tuirealm = "~1.8"
+tui-realm-stdlib = "1.2.0"
 
 # file-logging specials
 tracing = { version = "0.1.35", features = ["log"] }

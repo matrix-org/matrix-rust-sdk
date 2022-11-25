@@ -8,7 +8,7 @@ keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.62"
+rust-version = { workspace = true }
 version = "0.1.0-alpha.0"
 publish = false
 
@@ -39,7 +39,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common"
 matrix-sdk-crypto = { version = "0.6.0", path = "../../crates/matrix-sdk-crypto", features = ["js"] }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-indexeddb", features = ["experimental-nodejs"] }
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
-ruma = { workspace = true, features = ["js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+ruma = { workspace = true, features = ["js", "rand", "unstable-msc2677"] }
 vodozemac = { workspace = true, features = ["js"] }
 wasm-bindgen = "0.2.83"
 wasm-bindgen-futures = "0.4.33"

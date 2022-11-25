@@ -36,13 +36,15 @@ pub mod event_handler;
 mod http_client;
 pub mod media;
 pub mod room;
-mod sync;
+pub mod sync;
 
 #[cfg(feature = "sliding-sync")]
 mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
+#[cfg(feature = "experimental-timeline")]
+mod events;
 
 pub use account::Account;
 #[cfg(feature = "sso-login")]
