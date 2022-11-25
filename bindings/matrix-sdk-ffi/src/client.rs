@@ -187,6 +187,18 @@ impl Client {
         })
     }
 
+    pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
+        let l = self.client.clone();
+        RUNTIME.block_on(async move {
+            let result = l
+                .account()
+                .set_display_name(Some(name.as_str()))
+                .await
+                .context("Unable to set display name");
+            result
+        })
+    }
+
     pub fn avatar_url(&self) -> anyhow::Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
