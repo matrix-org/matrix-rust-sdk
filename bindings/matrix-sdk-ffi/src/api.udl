@@ -162,6 +162,9 @@ interface Client {
 
     [Throws=ClientError]
     string display_name();
+    
+    [Throws=ClientError]
+    void set_display_name(string name);
 
     [Throws=ClientError]
     string avatar_url();
