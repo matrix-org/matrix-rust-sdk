@@ -269,9 +269,9 @@ impl Timeline {
             .await;
     }
 
-    /// Get the latest of the timeline's items.
-    pub fn latest(&self) -> Option<Arc<TimelineItem>> {
-        self.inner.items.lock_ref().last().cloned()
+    /// Get the latest of the timeline's event items.
+    pub fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.items.lock_ref().last()?.as_event().cloned()
     }
 
     /// Get a signal of the timeline's items.
