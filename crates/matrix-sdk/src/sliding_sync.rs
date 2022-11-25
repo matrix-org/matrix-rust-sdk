@@ -44,7 +44,7 @@ use thiserror::Error;
 use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
-use crate::room::timeline::Timeline;
+use crate::room::timeline::{EventTimelineItem, Timeline};
 use crate::{Client, HttpError, Result, RumaApiError};
 
 /// Internal representation of errors in Sliding Sync
@@ -228,6 +228,15 @@ impl SlidingSyncRoom {
         let prev_batch = self.prev_batch.lock_ref().clone();
         let room = self.client.get_room(&self.room_id).unwrap();
         Timeline::with_events(&room, prev_batch, current_timeline).await
+    }
+
+    /// The latest timeline item of this room.
+    ///
+    /// Use `Timeline::latest_event` instead if you already have a timeline for
+    /// this `SlidingSyncRoom`.
+    #[cfg(feature = "experimental-timeline")]
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.timeline_no_fully_read_tracking().await.latest_event()
     }
 
     /// This rooms name as calculated by the server, if any
