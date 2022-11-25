@@ -234,6 +234,17 @@ impl Client {
         })
     }
 
+    pub fn upload_media(&self, mime: String, data: Vec<u8>) -> anyhow::Result<String> {
+        let l = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let as_mime: mime::Mime = mime.parse().unwrap();
+            let as_array = data.as_slice();
+            let response = l.media().upload(&as_mime, as_array).await?;
+            Ok(String::from(response.content_uri))
+        })
+    }
+
     pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {
         let l = self.client.clone();
         let source = (*media_source).clone();
