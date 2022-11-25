@@ -193,7 +193,7 @@ impl Client {
 
     pub(crate) async fn sync_loop_helper(
         &self,
-        sync_settings: &mut crate::config::SyncSettings<'_>,
+        sync_settings: &mut crate::config::SyncSettings,
     ) -> Result<SyncResponse> {
         let response = self.sync_once(sync_settings.clone()).await;
 

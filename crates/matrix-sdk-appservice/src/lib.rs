@@ -305,10 +305,7 @@ impl AppService {
     /// }));
     /// # }
     /// ```
-    pub async fn register_user_query(
-        &self,
-        handler: AppserviceFn<query_user::IncomingRequest, bool>,
-    ) {
+    pub async fn register_user_query(&self, handler: AppserviceFn<query_user::Request, bool>) {
         *self.event_handler.users.lock().await = Some(handler);
     }
 
@@ -329,10 +326,7 @@ impl AppService {
     /// }));
     /// # }
     /// ```
-    pub async fn register_room_query(
-        &self,
-        handler: AppserviceFn<query_room::IncomingRequest, bool>,
-    ) {
+    pub async fn register_room_query(&self, handler: AppserviceFn<query_room::Request, bool>) {
         *self.event_handler.rooms.lock().await = Some(handler);
     }
 
@@ -347,18 +341,14 @@ impl AppService {
     /// # Returns
     /// This function may return a UIAA response, which should be checked for
     /// with [`Error::as_uiaa_response()`].
-    pub async fn register_user<'a>(
-        &self,
-        localpart: &'a str,
-        device_id: Option<&'a DeviceId>,
-    ) -> Result<()> {
+    pub async fn register_user(&self, localpart: &str, device_id: Option<&DeviceId>) -> Result<()> {
         if self.is_user_registered(localpart).await? {
             return Ok(());
         }
         let request = assign!(register::v3::Request::new(), {
-            username: Some(localpart),
-            login_type: Some(&register::LoginType::ApplicationService),
-            device_id,
+            username: Some(localpart.to_owned()),
+            login_type: Some(register::LoginType::ApplicationService),
+            device_id: device_id.map(ToOwned::to_owned),
         });
 
         let client = self.user(None).await?;
@@ -425,10 +415,7 @@ impl AppService {
     /// active clients.
     ///
     /// [transaction]: https://spec.matrix.org/v1.2/application-service-api/#put_matrixappv1transactionstxnid
-    async fn receive_transaction(
-        &self,
-        transaction: push_events::v1::IncomingRequest,
-    ) -> Result<()> {
+    async fn receive_transaction(&self, transaction: push_events::v1::Request) -> Result<()> {
         let sender_localpart_client = self.user(None).await?;
 
         // Find membership events affecting members in our namespace, and update
@@ -991,7 +978,7 @@ mod tests {
         let alice = appservice.user(Some("_appservice_alice")).await?;
         let bob = appservice.user(Some("_appservice_bob")).await?;
         appservice
-            .receive_transaction(push_events::v1::IncomingRequest::new("dontcare".into(), json))
+            .receive_transaction(push_events::v1::Request::new("dontcare".into(), json))
             .await?;
         let coolplace = room_id!("!coolplace:localhost");
         let boringplace = room_id!("!boringplace:localhost");

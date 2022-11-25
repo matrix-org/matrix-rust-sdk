@@ -1,9 +1,9 @@
 use ruma::{
     events::{
-        EventContent, MessageLikeEventContent, MessageLikeEventType, OriginalSyncMessageLikeEvent,
-        OriginalSyncStateEvent, RedactedEventContent, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent, Relations,
-        StateEventContent, StateEventType, StateUnsigned,
+        BundledRelations, EventContent, MessageLikeEventContent, MessageLikeEventType,
+        OriginalSyncMessageLikeEvent, OriginalSyncStateEvent, RedactedEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
+        RedactedSyncStateEvent, StateEventContent, StateEventType, StateUnsigned,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -38,7 +38,7 @@ impl SyncTimelineEventWithoutContent {
         }
     }
 
-    pub(crate) fn relations(&self) -> Option<&Relations> {
+    pub(crate) fn relations(&self) -> Option<&BundledRelations> {
         match self {
             SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
                 ev.unsigned.relations.as_ref()

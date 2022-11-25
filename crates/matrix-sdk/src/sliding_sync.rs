@@ -752,10 +752,10 @@ impl SlidingSync {
                     unsubs
                 };
                 let req = assign!(v4::Request::new(), {
-                    lists: &requests,
-                    pos: pos.as_deref(),
+                    lists: requests,
+                    pos,
                     room_subscriptions,
-                    unsubscribe_rooms: &unsubscribe_rooms,
+                    unsubscribe_rooms,
                     extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
                 });
                 tracing::debug!("requesting");

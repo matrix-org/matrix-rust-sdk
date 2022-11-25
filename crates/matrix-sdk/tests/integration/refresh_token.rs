@@ -109,8 +109,8 @@ async fn register_refresh_token() {
         .await;
 
     let req = assign!(register::v3::Request::new(), {
-        username: Some("user"),
-        password: Some("password"),
+        username: Some("user".to_owned()),
+        password: Some("password".to_owned()),
         auth: None,
         refresh_token: true,
     });

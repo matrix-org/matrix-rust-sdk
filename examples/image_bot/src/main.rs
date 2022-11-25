@@ -1,4 +1,4 @@
-use std::{env, fs, process::exit, sync::Arc};
+use std::{env, fs, process::exit};
 
 use matrix_sdk::{
     self,
@@ -10,13 +10,13 @@ use matrix_sdk::{
 };
 use url::Url;
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Arc<[u8]>) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Vec<u8>) {
     let Room::Joined(room) = room else { return };
     let MessageType::Text(text_content) = event.content.msgtype else { return };
 
     if text_content.body.contains("!image") {
         println!("sending image");
-        room.send_attachment("cat", &mime::IMAGE_JPEG, &image, AttachmentConfig::new())
+        room.send_attachment("cat", &mime::IMAGE_JPEG, image, AttachmentConfig::new())
             .await
             .unwrap();
 
@@ -28,7 +28,7 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-    image: Arc<[u8]>,
+    image: Vec<u8>,
 ) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
     println!("helloooo {homeserver_url} {username} {password} {image_path:#?}");
-    let image = fs::read(&image_path).expect("Can't open image file.").into();
+    let image = fs::read(&image_path).expect("Can't open image file.");
 
     login_and_sync(homeserver_url, username, password, image).await?;
     Ok(())

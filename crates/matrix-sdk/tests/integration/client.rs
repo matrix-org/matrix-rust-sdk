@@ -220,10 +220,10 @@ async fn register_error() {
         .await;
 
     let user = assign!(RegistrationRequest::new(), {
-        username: Some("user"),
-        password: Some("password"),
+        username: Some("user".to_owned()),
+        password: Some("password".to_owned()),
         auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-            uiaa::FallbackAcknowledgement::new("foobar"),
+            uiaa::FallbackAcknowledgement::new("foobar".to_owned()),
         )),
         kind: RegistrationKind::User,
     });
@@ -328,10 +328,10 @@ async fn delete_devices() {
 
             let auth_data = uiaa::AuthData::Password(assign!(
                 uiaa::Password::new(
-                    uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-                    "wordpass",
+                    uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+                    "wordpass".to_owned(),
                 ), {
-                    session: info.session.as_deref(),
+                    session: info.session.clone(),
                 }
             ));
 
@@ -455,7 +455,7 @@ async fn room_search_filtered() {
         .mount(&server)
         .await;
 
-    let generic_search_term = Some("cheese");
+    let generic_search_term = Some("cheese".to_owned());
     let filter = assign!(Filter::new(), { generic_search_term });
     let request = assign!(PublicRoomsFilterRequest::new(), { filter });
 

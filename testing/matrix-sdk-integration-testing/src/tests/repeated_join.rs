@@ -23,9 +23,9 @@ async fn test_repeated_join_leave() -> Result<()> {
     let karl_id = karl.user_id().expect("karl has a userid!").to_owned();
 
     // Create a room and invite karl.
-    let invites = [karl_id.clone()];
+    let invite = vec![karl_id.clone()];
     let request = assign!(CreateRoomRequest::new(), {
-        invite: &invites,
+        invite,
         is_direct: true,
     });
 
