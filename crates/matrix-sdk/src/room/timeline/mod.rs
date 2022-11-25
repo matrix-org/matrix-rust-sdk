@@ -66,7 +66,7 @@ pub struct Timeline {
     start_token: StdMutex<Option<String>>,
     _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
-    _fully_read_handler_guard: EventHandlerDropGuard,
+    _fully_read_handler_guard: Option<EventHandlerDropGuard>,
     #[cfg(feature = "e2e-encryption")]
     _room_key_handler_guard: EventHandlerDropGuard,
 }
@@ -99,19 +99,6 @@ impl Timeline {
                 .await;
         }
 
-        match room.account_data_static::<FullyReadEventContent>().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id).await,
-                Err(error) => {
-                    error!(?error, "Failed to deserialize `m.fully_read` account data")
-                }
-            },
-            Err(error) => {
-                error!(?error, "Failed to get `m.fully_read` account data from the store")
-            }
-            _ => {}
-        }
-
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
             move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
@@ -123,17 +110,6 @@ impl Timeline {
         });
         let _timeline_event_handler_guard =
             room.client.event_handler_drop_guard(timeline_event_handle);
-
-        let fully_read_handle = room.add_event_handler({
-            let inner = inner.clone();
-            move |event| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_fully_read(event).await;
-                }
-            }
-        });
-        let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
@@ -187,10 +163,40 @@ impl Timeline {
             start_token: StdMutex::new(prev_token),
             _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
-            _fully_read_handler_guard,
+            _fully_read_handler_guard: None,
             #[cfg(feature = "e2e-encryption")]
             _room_key_handler_guard,
         }
+    }
+
+    /// Enable tracking of the fully-read marker on this `Timeline`.
+    pub async fn with_fully_read_tracking(mut self) -> Self {
+        match self.room.account_data_static::<FullyReadEventContent>().await {
+            Ok(Some(fully_read)) => match fully_read.deserialize() {
+                Ok(fully_read) => {
+                    self.inner.set_fully_read_event(fully_read.content.event_id).await
+                }
+                Err(error) => {
+                    error!(?error, "Failed to deserialize `m.fully_read` account data")
+                }
+            },
+            Err(error) => {
+                error!(?error, "Failed to get `m.fully_read` account data from the store")
+            }
+            _ => {}
+        }
+
+        let inner = self.inner.clone();
+        let fully_read_handle = self.room.add_event_handler(move |event| {
+            let inner = inner.clone();
+            async move {
+                inner.handle_fully_read(event).await;
+            }
+        });
+        self._fully_read_handler_guard =
+            Some(self.room.client.event_handler_drop_guard(fully_read_handle));
+
+        self
     }
 
     /// Add more events to the start of the timeline.
