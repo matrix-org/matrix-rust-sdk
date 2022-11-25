@@ -61,7 +61,7 @@ impl SlidingSyncState {
         {
             let current_timeline = self.current_timeline.clone();
             let handle = tokio::spawn(async move {
-                let timeline = room.timeline().await;
+                let timeline = room.timeline().await.unwrap();
                 let listener = timeline.stream();
                 pin_mut!(listener);
                 while let Some(diff) = listener.next().await {
