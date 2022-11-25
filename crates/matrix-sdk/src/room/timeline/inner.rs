@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use futures_signals::signal_vec::{MutableVec, MutableVecLockMut};
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
@@ -91,15 +91,14 @@ impl TimelineInner {
 
     pub(super) async fn handle_back_paginated_event(
         &self,
-        raw: Raw<AnySyncTimelineEvent>,
-        encryption_info: Option<EncryptionInfo>,
+        event: TimelineEvent,
         own_user_id: &UserId,
     ) {
         let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
-            raw,
+            event.event.cast(),
             own_user_id,
-            encryption_info,
+            event.encryption_info,
             TimelineItemPosition::Start,
             &mut self.items.lock_mut(),
             &mut metadata_lock,

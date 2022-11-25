@@ -212,13 +212,7 @@ impl Timeline {
 
         let own_user_id = self.room.own_user_id();
         for room_ev in messages.chunk {
-            self.inner
-                .handle_back_paginated_event(
-                    room_ev.event.cast(),
-                    room_ev.encryption_info,
-                    own_user_id,
-                )
-                .await;
+            self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
 
         Ok(outcome)
