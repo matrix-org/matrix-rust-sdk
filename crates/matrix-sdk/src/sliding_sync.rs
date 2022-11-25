@@ -220,6 +220,10 @@ impl SlidingSyncRoom {
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
+        self.timeline_no_fully_read_tracking().await.with_fully_read_tracking().await
+    }
+
+    async fn timeline_no_fully_read_tracking(&self) -> Timeline {
         let current_timeline = self.timeline.lock_ref().to_vec();
         let prev_batch = self.prev_batch.lock_ref().clone();
         let room = self.client.get_room(&self.room_id).unwrap();
