@@ -61,7 +61,7 @@ pub use self::{
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner,
+    inner: Arc<TimelineInner>,
     room: room::Common,
     start_token: StdMutex<Option<String>>,
     _end_token: StdMutex<Option<String>>,
@@ -82,22 +82,18 @@ struct TimelineInnerMetadata {
 
 impl Timeline {
     pub(super) async fn new(room: &room::Common) -> Self {
-        Self::with_events(room, None, Vec::new()).await
+        Self::with_events(room, None, Vec::new())
     }
 
-    pub(crate) async fn with_events(
+    pub(crate) fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
         events: Vec<SyncTimelineEvent>,
     ) -> Self {
-        let inner = TimelineInner::default();
-        let own_user_id = room.own_user_id();
+        let mut inner = TimelineInner::default();
+        inner.add_initial_events(events, room.own_user_id());
 
-        for ev in events.into_iter().rev() {
-            inner
-                .handle_back_paginated_event(ev.event.cast(), ev.encryption_info, own_user_id)
-                .await;
-        }
+        let inner = Arc::new(inner);
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
