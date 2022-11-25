@@ -43,7 +43,8 @@ pub(crate) mod tests {
     use ruma::{
         device_id, event_id,
         events::{
-            room::message::{Relation, Replacement, RoomMessageEventContent},
+            relation::Replacement,
+            room::message::{Relation, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,

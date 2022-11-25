@@ -18,11 +18,8 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
         use matrix_sdk::ruma::api::client::uiaa;
 
         if let Some(response) = e.as_uiaa_response() {
-            let mut password = uiaa::Password::new(
-                uiaa::UserIdentifier::UserIdOrLocalpart(user_id.as_str()),
-                &password,
-            );
-            password.session = response.session.as_deref();
+            let mut password = uiaa::Password::new(user_id.into(), password);
+            password.session = response.session.clone();
 
             client
                 .encryption()

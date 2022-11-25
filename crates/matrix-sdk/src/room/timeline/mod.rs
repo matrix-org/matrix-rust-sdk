@@ -29,10 +29,7 @@ use matrix_sdk_base::{
 };
 use ruma::{
     assign,
-    events::{
-        fully_read::FullyReadEventContent, reaction::Relation as AnnotationRelation,
-        AnyMessageLikeEventContent,
-    },
+    events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
 use tracing::{error, instrument, warn};
@@ -85,7 +82,7 @@ struct TimelineInner {
 #[derive(Debug, Default)]
 struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
-    reaction_map: HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: Option<OwnedEventId>,
     fully_read_event_in_timeline: bool,
 }
@@ -210,7 +207,7 @@ impl Timeline {
         let messages = self
             .room
             .messages(assign!(MessagesOptions::backward(), {
-                from: start.as_deref(),
+                from: start,
                 limit,
             }))
             .await?;

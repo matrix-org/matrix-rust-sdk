@@ -340,7 +340,6 @@ impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
         Self::Api(err.map(|e| match e {
             UiaaResponse::AuthResponse(i) => RumaApiError::Uiaa(i),
             UiaaResponse::MatrixError(e) => RumaApiError::ClientApi(e),
-            _ => unreachable!(),
         }))
     }
 }

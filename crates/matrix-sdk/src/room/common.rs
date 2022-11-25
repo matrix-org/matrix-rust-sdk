@@ -101,7 +101,7 @@ impl Common {
     ///
     /// Only invited and joined rooms can be left.
     pub(crate) async fn leave(&self) -> Result<Left> {
-        let request = leave_room::v3::Request::new(self.inner.room_id());
+        let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request, None).await?;
 
         let base_room = self.client.base_client().room_left(self.room_id()).await?;
@@ -112,7 +112,7 @@ impl Common {
     ///
     /// Only invited and left rooms can be joined via this method.
     pub(crate) async fn join(&self) -> Result<Joined> {
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id());
+        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request, None).await?;
         let base_room = self.client.base_client().room_joined(&response.room_id).await?;
         Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)
@@ -194,7 +194,7 @@ impl Common {
     /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
-    pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
+    pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
         let http_response = self.client.send(request, None).await?;
@@ -273,7 +273,8 @@ impl Common {
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
-        let request = get_room_event::v3::Request::new(self.room_id(), event_id);
+        let request =
+            get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
@@ -311,7 +312,7 @@ impl Common {
 
             let _guard = mutex.lock().await;
 
-            let request = get_member_events::v3::Request::new(self.inner.room_id());
+            let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
             let response =
@@ -346,9 +347,9 @@ impl Common {
             let _guard = mutex.lock().await;
 
             let request = get_state_events_for_key::v3::Request::new(
-                self.inner.room_id(),
+                self.inner.room_id().to_owned(),
                 StateEventType::RoomEncryption,
-                "",
+                "".to_owned(),
             );
             let response = match self.client.send(request, None).await {
                 Ok(response) => {
@@ -746,8 +747,12 @@ impl Common {
         tag_info: TagInfo,
     ) -> HttpResult<create_tag::v3::Response> {
         let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
-        let request =
-            create_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref(), tag_info);
+        let request = create_tag::v3::Request::new(
+            user_id.to_owned(),
+            self.inner.room_id().to_owned(),
+            tag.to_string(),
+            tag_info,
+        );
         self.client.send(request, None).await
     }
 
@@ -759,7 +764,11 @@ impl Common {
     /// * `tag` - The tag to remove.
     pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
         let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref());
+        let request = delete_tag::v3::Request::new(
+            user_id.to_owned(),
+            self.inner.room_id().to_owned(),
+            tag.to_string(),
+        );
         self.client.send(request, None).await
     }
 
@@ -803,7 +812,7 @@ impl Common {
             content.retain(|_, list| !list.is_empty());
         }
 
-        let request = set_global_account_data::v3::Request::new(user_id, &content)?;
+        let request = set_global_account_data::v3::Request::new(user_id.to_owned(), &content)?;
 
         self.client.send(request, None).await?;
         Ok(())
@@ -971,7 +980,7 @@ impl Common {
 /// for details.
 #[derive(Debug)]
 #[non_exhaustive]
-pub struct MessagesOptions<'a> {
+pub struct MessagesOptions {
     /// The token to start returning events from.
     ///
     /// This token can be obtained from a `prev_batch` token returned for each
@@ -981,14 +990,14 @@ pub struct MessagesOptions<'a> {
     /// If `from` isn't provided the homeserver shall return a list of messages
     /// from the first or last (per the value of the dir parameter) visible
     /// event in the room history for the requesting user.
-    pub from: Option<&'a str>,
+    pub from: Option<String>,
 
     /// The token to stop returning events at.
     ///
     /// This token can be obtained from a `prev_batch` token returned for each
     /// room by the sync API, or from a start or end token returned by a
     /// previous `messages` call.
-    pub to: Option<&'a str>,
+    pub to: Option<String>,
 
     /// The direction to return events in.
     pub dir: Direction,
@@ -999,10 +1008,10 @@ pub struct MessagesOptions<'a> {
     pub limit: UInt,
 
     /// A [`RoomEventFilter`] to filter returned events with.
-    pub filter: RoomEventFilter<'a>,
+    pub filter: RoomEventFilter,
 }
 
-impl<'a> MessagesOptions<'a> {
+impl MessagesOptions {
     /// Creates `MessagesOptions` with the given direction.
     ///
     /// All other parameters will be defaulted.
@@ -1032,12 +1041,12 @@ impl<'a> MessagesOptions<'a> {
     /// Since the field is public, you can also assign to it directly. This
     /// method merely acts as a shorthand for that, because it is very
     /// common to set this field.
-    pub fn from(self, from: impl Into<Option<&'a str>>) -> Self {
-        Self { from: from.into(), ..self }
+    pub fn from<'a>(self, from: impl Into<Option<&'a str>>) -> Self {
+        Self { from: from.into().map(ToOwned::to_owned), ..self }
     }
 
-    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
-        assign!(get_message_events::v3::Request::new(room_id, self.dir), {
+    fn into_request(self, room_id: &RoomId) -> get_message_events::v3::Request {
+        assign!(get_message_events::v3::Request::new(room_id.to_owned(), self.dir), {
             from: self.from,
             to: self.to,
             limit: self.limit,

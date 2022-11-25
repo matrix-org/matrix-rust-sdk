@@ -171,7 +171,7 @@ mod handlers {
 
     pub async fn user(
         Extension(appservice): Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<query_user_id::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<query_user_id::v1::Request>,
     ) -> impl IntoResponse {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
             if user_exists(appservice.clone(), request).await {
@@ -186,7 +186,7 @@ mod handlers {
 
     pub async fn room(
         Extension(appservice): Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<query_room_alias::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<query_room_alias::v1::Request>,
     ) -> impl IntoResponse {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
             if room_exists(appservice.clone(), request).await {
@@ -201,7 +201,7 @@ mod handlers {
 
     pub async fn transaction(
         appservice: Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<push_events::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<push_events::v1::Request>,
     ) -> impl IntoResponse {
         match appservice.receive_transaction(request).await {
             Ok(_) => Ok(Json(&EmptyObject {})),

@@ -26,16 +26,17 @@ use ruma::RoomId;
 use ruma::{
     events::{
         fully_read::FullyReadEvent,
-        reaction::{ReactionEventContent, Relation as AnnotationRelation},
+        reaction::ReactionEventContent,
+        relation::{Annotation, Replacement},
         room::{
             encrypted::{self, RoomEncryptedEventContent},
-            message::{self, MessageType, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
         },
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, MessageLikeEventType, Relations, StateEventType,
+        AnySyncTimelineEvent, BundledRelations, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -326,7 +327,7 @@ impl Flow {
 struct TimelineEventMetadata {
     sender: OwnedUserId,
     is_own_event: bool,
-    relations: Option<Relations>,
+    relations: Option<BundledRelations>,
     encryption_info: Option<EncryptionInfo>,
 }
 
@@ -417,7 +418,7 @@ struct TimelineEventHandler<'a, 'i> {
     meta: TimelineEventMetadata,
     flow: Flow,
     timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
-    reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     event_added: bool,
@@ -747,7 +748,7 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
+    fn message(c: RoomMessageEventContent, relations: Option<BundledRelations>) -> Self {
         let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,

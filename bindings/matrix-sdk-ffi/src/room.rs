@@ -11,9 +11,11 @@ use matrix_sdk::{
         Room as SdkRoom,
     },
     ruma::{
-        events::room::message::{
-            ForwardThread, MessageType, Relation, Replacement, RoomMessageEvent,
-            RoomMessageEventContent,
+        events::{
+            relation::Replacement,
+            room::message::{
+                ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
+            },
         },
         EventId, UserId,
     },

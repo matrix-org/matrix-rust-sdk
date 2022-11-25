@@ -73,7 +73,7 @@ impl Media {
     /// # let mut client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// let response = client.media().upload(&mime::IMAGE_JPEG, &image).await?;
+    /// let response = client.media().upload(&mime::IMAGE_JPEG, image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) });
@@ -81,7 +81,7 @@ impl Media {
     pub async fn upload(
         &self,
         content_type: &Mime,
-        data: &[u8],
+        data: Vec<u8>,
     ) -> Result<create_content::v3::Response> {
         let timeout = std::cmp::max(
             Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
@@ -89,7 +89,7 @@ impl Media {
         );
 
         let request = assign!(create_content::v3::Request::new(data), {
-            content_type: Some(content_type.essence_str()),
+            content_type: Some(content_type.essence_str().to_owned()),
         });
 
         let request_config = self.client.request_config().timeout(timeout);
@@ -287,12 +287,12 @@ impl Media {
         &self,
         body: &str,
         content_type: &Mime,
-        data: &[u8],
+        data: Vec<u8>,
         info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_>>,
+        thumbnail: Option<Thumbnail>,
     ) -> Result<ruma::events::room::message::MessageType> {
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self.upload(thumbnail.content_type, thumbnail.data).await?;
+            let response = self.upload(&thumbnail.content_type, thumbnail.data).await?;
             let url = response.content_uri;
 
             use ruma::events::room::ThumbnailInfo;

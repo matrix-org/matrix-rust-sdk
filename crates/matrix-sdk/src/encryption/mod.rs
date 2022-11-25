@@ -115,9 +115,9 @@ impl Client {
         &self,
         body: &str,
         content_type: &mime::Mime,
-        data: &[u8],
+        data: Vec<u8>,
         info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_>>,
+        thumbnail: Option<Thumbnail>,
     ) -> Result<ruma::events::room::message::MessageType> {
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let mut cursor = Cursor::new(thumbnail.data);
@@ -126,7 +126,7 @@ impl Client {
             let mut buf = Vec::new();
             encryptor.read_to_end(&mut buf)?;
 
-            let response = self.media().upload(thumbnail.content_type, &buf).await?;
+            let response = self.media().upload(&thumbnail.content_type, buf).await?;
 
             let file: ruma::events::room::EncryptedFile = {
                 let keys = encryptor.finish();
@@ -158,7 +158,7 @@ impl Client {
         let mut buf = Vec::new();
         encryptor.read_to_end(&mut buf)?;
 
-        let response = self.media().upload(content_type, &buf).await?;
+        let response = self.media().upload(content_type, buf).await?;
 
         let file: ruma::events::room::EncryptedFile = {
             let keys = encryptor.finish();
@@ -233,7 +233,7 @@ impl Client {
 
         // First we create the DM room, where we invite the user and tell the
         // invitee that the room should be a DM.
-        let invite = &[user_id.clone()];
+        let invite = vec![user_id.clone()];
 
         let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
             invite,
@@ -339,8 +339,11 @@ impl Client {
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
         let event_type = request.event_type.to_string();
-        let request =
-            RumaToDeviceRequest::new_raw(&event_type, &request.txn_id, request.messages.clone());
+        let request = RumaToDeviceRequest::new_raw(
+            event_type,
+            request.txn_id.clone(),
+            request.messages.clone(),
+        );
 
         self.send(request, None).await
     }
@@ -416,8 +419,8 @@ impl Client {
         request: &matrix_sdk_base::crypto::KeysBackupRequest,
     ) -> Result<KeysBackupResponse> {
         let request = ruma::api::client::backup::add_backup_keys::v3::Request::new(
-            &request.version,
-            request.rooms.to_owned(),
+            request.version.clone(),
+            request.rooms.clone(),
         );
 
         Ok(self.send(request, None).await?)
@@ -673,10 +676,10 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///             "wordpass",
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             "wordpass".to_owned(),
     ///         );
-    ///         password.session = response.session.as_deref();
+    ///         password.session = response.session.clone();
     ///
     ///         client
     ///             .encryption()
@@ -688,7 +691,7 @@ impl Encryption {
     ///     }
     /// }
     /// # anyhow::Ok(()) });
-    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
+    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData>) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
@@ -847,7 +850,7 @@ mod tests {
     use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
     use ruma::{
         event_id,
-        events::reaction::{ReactionEventContent, Relation},
+        events::{reaction::ReactionEventContent, relation::Annotation},
     };
     use serde_json::json;
     use wiremock::{
@@ -898,7 +901,7 @@ mod tests {
         assert!(room.is_encrypted().await.expect("Getting encryption state"));
 
         let event_id = event_id!("$1:example.org");
-        let reaction = ReactionEventContent::new(Relation::new(event_id.into(), "🐈".to_owned()));
+        let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));
         room.send(reaction, None).await.expect("Sending the reaction should not fail");
 
         room.send_raw(json!({}), "m.reaction", None)

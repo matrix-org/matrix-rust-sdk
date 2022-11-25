@@ -29,8 +29,8 @@ pub(crate) type AppserviceFn<A, R> =
 
 #[derive(Default, Clone)]
 pub struct EventHandler {
-    pub users: Arc<Mutex<Option<AppserviceFn<query_user::IncomingRequest, bool>>>>,
-    pub rooms: Arc<Mutex<Option<AppserviceFn<query_room::IncomingRequest, bool>>>>,
+    pub users: Arc<Mutex<Option<AppserviceFn<query_user::Request, bool>>>>,
+    pub rooms: Arc<Mutex<Option<AppserviceFn<query_room::Request, bool>>>>,
 }
 
 impl std::fmt::Debug for EventHandler {
