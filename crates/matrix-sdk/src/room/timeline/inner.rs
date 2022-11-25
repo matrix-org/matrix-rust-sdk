@@ -1,11 +1,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_signals::signal_vec::{MutableVec, MutableVecLockMut};
-use matrix_sdk_base::{
-    crypto::OlmMachine,
-    deserialized_responses::EncryptionInfo,
-    locks::{Mutex, MutexGuard},
-};
+use matrix_sdk_base::{crypto::OlmMachine, deserialized_responses::EncryptionInfo, locks::Mutex};
 use ruma::{
     events::{fully_read::FullyReadEvent, AnyMessageLikeEventContent, AnySyncTimelineEvent},
     serde::Raw,
@@ -198,7 +194,7 @@ fn handle_remote_event(
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
-    timeline_meta: &mut MutexGuard<'_, TimelineInnerMetadata>,
+    timeline_meta: &mut TimelineInnerMetadata,
 ) {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
