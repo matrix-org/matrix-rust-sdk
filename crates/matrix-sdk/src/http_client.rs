@@ -170,7 +170,11 @@ impl HttpClient {
             use std::sync::atomic::{AtomicU64, Ordering};
 
             use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-            use ruma::api::client::error::ErrorKind as ClientApiErrorKind;
+            use ruma::api::client::error::{
+                ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
+            };
+
+            use crate::RumaApiError;
 
             let backoff =
                 ExponentialBackoff { max_elapsed_time: config.retry_timeout, ..Default::default() };
@@ -188,11 +192,32 @@ impl HttpClient {
                     RetryError::Permanent
                 } else {
                     |err: HttpError| {
-                        let retry_after = err.client_api_error_kind().and_then(|kind| match kind {
-                            ClientApiErrorKind::LimitExceeded { retry_after_ms } => *retry_after_ms,
-                            _ => None,
-                        });
-                        RetryError::Transient { err, retry_after }
+                        if let Some(api_error) = err.as_ruma_api_error() {
+                            let status_code = match api_error {
+                                RumaApiError::ClientApi(e) => match e.body {
+                                    ClientApiErrorBody::Standard {
+                                        kind: ClientApiErrorKind::LimitExceeded { retry_after_ms },
+                                        ..
+                                    } => {
+                                        return RetryError::Transient {
+                                            err,
+                                            retry_after: retry_after_ms,
+                                        };
+                                    }
+                                    _ => Some(e.status_code),
+                                },
+                                RumaApiError::Uiaa(_) => None,
+                                RumaApiError::Other(e) => Some(e.status_code),
+                            };
+
+                            if let Some(status_code) = status_code {
+                                if status_code.is_server_error() {
+                                    return RetryError::Transient { err, retry_after: None };
+                                }
+                            }
+                        }
+
+                        RetryError::Permanent(err)
                     }
                 };
 
