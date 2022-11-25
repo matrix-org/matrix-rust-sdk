@@ -16,7 +16,7 @@ use ruma::{
         },
         media::get_content_thumbnail::v3::Method,
         session::get_login_types::v3::LoginType,
-        uiaa::{self, UiaaResponse},
+        uiaa,
     },
     assign, device_id,
     directory::Filter,
@@ -229,11 +229,7 @@ async fn register_error() {
     });
 
     if let Err(err) = client.register(user).await {
-        if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-            status_code,
-            body,
-        }))) = err.as_ruma_api_error()
-        {
+        if let Some(client_api::Error { status_code, body }) = err.as_client_api_error() {
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
             if let client_api::error::ErrorBody::Standard { kind, message } = body {
                 if *kind != client_api::error::ErrorKind::Forbidden {
