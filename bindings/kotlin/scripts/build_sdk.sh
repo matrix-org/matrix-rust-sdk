@@ -29,29 +29,24 @@ AAR_DESTINATION=$1
 
 # Build libs for all the different architectures
 
-echo -e "Building for x86_64-linux-android[1/5]"
+echo -e "Building for x86_64-linux-android[1/4]"
 cargo ndk --target x86_64-linux-android -o ${SDK_TARGET_DIR}/ build "${RELEASE_FLAG}" -p matrix-sdk-ffi
 
-echo -e "Building for aarch64-linux-android[2/5]"
+echo -e "Building for aarch64-linux-android[2/4]"
 cargo ndk --target aarch64-linux-android -o ${SDK_TARGET_DIR}/ build "${RELEASE_FLAG}" -p matrix-sdk-ffi
 
-echo -e "Building for armv7-linux-androideabi[3/5]"
+echo -e "Building for armv7-linux-androideabi[3/4]"
 cargo ndk --target armv7-linux-androideabi -o ${SDK_TARGET_DIR}/ build "${RELEASE_FLAG}" -p matrix-sdk-ffi
 
-echo -e "Building for i686-linux-android[4/5]"
+echo -e "Building for i686-linux-android[4/4]"
 cargo ndk --target i686-linux-android -o ${SDK_TARGET_DIR}/ build "${RELEASE_FLAG}" -p matrix-sdk-ffi
-
-# this one is used only for the uniffi-bindgen --lib-file parameter
-# as it doesn't work with the generated .so file from cargo ndk
-echo -e "Building for aarch64-apple-darwin[5/5]"
-cargo build -p matrix-sdk-ffi ${RELEASE_FLAG} --target "aarch64-apple-darwin"
 
 # Generate uniffi files
 echo -e "Generate uniffi kotlin file"
 uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" \
   --language kotlin \
   --out-dir ${GENERATED_DIR} \
-  --lib-file "${BASE_TARGET_DIR}/aarch64-apple-darwin/${RELEASE_TYPE_DIR}/libmatrix_sdk_ffi.a"
+  --lib-file "${BASE_TARGET_DIR}/x86_64-linux-android/${RELEASE_TYPE_DIR}/libmatrix_sdk_ffi.a"
   
 # Create android library
 cd "${KOTLIN_ROOT}"
