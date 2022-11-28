@@ -143,6 +143,22 @@ impl ClientBuilder {
         self
     }
 
+    /// Set up the store configuration for a redis store.
+    ///
+    /// This is a shorthand for
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_redis]::[make_store_config](matrix_sdk_redis::make_store_config)(path, passphrase)?)</code>.
+    #[cfg(feature = "redis")]
+    pub async fn redis_store(
+        self,
+        redis_url: &str,
+        passphrase: Option<&str>,
+        redis_prefix: &str,
+    ) -> Result<Self, matrix_sdk_redis::OpenStoreError> {
+        let config =
+            matrix_sdk_redis::make_store_config(redis_url, passphrase, redis_prefix).await?;
+        Ok(self.store_config(config))
+    }
+
     /// Set up the store configuration for a IndexedDB store.
     ///
     /// This is the same as

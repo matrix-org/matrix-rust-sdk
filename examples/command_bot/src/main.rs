@@ -34,15 +34,25 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
+    device_id: Option<String>,
 ) -> anyhow::Result<()> {
     #[allow(unused_mut)]
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
+    // TODO: sled feature is not actually working!
     #[cfg(feature = "sled")]
     {
         // The location to save files to
         let home = dirs::home_dir().expect("no home directory found").join("party_bot");
         client_builder = client_builder.sled_store(home, None)?;
+    }
+
+    #[cfg(feature = "redis")]
+    {
+        println!("Creating a Redis store on 127.0.0.1");
+        let redis_url = "redis://127.0.0.1/";
+        let redis_prefix = "party_bot";
+        client_builder = client_builder.redis_store(redis_url, None, redis_prefix).await?;
     }
 
     #[cfg(feature = "indexeddb")]
@@ -51,11 +61,12 @@ async fn login_and_sync(
     }
 
     let client = client_builder.build().await.unwrap();
-    client
-        .login_username(&username, &password)
-        .initial_device_display_name("command bot")
-        .send()
-        .await?;
+
+    let mut login = client.login_username(&username, &password);
+    if let Some(device_id) = &device_id {
+        login = login.device_id(device_id);
+    }
+    login.initial_device_display_name("command bot").send().await?;
 
     println!("logged in as {username}");
 
@@ -86,13 +97,17 @@ async fn main() -> anyhow::Result<()> {
             (Some(a), Some(b), Some(c)) => (a, b, c),
             _ => {
                 eprintln!(
-                    "Usage: {} <homeserver_url> <username> <password>",
+                    "Usage: {} \
+                        <homeserver_url> \
+                        <username> \
+                        <password> \
+                        [<device_id>]",
                     env::args().next().unwrap()
                 );
                 exit(1)
             }
         };
 
-    login_and_sync(homeserver_url, username, password).await?;
+    login_and_sync(homeserver_url, username, password, env::args().nth(4)).await?;
     Ok(())
 }

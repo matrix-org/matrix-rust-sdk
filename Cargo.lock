@@ -1476,6 +1476,7 @@ name = "example-command-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2889,6 +2890,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
 ]
 

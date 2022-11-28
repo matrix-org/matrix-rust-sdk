@@ -10,9 +10,15 @@ test = false
 
 [dependencies]
 anyhow = "1"
+dirs = { version = "4.0.0", optional = true }
 tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
 url = "2.2.2"
+
+[features]
+default = []
+redis = ["matrix-sdk/redis"]
+sled = ["matrix-sdk/sled", "dep:dirs"]
 
 [dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"

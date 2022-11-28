@@ -155,9 +155,10 @@ where
     C: RedisClientShim,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RedisStore")
-            .field("redis_url", &self.client.get_connection_info().redis)
+        f.debug_struct("RedisStore<C>")
+            .field("client.get_connection_info().redis", &self.client.get_connection_info().redis)
             .field("key_prefix", &self.key_prefix)
+            .field("account_info", &self.account_info)
             .finish()
     }
 }
