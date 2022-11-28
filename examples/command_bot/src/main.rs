@@ -62,14 +62,14 @@ async fn login_and_sync(
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the
     // initial sync will be skipped in favor of loading state from the store
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.
     client.add_event_handler(on_room_message);
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     // this keeps state from the server streaming in to CommandBot via the
     // EventHandler trait
     client.sync(settings).await?;

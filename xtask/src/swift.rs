@@ -179,6 +179,13 @@ fn build_xcframework(
 
     rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
 
+    // Move and rename the module map to `module.modulemap` to match what
+    // the xcframework expects
+    rename(
+        generated_dir.join("matrix_sdk_ffiFFI.modulemap"),
+        headers_dir.join("module.modulemap"),
+    )?;
+
     rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
 
     println!("-- Generate MatrixSDKFFI.xcframework framework");
@@ -207,16 +214,11 @@ fn build_xcframework(
         }
         create_dir_all(framework_target.as_path())?;
         create_dir_all(swift_target.as_path())?;
-        fs_extra::dir::copy(
-            xcframework_path.as_path(),
-            framework_target.as_path(),
-            &fs_extra::dir::CopyOptions::default(),
-        )?;
-        fs_extra::dir::copy(
-            swift_dir.as_path(),
-            framework_target.as_path(),
-            &fs_extra::dir::CopyOptions::default(),
-        )?;
+
+        let copy_options = fs_extra::dir::CopyOptions { content_only: true, ..Default::default() };
+
+        fs_extra::dir::copy(xcframework_path.as_path(), framework_target.as_path(), &copy_options)?;
+        fs_extra::dir::copy(swift_dir.as_path(), swift_target.as_path(), &copy_options)?;
     }
 
     println!("-- All done and hunky dory. Enjoy!");

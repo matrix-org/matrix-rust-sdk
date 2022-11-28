@@ -514,13 +514,6 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    /// Create a new Store with the default `MemoryStore`
-    pub fn open_memory_store() -> Self {
-        let inner = Arc::new(MemoryStore::new());
-
-        Self::new(inner)
-    }
-
     /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
@@ -822,11 +815,11 @@ impl StateChanges {
 ///
 /// let store_config = StoreConfig::new();
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Option<Arc<dyn CryptoStore>>,
-    pub(crate) state_store: Option<Arc<dyn StateStore>>,
+    pub(crate) crypto_store: Arc<dyn CryptoStore>,
+    pub(crate) state_store: Arc<dyn StateStore>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -840,7 +833,11 @@ impl StoreConfig {
     /// Create a new default `StoreConfig`.
     #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            #[cfg(feature = "e2e-encryption")]
+            crypto_store: Arc::new(matrix_sdk_crypto::store::MemoryStore::new()),
+            state_store: Arc::new(MemoryStore::new()),
+        }
     }
 
     /// Set a custom implementation of a `CryptoStore`.
@@ -848,13 +845,19 @@ impl StoreConfig {
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: impl IntoCryptoStore) -> Self {
-        self.crypto_store = Some(store.into_crypto_store());
+        self.crypto_store = store.into_crypto_store();
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
-        self.state_store = Some(store.into_state_store());
+        self.state_store = store.into_state_store();
         self
+    }
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }

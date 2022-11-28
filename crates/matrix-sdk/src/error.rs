@@ -53,11 +53,11 @@ pub enum RumaApiError {
     /// A user-interactive authentication API error.
     ///
     /// When registering or authenticating, the Matrix server can send a
-    /// `UiaaResponse` as the error type, this is a User-Interactive
-    /// Authentication API response. This represents an error with
-    /// information about how to authenticate the user.
-    #[error(transparent)]
-    Uiaa(UiaaResponse),
+    /// `UiaaInfo` as the error type, this is a User-Interactive Authentication
+    /// API response. This represents an error with information about how to
+    /// authenticate the user.
+    #[error("User-Interactive Authentication required.")]
+    Uiaa(UiaaInfo),
 
     /// Another API response error.
     #[error(transparent)]
@@ -65,13 +65,12 @@ pub enum RumaApiError {
 }
 
 impl RumaApiError {
-    /// If `self` is `ClientApi(e)` or `Uiaa(MatrixError(e))`, returns
-    /// `Some(e)`.
+    /// If `self` is `ClientApi(e)`, returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
         match self {
-            Self::ClientApi(e) | Self::Uiaa(UiaaResponse::MatrixError(e)) => Some(e),
+            Self::ClientApi(e) => Some(e),
             _ => None,
         }
     }
@@ -153,7 +152,7 @@ impl HttpError {
     /// returned on the first, failed request.
     pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
         match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            Some(RumaApiError::Uiaa(i)) => Some(i),
             _ => None,
         }
     }
@@ -296,7 +295,7 @@ impl Error {
     /// returned on the first, failed request.
     pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
         match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
+            Some(RumaApiError::Uiaa(i)) => Some(i),
             _ => None,
         }
     }
@@ -338,7 +337,11 @@ impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
 
 impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
     fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(err.map(RumaApiError::Uiaa))
+        Self::Api(err.map(|e| match e {
+            UiaaResponse::AuthResponse(i) => RumaApiError::Uiaa(i),
+            UiaaResponse::MatrixError(e) => RumaApiError::ClientApi(e),
+            _ => unreachable!(),
+        }))
     }
 }
 

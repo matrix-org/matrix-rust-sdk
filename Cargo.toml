@@ -19,7 +19,7 @@ resolver = "2"
 rust-version = "1.65"
 
 [workspace.dependencies]
-ruma =  { git = "https://github.com/ruma/ruma", rev = "9c46d1143d067d9dd67b023994e6bfbbd319adda", features = ["client-api-c"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "9c46d1143d067d9dd67b023994e6bfbbd319adda", features = ["client-api-c"] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "9c46d1143d067d9dd67b023994e6bfbbd319adda" }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "779e955f21a70e4aba43a7408f1841dcdf728b32" }

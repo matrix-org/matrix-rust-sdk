@@ -5,10 +5,6 @@ use futures_signals::{
     signal_vec::{SignalVecExt, VecDiff},
 };
 use futures_util::{pin_mut, StreamExt};
-#[cfg(feature = "experimental-room-preview")]
-use matrix_sdk::ruma::events::{
-    room::message::SyncRoomMessageEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -23,9 +19,7 @@ pub use matrix_sdk::{
 use tokio::task::JoinHandle;
 
 use super::{Client, Room, RUNTIME};
-use crate::helpers::unwrap_or_clone_arc;
-#[cfg(feature = "experimental-room-preview")]
-use crate::EventTimelineItem;
+use crate::{helpers::unwrap_or_clone_arc, EventTimelineItem};
 
 pub struct StoppableSpawn {
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
@@ -126,25 +120,14 @@ impl SlidingSyncRoom {
     }
 }
 
-#[cfg(feature = "experimental-room-preview")]
 #[uniffi::export]
 impl SlidingSyncRoom {
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        let messages = self.inner.timeline();
-        // room is having the latest events at the end,
-        let lock = messages.lock_ref();
-        for ev in lock.iter().rev() {
-            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-                SyncRoomMessageEvent::Original(o),
-            ))) = ev.event.deserialize()
-            {
-                let inner =
-                    matrix_sdk::room::timeline::EventTimelineItem::_new(o, ev.event.clone());
-                return Some(Arc::new(EventTimelineItem(inner)));
-            }
-        }
-        None
+        RUNTIME.block_on(async {
+            let item = self.inner.timeline().await.latest()?.as_event()?.to_owned();
+            Some(Arc::new(EventTimelineItem(item)))
+        })
     }
 }
 

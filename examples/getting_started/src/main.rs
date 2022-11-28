@@ -90,7 +90,7 @@ async fn login_and_sync(
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the
     // initial sync will be skipped in favor of loading state from the store
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     // now that we've synced, let's attach a handler for incoming room messages, so
     // we can react on it
@@ -98,7 +98,7 @@ async fn login_and_sync(
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(sync_token);
     // this keeps state from the server streaming in to the bot via the
     // EventHandler trait
     client.sync(settings).await?; // this essentially loops until we kill the bot

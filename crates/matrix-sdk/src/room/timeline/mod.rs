@@ -18,12 +18,15 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex as StdMutex},
 };
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    locks::Mutex,
+};
 use ruma::{
     assign,
     events::{
@@ -64,28 +67,51 @@ pub use self::{
 pub struct Timeline {
     inner: TimelineInner,
     room: room::Common,
-    start_token: Mutex<Option<String>>,
-    _end_token: Mutex<Option<String>>,
+    start_token: StdMutex<Option<String>>,
+    _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
     _fully_read_handler_guard: EventHandlerDropGuard,
+    #[cfg(feature = "e2e-encryption")]
+    _room_key_handler_guard: EventHandlerDropGuard,
 }
 
 #[derive(Clone, Debug, Default)]
 struct TimelineInner {
     items: MutableVec<Arc<TimelineItem>>,
+    metadata: Arc<Mutex<TimelineInnerMetadata>>,
+}
+
+/// Non-signalling parts of `TimelineInner`.
+#[derive(Debug, Default)]
+struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
-    reaction_map: Arc<Mutex<HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>>>,
-    fully_read_event: Arc<Mutex<Option<OwnedEventId>>>,
-    fully_read_event_in_timeline: Arc<Mutex<bool>>,
+    reaction_map: HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    fully_read_event: Option<OwnedEventId>,
+    fully_read_event_in_timeline: bool,
 }
 
 impl Timeline {
     pub(super) async fn new(room: &room::Common) -> Self {
+        Self::with_events(room, None, Vec::new()).await
+    }
+
+    pub(crate) async fn with_events(
+        room: &room::Common,
+        prev_token: Option<String>,
+        events: Vec<SyncTimelineEvent>,
+    ) -> Self {
         let inner = TimelineInner::default();
+        let own_user_id = room.own_user_id();
+
+        for ev in events.into_iter().rev() {
+            inner
+                .handle_back_paginated_event(ev.event.cast(), ev.encryption_info, own_user_id)
+                .await;
+        }
 
         match room.account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id),
+                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id).await,
                 Err(error) => {
                     error!(?error, "Failed to deserialize `m.fully_read` account data")
                 }
@@ -101,7 +127,7 @@ impl Timeline {
             move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_live_event(event, encryption_info, room.own_user_id());
+                    inner.handle_live_event(event, encryption_info, room.own_user_id()).await;
                 }
             }
         });
@@ -113,19 +139,67 @@ impl Timeline {
             move |event| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_fully_read(event);
+                    inner.handle_fully_read(event).await;
                 }
             }
         });
         let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
 
+        // Not using room.add_event_handler here because RoomKey events are
+        // to-device events that are not received in the context of a room.
+        #[cfg(feature = "e2e-encryption")]
+        let room_id = room.room_id().to_owned();
+        #[cfg(feature = "e2e-encryption")]
+        let room_key_handle = room.client.add_event_handler({
+            use std::iter;
+
+            use ruma::events::room_key::ToDeviceRoomKeyEvent;
+
+            use crate::Client;
+
+            let inner = inner.clone();
+            move |event: ToDeviceRoomKeyEvent, client: Client| {
+                let inner = inner.clone();
+                let room_id = room_id.clone();
+                async move {
+                    if event.content.room_id != room_id {
+                        return;
+                    }
+
+                    let Some(olm_machine) = client.olm_machine() else {
+                        error!("The olm machine isn't yet available");
+                        return;
+                    };
+
+                    let session_id = event.content.session_id;
+                    let Some(own_user_id) = client.user_id() else {
+                        error!("The user's own ID isn't available");
+                        return;
+                    };
+
+                    inner
+                        .retry_event_decryption(
+                            &room_id,
+                            olm_machine,
+                            iter::once(session_id.as_str()).collect(),
+                            own_user_id,
+                        )
+                        .await;
+                }
+            }
+        });
+        #[cfg(feature = "e2e-encryption")]
+        let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
+
         Timeline {
             inner,
             room: room.clone(),
-            start_token: Mutex::new(None),
-            _end_token: Mutex::new(None),
+            start_token: StdMutex::new(prev_token),
+            _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
             _fully_read_handler_guard,
+            #[cfg(feature = "e2e-encryption")]
+            _room_key_handler_guard,
         }
     }
 
@@ -146,14 +220,62 @@ impl Timeline {
 
         let own_user_id = self.room.own_user_id();
         for room_ev in messages.chunk {
-            self.inner.handle_back_paginated_event(
-                room_ev.event.cast(),
-                room_ev.encryption_info,
-                own_user_id,
-            );
+            self.inner
+                .handle_back_paginated_event(
+                    room_ev.event.cast(),
+                    room_ev.encryption_info,
+                    own_user_id,
+                )
+                .await;
         }
 
         Ok(outcome)
+    }
+
+    /// Retry decryption of previously un-decryptable events given a list of
+    /// session IDs whose keys have been imported.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     room::timeline::Timeline, ruma::room_id,
+    /// # };
+    /// # async {
+    /// # let mut client: Client = todo!();
+    /// # let room_id = ruma::room_id!("!example:example.org");
+    /// # let timeline: Timeline = todo!();
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// let result =
+    ///     client.encryption().import_room_keys(path, "secret-passphrase").await?;
+    ///
+    /// // Given a timeline for a specific room_id
+    /// if let Some(keys_for_users) = result.keys.get(room_id) {
+    ///     let session_ids = keys_for_users.values().flatten();
+    ///     timeline.retry_decryption(session_ids).await;
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn retry_decryption<'a, S: AsRef<str> + 'a>(
+        &'a self,
+        session_ids: impl IntoIterator<Item = &'a S>,
+    ) {
+        self.inner
+            .retry_event_decryption(
+                self.room.room_id(),
+                self.room.client.olm_machine().expect("Olm machine wasn't started"),
+                session_ids.into_iter().map(AsRef::as_ref).collect(),
+                self.room.own_user_id(),
+            )
+            .await;
+    }
+
+    /// Get the latest of the timeline's items.
+    pub fn latest(&self) -> Option<Arc<TimelineItem>> {
+        self.inner.items.lock_ref().last().cloned()
     }
 
     /// Get a signal of the timeline's items.
@@ -207,7 +329,9 @@ impl Timeline {
         txn_id: Option<&TransactionId>,
     ) -> Result<()> {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        self.inner.handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id());
+        self.inner
+            .handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id())
+            .await;
 
         // If this room isn't actually in joined state, we'll get a server error.
         // Not ideal, but works for now.
@@ -262,7 +386,7 @@ fn find_event(
         .rfind(|(_, it)| key == it.key)
 }
 
-fn find_fully_read(lock: &[Arc<TimelineItem>]) -> Option<usize> {
+fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
     lock.iter()
         .enumerate()
         .rfind(|(_, item)| {

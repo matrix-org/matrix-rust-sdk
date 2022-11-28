@@ -82,7 +82,7 @@ async fn on_ping_event(event: SyncPingEvent, room: Room) {
 async fn sync_loop(client: Client) -> anyhow::Result<()> {
     // invite acceptance as in the getting-started-client
     client.add_event_handler(on_stripped_state_member);
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
     // our customisation:
     //  - send `PingEvent` on `!ping` in any room
@@ -90,7 +90,7 @@ async fn sync_loop(client: Client) -> anyhow::Result<()> {
     //  - send `AckEvent` on `PingEvent` in any room
     client.add_event_handler(on_ping_event);
 
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?; // this essentially loops until we kill the bot
 
     Ok(())

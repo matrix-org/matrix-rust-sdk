@@ -27,9 +27,10 @@ pub use error::{
 };
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
-pub use machine::{KeyRequestPair, OlmMachine};
+pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
+    backups::SignatureState,
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };

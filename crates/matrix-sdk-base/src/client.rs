@@ -25,8 +25,7 @@ use futures_signals::signal::ReadOnlyMutable;
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
+    store::CryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -108,15 +107,10 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "e2e-encryption")]
-        let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
-
         BaseClient {
-            store,
+            store: Store::new(config.state_store),
             #[cfg(feature = "e2e-encryption")]
-            crypto_store,
+            crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
         }
@@ -654,7 +648,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
+            return Ok(SyncResponse::default());
         }
 
         let now = Instant::now();
@@ -845,7 +839,6 @@ impl BaseClient {
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch,
             rooms: new_rooms,
             presence,
             account_data: account_data.events,

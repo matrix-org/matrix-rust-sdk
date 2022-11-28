@@ -949,9 +949,9 @@ struct Ready {
 }
 
 impl RequestState<Ready> {
-    fn to_started_sas<'a>(
+    fn to_started_sas(
         &self,
-        content: &StartContent<'a>,
+        content: &StartContent<'_>,
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: RequestHandle,

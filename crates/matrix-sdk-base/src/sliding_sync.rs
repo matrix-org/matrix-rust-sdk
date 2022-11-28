@@ -232,7 +232,6 @@ impl BaseClient {
         tracing::debug!("applied changes");
 
         Ok(SyncResponse {
-            next_batch: "test".into(),
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications: changes.notifications,
