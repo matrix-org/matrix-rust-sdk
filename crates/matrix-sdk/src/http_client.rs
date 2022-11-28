@@ -297,7 +297,10 @@ impl HttpSettings {
             let user_agent =
                 self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
 
-            http_client = http_client.user_agent(user_agent).timeout(self.timeout);
+            http_client = http_client
+                .user_agent(user_agent)
+                .timeout(self.timeout)
+                .http2_keep_alive_interval(Some(Duration::from_secs(30u64)));
         };
 
         Ok(http_client.build()?)
