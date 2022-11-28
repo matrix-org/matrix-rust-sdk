@@ -359,7 +359,10 @@ impl SlidingSyncConfig {
                     }
                 }
 
-                f.rooms.into_iter().map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone()))).collect()
+                f.rooms
+                    .into_iter()
+                    .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
+                    .collect()
             } else {
                 Default::default()
             }
@@ -370,7 +373,7 @@ impl SlidingSyncConfig {
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
         // map the roomsmap into the views:
         for v in &mut views {
-            v.rooms = rooms.clone()
+            v.rooms = rooms.clone();
         }
 
         let views = Arc::new(MutableVec::new_with_values(views));
