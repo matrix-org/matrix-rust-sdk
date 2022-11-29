@@ -60,7 +60,7 @@ pub struct RoomMember {
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub membership: MembershipState,
-    pub is_name_ambigous: bool,
+    pub is_name_ambiguous: bool,
     pub power_level: i64,
     pub normalized_power_level: i64,
 }
@@ -165,7 +165,7 @@ impl Room {
                     display_name: m.display_name().map(|d| d.to_owned()),
                     avatar_url: m.avatar_url().map(|a| a.to_string()),
                     membership: m.membership().to_owned().into(),
-                    is_name_ambigous: m.name_ambiguous(),
+                    is_name_ambiguous: m.name_ambiguous(),
                     power_level: m.power_level(),
                     normalized_power_level: m.normalized_power_level(),
                 })

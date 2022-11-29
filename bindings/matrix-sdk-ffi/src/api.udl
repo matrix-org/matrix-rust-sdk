@@ -218,7 +218,7 @@ dictionary RoomMember {
     string? display_name;
     string? avatar_url;
     MembershipState membership;
-    boolean is_name_ambigous;
+    boolean is_name_ambiguous;
     i64 power_level;
     i64 normalized_power_level;
 };
