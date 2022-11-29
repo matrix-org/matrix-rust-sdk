@@ -53,7 +53,7 @@ use matrix_sdk_base::{
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{error, warn};
+use tracing::{debug, error, instrument, warn};
 
 use self::maps::EventHandlerMaps;
 use crate::{room, Client};
@@ -413,15 +413,19 @@ impl Client {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip_all, fields(?event_kind, %event_type, room_id))]
     async fn call_event_handlers(
         &self,
         room: &Option<room::Room>,
         raw: &RawJsonValue,
-        ev_kind: HandlerKind,
-        ev_type: &str,
+        event_kind: HandlerKind,
+        event_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
         let room_id = room.as_ref().map(|r| r.room_id());
+        if let Some(room_id) = room_id {
+            tracing::Span::current().record("room_id", room_id.to_string());
+        }
 
         // Construct event handler futures
         let mut futures: FuturesUnordered<_> = self
@@ -430,7 +434,7 @@ impl Client {
             .handlers
             .read()
             .unwrap()
-            .get_handlers(ev_kind, ev_type, room_id)
+            .get_handlers(event_kind, event_type, room_id)
             .map(|(handle, handler_fn)| {
                 let data = EventHandlerData {
                     client: self.clone(),
@@ -444,9 +448,13 @@ impl Client {
             })
             .collect();
 
-        // Run the event handler futures with the `self.event_handlers.handlers`
-        // lock no longer being held.
-        while let Some(()) = futures.next().await {}
+        if !futures.is_empty() {
+            debug!(amount = futures.len(), "Calling event handlers");
+
+            // Run the event handler futures with the `self.event_handlers.handlers`
+            // lock no longer being held.
+            while let Some(()) = futures.next().await {}
+        }
     }
 }
 

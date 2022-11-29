@@ -27,25 +27,30 @@ use matrix_sdk_base::crypto::OlmMachine;
 use matrix_sdk_test::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
-    assign,
+    assign, event_id,
     events::{
-        reaction::{self, ReactionEventContent},
+        reaction::ReactionEventContent,
+        relation::{Annotation, Replacement},
         room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{self, MessageType, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, RoomMessageEventContent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
-        MessageLikeEventContent, OriginalSyncMessageLikeEvent,
+        MessageLikeEventContent, MessageLikeEventType, OriginalSyncMessageLikeEvent,
+        StateEventType,
     },
     room_id,
     serde::Raw,
-    server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+    server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent};
+use super::{
+    EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent, TimelineKey,
+    VirtualTimelineItem,
+};
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -62,7 +67,7 @@ async fn reaction_redaction() {
 
     let msg_event_id = event.event_id().unwrap();
 
-    let rel = reaction::Relation::new(msg_event_id.to_owned(), "+1".to_owned());
+    let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
@@ -233,6 +238,125 @@ async fn unable_to_decrypt() {
     assert_matches!(&event.encryption_info, Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
+}
+
+#[async_test]
+async fn update_read_marker() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("A")).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.inner.set_fully_read_event(event_id).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
+
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("B")).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.inner.set_fully_read_event(event_id.clone()).await;
+    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 1, new_index: 2 }));
+
+    // Nothing should happen if the fully read event isn't found.
+    timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
+
+    // Nothing should happen if the fully read event is set back to the same event
+    // as before.
+    timeline.inner.set_fully_read_event(event_id).await;
+
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.inner.set_fully_read_event(event_id).await;
+    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 2, new_index: 3 }));
+}
+
+#[async_test]
+async fn invalid_event_content() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    // m.room.message events must have a msgtype and body in content, so this
+    // event with an empty content object should fail to deserialize.
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {},
+            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 10,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        }))
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_item = item.as_event().unwrap();
+    assert_eq!(event_item.sender(), "@alice:example.org");
+    assert_eq!(
+        *event_item.key(),
+        TimelineKey::EventId(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned())
+    );
+    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(10))));
+    let event_type = assert_matches!(
+        event_item.content(),
+        TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
+    );
+    assert_eq!(*event_type, MessageLikeEventType::RoomMessage);
+
+    // Similar to above, the m.room.member state event must also not have an
+    // empty content object.
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {},
+            "event_id": "$d5G0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 2179,
+            "sender": "@alice:example.org",
+            "type": "m.room.member",
+            "state_key": "@alice:example.org",
+        }))
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let event_item = item.as_event().unwrap();
+    assert_eq!(event_item.sender(), "@alice:example.org");
+    assert_eq!(
+        *event_item.key(),
+        TimelineKey::EventId(event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned())
+    );
+    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(2179))));
+    let (event_type, state_key) = assert_matches!(
+        event_item.content(),
+        TimelineItemContent::FailedToParseState {
+            event_type,
+            state_key,
+            ..
+        } => (event_type, state_key)
+    );
+    assert_eq!(*event_type, StateEventType::RoomMember);
+    assert_eq!(*state_key, "@alice:example.org");
+}
+
+#[async_test]
+async fn invalid_event() {
+    let timeline = TestTimeline::new(&ALICE);
+
+    // This event is missing the sender field which the homeserver must add to
+    // all timeline events. Because the event is malformed, it will be ignored.
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "body": "hello world",
+                "msgtype": "m.text"
+            },
+            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 10,
+            "type": "m.room.message",
+        }))
+        .await;
+    assert_eq!(timeline.inner.items.lock_ref().len(), 0);
 }
 
 struct TestTimeline {

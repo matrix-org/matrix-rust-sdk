@@ -26,16 +26,17 @@ use ruma::RoomId;
 use ruma::{
     events::{
         fully_read::FullyReadEvent,
-        reaction::{ReactionEventContent, Relation as AnnotationRelation},
+        reaction::ReactionEventContent,
+        relation::{Annotation, Replacement},
         room::{
             encrypted::{self, RoomEncryptedEventContent},
-            message::{self, MessageType, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
         },
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, Relations,
+        AnySyncTimelineEvent, BundledRelations, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -45,9 +46,10 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, find_fully_read, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
+    find_event, find_read_marker, EventTimelineItem, Message, TimelineInner, TimelineInnerMetadata,
     TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
+use crate::events::SyncTimelineEventWithoutContent;
 
 impl TimelineInner {
     pub(super) async fn handle_live_event(
@@ -130,7 +132,7 @@ impl TimelineInner {
 
         let mut items_lock = self.items.lock_mut();
         let metadata = &mut *metadata_lock;
-        update_fully_read_item(
+        update_read_marker(
             &mut items_lock,
             metadata.fully_read_event.as_deref(),
             &mut metadata.fully_read_event_in_timeline,
@@ -221,48 +223,54 @@ fn handle_remote_event(
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut MutexGuard<'_, TimelineInnerMetadata>,
 ) {
-    let event = match raw.deserialize() {
-        Ok(ev) => ev,
-        Err(_e) => {
-            // TODO: Add some sort of error timeline item
-            return;
-        }
-    };
+    let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
+        match raw.deserialize() {
+            Ok(event) => (
+                event.event_id().to_owned(),
+                event.sender().to_owned(),
+                event.origin_server_ts(),
+                event.transaction_id().map(ToOwned::to_owned),
+                event.relations().cloned(),
+                event.into(),
+            ),
+            Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
+                Ok(event) => (
+                    event.event_id().to_owned(),
+                    event.sender().to_owned(),
+                    event.origin_server_ts(),
+                    event.transaction_id().map(ToOwned::to_owned),
+                    event.relations().cloned(),
+                    TimelineEventKind::failed_to_parse(event, e),
+                ),
+                Err(e) => {
+                    warn!("Failed to deserialize timeline event: {e}");
+                    return;
+                }
+            },
+        };
 
-    let sender = event.sender().to_owned();
     let is_own_event = sender == own_user_id;
-    let event_meta = TimelineEventMetadata {
-        sender,
-        is_own_event,
-        relations: event.relations().cloned(),
-        encryption_info,
-    };
-    let flow = Flow::Remote {
-        event_id: event.event_id().to_owned(),
-        origin_server_ts: event.origin_server_ts(),
-        raw_event: raw,
-        txn_id: event.transaction_id().map(ToOwned::to_owned),
-        position,
-    };
+    let event_meta = TimelineEventMetadata { sender, is_own_event, relations, encryption_info };
+    let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
     TimelineEventHandler::new(event_meta, flow, timeline_items, timeline_meta)
-        .handle_event(event.into())
+        .handle_event(event_kind)
 }
 
-fn update_fully_read_item(
+fn update_read_marker(
     items_lock: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     fully_read_event: Option<&EventId>,
     fully_read_event_in_timeline: &mut bool,
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
-    let old_idx = find_fully_read(items_lock);
-    let new_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx + 1);
-    match (old_idx, new_idx) {
+    let read_marker_idx = find_read_marker(items_lock);
+    let fully_read_event_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx);
+    match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
             *fully_read_event_in_timeline = true;
             let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
-            items_lock.insert_cloned(idx, item.into());
+            items_lock.insert_cloned(idx + 1, item.into());
         }
         (Some(_), None) => {
             // Keep the current position of the read marker, hopefully we
@@ -270,7 +278,12 @@ fn update_fully_read_item(
             *fully_read_event_in_timeline = false;
         }
         (Some(from), Some(to)) => {
-            items_lock.move_from_to(from, to);
+            *fully_read_event_in_timeline = true;
+
+            // The read marker can't move backwards.
+            if from < to {
+                items_lock.move_from_to(from, to);
+            }
         }
     }
 }
@@ -314,8 +327,58 @@ impl Flow {
 struct TimelineEventMetadata {
     sender: OwnedUserId,
     is_own_event: bool,
-    relations: Option<Relations>,
+    relations: Option<BundledRelations>,
     encryption_info: Option<EncryptionInfo>,
+}
+
+#[derive(Clone)]
+enum TimelineEventKind {
+    Message {
+        content: AnyMessageLikeEventContent,
+    },
+    RedactedMessage,
+    Redaction {
+        redacts: OwnedEventId,
+        content: RoomRedactionEventContent,
+    },
+    // FIXME: Split further for state keys of different type
+    State {
+        _content: AnyStateEventContent,
+    },
+    RedactedState, // AnyRedactedStateEventContent
+    FailedToParseMessageLike {
+        event_type: MessageLikeEventType,
+        error: Arc<serde_json::Error>,
+    },
+    FailedToParseState {
+        event_type: StateEventType,
+        state_key: String,
+        error: Arc<serde_json::Error>,
+    },
+}
+
+impl TimelineEventKind {
+    fn failed_to_parse(event: SyncTimelineEventWithoutContent, error: serde_json::Error) -> Self {
+        let error = Arc::new(error);
+        match event {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+        }
+    }
 }
 
 impl From<AnySyncTimelineEvent> for TimelineEventKind {
@@ -340,16 +403,6 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
     }
 }
 
-#[derive(Clone)]
-enum TimelineEventKind {
-    Message { content: AnyMessageLikeEventContent },
-    RedactedMessage,
-    Redaction { redacts: OwnedEventId, content: RoomRedactionEventContent },
-    // FIXME: Split further for state keys of different type
-    State { _content: AnyStateEventContent },
-    RedactedState, // AnyRedactedStateEventContent
-}
-
 enum TimelineItemPosition {
     Start,
     End,
@@ -365,7 +418,7 @@ struct TimelineEventHandler<'a, 'i> {
     meta: TimelineEventMetadata,
     flow: Flow,
     timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
-    reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     event_added: bool,
@@ -404,8 +457,15 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content)
             }
-            // TODO: State events
-            _ => {}
+            TimelineEventKind::State { .. } | TimelineEventKind::RedactedState => {
+                // TODO
+            }
+            TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
+                self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
+            }
+            TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
+                self.add(NewEventTimelineItem::failed_to_parse_state(event_type, state_key, error));
+            }
         }
 
         if !self.event_added {
@@ -439,16 +499,21 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             let msg = match &item.content {
                 TimelineItemContent::Message(msg) => msg,
                 TimelineItemContent::RedactedMessage => {
-                    info!(
-                        %event_id,
-                        "Edit event applies to a redacted message, discarding"
-                    );
+                    info!(%event_id, "Edit event applies to a redacted message, discarding");
                     return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
                     info!(
                         %event_id,
                         "Edit event applies to event that couldn't be decrypted, discarding"
+                    );
+                    return None;
+                }
+                TimelineItemContent::FailedToParseMessageLike { .. }
+                | TimelineItemContent::FailedToParseState { .. } => {
+                    info!(
+                        %event_id,
+                        "Edit event applies to event that couldn't be parsed, discarding"
                     );
                     return None;
                 }
@@ -635,9 +700,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
-        // See if we got the event corresponding to the fully read marker now.
+        // See if we got the event corresponding to the read marker now.
         if !*self.fully_read_event_in_timeline {
-            update_fully_read_item(
+            update_read_marker(
                 self.timeline_items,
                 self.fully_read_event.as_deref(),
                 self.fully_read_event_in_timeline,
@@ -683,7 +748,7 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    fn message(c: RoomMessageEventContent, relations: Option<Relations>) -> Self {
+    fn message(c: RoomMessageEventContent, relations: Option<BundledRelations>) -> Self {
         let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
@@ -701,16 +766,29 @@ impl NewEventTimelineItem {
     }
 
     fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
-        Self {
-            content: TimelineItemContent::UnableToDecrypt(content.into()),
-            reactions: BundledReactions::default(),
-        }
+        Self::from_content(TimelineItemContent::UnableToDecrypt(content.into()))
     }
 
     fn redacted_message() -> Self {
-        Self {
-            content: TimelineItemContent::RedactedMessage,
-            reactions: BundledReactions::default(),
-        }
+        Self::from_content(TimelineItemContent::RedactedMessage)
+    }
+
+    fn failed_to_parse_message_like(
+        event_type: MessageLikeEventType,
+        error: Arc<serde_json::Error>,
+    ) -> NewEventTimelineItem {
+        Self::from_content(TimelineItemContent::FailedToParseMessageLike { event_type, error })
+    }
+
+    fn failed_to_parse_state(
+        event_type: StateEventType,
+        state_key: String,
+        error: Arc<serde_json::Error>,
+    ) -> NewEventTimelineItem {
+        Self::from_content(TimelineItemContent::FailedToParseState { event_type, state_key, error })
+    }
+
+    fn from_content(content: TimelineItemContent) -> Self {
+        Self { content, reactions: BundledReactions::default() }
     }
 }

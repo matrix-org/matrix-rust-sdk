@@ -26,7 +26,7 @@ use ruma::{
         message::{AudioInfo, FileInfo, VideoInfo},
         ImageInfo, ThumbnailInfo,
     },
-    TransactionId, UInt,
+    OwnedTransactionId, TransactionId, UInt,
 };
 
 #[cfg(feature = "image-proc")]
@@ -164,28 +164,28 @@ impl From<BaseThumbnailInfo> for ThumbnailInfo {
 
 /// A thumbnail to upload and send for an attachment.
 #[derive(Debug)]
-pub struct Thumbnail<'a> {
+pub struct Thumbnail {
     /// The raw bytes of the thumbnail.
-    pub data: &'a [u8],
+    pub data: Vec<u8>,
     /// The type of the thumbnail, this will be used as the content-type header.
-    pub content_type: &'a mime::Mime,
+    pub content_type: mime::Mime,
     /// The metadata of the thumbnail.
     pub info: Option<BaseThumbnailInfo>,
 }
 
 /// Configuration for sending an attachment.
 #[derive(Debug)]
-pub struct AttachmentConfig<'a> {
-    pub(crate) txn_id: Option<&'a TransactionId>,
+pub struct AttachmentConfig {
+    pub(crate) txn_id: Option<OwnedTransactionId>,
     pub(crate) info: Option<AttachmentInfo>,
-    pub(crate) thumbnail: Option<Thumbnail<'a>>,
+    pub(crate) thumbnail: Option<Thumbnail>,
     #[cfg(feature = "image-proc")]
     pub(crate) generate_thumbnail: bool,
     #[cfg(feature = "image-proc")]
     pub(crate) thumbnail_size: Option<(u32, u32)>,
 }
 
-impl AttachmentConfig<'static> {
+impl AttachmentConfig {
     /// Create a new default `AttachmentConfig` without providing a thumbnail.
     ///
     /// To provide a thumbnail use [`AttachmentConfig::with_thumbnail()`].
@@ -220,15 +220,7 @@ impl AttachmentConfig<'static> {
         self.thumbnail_size = size;
         self
     }
-}
 
-impl Default for AttachmentConfig<'static> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> AttachmentConfig<'a> {
     /// Create a new default `AttachmentConfig` with a `thumbnail`.
     ///
     /// # Arguments
@@ -239,7 +231,7 @@ impl<'a> AttachmentConfig<'a> {
     /// To generate automatically a thumbnail from an image, use
     /// [`AttachmentConfig::new()`] and
     /// [`AttachmentConfig::generate_thumbnail()`].
-    pub fn with_thumbnail(thumbnail: Thumbnail<'a>) -> Self {
+    pub fn with_thumbnail(thumbnail: Thumbnail) -> Self {
         Self {
             txn_id: Default::default(),
             info: Default::default(),
@@ -259,8 +251,8 @@ impl<'a> AttachmentConfig<'a> {
     /// in its unsigned field as `transaction_id`. If not given, one is created
     /// for the message.
     #[must_use]
-    pub fn txn_id(mut self, txn_id: &'a TransactionId) -> Self {
-        self.txn_id = Some(txn_id);
+    pub fn txn_id(mut self, txn_id: &TransactionId) -> Self {
+        self.txn_id = Some(txn_id.to_owned());
         self
     }
 
@@ -274,6 +266,12 @@ impl<'a> AttachmentConfig<'a> {
     pub fn info(mut self, info: AttachmentInfo) -> Self {
         self.info = Some(info);
         self
+    }
+}
+
+impl Default for AttachmentConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

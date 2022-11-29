@@ -96,8 +96,10 @@ impl Joined {
     ///
     /// * `reason` - The reason for banning this user.
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request =
-            assign!(ban_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
+        let request = assign!(
+            ban_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
+            { reason: reason.map(ToOwned::to_owned) }
+        );
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -111,8 +113,10 @@ impl Joined {
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request =
-            assign!(kick_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
+        let request = assign!(
+            kick_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
+            { reason: reason.map(ToOwned::to_owned) }
+        );
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -123,9 +127,9 @@ impl Joined {
     ///
     /// * `user_id` - The `UserId` of the user to invite to the room.
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
-        let recipient = InvitationRecipient::UserId { user_id };
+        let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
 
-        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -136,9 +140,9 @@ impl Joined {
     /// # Arguments
     ///
     /// * `invite_id` - A third party id of a user to invite to the room.
-    pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid<'_>) -> Result<()> {
+    pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
-        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -214,8 +218,11 @@ impl Joined {
                 Typing::No
             };
 
-            let request =
-                TypingRequest::new(self.inner.own_user_id(), self.inner.room_id(), typing);
+            let request = TypingRequest::new(
+                self.inner.own_user_id().to_owned(),
+                self.inner.room_id().to_owned(),
+                typing,
+            );
             self.client.send(request, None).await?;
         }
 
@@ -230,8 +237,11 @@ impl Joined {
     /// * `event_id` - The `EventId` specifies the event to set the read receipt
     ///   on.
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
-        let request =
-            create_receipt::v3::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
+        let request = create_receipt::v3::Request::new(
+            self.inner.room_id().to_owned(),
+            ReceiptType::Read,
+            event_id.to_owned(),
+        );
 
         self.client.send(request, None).await?;
         Ok(())
@@ -251,9 +261,9 @@ impl Joined {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id()), {
-            fully_read: Some(fully_read),
-            read_receipt,
+        let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id().to_owned()), {
+            fully_read: Some(fully_read.to_owned()),
+            read_receipt: read_receipt.map(ToOwned::to_owned),
         });
 
         self.client.send(request, None).await?;
@@ -603,8 +613,8 @@ impl Joined {
         };
 
         let request = send_message_event::v3::Request::new_raw(
-            self.inner.room_id(),
-            &txn_id,
+            self.inner.room_id().to_owned(),
+            txn_id,
             event_type.into(),
             content,
         );
@@ -665,10 +675,10 @@ impl Joined {
         body: &str,
         content_type: &Mime,
         data: Vec<u8>,
-        config: AttachmentConfig<'_>,
+        config: AttachmentConfig,
     ) -> Result<send_message_event::v3::Response> {
         if config.thumbnail.is_some() {
-            self.prepare_and_send_attachment(body, content_type, &data, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         } else {
             #[cfg(not(feature = "image-proc"))]
             let thumbnail = None;
@@ -678,6 +688,8 @@ impl Joined {
             #[cfg(feature = "image-proc")]
             let (data, thumbnail) = if config.generate_thumbnail {
                 let content_type = content_type.clone();
+
+                #[cfg(not(target_arch = "wasm32"))]
                 let (data, res) = tokio::task::spawn_blocking(move || {
                     let res = generate_image_thumbnail(
                         &content_type,
@@ -689,12 +701,22 @@ impl Joined {
                 .await
                 .expect("Task join error");
 
+                #[cfg(target_arch = "wasm32")]
+                let res = Ok((
+                    res,
+                    generate_image_thumbnail(
+                        &content_type,
+                        Cursor::new(&data),
+                        config.thumbnail_size,
+                    )?,
+                ));
+
                 let thumbnail = match res {
                     Ok((thumbnail_data, thumbnail_info)) => {
                         data_slot = thumbnail_data;
                         Some(Thumbnail {
-                            data: &data_slot,
-                            content_type: &mime::IMAGE_JPEG,
+                            data: data_slot,
+                            content_type: mime::IMAGE_JPEG,
                             info: Some(thumbnail_info),
                         })
                     }
@@ -719,7 +741,7 @@ impl Joined {
                 thumbnail_size: None,
             };
 
-            self.prepare_and_send_attachment(body, content_type, &data, config).await
+            self.prepare_and_send_attachment(body, content_type, data, config).await
         }
     }
 
@@ -749,8 +771,8 @@ impl Joined {
         &self,
         body: &str,
         content_type: &Mime,
-        data: &[u8],
-        config: AttachmentConfig<'_>,
+        data: Vec<u8>,
+        config: AttachmentConfig,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
@@ -777,7 +799,7 @@ impl Joined {
             .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
             .await?;
 
-        self.send(RoomMessageEventContent::new(content), config.txn_id).await
+        self.send(RoomMessageEventContent::new(content), config.txn_id.as_deref()).await
     }
 
     /// Send a state event with an empty state key to the homeserver.
@@ -880,8 +902,11 @@ impl Joined {
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
-        let request =
-            send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
+        let request = send_state_event::v3::Request::new(
+            self.inner.room_id().to_owned(),
+            state_key,
+            &content,
+        )?;
         let response = self.client.send(request, None).await?;
         Ok(response)
     }
@@ -927,9 +952,9 @@ impl Joined {
     ) -> Result<send_state_event::v3::Response> {
         let content = Raw::new(&content)?.cast();
         let request = send_state_event::v3::Request::new_raw(
-            self.inner.room_id(),
+            self.inner.room_id().to_owned(),
             event_type.into(),
-            state_key,
+            state_key.to_owned(),
             content,
         );
 
@@ -976,10 +1001,10 @@ impl Joined {
         txn_id: Option<OwnedTransactionId>,
     ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
-        let request =
-            assign!(redact_event::v3::Request::new(self.inner.room_id(), event_id, &txn_id), {
-                reason
-            });
+        let request = assign!(
+            redact_event::v3::Request::new(self.inner.room_id().to_owned(), event_id.to_owned(), txn_id),
+            { reason: reason.map(ToOwned::to_owned) }
+        );
 
         self.client.send(request, None).await
     }

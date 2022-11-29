@@ -65,10 +65,10 @@ async fn invite_user_by_3pid() {
 
     room.invite_user_by_3pid(
         Invite3pidInit {
-            id_server: "example.org",
-            id_access_token: "IdToken",
+            id_server: "example.org".to_owned(),
+            id_access_token: "IdToken".to_owned(),
             medium: thirdparty::Medium::Email,
-            address: "address",
+            address: "address".to_owned(),
         }
         .into(),
     )
@@ -469,8 +469,8 @@ async fn room_attachment_send_info_thumbnail() {
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let config = AttachmentConfig::with_thumbnail(Thumbnail {
-        data: "Thumbnail".as_bytes(),
-        content_type: &mime::IMAGE_JPEG,
+        data: b"Thumbnail".to_vec(),
+        content_type: mime::IMAGE_JPEG,
         info: Some(BaseThumbnailInfo {
             height: Some(uint!(360)),
             width: Some(uint!(480)),

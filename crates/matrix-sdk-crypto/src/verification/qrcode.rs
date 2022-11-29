@@ -29,8 +29,8 @@ use ruma::{
                 self, KeyVerificationStartEventContent, ReciprocateV1Content, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
-            Relation,
         },
+        relation::Reference,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
@@ -672,7 +672,7 @@ impl Reciprocated {
                 KeyVerificationStartEventContent::new(
                     self.own_device_id.clone(),
                     method,
-                    Relation::new(e.clone()),
+                    Reference::new(e.clone()),
                 ),
             )
                 .into(),
@@ -754,7 +754,7 @@ impl QrState<Confirmed> {
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
                 AnyMessageLikeEventContent::KeyVerificationDone(
-                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                    KeyVerificationDoneEventContent::new(Reference::new(e.to_owned())),
                 ),
             )
                 .into(),

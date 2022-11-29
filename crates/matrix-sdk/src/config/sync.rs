@@ -20,21 +20,21 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Settings for a sync call.
 #[derive(Clone)]
-pub struct SyncSettings<'a> {
-    pub(crate) filter: Option<sync_events::v3::Filter<'a>>,
+pub struct SyncSettings {
+    pub(crate) filter: Option<sync_events::v3::Filter>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
     pub(crate) set_presence: PresenceState,
 }
 
-impl<'a> Default for SyncSettings<'a> {
+impl Default for SyncSettings {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> fmt::Debug for SyncSettings<'a> {
+impl fmt::Debug for SyncSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct("SyncSettings");
 
@@ -53,7 +53,7 @@ impl<'a> fmt::Debug for SyncSettings<'a> {
     }
 }
 
-impl<'a> SyncSettings<'a> {
+impl SyncSettings {
     /// Create new default sync settings.
     #[must_use]
     pub fn new() -> Self {
@@ -97,7 +97,7 @@ impl<'a> SyncSettings<'a> {
     /// * `filter` - The filter configuration that should be used for the sync
     ///   call.
     #[must_use]
-    pub fn filter(mut self, filter: sync_events::v3::Filter<'a>) -> Self {
+    pub fn filter(mut self, filter: sync_events::v3::Filter) -> Self {
         self.filter = Some(filter);
         self
     }
@@ -116,7 +116,7 @@ impl<'a> SyncSettings<'a> {
     }
 
     /// Set the presence state
-    ///  
+    ///
     /// `PresenceState::Online` - The client is marked as being online. This is
     /// the default preset.
     ///

@@ -16,7 +16,7 @@ use ruma::{
         },
         media::get_content_thumbnail::v3::Method,
         session::get_login_types::v3::LoginType,
-        uiaa::{self, UiaaResponse},
+        uiaa,
     },
     assign, device_id,
     directory::Filter,
@@ -220,20 +220,16 @@ async fn register_error() {
         .await;
 
     let user = assign!(RegistrationRequest::new(), {
-        username: Some("user"),
-        password: Some("password"),
+        username: Some("user".to_owned()),
+        password: Some("password".to_owned()),
         auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-            uiaa::FallbackAcknowledgement::new("foobar"),
+            uiaa::FallbackAcknowledgement::new("foobar".to_owned()),
         )),
         kind: RegistrationKind::User,
     });
 
     if let Err(err) = client.register(user).await {
-        if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-            status_code,
-            body,
-        }))) = err.as_ruma_api_error()
-        {
+        if let Some(client_api::Error { status_code, body }) = err.as_client_api_error() {
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
             if let client_api::error::ErrorBody::Standard { kind, message } = body {
                 if *kind != client_api::error::ErrorKind::Forbidden {
@@ -332,10 +328,10 @@ async fn delete_devices() {
 
             let auth_data = uiaa::AuthData::Password(assign!(
                 uiaa::Password::new(
-                    uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-                    "wordpass",
+                    uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+                    "wordpass".to_owned(),
                 ), {
-                    session: info.session.as_deref(),
+                    session: info.session.clone(),
                 }
             ));
 
@@ -459,7 +455,7 @@ async fn room_search_filtered() {
         .mount(&server)
         .await;
 
-    let generic_search_term = Some("cheese");
+    let generic_search_term = Some("cheese".to_owned());
     let filter = assign!(Filter::new(), { generic_search_term });
     let request = assign!(PublicRoomsFilterRequest::new(), { filter });
 
