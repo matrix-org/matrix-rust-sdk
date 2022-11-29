@@ -17,7 +17,7 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{event_handler::HandlerKind, Client, Result};
 
@@ -100,6 +100,7 @@ impl Client {
             notifications,
         } = response;
 
+        let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
         self.handle_sync_events(HandlerKind::ToDevice, &None, to_device_events).await?;
@@ -152,6 +153,10 @@ impl Client {
             .await?;
         }
 
+        debug!("Ran event handlers in {:?}", now.elapsed());
+
+        let now = Instant::now();
+
         // Construct notification event handler futures
         let mut futures = Vec::new();
         for handler in &*self.notification_handlers().await {
@@ -172,6 +177,8 @@ impl Client {
         for fut in futures {
             fut.await;
         }
+
+        debug!("Ran notification handlers in {:?}", now.elapsed());
 
         Ok(())
     }
