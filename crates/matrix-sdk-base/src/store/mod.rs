@@ -534,7 +534,7 @@ impl Store {
 
     /// Restore the access to the Store from the given `Session`, overwrites any
     /// previously existing access to the Store.
-    pub async fn restore_session(&self, session: Session) -> Result<()> {
+    pub async fn restore_session(&self, session: SessionMeta) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
@@ -548,9 +548,7 @@ impl Store {
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
-        let (session_meta, session_tokens) = session.into_parts();
-        self.session_meta.set(session_meta).expect("Session IDs were already set");
-        self.session_tokens.set(Some(session_tokens));
+        self.session_meta.set(session).expect("Session IDs were already set");
 
         Ok(())
     }
