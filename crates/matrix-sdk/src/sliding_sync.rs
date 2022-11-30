@@ -231,7 +231,10 @@ impl SlidingSyncRoom {
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::with_events(&invited_room, None, vec![]))
         } else {
-            tracing::error!(room_id=?self.room_id, "Room not found in client. Can't provide a timeline for it");
+            tracing::error!(
+                room_id = ?self.room_id,
+                "Room not found in client. Can't provide a timeline for it"
+            );
             None
         }
     }
