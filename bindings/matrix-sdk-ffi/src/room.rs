@@ -79,7 +79,7 @@ impl From<matrix_sdk::ruma::events::room::member::MembershipState> for Membershi
             matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
                 MembershipState::Leave
             }
-            _ => unreachable!("unsupported MembershipState"),
+            _ => todo!("unsupported MembershipState"),
         }
     }
 }
