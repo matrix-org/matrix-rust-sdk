@@ -139,24 +139,32 @@ impl SlidingSyncRoom {
 }
 
 impl SlidingSyncRoom {
-    pub fn add_timeline_listener(&self, listener: Box<dyn TimelineListener>) {
-        let timeline = RUNTIME.block_on(async move { self.inner.timeline().await });
+    pub fn add_timeline_listener(
+        &self,
+        listener: Box<dyn TimelineListener>,
+    ) -> Option<Arc<StoppableSpawn>> {
+        let Some(timeline) = RUNTIME.block_on(async move { self.inner.timeline().await }) else {
+            tracing::warn!(room_id=?self.room_id(), "Could set timeline listener: no timeline found.");
+            return None
+        };
 
         let timeline_signal =
             self.timeline.write().unwrap().get_or_insert_with(|| Arc::new(timeline)).signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
-        RUNTIME.spawn(timeline_signal.for_each(move |diff| {
-            let listener = listener.clone();
-            let fut = RUNTIME
-                .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+        Some(Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(timeline_signal.for_each(
+            move |diff| {
+                let listener = listener.clone();
+                let fut = RUNTIME
+                    .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
 
-            async move {
-                if let Err(e) = fut.await {
-                    error!("Timeline listener error: {e}");
+                async move {
+                    if let Err(e) = fut.await {
+                        error!("Timeline listener error: {e}");
+                    }
                 }
-            }
-        }));
+            },
+        )))))
     }
 }
 

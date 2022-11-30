@@ -115,7 +115,7 @@ interface SlidingSyncView {
 };
 
 interface SlidingSyncRoom {
-    void add_timeline_listener(TimelineListener listener);
+    StoppableSpawn? add_timeline_listener(TimelineListener listener);
 };
 
 interface SlidingSync {

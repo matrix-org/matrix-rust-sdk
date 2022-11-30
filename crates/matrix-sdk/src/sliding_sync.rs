@@ -219,8 +219,8 @@ impl SlidingSyncRoom {
 
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline(&self) -> Timeline {
-        self.timeline_no_fully_read_tracking().unwrap().with_fully_read_tracking().await
+    pub async fn timeline(&self) -> Option<Timeline> {
+        Some(self.timeline_no_fully_read_tracking()?.with_fully_read_tracking().await)
     }
 
     fn timeline_no_fully_read_tracking(&self) -> Option<Timeline> {
