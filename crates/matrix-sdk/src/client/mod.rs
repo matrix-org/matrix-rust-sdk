@@ -892,7 +892,7 @@ impl Client {
         &self,
         room_alias: &RoomAliasId,
     ) -> HttpResult<get_alias::v3::Response> {
-        let request = get_alias::v3::Request::new(room_alias);
+        let request = get_alias::v3::Request::new(room_alias.to_owned());
         self.send(request, None).await
     }
 
@@ -930,14 +930,14 @@ impl Client {
         let server_versions = self.server_versions().await?;
 
         let request = if let Some(id) = idp_id {
-            sso_login_with_provider::v3::Request::new(id, redirect_url)
+            sso_login_with_provider::v3::Request::new(id.to_owned(), redirect_url.to_owned())
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
                     server_versions,
                 )
         } else {
-            sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
+            sso_login::v3::Request::new(redirect_url.to_owned()).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
                 server_versions,
@@ -994,12 +994,8 @@ impl Client {
     /// ```
     ///
     /// [`restore_session`]: #method.restore_session
-    pub fn login_username<'a>(
-        &self,
-        id: &'a (impl AsRef<str> + ?Sized),
-        password: &'a str,
-    ) -> LoginBuilder<'a> {
-        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref()), password)
+    pub fn login_username(&self, id: impl AsRef<str>, password: &str) -> LoginBuilder {
+        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref().to_owned()), password)
     }
 
     /// Login to the server with a user identifier and password.
@@ -1007,12 +1003,8 @@ impl Client {
     /// This is more general form of [`login_username`][Self::login_username]
     /// that also accepts third-party identifiers instead of just the user ID or
     /// its localpart.
-    pub fn login_identifier<'a>(
-        &self,
-        id: UserIdentifier<'a>,
-        password: &'a str,
-    ) -> LoginBuilder<'a> {
-        LoginBuilder::new_password(self.clone(), id, password)
+    pub fn login_identifier(&self, id: UserIdentifier, password: &str) -> LoginBuilder {
+        LoginBuilder::new_password(self.clone(), id, password.to_owned())
     }
 
     /// Login to the server with a token.
@@ -1067,8 +1059,8 @@ impl Client {
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_session`]: #method.restore_session
-    pub fn login_token<'a>(&self, token: &'a str) -> LoginBuilder<'a> {
-        LoginBuilder::new_token(self.clone(), token)
+    pub fn login_token(&self, token: &str) -> LoginBuilder {
+        LoginBuilder::new_token(self.clone(), token.to_owned())
     }
 
     /// Login to the server via Single Sign-On.
@@ -1130,7 +1122,7 @@ impl Client {
     /// [`login_token`]: #method.login_token
     /// [`restore_session`]: #method.restore_session
     #[cfg(feature = "sso-login")]
-    pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
+    pub fn login_sso<F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<F>
     where
         F: FnOnce(String) -> Fut + Send,
         Fut: Future<Output = Result<()>> + Send,
@@ -1318,10 +1310,9 @@ impl Client {
 
             let refresh_token = session_tokens
                 .refresh_token
-                .as_ref()
-                .ok_or(RefreshTokenError::RefreshTokenRequired)?
-                .clone();
-            let request = refresh_token::v3::Request::new(&refresh_token);
+                .clone()
+                .ok_or(RefreshTokenError::RefreshTokenRequired)?;
+            let request = refresh_token::v3::Request::new(refresh_token);
 
             let res = self
                 .inner
@@ -1391,10 +1382,10 @@ impl Client {
     /// # block_on(async {
     ///
     /// let mut request = RegistrationRequest::new();
-    /// request.username = Some("user");
-    /// request.password = Some("password");
+    /// request.username = Some("user".to_owned());
+    /// request.password = Some("password".to_owned());
     /// request.auth = Some(uiaa::AuthData::FallbackAcknowledgement(
-    ///     uiaa::FallbackAcknowledgement::new("foobar"),
+    ///     uiaa::FallbackAcknowledgement::new("foobar".to_owned()),
     /// ));
     ///
     /// let client = Client::new(homeserver).await.unwrap();
@@ -1404,7 +1395,7 @@ impl Client {
     #[instrument(skip_all)]
     pub async fn register(
         &self,
-        registration: impl Into<register::v3::Request<'_>>,
+        registration: impl Into<register::v3::Request>,
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.homeserver().await;
         info!("Registering to {homeserver}");
@@ -1461,7 +1452,7 @@ impl Client {
     ///     .unwrap();
     ///
     /// let sync_settings = SyncSettings::new()
-    ///     .filter(Filter::FilterId(&filter_id));
+    ///     .filter(Filter::FilterId(filter_id));
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
@@ -1469,7 +1460,7 @@ impl Client {
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
-        definition: FilterDefinition<'_>,
+        definition: FilterDefinition,
     ) -> Result<String> {
         if let Some(filter) = self.inner.base_client.get_filter(filter_name).await? {
             debug!("Found filter locally");
@@ -1477,7 +1468,7 @@ impl Client {
         } else {
             debug!("Didn't find filter locally");
             let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
-            let request = FilterUploadRequest::new(user_id, definition);
+            let request = FilterUploadRequest::new(user_id.to_owned(), definition);
             let response = self.send(request, None).await?;
 
             self.inner.base_client.receive_filter_upload(filter_name, &response).await?;
@@ -1495,7 +1486,7 @@ impl Client {
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
-        let request = join_room_by_id::v3::Request::new(room_id);
+        let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
         room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
@@ -1515,8 +1506,8 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<room::Joined> {
-        let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
-            server_name: server_names,
+        let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
+            server_name: server_names.to_owned(),
         });
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
@@ -1564,8 +1555,8 @@ impl Client {
 
         let request = assign!(get_public_rooms::v3::Request::new(), {
             limit,
-            since,
-            server,
+            since: since.map(ToOwned::to_owned),
+            server: server.map(ToOwned::to_owned),
         });
         self.send(request, None).await
     }
@@ -1599,7 +1590,7 @@ impl Client {
     /// ```
     pub async fn create_room(
         &self,
-        room: impl Into<create_room::v3::Request<'_>>,
+        room: impl Into<create_room::v3::Request>,
     ) -> HttpResult<room::Joined> {
         let request = room.into();
         let response = self.send(request, None).await?;
@@ -1630,7 +1621,7 @@ impl Client {
     /// # let mut client = Client::new(homeserver).await?;
     ///
     /// let mut filter = Filter::new();
-    /// filter.generic_search_term = Some("rust");
+    /// filter.generic_search_term = Some("rust".to_owned());
     /// let mut request = get_public_rooms_filtered::v3::Request::new();
     /// request.filter = filter;
     ///
@@ -1643,7 +1634,7 @@ impl Client {
     /// ```
     pub async fn public_rooms_filtered(
         &self,
-        room_search: impl Into<get_public_rooms_filtered::v3::Request<'_>>,
+        room_search: impl Into<get_public_rooms_filtered::v3::Request>,
     ) -> HttpResult<get_public_rooms_filtered::v3::Response> {
         let request = room_search.into();
         self.send(request, None).await
@@ -1678,8 +1669,8 @@ impl Client {
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
-    /// let user_id = user_id!("@example:localhost");
-    /// let request = profile::get_profile::v3::Request::new(&user_id);
+    /// let user_id = user_id!("@example:localhost").to_owned();
+    /// let request = profile::get_profile::v3::Request::new(user_id);
     ///
     /// // Start the request using Client::send()
     /// let response = client.send(request, None).await?;
@@ -1887,10 +1878,10 @@ impl Client {
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///             "wordpass",
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             "wordpass".to_owned(),
     ///         );
-    ///         password.session = info.session.as_deref();
+    ///         password.session = info.session.clone();
     ///
     ///         client
     ///             .delete_devices(devices, Some(uiaa::AuthData::Password(password)))
@@ -1901,9 +1892,9 @@ impl Client {
     pub async fn delete_devices(
         &self,
         devices: &[OwnedDeviceId],
-        auth_data: Option<AuthData<'_>>,
+        auth_data: Option<AuthData>,
     ) -> HttpResult<delete_devices::v3::Response> {
-        let mut request = delete_devices::v3::Request::new(devices);
+        let mut request = delete_devices::v3::Request::new(devices.to_owned());
         request.auth = auth_data;
 
         self.send(request, None).await
@@ -2006,7 +1997,7 @@ impl Client {
     #[instrument(skip(self))]
     pub async fn sync_once(
         &self,
-        sync_settings: crate::config::SyncSettings<'_>,
+        sync_settings: crate::config::SyncSettings,
     ) -> Result<SyncResponse> {
         // The sync might not return for quite a while due to the timeout.
         // We'll see if there's anything crypto related to send out before we
@@ -2020,10 +2011,10 @@ impl Client {
         }
 
         let request = assign!(sync_events::v3::Request::new(), {
-            filter: sync_settings.filter.as_ref(),
-            since: sync_settings.token.as_deref(),
+            filter: sync_settings.filter,
+            since: sync_settings.token,
             full_state: sync_settings.full_state,
-            set_presence: &sync_settings.set_presence,
+            set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
         });
         let mut request_config = self.request_config();
@@ -2104,7 +2095,7 @@ impl Client {
     ///
     /// [argument docs]: #method.sync_once
     /// [`sync_with_callback`]: #method.sync_with_callback
-    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) -> Result<(), Error> {
+    pub async fn sync(&self, sync_settings: crate::config::SyncSettings) -> Result<(), Error> {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
     }
 
@@ -2168,7 +2159,7 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        sync_settings: crate::config::SyncSettings<'_>,
+        sync_settings: crate::config::SyncSettings,
         callback: impl Fn(SyncResponse) -> C,
     ) -> Result<(), Error>
     where
@@ -2249,7 +2240,7 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_result_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings<'_>,
+        mut sync_settings: crate::config::SyncSettings,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) -> Result<(), Error>
     where
@@ -2317,10 +2308,10 @@ impl Client {
     /// # anyhow::Ok(()) });
     /// ```
     #[instrument(skip(self))]
-    pub async fn sync_stream<'a>(
-        &'a self,
-        mut sync_settings: crate::config::SyncSettings<'a>,
-    ) -> impl Stream<Item = Result<SyncResponse>> + 'a {
+    pub async fn sync_stream(
+        &self,
+        mut sync_settings: crate::config::SyncSettings,
+    ) -> impl Stream<Item = Result<SyncResponse>> + '_ {
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {

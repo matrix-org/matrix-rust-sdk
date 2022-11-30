@@ -19,8 +19,8 @@ use ruma::{
         key::verification::{
             cancel::CancelCode,
             mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
-            Relation,
         },
+        relation::Reference,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
@@ -319,7 +319,7 @@ pub fn get_mac_content(
             (
                 r.clone(),
                 AnyMessageLikeEventContent::KeyVerificationMac(
-                    KeyVerificationMacEventContent::new(mac, keys, Relation::new(e.clone())),
+                    KeyVerificationMacEventContent::new(mac, keys, Reference::new(e.clone())),
                 ),
             )
                 .into()

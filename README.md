@@ -42,6 +42,22 @@ Some crates of the **matrix-rust-sdk** can be embedded inside other
 environments, like Swift, Kotlin, JavaScript, Node.js etc. Please,
 explore the [`bindings/`](./bindings/) directory to learn more.
 
+## Testing
+
+You can run most of the tests that also happen in CI also using `cargo xtask ci`.
+This needs a few dependencies to be installed, as it also runs automatic WASM tests:
+
+```bash
+rustup component add clippy
+cargo install cargo-nextest typos-cli wasm-pack
+```
+
+If you want to execute only one part of CI, there are a few sub-commands (see `cargo xtask ci --help`).
+
+Some tests are not automatically run in `cargo xtask ci`, for example the integration tests,
+that need a running synapse instance. These tests reside in `./testing/matrix-sdk-integration-testing`.
+See its [README](./testing/matrix-sdk-integration-testing/README.md) to easily set up a synapse for testing purposes.
+
 ## License
 
 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

@@ -359,7 +359,7 @@ impl Client {
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
+            let sync_settings = SyncSettings::new().filter(Filter::FilterId(filter_id));
 
             client
                 .sync_with_result_callback(sync_settings, |result| async {

@@ -11,10 +11,10 @@ async fn test_invitation_details() -> Result<()> {
     let tamatoa = get_client_for_user("tamatoa".to_owned(), true).await?;
     let sebastian = get_client_for_user("sebastian".to_owned(), true).await?;
 
-    let invites = [sebastian.user_id().expect("sebastian has a userid!").to_owned()];
+    let invite = vec![sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;
     let request = assign!(CreateRoomRequest::new(), {
-        invite: &invites,
+        invite,
         is_direct: true,
     });
 

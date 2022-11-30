@@ -22,17 +22,11 @@ use std::{
 };
 
 use futures_core::Stream;
-use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    locks::Mutex,
-};
+use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
 use ruma::{
     assign,
-    events::{
-        fully_read::FullyReadEventContent, reaction::Relation as AnnotationRelation,
-        AnyMessageLikeEventContent,
-    },
+    events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
 use tracing::{error, instrument, warn};
@@ -46,10 +40,12 @@ use crate::{
 
 mod event_handler;
 mod event_item;
+mod inner;
 #[cfg(test)]
 mod tests;
 mod virtual_item;
 
+use self::inner::TimelineInner;
 pub use self::{
     event_item::{
         EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
@@ -65,62 +61,39 @@ pub use self::{
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner,
+    inner: Arc<TimelineInner>,
     room: room::Common,
     start_token: StdMutex<Option<String>>,
     _end_token: StdMutex<Option<String>>,
     _timeline_event_handler_guard: EventHandlerDropGuard,
-    _fully_read_handler_guard: EventHandlerDropGuard,
+    _fully_read_handler_guard: Option<EventHandlerDropGuard>,
     #[cfg(feature = "e2e-encryption")]
     _room_key_handler_guard: EventHandlerDropGuard,
-}
-
-#[derive(Clone, Debug, Default)]
-struct TimelineInner {
-    items: MutableVec<Arc<TimelineItem>>,
-    metadata: Arc<Mutex<TimelineInnerMetadata>>,
 }
 
 /// Non-signalling parts of `TimelineInner`.
 #[derive(Debug, Default)]
 struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
-    reaction_map: HashMap<TimelineKey, (OwnedUserId, AnnotationRelation)>,
+    reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: Option<OwnedEventId>,
     fully_read_event_in_timeline: bool,
 }
 
 impl Timeline {
     pub(super) async fn new(room: &room::Common) -> Self {
-        Self::with_events(room, None, Vec::new()).await
+        Self::with_events(room, None, Vec::new())
     }
 
-    pub(crate) async fn with_events(
+    pub(crate) fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
         events: Vec<SyncTimelineEvent>,
     ) -> Self {
-        let inner = TimelineInner::default();
-        let own_user_id = room.own_user_id();
+        let mut inner = TimelineInner::default();
+        inner.add_initial_events(events, room.own_user_id());
 
-        for ev in events.into_iter().rev() {
-            inner
-                .handle_back_paginated_event(ev.event.cast(), ev.encryption_info, own_user_id)
-                .await;
-        }
-
-        match room.account_data_static::<FullyReadEventContent>().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id).await,
-                Err(error) => {
-                    error!(?error, "Failed to deserialize `m.fully_read` account data")
-                }
-            },
-            Err(error) => {
-                error!(?error, "Failed to get `m.fully_read` account data from the store")
-            }
-            _ => {}
-        }
+        let inner = Arc::new(inner);
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
@@ -133,17 +106,6 @@ impl Timeline {
         });
         let _timeline_event_handler_guard =
             room.client.event_handler_drop_guard(timeline_event_handle);
-
-        let fully_read_handle = room.add_event_handler({
-            let inner = inner.clone();
-            move |event| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_fully_read(event).await;
-                }
-            }
-        });
-        let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
@@ -197,10 +159,40 @@ impl Timeline {
             start_token: StdMutex::new(prev_token),
             _end_token: StdMutex::new(None),
             _timeline_event_handler_guard,
-            _fully_read_handler_guard,
+            _fully_read_handler_guard: None,
             #[cfg(feature = "e2e-encryption")]
             _room_key_handler_guard,
         }
+    }
+
+    /// Enable tracking of the fully-read marker on this `Timeline`.
+    pub async fn with_fully_read_tracking(mut self) -> Self {
+        match self.room.account_data_static::<FullyReadEventContent>().await {
+            Ok(Some(fully_read)) => match fully_read.deserialize() {
+                Ok(fully_read) => {
+                    self.inner.set_fully_read_event(fully_read.content.event_id).await
+                }
+                Err(error) => {
+                    error!(?error, "Failed to deserialize `m.fully_read` account data")
+                }
+            },
+            Err(error) => {
+                error!(?error, "Failed to get `m.fully_read` account data from the store")
+            }
+            _ => {}
+        }
+
+        let inner = self.inner.clone();
+        let fully_read_handle = self.room.add_event_handler(move |event| {
+            let inner = inner.clone();
+            async move {
+                inner.handle_fully_read(event).await;
+            }
+        });
+        self._fully_read_handler_guard =
+            Some(self.room.client.event_handler_drop_guard(fully_read_handle));
+
+        self
     }
 
     /// Add more events to the start of the timeline.
@@ -210,7 +202,7 @@ impl Timeline {
         let messages = self
             .room
             .messages(assign!(MessagesOptions::backward(), {
-                from: start.as_deref(),
+                from: start,
                 limit,
             }))
             .await?;
@@ -220,13 +212,7 @@ impl Timeline {
 
         let own_user_id = self.room.own_user_id();
         for room_ev in messages.chunk {
-            self.inner
-                .handle_back_paginated_event(
-                    room_ev.event.cast(),
-                    room_ev.encryption_info,
-                    own_user_id,
-                )
-                .await;
+            self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
 
         Ok(outcome)
@@ -273,9 +259,9 @@ impl Timeline {
             .await;
     }
 
-    /// Get the latest of the timeline's items.
-    pub fn latest(&self) -> Option<Arc<TimelineItem>> {
-        self.inner.items.lock_ref().last().cloned()
+    /// Get the latest of the timeline's event items.
+    pub fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.items.lock_ref().last()?.as_event().cloned()
     }
 
     /// Get a signal of the timeline's items.

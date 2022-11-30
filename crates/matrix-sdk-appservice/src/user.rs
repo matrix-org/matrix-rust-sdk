@@ -115,11 +115,11 @@ impl<'a> UserBuilder<'a> {
         } else if self.log_in && self.localpart != self.appservice.registration.sender_localpart {
             let login_info =
                 login::v3::LoginInfo::ApplicationService(login::v3::ApplicationService::new(
-                    UserIdentifier::UserIdOrLocalpart(self.localpart),
+                    UserIdentifier::UserIdOrLocalpart(self.localpart.to_owned()),
                 ));
 
             let request = assign!(login::v3::Request::new(login_info), {
-                device_id: self.device_id.as_ref().map(|v| v.as_ref()),
+                device_id: self.device_id,
                 initial_device_display_name: None,
             });
 

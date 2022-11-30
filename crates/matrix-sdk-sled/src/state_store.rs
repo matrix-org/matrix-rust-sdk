@@ -1508,7 +1508,7 @@ mod tests {
         SledStateStore::builder().build().map_err(Into::into)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(test)]
@@ -1521,7 +1521,7 @@ mod encrypted_tests {
         SledStateStoreBuilder::build_encrypted().map_err(Into::into)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(test)]

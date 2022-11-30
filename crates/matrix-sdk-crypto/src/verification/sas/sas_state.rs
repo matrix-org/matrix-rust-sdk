@@ -33,9 +33,10 @@ use ruma::{
                 KeyVerificationStartEventContent, SasV1Content, SasV1ContentInit, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
-            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
+            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
             ShortAuthenticationString,
         },
+        relation::Reference,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
@@ -595,7 +596,7 @@ impl SasState<Created> {
                 KeyVerificationStartEventContent::new(
                     self.device_id().into(),
                     StartMethod::SasV1(self.state.protocol_definitions.clone()),
-                    Relation::new(e.clone()),
+                    Reference::new(e.clone()),
                 ),
             ),
         }
@@ -791,7 +792,7 @@ impl SasState<Started> {
                 KeyVerificationStartEventContent::new(
                     self.device_id().into(),
                     StartMethod::SasV1(the_protocol_definitions()),
-                    Relation::new(e.clone()),
+                    Reference::new(e.clone()),
                 ),
             ),
         }
@@ -877,7 +878,7 @@ impl SasState<WeAccepted> {
             }
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                KeyVerificationAcceptEventContent::new(method, Relation::new(e.clone())),
+                KeyVerificationAcceptEventContent::new(method, Reference::new(e.clone())),
             )
                 .into(),
         }
@@ -999,7 +1000,7 @@ impl SasState<Accepted> {
                 AnyMessageLikeEventContent::KeyVerificationKey(
                     KeyVerificationKeyEventContent::new(
                         Base64::new(self.our_public_key.to_vec()),
-                        Relation::new(e.clone()),
+                        Reference::new(e.clone()),
                     ),
                 ),
             )
@@ -1069,7 +1070,7 @@ impl SasState<KeyReceived> {
                 AnyMessageLikeEventContent::KeyVerificationKey(
                     KeyVerificationKeyEventContent::new(
                         Base64::new(self.our_public_key.to_vec()),
-                        Relation::new(e.clone()),
+                        Reference::new(e.clone()),
                     ),
                 ),
             )
@@ -1424,7 +1425,7 @@ impl SasState<WaitingForDone> {
             FlowId::InRoom(r, e) => (
                 r.clone(),
                 AnyMessageLikeEventContent::KeyVerificationDone(
-                    KeyVerificationDoneEventContent::new(Relation::new(e.clone())),
+                    KeyVerificationDoneEventContent::new(Reference::new(e.clone())),
                 ),
             )
                 .into(),

@@ -27,8 +27,9 @@ use ruma::{
             ready::{KeyVerificationReadyEventContent, ToDeviceKeyVerificationReadyEventContent},
             request::ToDeviceKeyVerificationRequestEventContent,
             start::StartMethod,
-            Relation, VerificationMethod,
+            VerificationMethod,
         },
+        relation::Reference,
         room::message::KeyVerificationRequestEventContent,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
@@ -925,7 +926,7 @@ impl RequestState<Requested> {
                     KeyVerificationReadyEventContent::new(
                         state.store.account.device_id().to_owned(),
                         methods,
-                        Relation::new(e.to_owned()),
+                        Reference::new(e.to_owned()),
                     ),
                 ),
             )
