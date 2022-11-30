@@ -220,14 +220,23 @@ impl SlidingSyncRoom {
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
-        self.timeline_no_fully_read_tracking().with_fully_read_tracking().await
+        self.timeline_no_fully_read_tracking().unwrap().with_fully_read_tracking().await
     }
 
-    fn timeline_no_fully_read_tracking(&self) -> Timeline {
-        let current_timeline = self.timeline.lock_ref().to_vec();
-        let prev_batch = self.prev_batch.lock_ref().clone();
-        let room = self.client.get_room(&self.room_id).unwrap();
-        Timeline::with_events(&room, prev_batch, current_timeline)
+    fn timeline_no_fully_read_tracking(&self) -> Option<Timeline> {
+        if let Some(room) = self.client.get_room(&self.room_id) {
+            let current_timeline = self.timeline.lock_ref().to_vec();
+            let prev_batch = self.prev_batch.lock_ref().clone();
+            Some(Timeline::with_events(&room, prev_batch, current_timeline))
+        } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
+            Some(Timeline::with_events(&invited_room, None, vec![]))
+        } else {
+            tracing::error!(
+                room_id = ?self.room_id,
+                "Room not found in client. Can't provide a timeline for it"
+            );
+            None
+        }
     }
 
     /// The latest timeline item of this room.
@@ -236,7 +245,7 @@ impl SlidingSyncRoom {
     /// this `SlidingSyncRoom`.
     #[cfg(feature = "experimental-timeline")]
     pub fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.timeline_no_fully_read_tracking().latest_event()
+        self.timeline_no_fully_read_tracking()?.latest_event()
     }
 
     /// This rooms name as calculated by the server, if any
