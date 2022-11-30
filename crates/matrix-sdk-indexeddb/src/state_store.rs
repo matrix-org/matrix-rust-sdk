@@ -1401,7 +1401,7 @@ mod tests {
         Ok(IndexeddbStateStore::builder().name(db_name).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -1420,7 +1420,7 @@ mod encrypted_tests {
         Ok(IndexeddbStateStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
