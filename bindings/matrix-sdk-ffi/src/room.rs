@@ -38,6 +38,7 @@ pub struct Room {
     timeline: RwLock<Option<Arc<Timeline>>>,
 }
 
+#[derive(uniffi::Enum)]
 pub enum MembershipState {
     /// The user is banned.
     Ban,
@@ -55,6 +56,7 @@ pub enum MembershipState {
     Leave,
 }
 
+#[derive(uniffi::Object)]
 pub struct RoomMember {
     pub user_id: String,
     pub display_name: Option<String>,
