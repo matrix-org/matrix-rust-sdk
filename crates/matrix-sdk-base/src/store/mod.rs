@@ -532,23 +532,27 @@ impl Store {
         &self.sync_lock
     }
 
-    /// Restore the access to the Store from the given `Session`, overwrites any
-    /// previously existing access to the Store.
-    pub async fn restore_session(&self, session: SessionMeta) -> Result<()> {
+    /// Set the meta of the session.
+    ///
+    /// Restores the state of this `Store` from the given `SessionMeta` and the
+    /// inner `StateStore`.
+    ///
+    /// This method panics if it is called twice.
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
         for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
-        self.session_meta.set(session).expect("Session IDs were already set");
+        self.session_meta.set(session_meta).expect("Session Meta was already set");
 
         Ok(())
     }

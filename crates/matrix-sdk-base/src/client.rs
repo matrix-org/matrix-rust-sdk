@@ -78,8 +78,8 @@ pub struct BaseClient {
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
     /// The olm-machine that is created once the
-    /// [`Session`][crate::session::Session] is set via
-    /// [`BaseClient::restore_session`]
+    /// [`SessionMeta`][crate::session::SessionMeta] is set via
+    /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
 }
@@ -142,8 +142,7 @@ impl BaseClient {
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
-    /// [`Session`][crate::session::Session] object which can later be given to
-    /// [`BaseClient::restore_session`].
+    /// [`Session`][crate::session::Session] object.
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
@@ -198,24 +197,29 @@ impl BaseClient {
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
-        self.restore_session(meta).await
+        self.set_session_meta(meta).await
     }
 
-    /// Restore a previously logged in session.
+    /// Set the meta of the session.
+    ///
+    /// If encryption is enabled, this also initializes or restores the
+    /// `OlmMachine`.
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a previous login
-    ///   call.
-    pub async fn restore_session(&self, session: SessionMeta) -> Result<()> {
-        debug!(user_id = %session.user_id, device_id = %session.device_id, "Restoring login");
-        self.store.restore_session(session.clone()).await?;
+    /// * `session_meta` - The meta of a session that the user already has from
+    ///   a previous login call.
+    ///
+    /// This method panics if it is called twice.
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+        debug!(user_id = %session_meta.user_id, device_id = %session_meta.device_id, "Restoring login");
+        self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
         {
             let olm_machine = OlmMachine::with_store(
-                &session.user_id,
-                &session.device_id,
+                &session_meta.user_id,
+                &session_meta.device_id,
                 self.crypto_store.clone(),
             )
             .await
@@ -1203,7 +1207,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_session(SessionMeta {
+            .set_session_meta(SessionMeta {
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })
@@ -1256,7 +1260,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_session(SessionMeta {
+            .set_session_meta(SessionMeta {
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })

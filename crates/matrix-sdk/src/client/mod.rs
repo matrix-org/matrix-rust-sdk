@@ -1220,7 +1220,7 @@ impl Client {
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         let (meta, tokens) = session.into_parts();
         self.base_client().set_session_tokens(tokens);
-        Ok(self.base_client().restore_session(meta).await?)
+        Ok(self.base_client().set_session_meta(meta).await?)
     }
 
     /// Refresh the access token.
