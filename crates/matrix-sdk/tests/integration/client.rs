@@ -506,12 +506,9 @@ async fn get_media_content() {
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/download/localhost/textfile"))
         .respond_with(ResponseTemplate::new(200).set_body_string("Some very interesting text."))
-        .expect(2)
         .mount(&server)
         .await;
 
-    client.media().get_media_content(&request, true).await.unwrap();
-    client.media().get_media_content(&request, true).await.unwrap();
     client.media().get_media_content(&request, false).await.unwrap();
 }
 
@@ -533,13 +530,11 @@ async fn get_media_file() {
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/download/example%2Eorg/image"))
         .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .expect(1)
         .named("get_file")
         .mount(&server)
         .await;
 
-    client.media().get_file(event_content.clone(), true).await.unwrap();
-    client.media().get_file(event_content.clone(), true).await.unwrap();
+    client.media().get_file(event_content.clone(), false).await.unwrap();
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
@@ -556,7 +551,7 @@ async fn get_media_file() {
         .get_thumbnail(
             event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            true,
+            false,
         )
         .await
         .unwrap();
