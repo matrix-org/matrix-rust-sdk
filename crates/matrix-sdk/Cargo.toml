@@ -42,7 +42,7 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-timeline = ["ruma/unstable-msc2677"]
+experimental-timeline = ["ruma/unstable-msc2677", "dep:chrono"]
 
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
@@ -63,6 +63,7 @@ anymap2 = "0.13.0"
 async-stream = "0.3.3"
 async-trait = "0.1.53"
 bytes = "1.1.0"
+chrono = { version = "0.4.23", optional = true }
 dashmap = "5.2.0"
 derive_builder = { version = "0.11.2", optional = true }
 event-listener = "2.5.2"

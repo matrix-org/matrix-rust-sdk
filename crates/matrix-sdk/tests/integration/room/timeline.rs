@@ -62,6 +62,8 @@ async fn edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let first =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let msg = assert_matches!(
@@ -125,7 +127,7 @@ async fn edit() {
 
     let edit = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let edited = assert_matches!(
         edit.as_event().unwrap().content(),
@@ -174,6 +176,8 @@ async fn echo() {
             .await
     });
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let local_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = local_echo.as_event().unwrap();
@@ -192,7 +196,7 @@ async fn echo() {
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap();
     assert!(item.event_id().is_some());
@@ -221,7 +225,7 @@ async fn echo() {
 
     let remote_echo = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = remote_echo.as_event().unwrap();
     assert!(item.event_id().is_some());
@@ -259,6 +263,10 @@ async fn back_pagination() {
 
     timeline.paginate_backwards(uint!(10)).await.unwrap();
 
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::Push { value }) => value
+    );
     let message = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::Push { value }) => value
@@ -272,7 +280,7 @@ async fn back_pagination() {
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 0, value }) => value
+        Some(VecDiff::InsertAt { index: 1, value }) => value
     );
     let msg = assert_matches!(
         message.as_event().unwrap().content(),
@@ -330,13 +338,15 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let message =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap();
     let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
@@ -366,7 +376,7 @@ async fn reaction() {
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap();
     let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
@@ -424,6 +434,8 @@ async fn redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let first =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
@@ -465,6 +477,8 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let message =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));

@@ -16,7 +16,26 @@
 #[derive(Clone, Debug)]
 pub enum VirtualTimelineItem {
     /// A divider between messages of two days.
-    DayDivider,
+    DayDivider {
+        /// The year.
+        year: i32,
+        /// The month of the year.
+        ///
+        /// A value between 1 and 12.
+        month: u32,
+        /// The day of the month.
+        ///
+        /// A value between 1 and 31.
+        day: u32,
+    },
     /// The user's own read marker.
     ReadMarker,
+}
+
+impl VirtualTimelineItem {
+    /// Creates a new `VirtualTimelineItem::DayDivider` from the given year,
+    /// month and day.
+    pub(crate) fn day_divider(year: i32, month: u32, day: u32) -> Self {
+        Self::DayDivider { year, month, day }
+    }
 }
