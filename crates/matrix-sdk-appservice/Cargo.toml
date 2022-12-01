@@ -30,7 +30,7 @@ sso-login = ["matrix-sdk/sso-login"]
 docs = []
 
 [dependencies]
-axum = { version = "0.5.16", default-features = false, features = ["json"] }
+axum = { version = "0.6.1", default-features = false, features = ["json"] }
 dashmap = "5.2.0"
 http = "0.2.6"
 http-body = "0.4.5"

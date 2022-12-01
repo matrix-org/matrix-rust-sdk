@@ -862,7 +862,7 @@ mod tests {
         let transaction_2 = transaction_builder.build_transaction();
 
         let appservice = appservice(None, None).await?;
-        let mut service = axum::Router::new().nest("/sub_path", appservice.service());
+        let mut service = axum::Router::new().nest_service("/sub_path", appservice.service());
 
         service
             .call(
