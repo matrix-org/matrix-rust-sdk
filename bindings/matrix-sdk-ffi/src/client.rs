@@ -234,7 +234,7 @@ impl Client {
         })
     }
 
-    pub fn upload_media(&self, mime: String, data: Vec<u8>) -> anyhow::Result<String> {
+    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> anyhow::Result<String> {
         let l = self.client.clone();
 
         RUNTIME.block_on(async move {
