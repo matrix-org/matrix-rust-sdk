@@ -34,7 +34,6 @@ uniffi = { workspace = true }
 uniffi_macros = { workspace = true }
 
 
-
 [target.'cfg(target_os = "android")'.dependencies]
 tracing = { version = "0.1.29", default-features = false, features = ["log"] }
 android_logger = "0.11"
