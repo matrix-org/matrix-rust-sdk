@@ -23,15 +23,14 @@ it's not expected that the *bot itself* has state.
 This expectation becomes especially problematic when combined with E2EE, where the running
 application has to not lose sight of it, or else it'll lose access to E2EE (group) chats.
 
-This fallacy / expectation exists both on the developer and user side of bots, and so to start fixing
-it, this pattern should / could be recommended to bot creators, as then the lifetime cycle of the bot
+This expectation exists both on the developer and user side of bots, and so to start fixing
+it, this pattern is recommended to bot creators, as then the lifetime cycle of the bot
 (and its data) is clear to every party involved, and errors are not necessarily "fatal" (or
 catastrophic while confusing).
 
 ## Consequence
 
-The consequences of the above invariant (setup phase initializes state, run phase expects it), has
-some consequences, some of which are the following;
+Some of the consequences of the above invariant (setup phase initializes state, run phase expects it initialized) are the following;
 - If the bot starts, but cannot find a state directory, it'll abort without implicitly creating one.
 - If the setup command is ran while state already exists, it would either abort or offer
   modification (such as a different client URL) to the operator.
@@ -48,7 +47,7 @@ some consequences, some of which are the following;
   - This would be done during setup instead of a run phase to make: a. make sure the operator sees
     it, and b. if the operator forgets to point the bot's state directories to a persistent file
     system, it has already taken note of the recovery information separately, and so the problem
-    with a wedged / lost E2EE state can be resolved as long as they still have access to that
+    with a lost E2EE state can be resolved as long as they still have access to that
     information.
 
 ## Extra Notes
