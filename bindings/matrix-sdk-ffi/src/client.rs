@@ -239,8 +239,7 @@ impl Client {
 
         RUNTIME.block_on(async move {
             let as_mime: mime::Mime = mime.parse().unwrap();
-            let as_array = data.as_slice();
-            let response = l.media().upload(&as_mime, as_array).await?;
+            let response = l.media().upload(&as_mime, data).await?;
             Ok(String::from(response.content_uri))
         })
     }
