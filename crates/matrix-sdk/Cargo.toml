@@ -24,6 +24,7 @@ default = [
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
+    "matrix-sdk-redis?/crypto-store",         # activate crypto-store on redis if given
     "matrix-sdk-sled?/crypto-store",          # activate crypto-store on sled if given
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
