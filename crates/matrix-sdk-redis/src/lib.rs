@@ -26,12 +26,10 @@ use matrix_sdk_base::store::StoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::store::CryptoStoreError;
 use redis::RedisError;
-use thiserror::Error;
-
 #[cfg(feature = "crypto-store")]
 pub use redis_crypto_store::RedisStore as CryptoStore;
-
 use redis_crypto_store::RedisStore;
+use thiserror::Error;
 
 /// All the errors that can occur when opening a redis store.
 #[derive(Error, Debug)]
@@ -55,8 +53,8 @@ pub enum OpenStoreError {
 /// Create a [`StoreConfig`] with an opened [`RedisStateStore`] that uses the
 /// given path and passphrase.
 ///
-/// If the `e2e-encryption` Cargo feature is enabled, a [`RedisCryptoStore`] with
-/// the same parameters is also opened.
+/// If the `e2e-encryption` Cargo feature is enabled, a [`RedisCryptoStore`]
+/// with the same parameters is also opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
