@@ -20,7 +20,10 @@ use tokio::task::JoinHandle;
 use tracing::error;
 
 use super::{Client, Room, RUNTIME};
-use crate::{helpers::unwrap_or_clone_arc, EventTimelineItem, TimelineDiff, TimelineListener};
+use crate::{
+    helpers::unwrap_or_clone_arc, room::TimelineLock, EventTimelineItem, TimelineDiff,
+    TimelineListener,
+};
 
 pub struct StoppableSpawn {
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
@@ -84,7 +87,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
-    timeline: Arc<RwLock<Option<Arc<Timeline>>>>,
+    timeline: TimelineLock,
     client: Client,
 }
 
@@ -123,14 +126,6 @@ impl SlidingSyncRoom {
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
 
-    /// Removes the timeline.
-    ///
-    /// Timeline items cached in memory as well as timeline listeners are
-    /// dropped.
-    pub fn remove_timeline(&self) {
-        *self.timeline.write().unwrap() = None;
-    }
-
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
         let item = self.inner.latest_event()?;
@@ -144,7 +139,7 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> Option<Arc<StoppableSpawn>> {
         let Some(timeline) = RUNTIME.block_on(async move { self.inner.timeline().await }) else {
-            tracing::warn!(room_id=?self.room_id(), "Could set timeline listener: no timeline found.");
+            tracing::warn!(room_id=?self.room_id(), "Could not set timeline listener: no timeline found.");
             return None
         };
 

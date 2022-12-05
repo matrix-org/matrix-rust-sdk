@@ -32,7 +32,7 @@ pub enum Membership {
     Left,
 }
 
-type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
+pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
 pub struct Room {
     room: SdkRoom,
