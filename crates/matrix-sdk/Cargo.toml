@@ -31,7 +31,7 @@ js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
 indexeddb = ["dep:matrix-sdk-indexeddb"]
-redis = ["dep:matrix-sdk-redis", "matrix-sdk-redis?/crypto-store"]
+redis = ["dep:matrix-sdk-redis"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 markdown = ["ruma/markdown"]
