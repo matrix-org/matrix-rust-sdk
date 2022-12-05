@@ -1214,10 +1214,7 @@ impl SlidingSyncView {
                         })?
                         .try_into()
                         .map_err(|e| {
-                            Error::BadResponse(format!(
-                                "`index` not a valid int for DELETE: {:}",
-                                e
-                            ))
+                            Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
                         })?;
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
@@ -1231,10 +1228,7 @@ impl SlidingSyncView {
                         })?
                         .try_into()
                         .map_err(|e| {
-                            Error::BadResponse(format!(
-                                "`index` not a valid int for INSERT: {:}",
-                                e
-                            ))
+                            Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
                         })?;
                     let sliced = rooms_list.as_slice();
                     let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
