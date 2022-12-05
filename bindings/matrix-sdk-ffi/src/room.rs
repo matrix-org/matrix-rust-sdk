@@ -81,7 +81,9 @@ impl From<matrix_sdk::ruma::events::room::member::MembershipState> for Membershi
             matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
                 MembershipState::Leave
             }
-            _ => todo!("unsupported MembershipState"),
+            _ => todo!(
+                "Handle Custom case: https://github.com/matrix-org/matrix-rust-sdk/issues/1254"
+            ),
         }
     }
 }
