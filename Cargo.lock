@@ -1194,7 +1194,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
- "uuid 1.2.2",
+ "uuid",
 ]
 
 [[package]]
@@ -2186,26 +2186,13 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexed_db_futures"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d26ac735f676c52305becf53264b91cea9866a8de61ccbf464405b377b9cbca9"
+checksum = "bfbcff6ae46750b15cc594bfd277b188cbddcfdc1817848f97f03f26f8625b9e"
 dependencies = [
  "cfg-if",
  "js-sys",
- "uuid 0.8.2",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "indexed_db_futures"
-version = "0.2.3"
-source = "git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs#5dab67890cea0ab88b967031adc09179a537d77c"
-dependencies = [
- "cfg-if",
- "js-sys",
- "uuid 0.8.2",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2833,8 +2820,7 @@ dependencies = [
  "derive_builder",
  "getrandom 0.2.8",
  "gloo-utils",
- "indexed_db_futures 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "indexed_db_futures 0.2.3 (git+https://github.com/Hywan/rust-indexed-db?branch=feat-factory-nodejs)",
+ "indexed_db_futures",
  "js-sys",
  "matrix-sdk-base",
  "matrix-sdk-common",
@@ -2846,7 +2832,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
- "uuid 1.2.2",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -4017,7 +4003,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "url",
- "uuid 1.2.2",
+ "uuid",
  "wildmatch",
 ]
 
@@ -4571,7 +4557,7 @@ dependencies = [
  "debugid",
  "memmap2",
  "stable_deref_trait",
- "uuid 1.2.2",
+ "uuid",
 ]
 
 [[package]]
@@ -5284,15 +5270,6 @@ name = "utf8parse"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "936e4b492acfd135421d8dca4b1aa80a7bfc26e702ef3af710e0752684df5372"
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.8",
-]
 
 [[package]]
 name = "uuid"
