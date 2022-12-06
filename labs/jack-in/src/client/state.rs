@@ -8,7 +8,11 @@ use futures_signals::{
     signal::Mutable,
     signal_vec::{MutableVec, VecDiff},
 };
-use matrix_sdk::{room::timeline::TimelineItem, ruma::OwnedRoomId, SlidingSyncView};
+use matrix_sdk::{
+    room::timeline::{Timeline, TimelineItem},
+    ruma::OwnedRoomId,
+    SlidingSyncView,
+};
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Default)]
@@ -28,6 +32,7 @@ pub struct SlidingSyncState {
     tl_handle: Mutable<Option<JoinHandle<()>>>,
     pub selected_room: Mutable<Option<OwnedRoomId>>,
     pub current_timeline: MutableVec<Arc<TimelineItem>>,
+    pub room_timeline: Mutable<Option<Timeline>>,
 }
 
 impl SlidingSyncState {
@@ -40,6 +45,7 @@ impl SlidingSyncState {
             tl_handle: Default::default(),
             selected_room: Default::default(),
             current_timeline: Default::default(),
+            room_timeline: Default::default(),
         }
     }
 
@@ -60,9 +66,11 @@ impl SlidingSyncState {
             r.as_ref().and_then(|room_id| self.view.rooms.lock_ref().get(room_id).cloned())
         {
             let current_timeline = self.current_timeline.clone();
+            let room_timeline = self.room_timeline.clone();
             let handle = tokio::spawn(async move {
                 let timeline = room.timeline().await.unwrap();
                 let listener = timeline.stream();
+                *room_timeline.lock_mut() = Some(timeline);
                 pin_mut!(listener);
                 while let Some(diff) = listener.next().await {
                     match diff {
