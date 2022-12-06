@@ -156,30 +156,26 @@ impl OlmMachine {
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
-        let store = Arc::new(
-            runtime
-                .block_on(matrix_sdk_sled::SledCryptoStore::open(path, passphrase.as_deref()))
-                .map_err(|e| {
-                match e {
-                    // This is a bit of an error in the sled store, the
-                    // CryptoStore returns an `OpenStoreError` which has a
-                    // variant for the state store. Not sure what to do about
-                    // this.
-                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                    matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
-                        matrix_sdk_crypto::store::CryptoStoreError::backend(s),
-                    ),
-                    _ => unreachable!(),
-                }
-            })?,
-        );
+        let store = runtime
+            .block_on(matrix_sdk_sled::SledCryptoStore::open(path, passphrase.as_deref()))
+            .map_err(|e| match e {
+                // This is a bit of an error in the sled store, the
+                // CryptoStore returns an `OpenStoreError` which has a
+                // variant for the state store. Not sure what to do about
+                // this.
+                matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
+                    matrix_sdk_crypto::store::CryptoStoreError::backend(s),
+                ),
+                _ => unreachable!(),
+            })?;
 
         passphrase.zeroize();
 
-        Ok(OlmMachine {
-            inner: runtime.block_on(InnerMachine::with_store(&user_id, device_id, store))?,
-            runtime,
-        })
+        let inner =
+            runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
+
+        Ok(OlmMachine { inner, runtime })
     }
 
     /// Get the display name of our own device.
