@@ -1397,7 +1397,7 @@ impl Client {
     #[instrument(skip_all)]
     pub async fn register(
         &self,
-        registration: impl Into<register::v3::Request>,
+        request: register::v3::Request,
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.homeserver().await;
         info!("Registering to {homeserver}");
@@ -1408,7 +1408,6 @@ impl Client {
             None
         };
 
-        let request = registration.into();
         self.send(request, config).await
     }
 
@@ -1590,11 +1589,7 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn create_room(
-        &self,
-        room: impl Into<create_room::v3::Request>,
-    ) -> HttpResult<room::Joined> {
-        let request = room.into();
+    pub async fn create_room(&self, request: create_room::v3::Request) -> HttpResult<room::Joined> {
         let response = self.send(request, None).await?;
 
         let base_room =
@@ -1636,9 +1631,8 @@ impl Client {
     /// ```
     pub async fn public_rooms_filtered(
         &self,
-        room_search: impl Into<get_public_rooms_filtered::v3::Request>,
+        request: get_public_rooms_filtered::v3::Request,
     ) -> HttpResult<get_public_rooms_filtered::v3::Response> {
-        let request = room_search.into();
         self.send(request, None).await
     }
 
