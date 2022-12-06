@@ -9,7 +9,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{fully_read::FullyReadEvent, AnyMessageLikeEventContent, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedEventId, OwnedTransactionId, RoomId, UserId,
+    OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 use tracing::{error, info, warn};
 
@@ -18,7 +18,7 @@ use super::{
         update_read_marker, Flow, TimelineEventHandler, TimelineEventKind, TimelineEventMetadata,
         TimelineItemPosition,
     },
-    TimelineInnerMetadata, TimelineItem, TimelineKey,
+    find_event, TimelineInnerMetadata, TimelineItem, TimelineKey,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -103,6 +103,27 @@ impl TimelineInner {
             &mut self.items.lock_mut(),
             &mut metadata_lock,
         );
+    }
+
+    pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
+        let mut lock = self.items.lock_mut();
+        if let Some((idx, item)) = find_event(&lock, txn_id) {
+            match &item.key {
+                TimelineKey::TransactionId(_) => {
+                    lock.set_cloned(
+                        idx,
+                        Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))),
+                    );
+                }
+                TimelineKey::EventId(ev_id) => {
+                    if *ev_id != event_id {
+                        error!("remote echo and send-event response disagree on the event ID");
+                    }
+                }
+            }
+        } else {
+            warn!(%txn_id, "Timeline item not found, can't add event ID");
+        }
     }
 
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {

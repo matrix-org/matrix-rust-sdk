@@ -29,7 +29,7 @@ use ruma::{
     events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
     OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
-use tracing::{error, instrument, warn};
+use tracing::{error, instrument};
 
 use super::{Joined, Room};
 use crate::{
@@ -324,7 +324,7 @@ impl Timeline {
         let room = Joined { inner: self.room.clone() };
 
         let response = room.send(content, Some(&txn_id)).await?;
-        add_event_id(&self.inner, &txn_id, response.event_id);
+        self.inner.add_event_id(&txn_id, response.event_id);
 
         Ok(())
     }
@@ -379,25 +379,4 @@ fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
             item.as_virtual().filter(|v| matches!(v, VirtualTimelineItem::ReadMarker)).is_some()
         })
         .map(|(idx, _)| idx)
-}
-
-fn add_event_id(items: &TimelineInner, txn_id: &TransactionId, event_id: OwnedEventId) {
-    let mut lock = items.items.lock_mut();
-    if let Some((idx, item)) = find_event(&lock, txn_id) {
-        match &item.key {
-            TimelineKey::TransactionId(_) => {
-                lock.set_cloned(
-                    idx,
-                    Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))),
-                );
-            }
-            TimelineKey::EventId(ev_id) => {
-                if *ev_id != event_id {
-                    error!("remote echo and send-event response disagree on the event ID");
-                }
-            }
-        }
-    } else {
-        warn!(%txn_id, "Timeline item not found, can't add event ID");
-    }
 }
