@@ -38,8 +38,8 @@ use tracing::{debug, error, info, warn};
 
 use super::{
     event_item::{BundledReactions, TimelineDetails},
-    find_event, find_read_marker, EventTimelineItem, Message, TimelineInnerMetadata, TimelineItem,
-    TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
+    TimelineInnerMetadata, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -420,7 +420,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
             Flow::Remote { txn_id, event_id, position, raw_event, .. } => {
                 if let Some(txn_id) = txn_id {
-                    if let Some((idx, _old_item)) = find_event(self.timeline_items, txn_id) {
+                    if let Some((idx, _old_item)) =
+                        find_event_by_txn_id(self.timeline_items, txn_id)
+                    {
                         // TODO: Check whether anything is different about the
                         //       old and new item?
                         self.timeline_items.set_cloned(idx, item);
@@ -434,7 +436,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     }
                 }
 
-                if let Some((idx, old_item)) = find_event(self.timeline_items, event_id) {
+                if let Some((idx, old_item)) = find_event_by_id(self.timeline_items, event_id) {
                     warn!(
                         ?item,
                         ?old_item,
@@ -476,7 +478,7 @@ pub(crate) fn update_read_marker(
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
     let read_marker_idx = find_read_marker(items_lock);
-    let fully_read_event_idx = find_event(items_lock, fully_read_event).map(|(idx, _)| idx);
+    let fully_read_event_idx = find_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
     match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
@@ -507,7 +509,7 @@ fn maybe_update_timeline_item(
     action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
 ) -> bool {
-    if let Some((idx, item)) = find_event(timeline_items, event_id) {
+    if let Some((idx, item)) = find_event_by_id(timeline_items, event_id) {
         if let Some(new_item) = update(item) {
             timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(new_item)));
             return true;
