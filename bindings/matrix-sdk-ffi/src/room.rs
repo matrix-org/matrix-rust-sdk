@@ -12,7 +12,8 @@ use matrix_sdk::{
     },
     ruma::{
         events::{
-            relation::Replacement,
+            reaction::ReactionEventContent,
+            relation::{Annotation, Replacement},
             room::message::{
                 ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
             },
@@ -278,6 +279,19 @@ impl Room {
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
             room.redact(&event_id, reason.as_deref(), txn_id.map(Into::into)).await?;
+            Ok(())
+        })
+    }
+
+    pub fn send_reaction(&self, event_id: String, key: String) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send reaction in a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            let event_id = EventId::parse(event_id)?;
+            room.send(ReactionEventContent::new(Annotation::new(event_id, key)), None).await?;
             Ok(())
         })
     }
