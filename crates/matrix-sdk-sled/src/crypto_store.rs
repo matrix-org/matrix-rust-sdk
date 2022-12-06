@@ -216,12 +216,7 @@ impl SledCryptoStore {
         let db =
             Config::new().temporary(false).path(&path).open().map_err(CryptoStoreError::backend)?;
 
-        let store_cipher = passphrase
-            .map(|p| Self::get_or_create_store_cipher(p, &db))
-            .transpose()?
-            .map(Into::into);
-
-        SledCryptoStore::open_helper(db, Some(path), store_cipher).await
+        Self::open_with_database(db, passphrase).await
     }
 
     /// Create a sled-based crypto store using the given sled database.
