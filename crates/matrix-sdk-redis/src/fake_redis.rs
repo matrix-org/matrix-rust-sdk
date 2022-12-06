@@ -80,7 +80,9 @@ impl RedisConnectionShim for FakeRedisConnection {
             .entry(String::from(key))
             .or_insert(to_redis_value(BTreeMap::<String, Vec<u8>>::new()));
         let mut full_map: BTreeMap<String, Vec<u8>> = BTreeMap::from_redis_value(entry)
-            .expect(&format!("Tried to hdel {} as a btreemap, but it is not a btreemap!", key));
+            .unwrap_or_else(|_| {
+                panic!("Tried to hdel {} as a btreemap, but it is not a btreemap!", key)
+            });
         full_map.remove(field);
 
         // Replace the entry at key with this modified hashmap
@@ -117,7 +119,9 @@ impl RedisConnectionShim for FakeRedisConnection {
             .entry(String::from(key))
             .or_insert(to_redis_value(BTreeMap::<String, Vec<u8>>::new()));
         let mut full_map: BTreeMap<String, Vec<u8>> = BTreeMap::from_redis_value(entry)
-            .expect(&format!("Tried to hset {} as a btreemap, but it is not a btreemap!", key));
+            .unwrap_or_else(|_| {
+                panic!("Tried to hset {} as a btreemap, but it is not a btreemap!", key)
+            });
         full_map.insert(String::from(field), value);
 
         // Replace the entry at key with this modified hashmap
@@ -147,8 +151,10 @@ impl RedisConnectionShim for FakeRedisConnection {
         let mut values = self.values.lock().unwrap();
         let entry =
             values.entry(String::from(key)).or_insert(to_redis_value(BTreeSet::<String>::new()));
-        let mut full_map: BTreeSet<String> = BTreeSet::from_redis_value(entry)
-            .expect(&format!("Tried to sadd {} as a btreeset, but it is not a btreeset!", key));
+        let mut full_map: BTreeSet<String> =
+            BTreeSet::from_redis_value(entry).unwrap_or_else(|_| {
+                panic!("Tried to sadd {} as a btreeset, but it is not a btreeset!", key)
+            });
         full_map.insert(value);
 
         // Replace the entry at key with this modified hashmap
@@ -266,7 +272,7 @@ impl RedisPipelineShim for FakeRedisPipeline {
     }
 
     fn sadd(&mut self, key: &str, value: String) {
-        self.cmds.push(PipelineCommand::Sadd(String::from(key), String::from(value)));
+        self.cmds.push(PipelineCommand::Sadd(String::from(key), value));
     }
 
     async fn query_async(&self, connection: &mut Self::Conn) -> RedisResultShim<()> {
@@ -277,9 +283,7 @@ impl RedisPipelineShim for FakeRedisPipeline {
                 PipelineCommand::Hset(key, field, value) => {
                     connection.hset(key, field, value.clone()).await?
                 }
-                PipelineCommand::Sadd(key, value) => {
-                    connection.sadd(&key, value.to_owned()).await?
-                }
+                PipelineCommand::Sadd(key, value) => connection.sadd(key, value.to_owned()).await?,
                 PipelineCommand::Set(key, value) => connection.set(key, value).await?,
                 PipelineCommand::SetVec(key, value) => connection.set(key, value).await?,
             }

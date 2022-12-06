@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "crypto-store"))]
 mod fake_redis;
+#[cfg(feature = "crypto-store")]
 mod real_redis;
 #[cfg(feature = "crypto-store")]
 mod redis_crypto_store;
+#[cfg(feature = "crypto-store")]
 mod redis_shim;
 
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
@@ -28,6 +30,7 @@ use matrix_sdk_crypto::store::CryptoStoreError;
 use redis::RedisError;
 #[cfg(feature = "crypto-store")]
 pub use redis_crypto_store::RedisStore as CryptoStore;
+#[cfg(feature = "crypto-store")]
 use redis_crypto_store::RedisStore;
 use thiserror::Error;
 

@@ -274,7 +274,7 @@ where
             let export = cipher._insecure_export_fast_for_testing(passphrase);
 
             let export = export.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
-            let _: () = connection.set(&key_id, export).await?;
+            connection.set(&key_id, export).await?;
             cipher
         };
 
@@ -318,7 +318,7 @@ where
                 account_info.identity_keys,
                 session,
             )
-            .map_err(|e| CryptoStoreError::Pickle(e))?;
+            .map_err(CryptoStoreError::Pickle)?;
 
             Ok(Some(unpickled))
         } else {
@@ -515,7 +515,7 @@ where
         let mut pipeline = self.client.create_pipe();
 
         for user in users {
-            let _: () = pipeline.hset(
+            pipeline.hset(
                 &format!("{}tracked_users", self.key_prefix),
                 user.user_id.as_str(),
                 self.serialize_value(&user)?,
@@ -800,7 +800,7 @@ where
         let mut connection = self.client.get_async_connection().await.unwrap();
         let redis_key = format!("{}unsent_secret_requests", self.key_prefix);
         let req_map: HashMap<String, Vec<u8>> = connection.hgetall(&redis_key).await.unwrap();
-        Ok(req_map.iter().map(|(_, req)| self.deserialize_value(&req).unwrap()).collect())
+        Ok(req_map.values().map(|req| self.deserialize_value(req).unwrap()).collect())
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
@@ -859,7 +859,7 @@ mod test_fake_redis {
     use super::RedisStore;
     use crate::fake_redis::FakeRedisClient;
 
-    static REDIS_CLIENT: Lazy<FakeRedisClient> = Lazy::new(|| FakeRedisClient::new());
+    static REDIS_CLIENT: Lazy<FakeRedisClient> = Lazy::new(FakeRedisClient::new);
 
     async fn get_store(name: &str, passphrase: Option<&str>) -> RedisStore<FakeRedisClient> {
         let key_prefix = format!("matrix-sdk-crypto|test|{}|", name);
