@@ -18,7 +18,7 @@ use super::{
         update_read_marker, Flow, TimelineEventHandler, TimelineEventKind, TimelineEventMetadata,
         TimelineItemPosition,
     },
-    find_event, TimelineInnerMetadata, TimelineItem, TimelineKey,
+    find_event_by_txn_id, TimelineInnerMetadata, TimelineItem, TimelineKey,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -107,7 +107,7 @@ impl TimelineInner {
 
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
         let mut lock = self.items.lock_mut();
-        if let Some((idx, item)) = find_event(&lock, txn_id) {
+        if let Some((idx, item)) = find_event_by_txn_id(&lock, txn_id) {
             match &item.key {
                 TimelineKey::TransactionId(_) => {
                     lock.set_cloned(

@@ -27,7 +27,7 @@ use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent}
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
-    OwnedEventId, OwnedUserId, TransactionId, UInt,
+    EventId, OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
 use tracing::{error, instrument};
 
@@ -362,14 +362,24 @@ impl TimelineItem {
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
-fn find_event(
-    lock: &[Arc<TimelineItem>],
-    key: impl PartialEq<TimelineKey>,
-) -> Option<(usize, &EventTimelineItem)> {
+fn find_event_by_id<'a>(
+    lock: &'a [Arc<TimelineItem>],
+    event_id: &EventId,
+) -> Option<(usize, &'a EventTimelineItem)> {
     lock.iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| key == it.key)
+        .rfind(|(_, it)| it.event_id() == Some(event_id))
+}
+
+fn find_event_by_txn_id<'a>(
+    lock: &'a [Arc<TimelineItem>],
+    txn_id: &TransactionId,
+) -> Option<(usize, &'a EventTimelineItem)> {
+    lock.iter()
+        .enumerate()
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+        .rfind(|(_, it)| it.key == *txn_id)
 }
 
 fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
