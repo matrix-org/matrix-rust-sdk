@@ -81,7 +81,7 @@ impl RedisConnectionShim for FakeRedisConnection {
             .or_insert(to_redis_value(BTreeMap::<String, Vec<u8>>::new()));
         let mut full_map: BTreeMap<String, Vec<u8>> = BTreeMap::from_redis_value(entry)
             .unwrap_or_else(|_| {
-                panic!("Tried to hdel {} as a btreemap, but it is not a btreemap!", key)
+                panic!("Tried to hdel {key} as a btreemap, but it is not a btreemap!")
             });
         full_map.remove(field);
 
@@ -120,7 +120,7 @@ impl RedisConnectionShim for FakeRedisConnection {
             .or_insert(to_redis_value(BTreeMap::<String, Vec<u8>>::new()));
         let mut full_map: BTreeMap<String, Vec<u8>> = BTreeMap::from_redis_value(entry)
             .unwrap_or_else(|_| {
-                panic!("Tried to hset {} as a btreemap, but it is not a btreemap!", key)
+                panic!("Tried to hset {key} as a btreemap, but it is not a btreemap!")
             });
         full_map.insert(String::from(field), value);
 
@@ -153,7 +153,7 @@ impl RedisConnectionShim for FakeRedisConnection {
             values.entry(String::from(key)).or_insert(to_redis_value(BTreeSet::<String>::new()));
         let mut full_map: BTreeSet<String> =
             BTreeSet::from_redis_value(entry).unwrap_or_else(|_| {
-                panic!("Tried to sadd {} as a btreeset, but it is not a btreeset!", key)
+                panic!("Tried to sadd {key} as a btreeset, but it is not a btreeset!")
             });
         full_map.insert(value);
 

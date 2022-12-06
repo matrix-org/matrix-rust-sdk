@@ -862,7 +862,7 @@ mod test_fake_redis {
     static REDIS_CLIENT: Lazy<FakeRedisClient> = Lazy::new(FakeRedisClient::new);
 
     async fn get_store(name: &str, passphrase: Option<&str>) -> RedisStore<FakeRedisClient> {
-        let key_prefix = format!("matrix-sdk-crypto|test|{}|", name);
+        let key_prefix = format!("matrix-sdk-crypto|test|{name}|");
         RedisStore::open(REDIS_CLIENT.clone(), passphrase, key_prefix)
             .await
             .expect("Can't create a Redis store")
