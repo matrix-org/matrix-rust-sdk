@@ -71,7 +71,7 @@ pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Resu
             let _ = client.register(request).await;
         }
     }
-    client.login_username(&username, &username).send().await?;
+    client.login_username(&username, &username).await?;
     users.insert(username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
     Ok(client)
