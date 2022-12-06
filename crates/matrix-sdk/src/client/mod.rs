@@ -983,7 +983,6 @@ impl Client {
     /// let response = client
     ///     .login_username(user, "wordpass")
     ///     .initial_device_display_name("My bot")
-    ///     .send()
     ///     .await?;
     ///
     /// println!(
@@ -1046,7 +1045,6 @@ impl Client {
     /// let response = client
     ///     .login_token(login_token)
     ///     .initial_device_display_name("My app")
-    ///     .send()
     ///     .await
     ///     .unwrap();
     ///
@@ -1107,7 +1105,6 @@ impl Client {
     ///         Ok(())
     ///     })
     ///     .initial_device_display_name("My app")
-    ///     .send()
     ///     .await
     ///     .unwrap();
     ///
