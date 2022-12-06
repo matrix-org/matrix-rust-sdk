@@ -53,11 +53,9 @@ pub enum OpenStoreError {
     Redis(#[from] RedisError),
 }
 
-/// Create a [`StoreConfig`] with an opened [`RedisStateStore`] that uses the
-/// given path and passphrase.
+/// Create a [`StoreConfig`].
 ///
-/// If the `e2e-encryption` Cargo feature is enabled, a [`RedisCryptoStore`]
-/// with the same parameters is also opened.
+/// If the `e2e-encryption` Cargo feature is enabled, a [`CryptoStore`] is opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
