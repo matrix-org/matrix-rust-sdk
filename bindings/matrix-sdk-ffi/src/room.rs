@@ -38,6 +38,56 @@ pub struct Room {
     timeline: RwLock<Option<Arc<Timeline>>>,
 }
 
+#[derive(uniffi::Enum)]
+pub enum MembershipState {
+    /// The user is banned.
+    Ban,
+
+    /// The user has been invited.
+    Invite,
+
+    /// The user has joined.
+    Join,
+
+    /// The user has requested to join.
+    Knock,
+
+    /// The user has left.
+    Leave,
+}
+
+#[derive(uniffi::Object)]
+pub struct RoomMember {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub membership: MembershipState,
+    pub is_name_ambiguous: bool,
+    pub power_level: i64,
+    pub normalized_power_level: i64,
+}
+
+impl From<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
+    fn from(m: matrix_sdk::ruma::events::room::member::MembershipState) -> Self {
+        match m {
+            matrix_sdk::ruma::events::room::member::MembershipState::Ban => MembershipState::Ban,
+            matrix_sdk::ruma::events::room::member::MembershipState::Invite => {
+                MembershipState::Invite
+            }
+            matrix_sdk::ruma::events::room::member::MembershipState::Join => MembershipState::Join,
+            matrix_sdk::ruma::events::room::member::MembershipState::Knock => {
+                MembershipState::Knock
+            }
+            matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
+                MembershipState::Leave
+            }
+            _ => todo!(
+                "Handle Custom case: https://github.com/matrix-org/matrix-rust-sdk/issues/1254"
+            ),
+        }
+    }
+}
+
 #[uniffi::export]
 impl Room {
     pub fn id(&self) -> String {
@@ -104,6 +154,27 @@ impl Room {
         RUNTIME.block_on(async move {
             let is_encrypted = room.is_encrypted().await?;
             Ok(is_encrypted)
+        })
+    }
+
+    pub fn members(&self) -> Result<Vec<RoomMember>> {
+        let room = self.room.clone();
+        RUNTIME.block_on(async move {
+            let members = room
+                .members()
+                .await?
+                .iter()
+                .map(|m| RoomMember {
+                    user_id: m.user_id().to_string(),
+                    display_name: m.display_name().map(|d| d.to_owned()),
+                    avatar_url: m.avatar_url().map(|a| a.to_string()),
+                    membership: m.membership().to_owned().into(),
+                    is_name_ambiguous: m.name_ambiguous(),
+                    power_level: m.power_level(),
+                    normalized_power_level: m.normalized_power_level(),
+                })
+                .collect();
+            Ok(members)
         })
     }
 
