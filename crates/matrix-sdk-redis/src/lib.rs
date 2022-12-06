@@ -55,7 +55,8 @@ pub enum OpenStoreError {
 
 /// Create a [`StoreConfig`].
 ///
-/// If the `e2e-encryption` Cargo feature is enabled, a [`CryptoStore`] is opened.
+/// If the `e2e-encryption` Cargo feature is enabled, a [`CryptoStore`] is
+/// opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
