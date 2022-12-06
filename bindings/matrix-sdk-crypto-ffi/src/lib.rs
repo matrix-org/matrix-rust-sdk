@@ -196,8 +196,7 @@ pub fn migrate(
     };
 
     let runtime = Runtime::new()?;
-    let store =
-        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
+    let store = runtime.block_on(SledCryptoStore::open(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);

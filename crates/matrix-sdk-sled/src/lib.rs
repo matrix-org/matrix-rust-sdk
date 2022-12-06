@@ -57,7 +57,7 @@ pub async fn make_store_config(
 
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
-        let crypto_store = SledCryptoStore::open_with_passphrase(path, passphrase).await?;
+        let crypto_store = SledCryptoStore::open(path, passphrase).await?;
         Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 

@@ -158,23 +158,20 @@ impl OlmMachine {
 
         let store = Arc::new(
             runtime
-                .block_on(matrix_sdk_sled::SledCryptoStore::open_with_passphrase(
-                    path,
-                    passphrase.as_deref(),
-                ))
+                .block_on(matrix_sdk_sled::SledCryptoStore::open(path, passphrase.as_deref()))
                 .map_err(|e| {
-                    match e {
-                        // This is a bit of an error in the sled store, the
-                        // CryptoStore returns an `OpenStoreError` which has a
-                        // variant for the state store. Not sure what to do about
-                        // this.
-                        matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                        matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
-                            matrix_sdk_crypto::store::CryptoStoreError::backend(s),
-                        ),
-                        _ => unreachable!(),
-                    }
-                })?,
+                match e {
+                    // This is a bit of an error in the sled store, the
+                    // CryptoStore returns an `OpenStoreError` which has a
+                    // variant for the state store. Not sure what to do about
+                    // this.
+                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                    matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
+                        matrix_sdk_crypto::store::CryptoStoreError::backend(s),
+                    ),
+                    _ => unreachable!(),
+                }
+            })?,
         );
 
         passphrase.zeroize();
