@@ -259,7 +259,7 @@ async fn main() -> Result<()> {
                 .with_prompt(format!("Password for {user_id:} :"))
                 .interact()?,
         };
-        client.login_username(&user_id, &password).send().await?;
+        client.login_username(&user_id, &password).await?;
     }
 
     if let Some(session) = client.session() {

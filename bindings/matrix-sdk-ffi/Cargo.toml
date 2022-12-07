@@ -21,6 +21,7 @@ extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.17", default-features = false }
+mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
 once_cell = "1.10.0"

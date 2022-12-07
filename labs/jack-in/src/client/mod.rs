@@ -48,6 +48,7 @@ pub async fn run_client(
             Some(Ok(_)) => {
                 // we are switching into live updates mode next. ignoring
                 let state = state.read_only().get_cloned();
+                ssync_state.set_view_state(state.clone());
 
                 if state == SlidingSyncState::Live {
                     info!("Reached live sync");

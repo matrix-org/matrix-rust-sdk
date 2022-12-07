@@ -14,8 +14,10 @@
 // limitations under the License.
 #![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
-#[cfg(feature = "sso-login")]
-use std::future::Future;
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+};
 
 use ruma::{
     api::client::{session::login, uiaa::UserIdentifier},
@@ -136,6 +138,9 @@ impl LoginBuilder {
     }
 
     /// Send the login request.
+    ///
+    /// Instead of calling this function and `.await`ing its return value, you
+    /// can also `.await` the `LoginBuilder` directly.
     #[instrument(
         target = "matrix_sdk::client",
         name = "login",
@@ -156,6 +161,16 @@ impl LoginBuilder {
         self.client.receive_login_response(&response).await?;
 
         Ok(response)
+    }
+}
+
+impl IntoFuture for LoginBuilder {
+    type Output = Result<login::v3::Response>;
+    // TODO: Use impl Trait once allowed in this position on stable
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
     }
 }
 
@@ -260,6 +275,9 @@ where
     }
 
     /// Send the login request.
+    ///
+    /// Instead of calling this function and `.await`ing its return value, you
+    /// can also `.await` the `SsoLoginBuilder` directly.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::{
@@ -397,5 +415,20 @@ where
             ..LoginBuilder::new_token(self.client, token)
         };
         login_builder.send().await
+    }
+}
+
+#[cfg(feature = "sso-login")]
+impl<F, Fut> IntoFuture for SsoLoginBuilder<F>
+where
+    F: FnOnce(String) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<()>> + Send + 'static,
+{
+    type Output = Result<login::v3::Response>;
+    // TODO: Use impl Trait once allowed in this position on stable
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
     }
 }

@@ -80,7 +80,7 @@ mod uniffi_types {
         authentication_service::{AuthenticationService, HomeserverLoginDetails},
         client::Client,
         client_builder::ClientBuilder,
-        room::{Membership, Room},
+        room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
             RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,

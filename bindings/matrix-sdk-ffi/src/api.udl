@@ -164,6 +164,9 @@ interface Client {
 
     [Throws=ClientError]
     string display_name();
+    
+    [Throws=ClientError]
+    void set_display_name(string name);
 
     [Throws=ClientError]
     string avatar_url();
@@ -176,6 +179,9 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
+    
+    [Throws=ClientError]
+    string upload_media(string mime_type, sequence<u8> content);
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
@@ -202,12 +208,38 @@ dictionary Session {
     boolean is_soft_logout;
 };
 
+enum MembershipState {
+    /// The user is banned.
+    "Ban",
+    /// The user has been invited.
+    "Invite",
+    /// The user has joined.
+    "Join",
+    /// The user has requested to join.
+    "Knock",
+    /// The user has left.
+    "Leave",
+};
+
+dictionary RoomMember {
+    string user_id;
+    string? display_name;
+    string? avatar_url;
+    MembershipState membership;
+    boolean is_name_ambiguous;
+    i64 power_level;
+    i64 normalized_power_level;
+};
+
 interface Room {
     [Throws=ClientError]
     string display_name();
-    
+
     [Throws=ClientError]
     boolean is_encrypted();
+
+    [Throws=ClientError]
+    sequence<RoomMember> members();
 
     [Throws=ClientError]
     string? member_avatar_url(string user_id);
@@ -234,6 +266,9 @@ interface Room {
 
     [Throws=ClientError]
     void redact(string event_id, string? reason, string? txn_id);
+
+    [Throws=ClientError]
+    void send_reaction(string event_id, string key);
 };
 
 callback interface TimelineListener {
