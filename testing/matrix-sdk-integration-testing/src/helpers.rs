@@ -62,8 +62,8 @@ pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Resu
         // FIXME: do actually check the registration types...
         if let Some(_response) = resp.as_uiaa_response() {
             let request = assign!(RegistrationRequest::new(), {
-                username: Some(username.as_ref()),
-                password: Some(username.as_ref()),
+                username: Some(username.clone()),
+                password: Some(username.clone()),
 
                 auth: Some(uiaa::AuthData::Dummy(uiaa::Dummy::new())),
             });
@@ -71,7 +71,7 @@ pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Resu
             let _ = client.register(request).await;
         }
     }
-    client.login_username(&username, &username).send().await?;
+    client.login_username(&username, &username).await?;
     users.insert(username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
     Ok(client)

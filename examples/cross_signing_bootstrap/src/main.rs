@@ -18,11 +18,8 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
         use matrix_sdk::ruma::api::client::uiaa;
 
         if let Some(response) = e.as_uiaa_response() {
-            let mut password = uiaa::Password::new(
-                uiaa::UserIdentifier::UserIdOrLocalpart(user_id.as_str()),
-                &password,
-            );
-            password.session = response.session.as_deref();
+            let mut password = uiaa::Password::new(user_id.into(), password);
+            password.session = response.session.clone();
 
             client
                 .encryption()
@@ -39,11 +36,8 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    let response = client
-        .login_username(username, password)
-        .initial_device_display_name("rust-sdk")
-        .send()
-        .await?;
+    let response =
+        client.login_username(username, password).initial_device_display_name("rust-sdk").await?;
 
     let user_id = &response.user_id;
     let client_ref = &client;

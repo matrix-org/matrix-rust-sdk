@@ -676,7 +676,7 @@ mod tests {
     }
 
     #[async_test]
-    #[cfg(any(target_os = "linux", target_arch = "wasm32"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
     async fn expiration() -> Result<(), MegolmError> {
         use ruma::SecondsSinceUnixEpoch;
 

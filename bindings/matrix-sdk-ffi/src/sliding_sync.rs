@@ -124,10 +124,8 @@ impl SlidingSyncRoom {
 impl SlidingSyncRoom {
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        RUNTIME.block_on(async {
-            let item = self.inner.timeline().await.latest()?.as_event()?.to_owned();
-            Some(Arc::new(EventTimelineItem(item)))
-        })
+        let item = self.inner.latest_event()?;
+        Some(Arc::new(EventTimelineItem(item)))
     }
 }
 
@@ -562,7 +560,9 @@ impl SlidingSyncBuilder {
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSync>> {
         let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(SlidingSync::new(builder.inner.build()?, builder.client)))
+        RUNTIME.block_on(async move {
+            Ok(Arc::new(SlidingSync::new(builder.inner.build().await?, builder.client)))
+        })
     }
 }
 
@@ -577,6 +577,12 @@ impl SlidingSyncBuilder {
     pub fn no_views(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.no_views();
+        Arc::new(builder)
+    }
+
+    pub fn cold_cache(self: Arc<Self>, name: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.cold_cache(name);
         Arc::new(builder)
     }
 
@@ -598,7 +604,7 @@ impl Client {
     pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
         RUNTIME.block_on(async move {
             let builder = self.client.sliding_sync().await;
-            let inner = builder.add_fullsync_view().build()?;
+            let inner = builder.add_fullsync_view().build().await?;
             Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
     }

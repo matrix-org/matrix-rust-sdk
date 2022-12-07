@@ -35,13 +35,11 @@ use ruma::events::key::verification::done::{
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
-        key::verification::{
-            cancel::{
-                CancelCode, KeyVerificationCancelEventContent,
-                ToDeviceKeyVerificationCancelEventContent,
-            },
-            Relation,
+        key::verification::cancel::{
+            CancelCode, KeyVerificationCancelEventContent,
+            ToDeviceKeyVerificationCancelEventContent,
         },
+        relation::Reference,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
@@ -319,7 +317,7 @@ impl Done {
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
                 AnyMessageLikeEventContent::KeyVerificationDone(
-                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                    KeyVerificationDoneEventContent::new(Reference::new(e.to_owned())),
                 ),
             )
                 .into(),
@@ -407,7 +405,7 @@ impl Cancelled {
                     KeyVerificationCancelEventContent::new(
                         self.reason.to_owned(),
                         self.cancel_code.clone(),
-                        Relation::new(e.clone()),
+                        Reference::new(e.clone()),
                     ),
                 ),
             )

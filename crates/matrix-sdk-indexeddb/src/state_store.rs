@@ -24,6 +24,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
 use gloo_utils::format::JsValueSerdeExt;
+use indexed_db_futures::prelude::*;
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
@@ -49,7 +50,7 @@ use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::{indexed_db_futures::prelude::*, safe_encode::SafeEncode};
+use crate::safe_encode::SafeEncode;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct StoreKeyWrapper(Vec<u8>);
@@ -83,8 +84,8 @@ pub enum MigrationConflictStrategy {
     BackupAndDrop,
 }
 
-impl From<crate::indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
-    fn from(frm: crate::indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
         IndexeddbStateStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
@@ -414,9 +415,7 @@ impl IndexeddbStateStore {
             .meta
             .transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readonly)?
             .object_store(KEYS::BACKUPS_META)?
-            .open_cursor_with_direction(
-                crate::indexed_db_futures::prelude::IdbCursorDirection::Prev,
-            )?
+            .open_cursor_with_direction(indexed_db_futures::prelude::IdbCursorDirection::Prev)?
             .await?
             .and_then(|c| c.value().as_string()))
     }
@@ -1401,7 +1400,7 @@ mod tests {
         Ok(IndexeddbStateStore::builder().name(db_name).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -1420,13 +1419,14 @@ mod encrypted_tests {
         Ok(IndexeddbStateStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod migration_tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+    use indexed_db_futures::prelude::*;
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
@@ -1435,7 +1435,6 @@ mod migration_tests {
         IndexeddbStateStore, IndexeddbStateStoreError, MigrationConflictStrategy, Result,
         ALL_STORES,
     };
-    use crate::indexed_db_futures::prelude::*;
 
     pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, version)?;

@@ -27,8 +27,9 @@ use ruma::{
             ready::{KeyVerificationReadyEventContent, ToDeviceKeyVerificationReadyEventContent},
             request::ToDeviceKeyVerificationRequestEventContent,
             start::StartMethod,
-            Relation, VerificationMethod,
+            VerificationMethod,
         },
+        relation::Reference,
         room::message::KeyVerificationRequestEventContent,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
@@ -178,10 +179,9 @@ impl VerificationRequest {
     ) -> KeyVerificationRequestEventContent {
         KeyVerificationRequestEventContent::new(
             format!(
-                "{} is requesting to verify your key, but your client does not \
+                "{own_user_id} is requesting to verify your key, but your client does not \
                 support in-chat key verification. You will need to use legacy \
-                key verification to verify keys.",
-                own_user_id
+                key verification to verify keys."
             ),
             methods.unwrap_or_else(|| SUPPORTED_METHODS.to_vec()),
             own_device_id.into(),
@@ -925,7 +925,7 @@ impl RequestState<Requested> {
                     KeyVerificationReadyEventContent::new(
                         state.store.account.device_id().to_owned(),
                         methods,
-                        Relation::new(e.to_owned()),
+                        Reference::new(e.to_owned()),
                     ),
                 ),
             )

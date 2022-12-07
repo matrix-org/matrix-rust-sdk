@@ -45,8 +45,8 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
-    CancelInfo, ConfirmVerificationResult, QrCode, RequestVerificationResult, Sas, ScanResult,
-    StartSasResult, Verification, VerificationRequest,
+    CancelInfo, ConfirmVerificationResult, QrCode, RequestVerificationResult, Sas, SasListener,
+    SasState, ScanResult, StartSasResult, Verification, VerificationRequest,
 };
 
 /// Struct collecting data that is important to migrate to the rust-sdk
@@ -196,8 +196,7 @@ pub fn migrate(
     };
 
     let runtime = Runtime::new()?;
-    let store =
-        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
+    let store = runtime.block_on(SledCryptoStore::open(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);

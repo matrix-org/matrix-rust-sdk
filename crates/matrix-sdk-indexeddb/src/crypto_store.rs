@@ -20,6 +20,7 @@ use std::{
 use async_trait::async_trait;
 use dashmap::DashSet;
 use gloo_utils::format::JsValueSerdeExt;
+use indexed_db_futures::prelude::*;
 use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
@@ -37,7 +38,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::{indexed_db_futures::prelude::*, safe_encode::SafeEncode};
+use crate::safe_encode::SafeEncode;
 
 #[allow(non_snake_case)]
 mod KEYS {
@@ -107,8 +108,8 @@ pub enum IndexeddbCryptoStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
-impl From<crate::indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreError {
-    fn from(frm: crate::indexed_db_futures::web_sys::DomException) -> IndexeddbCryptoStoreError {
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbCryptoStoreError {
         IndexeddbCryptoStoreError::DomException {
             name: frm.name(),
             message: frm.message(),

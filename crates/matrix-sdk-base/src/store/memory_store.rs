@@ -19,7 +19,6 @@ use std::{
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
 use ruma::{
@@ -38,11 +37,7 @@ use ruma::{
 use tracing::{info, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::{
-    deserialized_responses::MemberEvent,
-    media::{MediaRequest, UniqueKey},
-    MinimalRoomMemberEvent,
-};
+use crate::{deserialized_responses::MemberEvent, media::MediaRequest, MinimalRoomMemberEvent};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -76,7 +71,6 @@ pub struct MemoryStore {
     room_event_receipts: Arc<
         DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>>,
     >,
-    media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
 
@@ -110,6 +104,7 @@ impl MemoryStore {
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
+            #[cfg(feature = "memory-media-cache")]
             media: Arc::new(Mutex::new(LruCache::new(
                 100.try_into().expect("100 is a non-zero usize"),
             ))),
@@ -526,36 +521,17 @@ impl MemoryStore {
         Ok(self.custom.insert(key.to_vec(), value))
     }
 
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.lock().await.put(request.unique_key(), data);
-
+    // The in-memory store doesn't cache media
+    async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
         Ok(())
     }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        Ok(self.media.lock().await.get(&request.unique_key()).cloned())
+    async fn get_media_content(&self, _request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(None)
     }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.lock().await.pop(&request.unique_key());
-
+    async fn remove_media_content(&self, _request: &MediaRequest) -> Result<()> {
         Ok(())
     }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let mut media_store = self.media.lock().await;
-
-        let keys: Vec<String> = media_store
-            .iter()
-            .filter_map(
-                |(key, _)| if key.starts_with(&uri.to_string()) { Some(key.clone()) } else { None },
-            )
-            .collect();
-
-        for key in keys {
-            media_store.pop(&key);
-        }
-
+    async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
         Ok(())
     }
 

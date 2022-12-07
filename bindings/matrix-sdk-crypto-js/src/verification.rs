@@ -66,8 +66,7 @@ impl TryFrom<JsValue> for VerificationMethod {
             3 => Self::ReciprocateV1,
             _ => {
                 return Err(JsError::new(&format!(
-                    "Unknown verification method (received `{:?}`)",
-                    value
+                    "Unknown verification method (received `{value:?}`)"
                 )))
             }
         })
@@ -100,8 +99,7 @@ impl TryFrom<RumaVerificationMethod> for VerificationMethod {
             ReciprocateV1 => Self::ReciprocateV1,
             _ => {
                 return Err(JsError::new(&format!(
-                    "Unknown verification method (received `{:?}`)",
-                    value
+                    "Unknown verification method (received `{value:?}`)"
                 )))
             }
         })

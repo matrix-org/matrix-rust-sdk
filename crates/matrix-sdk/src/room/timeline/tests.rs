@@ -29,12 +29,13 @@ use once_cell::sync::Lazy;
 use ruma::{
     assign, event_id,
     events::{
-        reaction::{self, ReactionEventContent},
+        reaction::ReactionEventContent,
+        relation::{Annotation, Replacement},
         room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{self, MessageType, Replacement, RoomMessageEventContent},
+            message::{self, MessageType, RoomMessageEventContent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
         MessageLikeEventContent, MessageLikeEventType, OriginalSyncMessageLikeEvent,
@@ -66,7 +67,7 @@ async fn reaction_redaction() {
 
     let msg_event_id = event.event_id().unwrap();
 
-    let rel = reaction::Relation::new(msg_event_id.to_owned(), "+1".to_owned());
+    let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);

@@ -23,17 +23,17 @@ use std::{
 use axum::{
     async_trait,
     body::{Bytes, HttpBody},
-    extract::{FromRequest, Path, RequestParts},
+    extract::{FromRequest, FromRequestParts, Path},
     middleware::{self, Next},
     response::{ErrorResponse, IntoResponse, Response},
     routing::{future::RouteFuture, get, put},
-    BoxError, Extension, Json, Router,
+    BoxError, Extension, Json, Router, ServiceExt,
 };
 use http::StatusCode;
 use hyper::Body;
 use matrix_sdk::ruma::{self, api::IncomingRequest};
 use serde::{Deserialize, Serialize};
-use tower::{make, Service, ServiceBuilder};
+use tower::{Service, ServiceBuilder};
 
 use crate::{AppService, Error, Result};
 
@@ -46,7 +46,7 @@ pub async fn run_server(
 
     let mut addr = (host.into(), port.into()).to_socket_addrs()?;
     if let Some(addr) = addr.next() {
-        hyper::Server::bind(&addr).serve(make::Shared::new(router)).await?;
+        hyper::Server::bind(&addr).serve(router.into_make_service()).await?;
         Ok(())
     } else {
         Err(Error::HostPortToSocketAddrs)
@@ -77,7 +77,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct AppServiceRouter<B = Body>(Router<B>);
+pub struct AppServiceRouter<B = Body>(Router<(), B>);
 
 impl<B> Clone for AppServiceRouter<B> {
     fn clone(&self) -> Self {
@@ -128,22 +128,28 @@ where
 pub struct MatrixRequest<T>(T);
 
 #[async_trait]
-impl<T, B> FromRequest<B> for MatrixRequest<T>
+impl<S, B, T> FromRequest<S, B> for MatrixRequest<T>
 where
-    T: IncomingRequest,
-    B: HttpBody + Send,
+    S: Send + Sync,
+    B: HttpBody + Send + 'static,
     B::Data: Send,
     B::Error: Into<BoxError>,
+    T: IncomingRequest,
 {
     type Rejection = Response;
 
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let path_params =
-            req.extract::<Path<Vec<String>>>().await.map_err(IntoResponse::into_response)?;
-        let parts = req.extract::<http::request::Parts>().await.map_err(|e| match e {})?;
-        let body = req.extract::<Bytes>().await.map_err(IntoResponse::into_response)?;
-
-        let http_request = http::Request::from_parts(parts, body);
+    async fn from_request(
+        req: http::request::Request<B>,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let (mut parts, body) = req.into_parts();
+        let path_params = Path::<Vec<String>>::from_request_parts(&mut parts, state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        let bytes = Bytes::from_request(http::Request::new(body), state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        let http_request = http::Request::from_parts(parts, bytes);
 
         let request = T::try_from_http_request(http_request, &path_params).map_err(|_e| {
             // TODO: JSON error response
@@ -171,7 +177,7 @@ mod handlers {
 
     pub async fn user(
         Extension(appservice): Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<query_user_id::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<query_user_id::v1::Request>,
     ) -> impl IntoResponse {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
             if user_exists(appservice.clone(), request).await {
@@ -186,7 +192,7 @@ mod handlers {
 
     pub async fn room(
         Extension(appservice): Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<query_room_alias::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<query_room_alias::v1::Request>,
     ) -> impl IntoResponse {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
             if room_exists(appservice.clone(), request).await {
@@ -201,7 +207,7 @@ mod handlers {
 
     pub async fn transaction(
         appservice: Extension<AppService>,
-        MatrixRequest(request): MatrixRequest<push_events::v1::IncomingRequest>,
+        MatrixRequest(request): MatrixRequest<push_events::v1::Request>,
     ) -> impl IntoResponse {
         match appservice.receive_transaction(request).await {
             Ok(_) => Ok(Json(&EmptyObject {})),

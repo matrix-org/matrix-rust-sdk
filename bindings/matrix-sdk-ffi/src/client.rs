@@ -348,7 +348,7 @@ impl Client {
 
     /// Indication whether we are currently syncing
     pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
+        self.state.read().unwrap().is_syncing
     }
 
     /// Flag indicating whether the session is in soft logout mode
@@ -381,7 +381,7 @@ impl Client {
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
+            let sync_settings = SyncSettings::new().filter(Filter::FilterId(filter_id));
 
             client
                 .sync_with_result_callback(sync_settings, |result| async {
