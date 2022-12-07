@@ -2796,6 +2796,7 @@ dependencies = [
  "futures-util",
  "log-panics",
  "matrix-sdk",
+ "mime",
  "once_cell",
  "sanitize-filename-reader-friendly",
  "serde_json",

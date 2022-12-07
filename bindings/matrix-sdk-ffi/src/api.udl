@@ -162,6 +162,9 @@ interface Client {
 
     [Throws=ClientError]
     string display_name();
+    
+    [Throws=ClientError]
+    void set_display_name(string name);
 
     [Throws=ClientError]
     string avatar_url();
@@ -174,6 +177,9 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
+    
+    [Throws=ClientError]
+    string upload_media(string mime_type, sequence<u8> content);
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
