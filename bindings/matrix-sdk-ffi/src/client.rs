@@ -188,14 +188,13 @@ impl Client {
     }
 
     pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
-        let l = self.client.clone();
+        let client = self.client.clone();
         RUNTIME.block_on(async move {
-            let result = l
+            client
                 .account()
                 .set_display_name(Some(name.as_str()))
                 .await
-                .context("Unable to set display name");
-            result
+                .context("Unable to set display name")
         })
     }
 
@@ -238,8 +237,8 @@ impl Client {
         let l = self.client.clone();
 
         RUNTIME.block_on(async move {
-            let as_mime: mime::Mime = mime.parse().unwrap();
-            let response = l.media().upload(&as_mime, data).await?;
+            let mime_type: mime::Mime = mime_type.parse()?;
+            let response = l.media().upload(&mime_type, data).await?;
             Ok(String::from(response.content_uri))
         })
     }
