@@ -84,11 +84,21 @@ pub enum SlidingSyncState {
 /// The mode by which the the [`SlidingSyncView`] is in fetching the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
-    /// FullSync all rooms in the background, configured with batch size
+    /// fully sync all rooms in the background, page by page of `batch_size`
     #[default]
-    FullSync,
+    #[serde(alias = "FullSync")]
+    PagingFullSync,
+    /// fully sync all rooms in the background, with a growing window of
+    /// `batch_size`,
+    GrowingFullSync,
     /// Only sync the specific windows defined
     Selective,
+}
+
+impl SlidingSyncMode {
+    fn is_full_sync(&self) -> bool {
+        matches!(self, SlidingSyncMode::PagingFullSync | SlidingSyncMode::GrowingFullSync)
+    }
 }
 
 /// The Entry in the sliding sync room list per sliding sync view
@@ -933,7 +943,7 @@ impl From<&SlidingSyncView> for FrozenSlidingSyncView {
 impl SlidingSyncView {
     fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
         let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
-        if *self.sync_mode.lock_ref() == SlidingSyncMode::FullSync {
+        if self.sync_mode.lock_ref().is_full_sync() {
             self.state.set(SlidingSyncState::Preload);
         }
         self.rooms_count.replace(rooms_count);
@@ -947,7 +957,7 @@ pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
-        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::FullSync)
+        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
     }
 
     /// Build the view
@@ -1011,7 +1021,8 @@ impl SlidingSyncViewBuilder {
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
-    FullSync { position: u32, batch_size: u32 },
+    GrowingFullSync { position: u32, batch_size: u32 },
+    PagingFullSync { position: u32, batch_size: u32 },
     Live,
 }
 
@@ -1021,12 +1032,23 @@ struct SlidingSyncViewRequestGenerator<'a> {
 }
 
 impl<'a> SlidingSyncViewRequestGenerator<'a> {
-    fn new_with_syncup(view: &'a SlidingSyncView) -> Self {
+    fn new_with_paging_syncup(view: &'a SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
 
         SlidingSyncViewRequestGenerator {
             view,
-            inner: InnerSlidingSyncViewRequestGenerator::FullSync { position: 0, batch_size },
+            inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync { position: 0, batch_size },
+        }
+    }
+    fn new_with_growing_syncup(view: &'a SlidingSyncView) -> Self {
+        let batch_size = view.batch_size;
+
+        SlidingSyncViewRequestGenerator {
+            view,
+            inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position: 0,
+                batch_size,
+            },
         }
     }
 
@@ -1066,12 +1088,14 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
     type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let InnerSlidingSyncViewRequestGenerator::FullSync { position, .. } = self.inner {
+        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, .. }
+        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { position, .. } = self.inner
+        {
             if let Some(count) = self.view.rooms_count.get_cloned() {
                 if count <= position {
                     // we are switching to live mode
                     self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        *before == SlidingSyncState::CatchingUp
+                        matches!(before, SlidingSyncState::CatchingUp)
                     });
                     // keep listening to the entire list to learn about position updates
                     self.view.set_range(0, count);
@@ -1080,17 +1104,30 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
             } else {
                 // upon first catch up request, we want to switch state
                 self.view.state.set_if(SlidingSyncState::Preload, |before, _now| {
-                    *before == SlidingSyncState::Cold
+                    matches!(before, SlidingSyncState::Cold)
                 });
             }
         }
         match self.inner {
-            InnerSlidingSyncViewRequestGenerator::FullSync { position, batch_size } => {
+            InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, batch_size } => {
                 let (end, req) = self.prefetch_request(position, batch_size);
-                self.inner =
-                    InnerSlidingSyncViewRequestGenerator::FullSync { position: end, batch_size };
+                self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                    position: end,
+                    batch_size,
+                };
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    *before == SlidingSyncState::Preload
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                });
+                Some(req)
+            }
+            InnerSlidingSyncViewRequestGenerator::GrowingFullSync { position, batch_size } => {
+                let (end, req) = self.prefetch_request(0, position + batch_size);
+                self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                    position: end,
+                    batch_size,
+                };
+                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
                 });
                 Some(req)
             }
@@ -1347,7 +1384,12 @@ impl SlidingSyncView {
 
     fn request_generator(&self) -> SlidingSyncViewRequestGenerator<'_> {
         match self.sync_mode.read_only().get_cloned() {
-            SlidingSyncMode::FullSync => SlidingSyncViewRequestGenerator::new_with_syncup(self),
+            SlidingSyncMode::PagingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self)
+            }
+            SlidingSyncMode::GrowingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self)
+            }
             SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self),
         }
     }
