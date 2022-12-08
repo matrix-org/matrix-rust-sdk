@@ -28,7 +28,6 @@ function download_lib(libname) {
 
     const proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY;
     if (proxy) {
-      console.info("Using configured HTTP proxy: " + proxy)
       const proxyAgent = new HttpsProxyAgent(proxy);
       dl.updateOptions({
           httpsRequestOptions: { agent: proxyAgent },
