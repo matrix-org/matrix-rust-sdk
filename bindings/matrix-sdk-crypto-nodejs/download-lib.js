@@ -1,5 +1,6 @@
 const { Agent } = require('https');
 const { DownloaderHelper } = require('node-downloader-helper');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { version } = require("./package.json");
 const { platform, arch } = process
 
@@ -21,14 +22,16 @@ function download_lib(libname) {
 
     const url = `${DOWNLOADS_BASE_URL}/${CURRENT_VERSION}/${libname}`;
     console.info(`Downloading lib ${libname} from ${url}`);
+
     const dl = new DownloaderHelper(url, __dirname, {
-        override: true,
-        httpsRequestOptions: {
-          // Disable keepalive to prevent the process hanging open.
-          // https://github.com/matrix-org/matrix-rust-sdk/issues/1160
-          agent: new Agent({ keepAlive: false }),
-        },
+      override: true,
     });
+
+    var proxy = process.env.https_proxy ?? process.env.http_proxy ?? undefined
+    if (proxy) {
+      const proxyAgent = new HttpsProxyAgent(proxy);
+      dl.updateOptions( { agent: proxyAgent } )
+    }
 
     dl.on('end', () => console.info('Download Completed'));
     dl.on('error', (err) => console.info('Download Failed', err));
