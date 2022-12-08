@@ -1,4 +1,3 @@
-const { Agent } = require('https');
 const { DownloaderHelper } = require('node-downloader-helper');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { version } = require("./package.json");
