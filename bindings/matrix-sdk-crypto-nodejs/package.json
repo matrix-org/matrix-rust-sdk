@@ -30,6 +30,6 @@
     },
     "dependencies": {
         "https-proxy-agent": "^5.0.1",
-        "node-downloader-helper": "^2.1.1"
+        "node-downloader-helper": "^2.1.5"
     }
 }
