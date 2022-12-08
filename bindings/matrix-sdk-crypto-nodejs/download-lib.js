@@ -1,5 +1,5 @@
-const { DownloaderHelper } = require('node-downloader-helper');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const { DownloaderHelper } = require('node-downloader-helper');
 const { version } = require("./package.json");
 const { platform, arch } = process
 
@@ -23,14 +23,16 @@ function download_lib(libname) {
     console.info(`Downloading lib ${libname} from ${url}`);
 
     const dl = new DownloaderHelper(url, __dirname, {
-      override: true,
+        override: true,
     });
 
-    var proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY
+    const proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY;
     if (proxy) {
       console.info("Using configured HTTP proxy: " + proxy)
       const proxyAgent = new HttpsProxyAgent(proxy);
-      dl.updateOptions({ httpsRequestOptions: { agent: proxyAgent } })
+      dl.updateOptions({
+          httpsRequestOptions: { agent: proxyAgent },
+      });
     }
 
     dl.on('end', () => console.info('Download Completed'));
