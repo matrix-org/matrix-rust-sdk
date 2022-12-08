@@ -21,7 +21,6 @@ function download_lib(libname) {
 
     const url = `${DOWNLOADS_BASE_URL}/${CURRENT_VERSION}/${libname}`;
     console.info(`Downloading lib ${libname} from ${url}`);
-
     const dl = new DownloaderHelper(url, __dirname, {
         override: true,
     });
