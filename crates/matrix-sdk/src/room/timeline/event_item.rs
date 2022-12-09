@@ -426,12 +426,3 @@ impl Default for ReactionDetails {
         Self { count: uint!(0), senders: TimelineDetails::Ready(Vec::new()) }
     }
 }
-
-/// The result of a successful pagination request.
-#[derive(Debug)]
-// TODO: non-exhaustive breaks UniFFI bridge
-//#[non_exhaustive]
-pub struct PaginationOutcome {
-    /// Whether there's more messages to be paginated.
-    pub more_messages: bool,
-}

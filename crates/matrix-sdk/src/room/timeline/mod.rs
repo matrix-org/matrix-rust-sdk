@@ -48,8 +48,8 @@ mod virtual_item;
 use self::inner::TimelineInner;
 pub use self::{
     event_item::{
-        EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
-        TimelineDetails, TimelineItemContent, TimelineKey,
+        EncryptedMessage, EventTimelineItem, Message, ReactionDetails, TimelineDetails,
+        TimelineItemContent, TimelineKey,
     },
     virtual_item::VirtualTimelineItem,
 };
@@ -358,6 +358,15 @@ impl TimelineItem {
             _ => None,
         }
     }
+}
+
+/// The result of a successful pagination request.
+#[derive(Debug)]
+// TODO: non-exhaustive breaks UniFFI bridge
+//#[non_exhaustive]
+pub struct PaginationOutcome {
+    /// Whether there's more messages to be paginated.
+    pub more_messages: bool,
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
