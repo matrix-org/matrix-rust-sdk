@@ -12,3 +12,8 @@ xcuserdata/
 
 ## OS garbage
 .DS_Store
+
+## Kotlin bindings generated files
+bindings/kotlin/.gradle/
+bindings/kotlin/buildSrc/build/
+bindings/kotlin/buildSrc/.gradle/
