@@ -18,12 +18,13 @@
         "ruma",
         "nio"
     ],
-    "main": "matrix_sdk_crypto.js",
-    "types": "pkg/matrix_sdk_crypto.d.ts",
+    "main": "pkg/matrix_sdk_crypto_js.js",
+    "types": "pkg/matrix_sdk_crypto_js.d.ts",
     "files": [
-        "pkg/matrix_sdk_crypto_bg.wasm",
-        "pkg/matrix_sdk_crypto.js",
-        "pkg/matrix_sdk_crypto.d.ts"
+        "pkg/matrix_sdk_crypto_js_bg.wasm.js",
+        "pkg/matrix_sdk_crypto_js_bg.wasm.d.js",
+        "pkg/matrix_sdk_crypto_js.js",
+        "pkg/matrix_sdk_crypto_js.d.ts"
     ],
     "devDependencies": {
         "cross-env": "^7.0.3",
