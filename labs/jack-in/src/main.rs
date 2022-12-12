@@ -96,6 +96,10 @@ struct Opt {
     #[structopt(long)]
     fresh: bool,
 
+    /// Activate growing window rather than pagination for full-sync
+    #[structopt(long)]
+    growing_full_sync: bool,
+
     /// RUST_LOG log-levels
     #[structopt(short, long, env = "JACKIN_LOG", default_value = "jack_in=info,warn")]
     log: String,
@@ -265,9 +269,10 @@ async fn main() -> Result<()> {
 
     let (tx, mut rx) = mpsc::channel(100);
     let model_tx = tx.clone();
+    let growing_full_sync = opt.growing_full_sync;
 
     tokio::spawn(async move {
-        if let Err(e) = client::run_client(sliding_client, proxy, tx).await {
+        if let Err(e) = client::run_client(sliding_client, proxy, tx, growing_full_sync).await {
             warn!("Running the client failed: {:#?}", e);
         }
     });

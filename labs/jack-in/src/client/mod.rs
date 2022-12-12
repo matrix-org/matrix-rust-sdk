@@ -5,17 +5,26 @@ use tracing::{error, info, warn};
 
 pub mod state;
 
-use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
+use matrix_sdk::{
+    ruma::OwnedRoomId, Client, SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
+};
 
 pub async fn run_client(
     client: Client,
     sliding_sync_proxy: String,
     tx: mpsc::Sender<state::SlidingSyncState>,
+    growing_full_sync: bool,
 ) -> Result<()> {
     info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
-    let full_sync_view =
-        SlidingSyncViewBuilder::default_with_fullsync().timeline_limit(10u32).build()?;
+    let full_sync_view = SlidingSyncViewBuilder::default_with_fullsync()
+        .timeline_limit(10u32)
+        .sync_mode(if growing_full_sync {
+            SlidingSyncMode::GrowingFullSync
+        } else {
+            SlidingSyncMode::PagingFullSync
+        })
+        .build()?;
     let syncer = builder
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
