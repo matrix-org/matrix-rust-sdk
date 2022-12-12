@@ -44,7 +44,7 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{megolm::{SessionOrdering, DecryptionError}, Curve25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -1107,7 +1107,27 @@ impl OlmMachine {
             self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
             // TODO check the message index.
-            let (decrypted_event, _) = session.decrypt(event).await?;
+            let decrypt_result = session.decrypt(event).await;
+
+            if let Err(decrypt_error) = decrypt_result {
+                if let MegolmError::Decryption(ref vodo_error) = decrypt_error {
+                    if let DecryptionError::UnknownMessageIndex(known_index,message_index) = vodo_error {
+
+                        trace!(
+                            "Unabled to decrypt {}, ratched key {}, message index {}",
+                            session.session_id(),
+                            known_index,
+                            message_index
+                        );
+
+                        // It's a ratcheted key, worth sending a request to our other sessions
+                        self.key_request_machine.create_outgoing_key_request(room_id, event).await?;
+                    }
+                }
+                return Err(decrypt_error);
+            } 
+
+            let (decrypted_event, _) = decrypt_result.unwrap();
 
             match decrypted_event.deserialize() {
                 Ok(e) => {
