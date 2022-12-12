@@ -208,7 +208,7 @@ impl std::fmt::Debug for SledCryptoStore {
 impl SledCryptoStore {
     /// Open the sled-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
-    pub async fn open_with_passphrase(
+    pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
@@ -216,12 +216,7 @@ impl SledCryptoStore {
         let db =
             Config::new().temporary(false).path(&path).open().map_err(CryptoStoreError::backend)?;
 
-        let store_cipher = passphrase
-            .map(|p| Self::get_or_create_store_cipher(p, &db))
-            .transpose()?
-            .map(Into::into);
-
-        SledCryptoStore::open_helper(db, Some(path), store_cipher).await
+        Self::open_with_database(db, passphrase).await
     }
 
     /// Create a sled-based crypto store using the given sled database.
@@ -1061,7 +1056,7 @@ mod tests {
     async fn get_store(name: &str, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
+        SledCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
             .expect("Can't create a passphrase protected store")
     }
@@ -1083,7 +1078,7 @@ mod encrypted_tests {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
 
-        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
+        SledCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
             .expect("Can't create a passphrase protected store")
     }

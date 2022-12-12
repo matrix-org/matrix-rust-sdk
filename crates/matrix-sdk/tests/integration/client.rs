@@ -132,7 +132,6 @@ async fn login_with_sso() {
             Ok(())
         })
         .identity_provider_id(&idp.id)
-        .send()
         .await
         .unwrap();
 

@@ -8,7 +8,9 @@ use futures_signals::{
     signal::Mutable,
     signal_vec::{MutableVec, VecDiff},
 };
-use matrix_sdk::{room::timeline::TimelineItem, ruma::OwnedRoomId, SlidingSyncView};
+use matrix_sdk::{
+    room::timeline::TimelineItem, ruma::OwnedRoomId, SlidingSyncState as ViewState, SlidingSyncView,
+};
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Default)]
@@ -25,6 +27,7 @@ pub struct SlidingSyncState {
     /// the current list selector for the room
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
+    current_state: ViewState,
     tl_handle: Mutable<Option<JoinHandle<()>>>,
     pub selected_room: Mutable<Option<OwnedRoomId>>,
     pub current_timeline: MutableVec<Arc<TimelineItem>>,
@@ -37,6 +40,7 @@ impl SlidingSyncState {
             view,
             first_render: None,
             full_sync: None,
+            current_state: ViewState::default(),
             tl_handle: Default::default(),
             selected_room: Default::default(),
             current_timeline: Default::default(),
@@ -105,6 +109,9 @@ impl SlidingSyncState {
     pub fn time_to_full_sync(&self) -> Option<Duration> {
         self.full_sync
     }
+    pub fn current_state(&self) -> &ViewState {
+        &self.current_state
+    }
 
     pub fn loaded_rooms_count(&self) -> usize {
         self.view.rooms.lock_ref().len()
@@ -124,5 +131,9 @@ impl SlidingSyncState {
 
     pub fn set_full_sync_now(&mut self) {
         self.full_sync = Some(self.started.elapsed())
+    }
+
+    pub fn set_view_state(&mut self, current_state: ViewState) {
+        self.current_state = current_state
     }
 }

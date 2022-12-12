@@ -66,7 +66,7 @@ async fn login_and_sync(
     if let Some(device_id) = &device_id {
         login = login.device_id(device_id);
     }
-    login.initial_device_display_name("command bot").send().await?;
+    login.initial_device_display_name("command bot").await?;
 
     println!("logged in as {username}");
 

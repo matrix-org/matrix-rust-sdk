@@ -38,12 +38,13 @@ use ruma::{
             message::{self, MessageType, RoomMessageEventContent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
-        MessageLikeEventContent, MessageLikeEventType, OriginalSyncMessageLikeEvent,
-        StateEventType,
+        AnyMessageLikeEventContent, MessageLikeEventContent, MessageLikeEventType,
+        OriginalSyncMessageLikeEvent, StateEventType,
     },
     room_id,
     serde::Raw,
-    server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+    server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+    OwnedUserId, TransactionId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -359,6 +360,48 @@ async fn invalid_event() {
     assert_eq!(timeline.inner.items.lock_ref().len(), 0);
 }
 
+#[async_test]
+async fn remote_echo_without_txn_id() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    // Given a local event…
+    let txn_id = timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("echo"),
+        ))
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+
+    // That has an event ID assigned already (from the response to sending it)…
+    let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
+    timeline.inner.add_event_id(&txn_id, event_id.to_owned());
+
+    let item =
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+
+    // When an event with the same ID comes in…
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "body": "echo",
+                "msgtype": "m.text",
+            },
+            "sender": &*ALICE,
+            "event_id": event_id,
+            "origin_server_ts": 5,
+            "type": "m.room.message",
+        }))
+        .await;
+
+    let item =
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
+}
+
 struct TestTimeline {
     own_user_id: OwnedUserId,
     inner: TimelineInner,
@@ -404,6 +447,12 @@ impl TestTimeline {
         };
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None, &self.own_user_id).await;
+    }
+
+    async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
+        let txn_id = TransactionId::new();
+        self.inner.handle_local_event(txn_id.clone(), content, &self.own_user_id).await;
+        txn_id
     }
 }
 

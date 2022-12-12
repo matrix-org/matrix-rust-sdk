@@ -75,7 +75,6 @@ async fn login_and_sync(
     client
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
-        .send()
         .await?;
 
     // It worked!
