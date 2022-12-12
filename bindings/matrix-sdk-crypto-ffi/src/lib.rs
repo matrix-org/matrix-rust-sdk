@@ -45,8 +45,9 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
-    CancelInfo, ConfirmVerificationResult, QrCode, RequestVerificationResult, Sas, SasListener,
-    SasState, ScanResult, StartSasResult, Verification, VerificationRequest,
+    CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
+    RequestVerificationResult, Sas, SasListener, SasState, ScanResult, StartSasResult,
+    Verification, VerificationRequest, VerificationRequestListener, VerificationRequestState,
 };
 
 /// Struct collecting data that is important to migrate to the rust-sdk
