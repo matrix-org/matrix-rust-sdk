@@ -1187,7 +1187,7 @@ impl OlmMachine {
                             room_id = room_id.as_str(),
                             session_id = content.session_id(),
                             algorithm = %content.algorithm(),
-                            "Failed to decrypt a room event, the room key is missing or ratcheted"
+                            "Failed to decrypt a room event, the room key is missing or has been ratcheted"
                         );
                         self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                     }
