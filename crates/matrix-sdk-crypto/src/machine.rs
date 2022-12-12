@@ -44,7 +44,10 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
-use vodozemac::{megolm::{SessionOrdering, DecryptionError}, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{
+    megolm::{DecryptionError, SessionOrdering},
+    Curve25519PublicKey, Ed25519Signature,
+};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -1177,35 +1180,33 @@ impl OlmMachine {
             }
         };
 
-        match self.decrypt_megolm_events(room_id, &event, &content).await {
-            Err(e) => {
-                match e {
-                    MegolmError::MissingRoomKey
-                    | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
-                        debug!(
-                            sender = event.sender.as_str(),
-                            room_id = room_id.as_str(),
-                            session_id = content.session_id(),
-                            algorithm = %content.algorithm(),
-                            "Failed to decrypt a room event, the room key is missing or has been ratcheted"
-                        );
-                        self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
-                    }
-                    _ => {
-                        warn!(
-                            sender = event.sender.as_str(),
-                            room_id = room_id.as_str(),
-                            session_id = content.session_id(),
-                            algorithm = %content.algorithm(),
-                            error = ?e,
-                            "Failed to decrypt a room event"
-                        );
-                    }
+        let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+        if let Err(e) = &result {
+            match e {
+                MegolmError::MissingRoomKey
+                | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+                    debug!(
+                        sender = event.sender.as_str(),
+                        room_id = room_id.as_str(),
+                        session_id = content.session_id(),
+                        algorithm = %content.algorithm(),
+                        "Failed to decrypt a room event, the room key is missing or has been ratcheted"
+                    );
+                    self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
-                Err(e)
+                _ => {
+                    warn!(
+                        sender = event.sender.as_str(),
+                        room_id = room_id.as_str(),
+                        session_id = content.session_id(),
+                        algorithm = %content.algorithm(),
+                        error = ?e,
+                        "Failed to decrypt a room event"
+                    );
+                }
             }
-            r => r,
         }
+        result
     }
 
     /// Update the tracked users.
@@ -1631,7 +1632,7 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest, MegolmError,
+        EncryptionSettings, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2096,9 +2097,10 @@ pub(crate) mod tests {
         let bob_other_device = ReadOnlyDevice::from_machine(&bob_other_machine).await;
         bob.store.save_devices(&[bob_other_device]).await.unwrap();
         bob.get_device(bob_id, device_id!("OTHERBOB"), None)
-                        .await.unwrap()
-                        .expect("should exist")
-                        .set_trust_state(crate::LocalTrust::Verified);
+            .await
+            .unwrap()
+            .expect("should exist")
+            .set_trust_state(crate::LocalTrust::Verified);
 
         alice.create_outbound_group_session_with_defaults(room_id).await.unwrap();
 
@@ -2110,7 +2112,7 @@ pub(crate) mod tests {
             .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
             .await
             .unwrap();
-        
+
         let room_event = OriginalSyncRoomEncryptedEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
@@ -2136,22 +2138,20 @@ pub(crate) mod tests {
 
         let room_event = json_convert(&room_event).unwrap();
 
-        let decrypt_error =
-            bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
+        let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
 
         if let MegolmError::Decryption(vodo_error) = decrypt_error {
-            if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_,_) = vodo_error {
+            if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
                 // check that key has been requested
-                let outgoing_to_devices = bob.key_request_machine.outgoing_to_device_requests().await.unwrap();
+                let outgoing_to_devices =
+                    bob.key_request_machine.outgoing_to_device_requests().await.unwrap();
                 assert_eq!(1, outgoing_to_devices.len());
-
             } else {
                 panic!("Should be UnknownMessageIndex error ")
             }
         } else {
             panic!("Should have been unable to decrypt")
         }
-
     }
 
     #[async_test]
