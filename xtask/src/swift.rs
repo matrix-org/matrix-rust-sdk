@@ -1,5 +1,5 @@
 use std::{
-    fs::{create_dir_all, remove_dir_all, remove_file, rename},
+    fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
     path::{Path, PathBuf},
 };
 
@@ -129,7 +129,8 @@ fn build_xcframework(
     components_path: Option<PathBuf>,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
-    let generated_dir = root_dir.join("generated");
+    let apple_dir = root_dir.join("bindings/apple");
+    let generated_dir = apple_dir.join("generated");
     let headers_dir = generated_dir.join("ls");
     let swift_dir = generated_dir.join("swift");
     create_dir_all(headers_dir.clone())?;
@@ -154,8 +155,8 @@ fn build_xcframework(
         println!("-- Building for iOS Simulator (Intel) [5/5]");
         let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
 
-        println!("-- Running Lipo for MacOs [1/2]");
-        // # MacOS
+        println!("-- Running Lipo for macOS [1/2]");
+        // # macOS
         let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
         cmd!(
             "lipo -create {darwin_x86_path} {darwin_arm_path}
@@ -198,6 +199,9 @@ fn build_xcframework(
         cmd = cmd.arg("-library").arg(p).arg("-headers").arg(headers_dir.as_path())
     }
     cmd.arg("-output").arg(xcframework_path.as_path()).run()?;
+
+    // Copy the Swift package manifest to the SDK root for local development.
+    copy(apple_dir.join("Debug-Package.swift"), root_dir.join("Package.swift"))?;
 
     // cleaning up the intermediate data
     remove_dir_all(headers_dir.as_path())?;
