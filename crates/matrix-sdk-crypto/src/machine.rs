@@ -1181,10 +1181,12 @@ impl OlmMachine {
         };
 
         let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+
         if let Err(e) = &result {
             match e {
                 MegolmError::MissingRoomKey
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+                    // TODO: log the withheld reason if we have one.
                     debug!(
                         sender = event.sender.as_str(),
                         room_id = room_id.as_str(),
@@ -1206,6 +1208,7 @@ impl OlmMachine {
                 }
             }
         }
+
         result
     }
 
