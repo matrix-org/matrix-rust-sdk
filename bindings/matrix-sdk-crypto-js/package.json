@@ -22,7 +22,7 @@
     "types": "pkg/matrix_sdk_crypto_js.d.ts",
     "files": [
         "pkg/matrix_sdk_crypto_js_bg.wasm.js",
-        "pkg/matrix_sdk_crypto_js_bg.wasm.d.js",
+        "pkg/matrix_sdk_crypto_js_bg.wasm.d.ts",
         "pkg/matrix_sdk_crypto_js.js",
         "pkg/matrix_sdk_crypto_js.d.ts"
     ],
