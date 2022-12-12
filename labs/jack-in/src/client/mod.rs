@@ -5,9 +5,7 @@ use tracing::{error, info, warn};
 
 pub mod state;
 
-use matrix_sdk::{
-    ruma::OwnedRoomId, Client, SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
-};
+use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
 
 pub async fn run_client(
     client: Client,
@@ -16,14 +14,22 @@ pub async fn run_client(
 ) -> Result<()> {
     info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
-    let full_sync_view = SlidingSyncViewBuilder::default_with_fullsync()
+    let mut full_sync_view_builder = SlidingSyncViewBuilder::default_with_fullsync()
         .timeline_limit(10u32)
-        .sync_mode(if config.growing_full_sync {
-            SlidingSyncMode::GrowingFullSync
-        } else {
-            SlidingSyncMode::PagingFullSync
-        })
-        .build()?;
+        .sync_mode(config.full_sync_mode.into());
+    if let Some(size) = config.batch_size {
+        full_sync_view_builder = full_sync_view_builder.batch_size(size);
+    }
+
+    if let Some(limit) = config.limit {
+        full_sync_view_builder = full_sync_view_builder.limit(limit);
+    }
+    if let Some(limit) = config.timeline_limit {
+        full_sync_view_builder = full_sync_view_builder.timeline_limit(limit);
+    }
+
+    let full_sync_view = full_sync_view_builder.build()?;
+
     let syncer = builder
         .homeserver(config.proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)

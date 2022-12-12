@@ -251,7 +251,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| format!("{user_id}"));
     let poller = MatrixPoller(rx);
     let mut model = Model::new(start_sync, model_tx, poller, client);
-    model.set_title(format!("{display_name} via {}", sliding_sync_proxy));
+    model.set_title(format!("{display_name} via {sliding_sync_proxy}"));
     run_ui(model).await;
 
     Ok(())
