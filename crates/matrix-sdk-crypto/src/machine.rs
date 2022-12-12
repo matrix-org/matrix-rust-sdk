@@ -1107,27 +1107,7 @@ impl OlmMachine {
             self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
             // TODO check the message index.
-            let decrypt_result = session.decrypt(event).await;
-
-            if let Err(decrypt_error) = decrypt_result {
-                if let MegolmError::Decryption(ref vodo_error) = decrypt_error {
-                    if let DecryptionError::UnknownMessageIndex(known_index,message_index) = vodo_error {
-
-                        trace!(
-                            "Unabled to decrypt {}, ratched key {}, message index {}",
-                            session.session_id(),
-                            known_index,
-                            message_index
-                        );
-
-                        // It's a ratcheted key, worth sending a request to our other sessions
-                        self.key_request_machine.create_outgoing_key_request(room_id, event).await?;
-                    }
-                }
-                return Err(decrypt_error);
-            } 
-
-            let (decrypted_event, _) = decrypt_result.unwrap();
+            let (decrypted_event, _) = session.decrypt(event).await?;
 
             match decrypted_event.deserialize() {
                 Ok(e) => {
@@ -1163,8 +1143,6 @@ impl OlmMachine {
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
-            self.key_request_machine.create_outgoing_key_request(room_id, event).await?;
-
             Err(MegolmError::MissingRoomKey)
         }
     }
@@ -1199,29 +1177,35 @@ impl OlmMachine {
             }
         };
 
-        self.decrypt_megolm_events(room_id, &event, &content).await.map_err(|e| {
-            if let MegolmError::MissingRoomKey = e {
-                // TODO log the withheld reason if we have one.
-                debug!(
-                    sender = event.sender.as_str(),
-                    room_id = room_id.as_str(),
-                    session_id = content.session_id(),
-                    algorithm = %content.algorithm(),
-                    "Failed to decrypt a room event, the room key is missing"
-                );
-            } else {
-                warn!(
-                    sender = event.sender.as_str(),
-                    room_id = room_id.as_str(),
-                    session_id = content.session_id(),
-                    algorithm = %content.algorithm(),
-                    error = ?e,
-                    "Failed to decrypt a room event"
-                );
+        match self.decrypt_megolm_events(room_id, &event, &content).await {
+            Err(e) => {
+                match e {
+                    MegolmError::MissingRoomKey
+                    | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+                        debug!(
+                            sender = event.sender.as_str(),
+                            room_id = room_id.as_str(),
+                            session_id = content.session_id(),
+                            algorithm = %content.algorithm(),
+                            "Failed to decrypt a room event, the room key is missing or ratcheted"
+                        );
+                        self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
+                    }
+                    _ => {
+                        warn!(
+                            sender = event.sender.as_str(),
+                            room_id = room_id.as_str(),
+                            session_id = content.session_id(),
+                            algorithm = %content.algorithm(),
+                            error = ?e,
+                            "Failed to decrypt a room event"
+                        );
+                    }
+                }
+                Err(e)
             }
-
-            e
-        })
+            r => r,
+        }
     }
 
     /// Update the tracked users.
