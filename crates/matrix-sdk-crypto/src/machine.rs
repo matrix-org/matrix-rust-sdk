@@ -1647,7 +1647,7 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
+        EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest, MegolmError,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2098,6 +2098,76 @@ pub(crate) mod tests {
         } else {
             panic!("Decrypted room event has the wrong type")
         }
+    }
+
+    #[async_test]
+    async fn test_query_ratcheted_key() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = room_id!("!test:example.org");
+
+        // Need a second bob session to check gossiping
+        let bob_id = user_id();
+        let bob_other_device = device_id!("OTHERBOB");
+        let bob_other_machine = OlmMachine::new(bob_id, bob_other_device).await;
+        let bob_other_device = ReadOnlyDevice::from_machine(&bob_other_machine).await;
+        bob.store.save_devices(&[bob_other_device]).await.unwrap();
+        bob.get_device(bob_id, device_id!("OTHERBOB"), None)
+                        .await.unwrap()
+                        .expect("should exist")
+                        .set_trust_state(crate::LocalTrust::Verified);
+
+        alice.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+
+        let plaintext = "It is a secret to everybody";
+
+        let content = RoomMessageEventContent::text_plain(plaintext);
+
+        let content = alice
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .await
+            .unwrap();
+        
+        let room_event = OriginalSyncRoomEncryptedEvent {
+            event_id: event_id!("$xxxxx:example.org").to_owned(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
+            sender: alice.user_id().to_owned(),
+            content: content.deserialize_as().unwrap(),
+            unsigned: MessageLikeUnsigned::default(),
+        };
+
+        // should share at index 1
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(to_device_requests),
+        );
+
+        let group_session =
+            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
+        bob.store.save_inbound_group_sessions(&[group_session.unwrap()]).await.unwrap();
+
+        let room_event = json_convert(&room_event).unwrap();
+
+        let decrypt_error =
+            bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
+
+        if let MegolmError::Decryption(vodo_error) = decrypt_error {
+            if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_,_) = vodo_error {
+                // check that key has been requested
+                let outgoing_to_devices = bob.key_request_machine.outgoing_to_device_requests().await.unwrap();
+                assert_eq!(1, outgoing_to_devices.len());
+
+            } else {
+                panic!("Should be UnknownMessageIndex error ")
+            }
+        } else {
+            panic!("Should have been unable to decrypt")
+        }
+
     }
 
     #[async_test]
