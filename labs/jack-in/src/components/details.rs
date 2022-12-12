@@ -103,26 +103,21 @@ impl Details {
                 ),
                 TimelineItemContent::FailedToParseState { event_type, state_key, error } => {
                     format!(
-                        "[{}] {} - failed to parse {}({}): {}",
+                        "[{}] {} - failed to parse {event_type}({state_key}): {error}",
                         e.origin_server_ts()
                             .and_then(|r| r.to_system_time())
                             .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                             .unwrap_or_default(),
                         e.sender(),
-                        event_type,
-                        state_key,
-                        error,
                     )
                 }
                 TimelineItemContent::FailedToParseMessageLike { event_type, error } => format!(
-                    "[{}] {} - failed to parse {}: {}",
+                    "[{}] {} - failed to parse {event_type}: {error}",
                     e.origin_server_ts()
                         .and_then(|r| r.to_system_time())
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),
-                    event_type,
-                    error,
                 ),
             })
             .collect();

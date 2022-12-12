@@ -140,7 +140,7 @@ impl SlidingSyncRoom {
     ) -> Option<Arc<StoppableSpawn>> {
         let Some(timeline) = RUNTIME.block_on(async move { self.inner.timeline().await }) else {
             tracing::warn!(room_id=?self.room_id(), "Could not set timeline listener: no timeline found.");
-            return None
+            return None;
         };
 
         let timeline_signal =
