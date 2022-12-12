@@ -18,7 +18,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use redis::{FromRedisValue, RedisConnectionInfo, ToRedisArgs};
+#[cfg(feature = "crypto-store")]
+use redis::RedisConnectionInfo;
+use redis::{FromRedisValue, ToRedisArgs};
 
 use crate::redis_shim::{
     RedisClientShim, RedisConnectionShim, RedisFutureShim, RedisPipelineShim, RedisResultShim,
@@ -200,6 +202,7 @@ pub struct FakeRedisClient {
 }
 
 impl FakeRedisClient {
+    #[cfg(feature = "crypto-store")]
     pub fn new() -> Self {
         Self {
             connection_info: redis::ConnectionInfo {

@@ -14,6 +14,7 @@
 
 use async_trait::async_trait;
 use futures_core::future::BoxFuture;
+#[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
 use redis::{FromRedisValue, ToRedisArgs};
 
@@ -96,6 +97,7 @@ impl std::error::Error for RedisErrorShim {
     }
 }
 
+#[cfg(feature = "crypto-store")]
 impl From<RedisErrorShim> for CryptoStoreError {
     fn from(e: RedisErrorShim) -> Self {
         CryptoStoreError::Backend(Box::new(e))

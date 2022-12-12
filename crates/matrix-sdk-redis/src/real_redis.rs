@@ -103,6 +103,7 @@ pub struct RealRedisClient {
 }
 
 impl RealRedisClient {
+    #[cfg(feature = "crypto-store")]
     pub fn from(client: redis::Client) -> Self {
         Self { client }
     }
