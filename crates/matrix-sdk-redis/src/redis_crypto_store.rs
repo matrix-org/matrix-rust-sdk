@@ -732,7 +732,7 @@ where
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         let mut connection = self.client.get_async_connection().await?;
-        let key = format!("{}devices|{}", self.key_prefix, user_id);
+        let key = format!("{}devices|{user_id}", self.key_prefix);
         let dev: Option<Vec<u8>> = connection.hget(&key, device_id.as_str()).await?;
         Ok(dev.map(|d| self.deserialize_value(&d)).transpose()?)
     }
