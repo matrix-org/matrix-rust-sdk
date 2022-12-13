@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{offset::Local, DateTime};
+use matrix_sdk::room::timeline::TimelineItemContent;
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
@@ -74,9 +75,8 @@ impl Details {
             .lock_ref()
             .iter()
             .filter_map(|t| t.as_event()) // we ignore virtual events
-            .filter_map(|e| e.content().as_message().map(|m| (e, m)))
-            .map(|(e, m)| {
-                format!(
+            .map(|e| match e.content() {
+                TimelineItemContent::Message(m) => format!(
                     "[{}] {}: {}",
                     e.origin_server_ts()
                         .and_then(|r| r.to_system_time())
@@ -84,7 +84,41 @@ impl Details {
                         .unwrap_or_default(),
                     e.sender(),
                     m.body()
-                )
+                ),
+                TimelineItemContent::RedactedMessage => format!(
+                    "[{}] {} - redacted -",
+                    e.origin_server_ts()
+                        .and_then(|r| r.to_system_time())
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                ),
+                TimelineItemContent::UnableToDecrypt(_) => format!(
+                    "[{}] {} - unable to decrypt -",
+                    e.origin_server_ts()
+                        .and_then(|r| r.to_system_time())
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                ),
+                TimelineItemContent::FailedToParseState { event_type, state_key, error } => {
+                    format!(
+                        "[{}] {} - failed to parse {event_type}({state_key}): {error}",
+                        e.origin_server_ts()
+                            .and_then(|r| r.to_system_time())
+                            .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                            .unwrap_or_default(),
+                        e.sender(),
+                    )
+                }
+                TimelineItemContent::FailedToParseMessageLike { event_type, error } => format!(
+                    "[{}] {} - failed to parse {event_type}: {error}",
+                    e.origin_server_ts()
+                        .and_then(|r| r.to_system_time())
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                ),
             })
             .collect();
         self.current_room_timeline = timeline;

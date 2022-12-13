@@ -2,13 +2,17 @@
 //!
 //! `Demo` shows how to use tui-realm in a real case
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
 use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
+    config::RequestConfig,
     room::timeline::TimelineItem,
     ruma::{OwnedRoomId, OwnedUserId},
     Client,
@@ -226,10 +230,12 @@ async fn main() -> Result<()> {
     }
     std::fs::create_dir_all(&data_path)?;
     let store_config = make_store_config(&data_path, opt.store_pass.as_deref()).await?;
+    let request_config = RequestConfig::default().timeout(Duration::from_secs(90));
 
     let client = Client::builder()
         .user_agent("jack-in")
         .server_name(user_id.server_name())
+        .request_config(request_config)
         .store_config(store_config)
         .build()
         .await?;
