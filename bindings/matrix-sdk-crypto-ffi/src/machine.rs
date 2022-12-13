@@ -1112,7 +1112,10 @@ impl OlmMachine {
 
         Ok(())
     }
+}
 
+#[uniffi::export]
+impl OlmMachine {
     /// Activate the given backup key to be used with the given backup version.
     ///
     /// **Warning**: The caller needs to make sure that the given `BackupKey` is
@@ -1194,7 +1197,9 @@ impl OlmMachine {
             .ok()
             .map(Arc::new))
     }
+}
 
+impl OlmMachine {
     /// Sign the given message using our device key and if available cross
     /// signing master key.
     pub fn sign(&self, message: &str) -> HashMap<String, HashMap<String, String>> {

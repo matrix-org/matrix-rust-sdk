@@ -492,6 +492,7 @@ pub struct CrossSigningKeyExport {
 }
 
 /// Struct holding the number of room keys we have.
+#[derive(uniffi::Record)]
 pub struct RoomKeyCounts {
     /// The total number of room keys.
     pub total: i64,
@@ -500,6 +501,7 @@ pub struct RoomKeyCounts {
 }
 
 /// Backup keys and information we load from the store.
+#[derive(uniffi::Object)]
 pub struct BackupKeys {
     /// The recovery key as a base64 encoded string.
     recovery_key: Arc<BackupRecoveryKey>,
@@ -507,6 +509,7 @@ pub struct BackupKeys {
     backup_version: String,
 }
 
+#[uniffi::export]
 impl BackupKeys {
     /// Get the recovery key that we're holding on to.
     pub fn recovery_key(&self) -> Arc<BackupRecoveryKey> {
@@ -575,7 +578,15 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 mod uniffi_types {
-    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
+    pub use crate::{
+        backup_recovery_key::{
+            BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
+        },
+        error::CryptoStoreError,
+        machine::OlmMachine,
+        responses::Request,
+        BackupKeys, RoomKeyCounts,
+    };
 }
 
 #[cfg(test)]
