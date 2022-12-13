@@ -97,20 +97,8 @@ impl RedisConnectionShim for redis::aio::Connection {
     }
 }
 
-#[derive(Clone)]
-pub struct RealRedisClient {
-    client: redis::Client,
-}
-
-impl RealRedisClient {
-    #[cfg(feature = "crypto-store")]
-    pub fn from(client: redis::Client) -> Self {
-        Self { client }
-    }
-}
-
 #[async_trait]
-impl RedisClientShim for RealRedisClient {
+impl RedisClientShim for redis::Client {
     type Conn = redis::aio::Connection;
 
     async fn get_async_connection(&self) -> RedisResultShim<Self::Conn> {
