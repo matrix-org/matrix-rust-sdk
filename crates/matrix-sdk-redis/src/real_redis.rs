@@ -102,11 +102,11 @@ impl RedisClientShim for redis::Client {
     type Conn = redis::aio::Connection;
 
     async fn get_async_connection(&self) -> RedisResultShim<Self::Conn> {
-        self.client.get_async_connection().await.map_err(|e| e.into())
+        <redis::Client>::get_async_connection(self).await.map_err(|e| e.into())
     }
 
     fn get_connection_info(&self) -> &redis::ConnectionInfo {
-        self.client.get_connection_info()
+        <redis::Client>::get_connection_info(self)
     }
 
     fn create_pipe(&self) -> Box<dyn RedisPipelineShim<Conn = Self::Conn>> {
@@ -121,30 +121,30 @@ impl RedisPipelineShim for redis::Pipeline {
     type Conn = redis::aio::Connection;
 
     fn set(&mut self, key: &str, value: String) {
-        self.pipeline.set(key, value);
+        <redis::Pipeline>::set(self, key, value);
     }
 
     fn set_vec(&mut self, key: &str, value: Vec<u8>) {
-        self.pipeline.set(key, value);
+        <redis::Pipeline>::set(self, key, value);
     }
 
     fn del(&mut self, key: &str) {
-        self.pipeline.del(key);
+        <redis::Pipeline>::del(self, key);
     }
 
     fn hset(&mut self, key: &str, field: &str, value: Vec<u8>) {
-        self.pipeline.hset(key, field, value);
+        <redis::Pipeline>::hset(self, key, field, value);
     }
 
     fn hdel(&mut self, key: &str, field: &str) {
-        self.pipeline.hdel(key, field);
+        <redis::Pipeline>::hdel(self, key, field);
     }
 
     fn sadd(&mut self, key: &str, value: String) {
-        self.pipeline.sadd(key, value);
+        <redis::Pipeline>::sadd(self, key, value);
     }
 
     async fn query_async(&self, connection: &mut Self::Conn) -> RedisResultShim<()> {
-        self.pipeline.query_async(connection).await.map_err(|e| e.into())
+        <redis::Pipeline>::query_async(self, connection).await.map_err(|e| e.into())
     }
 }

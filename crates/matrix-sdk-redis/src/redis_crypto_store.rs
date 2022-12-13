@@ -12,18 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 use std::{
-    any::Any,
-    collections::{BTreeMap, HashMap, HashSet},
-    convert::{TryFrom, TryInto},
-    path::{Path, PathBuf},
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
 use dashmap::DashSet;
-use futures_util::FutureExt;
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
@@ -35,24 +30,16 @@ use matrix_sdk_crypto::{
         Result, RoomKeyCounts,
     },
     types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
-    GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use redis::{
-    aio::Connection, AsyncCommands, Client, ConnectionInfo, FromRedisValue, RedisConnectionInfo,
-    RedisError, RedisFuture, RedisResult, ToRedisArgs,
-};
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::redis_shim::{RedisClientShim, RedisConnectionShim, RedisErrorShim};
-
-/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
-/// panic once we try to pickle a Signing object.
-const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
+use crate::redis_shim::{RedisClientShim, RedisConnectionShim};
 
 trait RedisKey {
     fn redis_key(&self) -> String;
@@ -359,7 +346,6 @@ where
 
         for session in changes.inbound_group_sessions {
             let room_id = session.room_id();
-            let sender_key = session.sender_key();
             let session_id = session.session_id();
             let key = format!("{}|{}", room_id.as_str(), session_id);
             let pickle = session.pickle().await;
@@ -848,12 +834,8 @@ where
 
 #[cfg(test)]
 mod test_fake_redis {
-    use std::{collections::HashMap, sync::Arc};
-
     use matrix_sdk_crypto::cryptostore_integration_tests;
     use once_cell::sync::Lazy;
-    use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo};
-    use tokio::sync::Mutex;
 
     use super::RedisStore;
     use crate::fake_redis::FakeRedisClient;
@@ -879,18 +861,16 @@ mod test_fake_redis {
 mod test_real_redis {
     use matrix_sdk_crypto::cryptostore_integration_tests;
     use once_cell::sync::Lazy;
-    use redis::{AsyncCommands, Client, Commands};
+    use redis::Commands;
 
     use super::RedisStore;
-    use crate::real_redis::RealRedisClient;
-
     static REDIS_URL: &str = "redis://127.0.0.1/";
 
     // We pretend to use this as our shared client, so that
     // we clear Redis the first time we access it, but actually
     // we clone it each time we use it, so they are independent.
-    static REDIS_CLIENT: Lazy<Client> = Lazy::new(|| {
-        let client = Client::open(REDIS_URL).unwrap();
+    static REDIS_CLIENT: Lazy<redis::Client> = Lazy::new(|| {
+        let client = redis::Client::open(REDIS_URL).unwrap();
         let mut connection = client.get_connection().unwrap();
         let keys: Vec<String> = connection.keys("matrix-sdk-crypto|test|*").unwrap();
         for k in keys {
@@ -899,9 +879,9 @@ mod test_real_redis {
         client
     });
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> RedisStore<RealRedisClient> {
+    async fn get_store(name: &str, passphrase: Option<&str>) -> RedisStore<redis::Client> {
         let key_prefix = format!("matrix-sdk-crypto|test|{}|", name);
-        let redis_client = RealRedisClient::from(REDIS_CLIENT.clone());
+        let redis_client = REDIS_CLIENT.clone();
         let store = RedisStore::open(redis_client, passphrase, key_prefix)
             .await
             .expect("Can't create a Redis store");

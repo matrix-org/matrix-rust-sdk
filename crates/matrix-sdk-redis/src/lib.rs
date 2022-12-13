@@ -65,8 +65,6 @@ pub async fn make_store_config(
     passphrase: Option<&str>,
     redis_prefix: &str,
 ) -> Result<StoreConfig, OpenStoreError> {
-    use real_redis::RealRedisClient;
-
     #[cfg(all(feature = "crypto-store", feature = "state-store"))]
     {
         panic!("Currently don't have a Redis state store!");
@@ -80,8 +78,7 @@ pub async fn make_store_config(
 
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
-        let underlying_client = redis::Client::open(redis_url).unwrap();
-        let client = RealRedisClient::from(underlying_client);
+        let client = redis::Client::open(redis_url).unwrap();
         let crypto_store = RedisStore::open(client, passphrase, String::from(redis_prefix)).await?;
         Ok(StoreConfig::new().crypto_store(crypto_store))
     }
