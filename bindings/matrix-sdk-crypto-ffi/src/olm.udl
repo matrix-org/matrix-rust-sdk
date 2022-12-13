@@ -23,11 +23,6 @@ callback interface ProgressListener {
 };
 
 [Error]
-enum PkDecryptionError {
-    "Olm",
-};
-
-[Error]
 enum KeyImportError {
     "Export",
     "CryptoStore",
@@ -55,8 +50,8 @@ enum CryptoStoreError {
     "CryptoStore",
     "OlmError",
     "Serialization",
-    "Identifier",
     "InvalidUserId",
+    "Identifier",
 };
 
 [Error]
@@ -426,19 +421,6 @@ interface OlmMachine {
     boolean is_identity_verified([ByRef] string user_id);
 
     record<DOMString, record<DOMString, string>> sign([ByRef] string message);
-    [Throws=DecodeError]
-    void enable_backup_v1(MegolmV1BackupKey key, string version);
-    [Throws=CryptoStoreError]
-    void disable_backup();
-    [Throws=CryptoStoreError]
-    Request? backup_room_keys();
-    [Throws=CryptoStoreError]
-    void save_recovery_key(BackupRecoveryKey? key, string? version);
-    [Throws=CryptoStoreError]
-    RoomKeyCounts room_key_counts();
-    [Throws=CryptoStoreError]
-    BackupKeys? get_backup_keys();
-    boolean backup_enabled();
     [Throws=CryptoStoreError]
     SignatureVerification verify_backup([ByRef] string auth_data);
 };
@@ -462,23 +444,6 @@ enum SignatureState {
     "ValidAndTrusted",
 };
 
-dictionary MegolmV1BackupKey {
-    string public_key;
-    record<DOMString, record<DOMString, string>> signatures;
-    PassphraseInfo? passphrase_info;
-    string backup_algorithm;
-};
-
-interface BackupKeys {
-    BackupRecoveryKey recovery_key();
-    string backup_version();
-};
-
-dictionary RoomKeyCounts {
-    i64 total;
-    i64 backed_up;
-};
-
 [Error]
 enum DecodeError {
     "Decode",
@@ -495,9 +460,6 @@ interface BackupRecoveryKey {
     constructor(string key);
     [Name=from_base58, Throws=DecodeError]
     constructor(string key);
-    MegolmV1BackupKey megolm_v1_public_key();
-    [Throws=PkDecryptionError]
-    string decrypt_v1(string ephemeral_key, string mac, string ciphertext);
 };
 
 dictionary MigrationData {
