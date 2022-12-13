@@ -640,8 +640,11 @@ impl Store {
     /// # Arguments
     ///
     /// * `secret_name` - The name of the secret that should be exported.
-    pub(crate) async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
-        match secret_name {
+    pub async fn export_secret(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Option<String>, CryptoStoreError> {
+        Ok(match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
             | SecretName::CrossSigningSelfSigningKey => {
@@ -649,7 +652,7 @@ impl Store {
             }
             SecretName::RecoveryKey => {
                 #[cfg(feature = "backups_v1")]
-                if let Some(key) = self.load_backup_keys().await.unwrap().recovery_key {
+                if let Some(key) = self.load_backup_keys().await?.recovery_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
@@ -663,7 +666,7 @@ impl Store {
                 warn!(secret = ?name, "Unknown secret was requested");
                 None
             }
-        }
+        })
     }
 
     /// Import the Cross Signing Keys

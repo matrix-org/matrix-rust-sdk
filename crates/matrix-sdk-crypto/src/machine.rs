@@ -1674,18 +1674,18 @@ impl OlmMachine {
     ///
     /// This method returns `None` if we don't have any private cross signing
     /// keys.
-    pub async fn export_cross_signing_keys(&self) -> Option<CrossSigningKeyExport> {
-        let master_key = self.store().export_secret(&SecretName::CrossSigningMasterKey).await;
+    pub async fn export_cross_signing_keys(&self) -> StoreResult<Option<CrossSigningKeyExport>> {
+        let master_key = self.store().export_secret(&SecretName::CrossSigningMasterKey).await?;
         let self_signing_key =
-            self.store().export_secret(&SecretName::CrossSigningSelfSigningKey).await;
+            self.store().export_secret(&SecretName::CrossSigningSelfSigningKey).await?;
         let user_signing_key =
-            self.store().export_secret(&SecretName::CrossSigningUserSigningKey).await;
+            self.store().export_secret(&SecretName::CrossSigningUserSigningKey).await?;
 
-        if master_key.is_none() && self_signing_key.is_none() && user_signing_key.is_none() {
+        Ok(if master_key.is_none() && self_signing_key.is_none() && user_signing_key.is_none() {
             None
         } else {
             Some(CrossSigningKeyExport { master_key, self_signing_key, user_signing_key })
-        }
+        })
     }
 
     /// Import our private cross signing keys.
