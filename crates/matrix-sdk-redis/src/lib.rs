@@ -95,7 +95,7 @@ pub async fn make_store_config(
 
         if let Some(passphrase) = passphrase {
             store_builder.passphrase(passphrase.to_owned());
-        };
+        }
         let state_store = store_builder.build().map_err(StoreError::backend)?;
 
         Ok(StoreConfig::new().state_store(state_store))
