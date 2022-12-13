@@ -110,24 +110,14 @@ impl RedisClientShim for redis::Client {
     }
 
     fn create_pipe(&self) -> Box<dyn RedisPipelineShim<Conn = Self::Conn>> {
-        Box::new(RealRedisPipeline::new())
-    }
-}
-
-pub struct RealRedisPipeline {
-    pipeline: redis::Pipeline,
-}
-
-impl RealRedisPipeline {
-    fn new() -> Self {
         let mut pipeline = redis::pipe();
         pipeline.atomic();
-        Self { pipeline }
+        Box::new(pipeline)
     }
 }
 
 #[async_trait]
-impl RedisPipelineShim for RealRedisPipeline {
+impl RedisPipelineShim for redis::Pipeline {
     type Conn = redis::aio::Connection;
 
     fn set(&mut self, key: &str, value: String) {
