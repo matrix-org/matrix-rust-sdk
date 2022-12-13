@@ -867,7 +867,7 @@ mod test_fake_redis {
             .expect("Can't create a Redis store")
     }
 
-    cryptostore_integration_tests! {}
+    cryptostore_integration_tests!();
 }
 
 // To run tests against a real Redis, use:
@@ -909,5 +909,5 @@ mod test_real_redis {
         store
     }
 
-    cryptostore_integration_tests! {}
+    cryptostore_integration_tests!();
 }
