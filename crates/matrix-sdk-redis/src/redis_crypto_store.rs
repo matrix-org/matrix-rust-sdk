@@ -743,7 +743,7 @@ where
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let mut connection = self.client.get_async_connection().await?;
         let user_device: HashMap<String, Vec<u8>> =
-            connection.hgetall(&format!("{}devices|{}", self.key_prefix, user_id)).await?;
+            connection.hgetall(&format!("{}devices|{user_id}", self.key_prefix)).await?;
 
         user_device
             .into_iter()
