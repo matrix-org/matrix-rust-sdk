@@ -617,7 +617,7 @@ where
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = format!("{}|{}", room_id.as_str(), session_id);
+        let key = format!("{room_id}|{session_id}");
         let redis_key = format!("{}inbound_group_sessions", self.key_prefix);
         let mut connection = self.client.get_async_connection().await?;
         let pickle_str: Option<String> = connection.hget(&redis_key, &key).await?;
