@@ -756,7 +756,7 @@ where
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         let mut connection = self.client.get_async_connection().await?;
-        let redis_key = format!("{}identities|{}", self.key_prefix, user_id);
+        let redis_key = format!("{}identities|{user_id}", self.key_prefix);
         let identity_string: Option<Vec<u8>> = connection.get(&redis_key).await?;
         let identity = identity_string.map(|s| self.deserialize_value(&s)).transpose()?;
         Ok(identity)
