@@ -77,7 +77,9 @@ mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
     pub use crate::{
-        authentication_service::{AuthenticationService, HomeserverLoginDetails},
+        authentication_service::{
+            AuthenticationError, AuthenticationService, HomeserverLoginDetails,
+        },
         client::Client,
         client_builder::ClientBuilder,
         room::{Membership, MembershipState, Room, RoomMember},
