@@ -82,7 +82,6 @@ async fn login_sso_refresh_token() {
         })
         .identity_provider_id(&idp.id)
         .request_refresh_token()
-        .send()
         .await
         .unwrap();
 

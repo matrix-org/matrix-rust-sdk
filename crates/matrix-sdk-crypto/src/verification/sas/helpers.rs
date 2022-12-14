@@ -356,12 +356,7 @@ fn extra_info_sas(
     let (first_info, second_info) =
         if we_started { (our_info, their_info) } else { (their_info, our_info) };
 
-    let info = format!(
-        "MATRIX_KEY_VERIFICATION_SAS|{first_info}|{second_info}|{flow_id}",
-        first_info = first_info,
-        second_info = second_info,
-        flow_id = flow_id,
-    );
+    let info = format!("MATRIX_KEY_VERIFICATION_SAS|{first_info}|{second_info}|{flow_id}");
 
     trace!("Generated a SAS extra info: {}", info);
 

@@ -65,13 +65,10 @@ impl OlmMachine {
 
         let store = if let Some(store_path) = store_path {
             Some(
-                matrix_sdk_sled::SledCryptoStore::open_with_passphrase(
-                    store_path,
-                    store_passphrase.as_deref(),
-                )
-                .await
-                .map(Arc::new)
-                .map_err(into_err)?,
+                matrix_sdk_sled::SledCryptoStore::open(store_path, store_passphrase.as_deref())
+                    .await
+                    .map(Arc::new)
+                    .map_err(into_err)?,
             )
         } else {
             None

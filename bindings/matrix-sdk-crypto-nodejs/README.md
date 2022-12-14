@@ -140,7 +140,7 @@ async function main() {
 
     // Let's pretend we have received changes and events from a
     // `/sync` endpoint of a Matrix homeserver, …
-    const toDeviceEvents = "{}"; // JSON-encoded
+    const toDeviceEvents = "[]"; // JSON-encoded list of events
     const changedDevices = new DeviceLists();
     const oneTimeKeyCounts = {};
     const unusedFallbackKeys = [];

@@ -48,13 +48,12 @@ jobs:
         working-directory: ${{ env.PKG_PATH }}
         run: npm install
 
-      - name: Configure NPM auth token
-        working-directory: ${{ env.PKG_PATH }}
-        run: npm set "//registry.npmjs.org/:_authToken" "${{ secrets.NPM_TOKEN }}"
-
       - name: Publish the WebAssembly + JavaScript binding (imply building + testing)
-        working-directory: ${{ env.PKG_PATH }}
-        run: npm run publish
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          package: ${{env.PKG_PATH}}/package.json
+          access: public
+          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Create the Github release
         uses: softprops/action-gh-release@v1

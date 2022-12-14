@@ -215,27 +215,9 @@ pub enum TimelineKey {
     EventId(OwnedEventId),
 }
 
-impl PartialEq<TimelineKey> for &TransactionId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::TransactionId(txn_id) if txn_id == self)
-    }
-}
-
-impl PartialEq<TimelineKey> for &OwnedTransactionId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::TransactionId(txn_id) if txn_id == *self)
-    }
-}
-
-impl PartialEq<TimelineKey> for &EventId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::EventId(event_id) if event_id == self)
-    }
-}
-
-impl PartialEq<TimelineKey> for &OwnedEventId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::EventId(event_id) if event_id == *self)
+impl PartialEq<TransactionId> for TimelineKey {
+    fn eq(&self, id: &TransactionId) -> bool {
+        matches!(self, TimelineKey::TransactionId(txn_id) if txn_id == id)
     }
 }
 
