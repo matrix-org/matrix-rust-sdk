@@ -5,6 +5,7 @@ emsdk-*
 .idea/
 .env
 .build
+/Package.swift
 
 ## User settings
 xcuserdata/
