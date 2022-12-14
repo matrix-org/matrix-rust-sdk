@@ -38,14 +38,13 @@ impl SyncTimelineEventWithoutContent {
         }
     }
 
-    pub(crate) fn relations(&self) -> Option<&BundledRelations> {
+    pub(crate) fn relations(&self) -> &BundledRelations {
+        static DEFAULT_BUNDLED_RELATIONS: BundledRelations = BundledRelations::new();
         match self {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                ev.unsigned.relations.as_ref()
-            }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => ev.unsigned.relations.as_ref(),
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => &ev.unsigned.relations,
+            SyncTimelineEventWithoutContent::OriginalState(ev) => &ev.unsigned.relations,
             SyncTimelineEventWithoutContent::RedactedMessageLike(_)
-            | SyncTimelineEventWithoutContent::RedactedState(_) => None,
+            | SyncTimelineEventWithoutContent::RedactedState(_) => &DEFAULT_BUNDLED_RELATIONS,
         }
     }
 

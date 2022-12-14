@@ -762,10 +762,11 @@ impl SledStateStore {
                 for (key, evt) in self.room_state.scan_prefix(key_prefix).filter_map(|r| r.ok()) {
                     let raw_evt = self.deserialize_value::<Raw<AnySyncStateEvent>>(&evt)?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                        if redactions.contains_key(&event_id) {
+                        if let Some(redaction) = redactions.get(&event_id) {
                             let redacted = redact(
-                                &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                raw_evt.deserialize_as::<CanonicalJsonObject>()?,
                                 room_version.get_or_insert_with(|| make_room_version(room_id)),
+                                Some(redaction.try_into()?),
                             )
                             .map_err(StoreError::Redaction)?;
                             redactions_found = true;

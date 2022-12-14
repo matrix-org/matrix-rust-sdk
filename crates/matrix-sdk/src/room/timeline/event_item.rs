@@ -390,8 +390,8 @@ pub struct BundledReactions {
     pub bundled: IndexMap<String, ReactionDetails>,
 }
 
-impl From<AnnotationChunk> for BundledReactions {
-    fn from(ann: AnnotationChunk) -> Self {
+impl From<Box<AnnotationChunk>> for BundledReactions {
+    fn from(ann: Box<AnnotationChunk>) -> Self {
         let bundled = ann
             .chunk
             .into_iter()

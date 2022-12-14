@@ -2667,6 +2667,7 @@ dependencies = [
  "matrix-sdk-test",
  "ruma",
  "serde",
+ "serde_json",
  "tokio",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -3939,7 +3940,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.7.4"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "assign",
  "js_int",
@@ -3953,7 +3954,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3964,7 +3965,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.15.3"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "assign",
  "bytes",
@@ -3981,7 +3982,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "base64",
  "bytes",
@@ -4012,7 +4013,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4023,7 +4024,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4032,7 +4033,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=3211fccab0b58a9adab1c8a775c1a3a8cff4121d#3211fccab0b58a9adab1c8a775c1a3a8cff4121d"
+source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
 dependencies = [
  "once_cell",
  "proc-macro-crate",

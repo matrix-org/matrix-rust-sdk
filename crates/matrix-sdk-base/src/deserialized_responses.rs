@@ -51,7 +51,7 @@ pub struct AmbiguityChanges {
 /// A deserialized response for the rooms members API call.
 ///
 /// [GET /_matrix/client/r0/rooms/{roomId}/members](https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-rooms-roomid-members)
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct MembersResponse {
     /// The list of members events.
     pub chunk: Vec<RoomMemberEvent>,
@@ -81,7 +81,7 @@ impl RawMemberEvent {
 
 /// Wrapper around both MemberEvent-Types
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub enum MemberEvent {
     /// A member event from a room in joined or left state.
     Sync(SyncRoomMemberEvent),

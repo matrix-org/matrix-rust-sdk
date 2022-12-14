@@ -97,30 +97,23 @@ pub struct TimelineEvent {
 #[cfg(test)]
 mod tests {
     use ruma::{
-        event_id,
-        events::{
-            room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-            MessageLikeUnsigned, OriginalMessageLikeEvent, SyncMessageLikeEvent,
-        },
-        room_id,
+        events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch,
     };
+    use serde_json::json;
 
     use super::{SyncTimelineEvent, TimelineEvent};
 
     #[test]
     fn room_event_to_sync_room_event() {
-        let content = RoomMessageEventContent::text_plain("foobar");
-
-        let event = OriginalMessageLikeEvent {
-            content,
-            event_id: event_id!("$xxxxx:example.org").to_owned(),
-            room_id: room_id!("!someroom:example.com").to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
-            sender: user_id!("@carl:example.com").to_owned(),
-            unsigned: MessageLikeUnsigned::default(),
-        };
+        let event = json! ({
+            "content": RoomMessageEventContent::text_plain("foobar"),
+            "type": "m.room.message",
+            "event_id": "$xxxxx:example.org",
+            "room_id": "!someroom:example.com",
+            "origin_server_ts": 2189,
+            "sender": "@carl:example.com",
+        });
 
         let room_event =
             TimelineEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
@@ -130,14 +123,7 @@ mod tests {
         let converted_event: AnySyncTimelineEvent =
             converted_room_event.event.deserialize().unwrap();
 
-        let sync_event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncMessageLikeEvent::Original(event.into()),
-        ));
-
-        // There is no `PartialEq` implementation for `AnySyncTimelineEvent`, so we
-        // just compare a couple of fields here. The important thing is that
-        // the deserialization above worked.
-        assert_eq!(converted_event.event_id(), sync_event.event_id());
-        assert_eq!(converted_event.sender(), sync_event.sender());
+        assert_eq!(converted_event.event_id(), "$xxxxx:example.org");
+        assert_eq!(converted_event.sender(), "@carl:example.com");
     }
 }

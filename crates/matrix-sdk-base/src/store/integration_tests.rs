@@ -241,7 +241,7 @@ macro_rules! statestore_integration_tests {
             room_ambiguity_map
                 .insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
             room_profiles.insert(user_id.to_owned(), (&member_event).into());
-            room_members.insert(user_id.to_owned(), Raw::new(&member_event).unwrap().cast());
+            room_members.insert(user_id.to_owned(), Raw::new(&member_json).unwrap().cast());
 
             let member_state_raw =
                 serde_json::from_value::<Raw<AnySyncStateEvent>>(member_json.clone()).unwrap();
@@ -259,7 +259,7 @@ macro_rules! statestore_integration_tests {
             room_profiles.insert(invited_user_id.to_owned(), (&invited_member_event).into());
             room_members.insert(
                 invited_user_id.to_owned(),
-                Raw::new(&invited_member_event).unwrap().cast(),
+                Raw::new(&invited_member_json).unwrap().cast(),
             );
 
             let invited_member_state_raw =
