@@ -883,7 +883,7 @@ pub struct SlidingSyncView {
     batch_size: u32,
 
     /// How many rooms request at a time when doing a full-sync catch up
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     limit: Option<u32>,
 
     /// Any filters to apply to the query
