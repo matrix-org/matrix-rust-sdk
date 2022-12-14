@@ -306,7 +306,7 @@ async fn invalid_event_content() {
         *event_item.key(),
         TimelineKey::EventId(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned())
     );
-    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(10))));
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
     let event_type = assert_matches!(
         event_item.content(),
         TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
@@ -333,7 +333,7 @@ async fn invalid_event_content() {
         *event_item.key(),
         TimelineKey::EventId(event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned())
     );
-    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(2179))));
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
     let (event_type, state_key) = assert_matches!(
         event_item.content(),
         TimelineItemContent::FailedToParseState {
@@ -475,6 +475,20 @@ async fn day_divider() {
     assert_eq!(year, 2022);
     assert_eq!(month, 12);
     assert_eq!(day, 2);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    item.as_event().unwrap();
+
+    let _ = timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("A message I'm sending just now"),
+        ))
+        .await;
+
+    // The other events are in the past so a local event always creates a new day
+    // divider.
+    let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();

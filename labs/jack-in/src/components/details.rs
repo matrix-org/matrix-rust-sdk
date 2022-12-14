@@ -78,8 +78,8 @@ impl Details {
             .map(|e| match e.content() {
                 TimelineItemContent::Message(m) => format!(
                     "[{}] {}: {}",
-                    e.origin_server_ts()
-                        .and_then(|r| r.to_system_time())
+                    e.timestamp()
+                        .to_system_time()
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),
@@ -87,16 +87,16 @@ impl Details {
                 ),
                 TimelineItemContent::RedactedMessage => format!(
                     "[{}] {} - redacted -",
-                    e.origin_server_ts()
-                        .and_then(|r| r.to_system_time())
+                    e.timestamp()
+                        .to_system_time()
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),
                 ),
                 TimelineItemContent::UnableToDecrypt(_) => format!(
                     "[{}] {} - unable to decrypt -",
-                    e.origin_server_ts()
-                        .and_then(|r| r.to_system_time())
+                    e.timestamp()
+                        .to_system_time()
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),
@@ -104,8 +104,8 @@ impl Details {
                 TimelineItemContent::FailedToParseState { event_type, state_key, error } => {
                     format!(
                         "[{}] {} - failed to parse {event_type}({state_key}): {error}",
-                        e.origin_server_ts()
-                            .and_then(|r| r.to_system_time())
+                        e.timestamp()
+                            .to_system_time()
                             .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                             .unwrap_or_default(),
                         e.sender(),
@@ -113,8 +113,8 @@ impl Details {
                 }
                 TimelineItemContent::FailedToParseMessageLike { event_type, error } => format!(
                     "[{}] {} - failed to parse {event_type}: {error}",
-                    e.origin_server_ts()
-                        .and_then(|r| r.to_system_time())
+                    e.timestamp()
+                        .to_system_time()
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),

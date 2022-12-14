@@ -115,7 +115,7 @@ async fn edit() {
     let second =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = second.as_event().unwrap();
-    assert_eq!(item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(152038280))));
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
     assert!(item.raw().is_some());
@@ -184,7 +184,6 @@ async fn echo() {
     assert!(item.event_id().is_none());
     assert!(item.is_own());
     assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_eq!(item.origin_server_ts(), None);
     assert_matches!(item.raw(), None);
 
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
@@ -202,7 +201,6 @@ async fn echo() {
     assert!(item.event_id().is_some());
     assert!(item.is_own());
     assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_eq!(item.origin_server_ts(), None);
     assert_matches!(item.raw(), None);
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -230,7 +228,7 @@ async fn echo() {
     let item = remote_echo.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(item.is_own());
-    assert_eq!(item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(152038280))));
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert_matches!(item.key(), TimelineKey::EventId(_));
     assert_matches!(item.raw(), Some(_));
 }

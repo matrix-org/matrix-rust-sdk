@@ -47,6 +47,7 @@ use crate::events::SyncTimelineEventWithoutContent;
 pub(super) enum Flow {
     Local {
         txn_id: OwnedTransactionId,
+        timestamp: MilliSecondsSinceUnixEpoch,
     },
     Remote {
         event_id: OwnedEventId,
@@ -61,14 +62,14 @@ impl Flow {
     fn to_key(&self) -> TimelineKey {
         match self {
             Self::Remote { event_id, .. } => TimelineKey::EventId(event_id.to_owned()),
-            Self::Local { txn_id } => TimelineKey::TransactionId(txn_id.to_owned()),
+            Self::Local { txn_id, .. } => TimelineKey::TransactionId(txn_id.to_owned()),
         }
     }
 
-    fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+    fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match self {
-            Flow::Local { .. } => None,
-            Flow::Remote { origin_server_ts, .. } => Some(*origin_server_ts),
+            Flow::Local { timestamp, .. } => *timestamp,
+            Flow::Remote { origin_server_ts, .. } => *origin_server_ts,
         }
     }
 
@@ -408,7 +409,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             sender: self.meta.sender.to_owned(),
             content,
             reactions,
-            origin_server_ts: self.flow.origin_server_ts(),
+            timestamp: self.flow.timestamp(),
             is_own: self.meta.is_own_event,
             encryption_info: self.meta.encryption_info.clone(),
             raw: self.flow.raw_event().cloned(),
@@ -416,10 +417,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         let item = Arc::new(TimelineItem::Event(item));
         match &self.flow {
-            Flow::Local { .. } => {
-                // Use the current time for local events.
-                let new_ts = MilliSecondsSinceUnixEpoch::now();
-
+            Flow::Local { timestamp, .. } => {
                 // Check if the latest event has the same date as this event.
                 if let Some(latest_event) = self
                     .timeline_items
@@ -427,19 +425,17 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     .rfind(|item| item.as_event().is_some())
                     .and_then(|item| item.as_event())
                 {
-                    if let Some(old_ts) = latest_event.origin_server_ts() {
-                        // If there is no origin_server_ts, it's a local event so we can assume
-                        // it has the same date.
-                        if let Some(day_divider_item) =
-                            maybe_create_day_divider_from_timestamps(old_ts, new_ts)
-                        {
-                            self.timeline_items
-                                .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
-                        }
+                    let old_ts = latest_event.timestamp();
+
+                    if let Some(day_divider_item) =
+                        maybe_create_day_divider_from_timestamps(old_ts, *timestamp)
+                    {
+                        self.timeline_items
+                            .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
                     }
                 } else {
                     // If there is not event item, there is no day divider yet.
-                    let (year, month, day) = timestamp_to_ymd(new_ts);
+                    let (year, month, day) = timestamp_to_ymd(*timestamp);
                     self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
                         VirtualTimelineItem::day_divider(year, month, day),
                     )));
@@ -521,10 +517,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             .rfind(|item| item.as_event().is_some())
                             .and_then(|item| item.as_event())
                         {
-                            let old_ts = latest_event
-                                .origin_server_ts()
-                                // Default to now for local events.
-                                .unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
+                            let old_ts = latest_event.timestamp();
 
                             if let Some(day_divider_item) =
                                 maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
