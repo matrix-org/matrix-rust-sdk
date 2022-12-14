@@ -253,7 +253,7 @@ interface VerificationRequest {
 [Enum]
 interface VerificationRequestState {
   Requested();
-  Ready();
+  Ready(sequence<string> their_methods, sequence<string> our_methods);
   Done();
   Cancelled(CancelInfo cancel_info);
 };

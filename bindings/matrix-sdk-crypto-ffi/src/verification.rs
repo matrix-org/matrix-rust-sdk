@@ -513,7 +513,13 @@ pub enum VerificationRequestState {
     /// The verification request was sent
     Requested,
     /// The verification request is ready to start a verification flow.
-    Ready,
+    Ready {
+        /// The verification methods supported by the other side.
+        their_methods: Vec<String>,
+
+        /// The verification methods supported by the us.
+        our_methods: Vec<String>,
+    },
     /// The verification flow that was started with this request has finished.
     Done,
     /// The verification process has been cancelled.
@@ -529,7 +535,14 @@ impl From<RustVerificationRequestState> for VerificationRequestState {
             // The clients do not need to distinguish `Created` and `Requested` state
             RustVerificationRequestState::Created { .. } => Self::Requested,
             RustVerificationRequestState::Requested { .. } => Self::Requested,
-            RustVerificationRequestState::Ready { .. } => Self::Ready,
+            RustVerificationRequestState::Ready {
+                their_methods,
+                our_methods,
+                other_device_id: _,
+            } => Self::Ready {
+                their_methods: their_methods.iter().map(|m| m.to_string()).collect(),
+                our_methods: our_methods.iter().map(|m| m.to_string()).collect(),
+            },
             RustVerificationRequestState::Done => Self::Done,
             RustVerificationRequestState::Cancelled(c) => Self::Cancelled { cancel_info: c.into() },
         }
