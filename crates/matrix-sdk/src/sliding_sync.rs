@@ -1049,6 +1049,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
             },
         }
     }
+
     fn new_with_growing_syncup(view: &'a SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;

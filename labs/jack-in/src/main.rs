@@ -2,10 +2,8 @@
 //!
 //! a demonstration and debugging implementation TUI client for sliding sync
 
-use std::{
-    path::Path,
-    time::Duration,
-};
+use std::{path::Path, time::Duration};
+
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};

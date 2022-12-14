@@ -35,6 +35,7 @@ pub struct Opt {
     /// Sliding Sync configuration flags
     pub sliding_sync: SlidingSyncConfig,
 }
+
 arg_enum! {
     #[derive(Debug)]
     pub enum FullSyncMode {
