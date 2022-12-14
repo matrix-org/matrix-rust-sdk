@@ -363,10 +363,11 @@ impl MemoryStore {
                     for mut ref_evt_mu in ref_room_mu.value_mut().iter_mut() {
                         let raw_evt = ref_evt_mu.value_mut();
                         if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                            if redactions.get(&event_id).is_some() {
+                            if let Some(redaction) = redactions.get(&event_id) {
                                 let redacted = redact(
-                                    &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                    raw_evt.deserialize_as::<CanonicalJsonObject>()?,
                                     room_version.get_or_insert_with(|| make_room_version(room_id)),
+                                    Some(redaction.try_into()?),
                                 )
                                 .map_err(StoreError::Redaction)?;
                                 *raw_evt = Raw::new(&redacted)?.cast();

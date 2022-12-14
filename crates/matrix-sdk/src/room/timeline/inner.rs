@@ -75,7 +75,7 @@ impl TimelineInner {
         let event_meta = TimelineEventMetadata {
             sender: own_user_id.to_owned(),
             is_own_event: true,
-            relations: None,
+            relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
         };
@@ -239,7 +239,7 @@ fn handle_remote_event(
                 event.sender().to_owned(),
                 event.origin_server_ts(),
                 event.transaction_id().map(ToOwned::to_owned),
-                event.relations().cloned(),
+                event.relations().to_owned(),
                 event.into(),
             ),
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
@@ -248,7 +248,7 @@ fn handle_remote_event(
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    event.relations().cloned(),
+                    event.relations().to_owned(),
                     TimelineEventKind::failed_to_parse(event, e),
                 ),
                 Err(e) => {

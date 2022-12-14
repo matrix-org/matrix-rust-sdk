@@ -85,7 +85,7 @@ impl Flow {
 pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
     pub(super) is_own_event: bool,
-    pub(super) relations: Option<BundledRelations>,
+    pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
 }
 
@@ -665,8 +665,8 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    fn message(c: RoomMessageEventContent, relations: Option<BundledRelations>) -> Self {
-        let edited = relations.as_ref().map_or(false, |r| r.replace.is_some());
+    fn message(c: RoomMessageEventContent, relations: BundledRelations) -> Self {
+        let edited = relations.replace.is_some();
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
             in_reply_to: c.relates_to.and_then(|rel| match rel {
@@ -676,8 +676,7 @@ impl NewEventTimelineItem {
             edited,
         });
 
-        let reactions =
-            relations.and_then(|r| r.annotation).map(BundledReactions::from).unwrap_or_default();
+        let reactions = relations.annotation.map(BundledReactions::from).unwrap_or_default();
 
         Self { content, reactions }
     }

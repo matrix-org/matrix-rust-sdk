@@ -36,10 +36,8 @@ use ruma::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
             message::{self, MessageType, RoomMessageEventContent},
-            redaction::OriginalSyncRoomRedactionEvent,
         },
-        AnyMessageLikeEventContent, MessageLikeEventContent, MessageLikeEventType,
-        OriginalSyncMessageLikeEvent, StateEventType,
+        AnyMessageLikeEventContent, MessageLikeEventContent, MessageLikeEventType, StateEventType,
     },
     room_id,
     serde::Raw,
@@ -544,13 +542,13 @@ impl TestTimeline {
     where
         C: MessageLikeEventContent,
     {
-        let ev = OriginalSyncMessageLikeEvent {
-            content,
-            event_id: EventId::new(server_name!("dummy.server")),
-            sender: sender.to_owned(),
-            origin_server_ts: next_server_ts(),
-            unsigned: Default::default(),
-        };
+        let ev = json!({
+            "type": content.event_type(),
+            "content": content,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": next_server_ts(),
+        });
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }
@@ -561,14 +559,14 @@ impl TestTimeline {
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = OriginalSyncRoomRedactionEvent {
-            content: Default::default(),
-            redacts: redacts.to_owned(),
-            event_id: EventId::new(server_name!("dummy.server")),
-            sender: sender.to_owned(),
-            origin_server_ts: next_server_ts(),
-            unsigned: Default::default(),
-        };
+        let ev = json! ({
+            "type": "m.room.redaction",
+            "content": {},
+            "redacts": redacts,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": next_server_ts(),
+        });
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }

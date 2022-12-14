@@ -816,7 +816,7 @@ impl IndexeddbStateStore {
                     let raw_evt =
                         self.deserialize_event::<Raw<AnySyncStateEvent>>(cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                        if redactions.contains_key(&event_id) {
+                        if let Some(redaction) = redactions.get(&event_id) {
                             let version = {
                                 if room_version.is_none() {
                                     room_version.replace(room_info
@@ -833,9 +833,12 @@ impl IndexeddbStateStore {
                                 room_version.as_ref().unwrap()
                             };
 
-                            let redacted =
-                                redact(&raw_evt.deserialize_as::<CanonicalJsonObject>()?, version)
-                                    .map_err(StoreError::Redaction)?;
+                            let redacted = redact(
+                                raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                version,
+                                Some(redaction.try_into()?),
+                            )
+                            .map_err(StoreError::Redaction)?;
                             state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
                         }
                     }

@@ -1599,16 +1599,12 @@ pub(crate) mod tests {
         },
         device_id,
         encryption::OneTimeKey,
-        event_id,
         events::{
             dummy::ToDeviceDummyEventContent,
             key::verification::VerificationMethod,
-            room::{
-                encrypted::OriginalSyncRoomEncryptedEvent,
-                message::{MessageType, RoomMessageEventContent},
-            },
+            room::message::{MessageType, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
-            MessageLikeEvent, MessageLikeUnsigned, OriginalMessageLikeEvent,
+            MessageLikeEvent, OriginalMessageLikeEvent,
         },
         room_id,
         serde::Raw,
@@ -2060,13 +2056,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let event = OriginalSyncRoomEncryptedEvent {
-            event_id: event_id!("$xxxxx:example.org").to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
-            sender: alice.user_id().to_owned(),
-            content: encrypted_content.deserialize_as().unwrap(),
-            unsigned: MessageLikeUnsigned::default(),
-        };
+        let event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": encrypted_content,
+        });
 
         let event = json_convert(&event).unwrap();
 
@@ -2116,13 +2112,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let room_event = OriginalSyncRoomEncryptedEvent {
-            event_id: event_id!("$xxxxx:example.org").to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
-            sender: alice.user_id().to_owned(),
-            content: content.deserialize_as().unwrap(),
-            unsigned: MessageLikeUnsigned::default(),
-        };
+        let room_event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": content,
+        });
 
         // should share at index 1
         let to_device_requests = alice
