@@ -164,7 +164,7 @@ interface Client {
 
     [Throws=ClientError]
     string display_name();
-    
+
     [Throws=ClientError]
     void set_display_name(string name);
 
@@ -179,7 +179,7 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
-    
+
     [Throws=ClientError]
     string upload_media(string mime_type, sequence<u8> content);
 
@@ -295,24 +295,8 @@ interface MediaSource {
     string url();
 };
 
-[Error]
-enum AuthenticationError {
-    "ClientMissing",
-    "SessionMissing",
-    "Generic",
-};
-
 interface AuthenticationService {
     constructor(string base_path);
-
-    [Throws=AuthenticationError]
-    void configure_homeserver(string server_name);
-
-    [Throws=AuthenticationError]
-    Client login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=AuthenticationError]
-    Client restore_with_access_token(string token, string device_id);
 };
 
 interface SessionVerificationEmoji {};
