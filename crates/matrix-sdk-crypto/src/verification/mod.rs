@@ -26,8 +26,8 @@ use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
-pub use qrcode::{QrVerification, ScanError};
-pub use requests::VerificationRequest;
+pub use qrcode::{QrVerification, QrVerificationState, ScanError};
+pub use requests::{VerificationRequest, VerificationRequestState};
 #[cfg(feature = "qrcode")]
 use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,

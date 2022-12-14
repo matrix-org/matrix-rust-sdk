@@ -4,15 +4,16 @@ use base64::{decode_config, encode_config, STANDARD_NO_PAD};
 use futures_util::{Stream, StreamExt};
 use matrix_sdk_crypto::{
     matrix_sdk_qrcode::QrVerificationData, CancelInfo as RustCancelInfo, QrVerification as InnerQr,
-    Sas as InnerSas, SasState as RustSasState, Verification as InnerVerification,
-    VerificationRequest as InnerVerificationRequest,
+    QrVerificationState, Sas as InnerSas, SasState as RustSasState,
+    Verification as InnerVerification, VerificationRequest as InnerVerificationRequest,
+    VerificationRequestState as RustVerificationRequestState,
 };
 use ruma::events::key::verification::VerificationMethod;
 use tokio::runtime::Handle;
 
 use crate::{CryptoStoreError, OutgoingVerificationRequest, SignatureUploadRequest};
 
-/// Callback that will be passed over the FFI to report changes to a SAS
+/// Listener that will be passed over the FFI to report changes to a SAS
 /// verification.
 pub trait SasListener: Send {
     /// The callback that should be called on the Rust side
@@ -21,15 +22,6 @@ pub trait SasListener: Send {
     ///
     /// * `state` - The current state of the SAS verification.
     fn on_change(&self, state: SasState);
-}
-
-impl<T: Fn(SasState)> SasListener for T
-where
-    T: Send,
-{
-    fn on_change(&self, state: SasState) {
-        self(state)
-    }
 }
 
 /// An Enum describing the state the SAS verification is in.
@@ -98,7 +90,7 @@ impl Verification {
     /// returns `None` if the verification is not a `QrCode` verification.
     pub fn as_qr(&self) -> Option<Arc<QrCode>> {
         if let InnerVerification::QrV1(qr) = &self.inner {
-            Some(QrCode { inner: qr.to_owned() }.into())
+            Some(QrCode { inner: qr.to_owned(), runtime: self.runtime.to_owned() }.into())
         } else {
             None
         }
@@ -239,10 +231,10 @@ impl Sas {
     ///                │  Done │
     ///                └───────┘
     /// ```
-    pub fn set_changes_listener(&self, callback: Box<dyn SasListener>) {
+    pub fn set_changes_listener(&self, listener: Box<dyn SasListener>) {
         let stream = self.inner.changes();
 
-        self.runtime.spawn(Self::changes_callback(stream, callback));
+        self.runtime.spawn(Self::changes_listener(stream, listener));
     }
 
     /// Get the current state of the SAS verification process.
@@ -250,9 +242,9 @@ impl Sas {
         self.inner.state().into()
     }
 
-    async fn changes_callback(
+    async fn changes_listener(
         mut stream: impl Stream<Item = RustSasState> + std::marker::Unpin,
-        callback: Box<dyn SasListener>,
+        listener: Box<dyn SasListener>,
     ) {
         while let Some(state) = stream.next().await {
             // If we receive a done or a cancelled state we're at the end of our road, we
@@ -261,7 +253,7 @@ impl Sas {
             let should_break =
                 matches!(state, RustSasState::Done { .. } | RustSasState::Cancelled { .. });
 
-            callback.on_change(state.into());
+            listener.on_change(state.into());
 
             if should_break {
                 break;
@@ -270,10 +262,55 @@ impl Sas {
     }
 }
 
+/// Listener that will be passed over the FFI to report changes to a QrCode
+/// verification.
+pub trait QrCodeListener: Send {
+    /// The callback that should be called on the Rust side
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The current state of the QrCode verification.
+    fn on_change(&self, state: QrCodeState);
+}
+
+/// An Enum describing the state the QrCode verification is in.
+pub enum QrCodeState {
+    /// The QR verification has been started.
+    Started,
+    /// The QR verification has been scanned by the other side.
+    Scanned,
+    /// The scanning of the QR code has been confirmed by us.
+    Confirmed,
+    /// We have successfully scanned the QR code and are able to send a
+    /// reciprocation event.
+    Reciprocated,
+    /// The verification process has been successfully concluded.
+    Done,
+    /// The verification process has been cancelled.
+    Cancelled {
+        /// Information about the reason of the cancellation.
+        cancel_info: CancelInfo,
+    },
+}
+
+impl From<QrVerificationState> for QrCodeState {
+    fn from(value: QrVerificationState) -> Self {
+        match value {
+            QrVerificationState::Started => Self::Started,
+            QrVerificationState::Scanned => Self::Scanned,
+            QrVerificationState::Confirmed => Self::Confirmed,
+            QrVerificationState::Reciprocated => Self::Reciprocated,
+            QrVerificationState::Done { .. } => Self::Done,
+            QrVerificationState::Cancelled(c) => Self::Cancelled { cancel_info: c.into() },
+        }
+    }
+}
+
 /// The `m.qr_code.scan.v1`, `m.qr_code.show.v1`, and `m.reciprocate.v1`
 /// verification flow.
 pub struct QrCode {
     pub(crate) inner: InnerQr,
+    pub(crate) runtime: Handle,
 }
 
 impl QrCode {
@@ -366,6 +403,41 @@ impl QrCode {
     pub fn generate_qr_code(&self) -> Option<String> {
         self.inner.to_bytes().map(|data| encode_config(data, STANDARD_NO_PAD)).ok()
     }
+
+    /// Set a listener for changes in the QrCode verification process.
+    ///
+    /// The given callback will be called whenever the state changes.
+    pub fn set_changes_listener(&self, listener: Box<dyn QrCodeListener>) {
+        let stream = self.inner.changes();
+
+        self.runtime.spawn(Self::changes_listener(stream, listener));
+    }
+
+    /// Get the current state of the QrCode verification process.
+    pub fn state(&self) -> QrCodeState {
+        self.inner.state().into()
+    }
+
+    async fn changes_listener(
+        mut stream: impl Stream<Item = QrVerificationState> + std::marker::Unpin,
+        listener: Box<dyn QrCodeListener>,
+    ) {
+        while let Some(state) = stream.next().await {
+            // If we receive a done or a cancelled state we're at the end of our road, we
+            // break out of the loop to deallocate the stream and finish the
+            // task.
+            let should_break = matches!(
+                state,
+                QrVerificationState::Done { .. } | QrVerificationState::Cancelled { .. }
+            );
+
+            listener.on_change(state.into());
+
+            if should_break {
+                break;
+            }
+        }
+    }
 }
 
 /// Information on why a verification flow has been cancelled and by whom.
@@ -423,6 +495,58 @@ pub struct ConfirmVerificationResult {
     /// A request that will upload signatures of the verified device or user, if
     /// the verification is completed and we're able to sign devices or users
     pub signature_request: Option<SignatureUploadRequest>,
+}
+
+/// Listener that will be passed over the FFI to report changes to a
+/// verification request.
+pub trait VerificationRequestListener: Send {
+    /// The callback that should be called on the Rust side
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The current state of the verification request.
+    fn on_change(&self, state: VerificationRequestState);
+}
+
+/// An Enum describing the state the QrCode verification is in.
+pub enum VerificationRequestState {
+    /// The verification request was sent
+    Requested,
+    /// The verification request is ready to start a verification flow.
+    Ready {
+        /// The verification methods supported by the other side.
+        their_methods: Vec<String>,
+
+        /// The verification methods supported by the us.
+        our_methods: Vec<String>,
+    },
+    /// The verification flow that was started with this request has finished.
+    Done,
+    /// The verification process has been cancelled.
+    Cancelled {
+        /// Information about the reason of the cancellation.
+        cancel_info: CancelInfo,
+    },
+}
+
+impl From<RustVerificationRequestState> for VerificationRequestState {
+    fn from(value: RustVerificationRequestState) -> Self {
+        match value {
+            // The clients do not need to distinguish `Created` and `Requested` state
+            RustVerificationRequestState::Created { .. } => Self::Requested,
+            RustVerificationRequestState::Requested { .. } => Self::Requested,
+            RustVerificationRequestState::Ready {
+                their_methods,
+                our_methods,
+                other_device_id: _,
+            } => Self::Ready {
+                their_methods: their_methods.iter().map(|m| m.to_string()).collect(),
+                our_methods: our_methods.iter().map(|m| m.to_string()).collect(),
+            },
+            RustVerificationRequestState::Done => Self::Done,
+            RustVerificationRequestState::Cancelled(c) => Self::Cancelled { cancel_info: c.into() },
+        }
+    }
 }
 
 /// The verificatoin request object which then can transition into some concrete
@@ -559,7 +683,7 @@ impl VerificationRequest {
         Ok(self
             .runtime
             .block_on(self.inner.generate_qr_code())?
-            .map(|qr| QrCode { inner: qr }.into()))
+            .map(|qr| QrCode { inner: qr, runtime: self.runtime.clone() }.into()))
     }
 
     /// Pass data from a scanned QR code to an active verification request and
@@ -585,9 +709,48 @@ impl VerificationRequest {
         if let Some(qr) = self.runtime.block_on(self.inner.scan_qr_code(data)).ok()? {
             let request = qr.reciprocate()?;
 
-            Some(ScanResult { qr: QrCode { inner: qr }.into(), request: request.into() })
+            Some(ScanResult {
+                qr: QrCode { inner: qr, runtime: self.runtime.clone() }.into(),
+                request: request.into(),
+            })
         } else {
             None
+        }
+    }
+
+    /// Set a listener for changes in the verification request
+    ///
+    /// The given callback will be called whenever the state changes.
+    pub fn set_changes_listener(&self, listener: Box<dyn VerificationRequestListener>) {
+        let stream = self.inner.changes();
+
+        self.runtime.spawn(Self::changes_listener(stream, listener));
+    }
+
+    /// Get the current state of the verification request.
+    pub fn state(&self) -> VerificationRequestState {
+        self.inner.state().into()
+    }
+
+    async fn changes_listener(
+        mut stream: impl Stream<Item = RustVerificationRequestState> + std::marker::Unpin,
+        listener: Box<dyn VerificationRequestListener>,
+    ) {
+        while let Some(state) = stream.next().await {
+            // If we receive a done or a cancelled state we're at the end of our road, we
+            // break out of the loop to deallocate the stream and finish the
+            // task.
+            let should_break = matches!(
+                state,
+                RustVerificationRequestState::Done { .. }
+                    | RustVerificationRequestState::Cancelled { .. }
+            );
+
+            listener.on_change(state.into());
+
+            if should_break {
+                break;
+            }
         }
     }
 }

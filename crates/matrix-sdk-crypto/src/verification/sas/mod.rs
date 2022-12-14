@@ -853,6 +853,7 @@ impl AcceptSettings {
 mod tests {
     use std::sync::Arc;
 
+    use matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
@@ -911,7 +912,7 @@ mod tests {
 
         let (alice, content) = Sas::start(identities, TransactionId::new(), true, None);
 
-        matches!(alice.state(), SasState::Started { .. });
+        assert_matches!(alice.state(), SasState::Started { .. });
 
         let flow_id = alice.flow_id().to_owned();
         let content = StartContent::try_from(&content).unwrap();
@@ -919,7 +920,7 @@ mod tests {
         let identities = bob_store.get_identities(alice_device).await.unwrap();
         let bob = Sas::from_start_event(flow_id, &content, identities, None, false).unwrap();
 
-        matches!(bob.state(), SasState::Started { .. });
+        assert_matches!(bob.state(), SasState::Started { .. });
 
         let request = bob.accept().unwrap();
 
@@ -929,8 +930,8 @@ mod tests {
         let (content, request_info) =
             alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
 
-        matches!(alice.state(), SasState::Accepted { .. });
-        matches!(bob.state(), SasState::Accepted { .. });
+        assert_matches!(alice.state(), SasState::Accepted { .. });
+        assert_matches!(bob.state(), SasState::Accepted { .. });
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());
 
@@ -940,31 +941,31 @@ mod tests {
         let (content, request_info) =
             bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
         assert!(!bob.can_be_presented());
-        matches!(bob.state(), SasState::Accepted { .. });
+        assert_matches!(bob.state(), SasState::Accepted { .. });
         bob.mark_request_as_sent(&request_info.unwrap().request_id);
 
         assert!(bob.can_be_presented());
-        matches!(bob.state(), SasState::KeysExchanged { .. });
+        assert_matches!(bob.state(), SasState::KeysExchanged { .. });
 
         let content = KeyContent::try_from(&content).unwrap();
         alice.receive_any_event(bob.user_id(), &content.into());
-        matches!(alice.state(), SasState::KeysExchanged { .. });
+        assert_matches!(alice.state(), SasState::KeysExchanged { .. });
         assert!(alice.can_be_presented());
 
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
         let mut requests = alice.confirm().await.unwrap().0;
-        matches!(alice.state(), SasState::Confirmed);
+        assert_matches!(alice.state(), SasState::Confirmed);
         assert!(requests.len() == 1);
         let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap();
         bob.receive_any_event(alice.user_id(), &content.into());
-        matches!(bob.state(), SasState::KeysExchanged { .. });
+        assert_matches!(bob.state(), SasState::KeysExchanged { .. });
 
         let mut requests = bob.confirm().await.unwrap().0;
-        matches!(bob.state(), SasState::Confirmed);
+        assert_matches!(bob.state(), SasState::Done { .. });
         assert!(requests.len() == 1);
         let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
@@ -973,7 +974,7 @@ mod tests {
 
         assert!(alice.verified_devices().unwrap().contains(alice.other_device()));
         assert!(bob.verified_devices().unwrap().contains(bob.other_device()));
-        matches!(alice.state(), SasState::Done { .. });
-        matches!(bob.state(), SasState::Done { .. });
+        assert_matches!(alice.state(), SasState::Done { .. });
+        assert_matches!(bob.state(), SasState::Done { .. });
     }
 }

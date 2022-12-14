@@ -157,7 +157,7 @@ interface Sas {
     sequence<i32>? get_emoji_indices();
     sequence<i32>? get_decimals();
 
-    void set_changes_listener(SasListener callback);
+    void set_changes_listener(SasListener listener);
     SasState state();
 };
 
@@ -196,6 +196,23 @@ interface QrCode {
     ConfirmVerificationResult? confirm();
     OutgoingVerificationRequest? cancel([ByRef] string cancel_code);
     string? generate_qr_code();
+
+    void set_changes_listener(QrCodeListener listener);
+    QrCodeState state();
+};
+
+[Enum]
+interface QrCodeState {
+  Started();
+  Scanned();
+  Confirmed();
+  Reciprocated();
+  Done();
+  Cancelled(CancelInfo cancel_info);
+};
+
+callback interface QrCodeListener {
+    void on_change(QrCodeState state);
 };
 
 interface VerificationRequest {
@@ -223,6 +240,21 @@ interface VerificationRequest {
     ScanResult? scan_qr_code([ByRef] string data);
 
     OutgoingVerificationRequest? cancel();
+
+    void set_changes_listener(VerificationRequestListener listener);
+    VerificationRequestState state();
+};
+
+[Enum]
+interface VerificationRequestState {
+  Requested();
+  Ready(sequence<string> their_methods, sequence<string> our_methods);
+  Done();
+  Cancelled(CancelInfo cancel_info);
+};
+
+callback interface VerificationRequestListener {
+    void on_change(VerificationRequestState state);
 };
 
 dictionary RequestVerificationResult {
