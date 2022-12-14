@@ -378,6 +378,8 @@ async fn remote_echo_without_txn_id() {
         ))
         .await;
 
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
 
@@ -386,7 +388,7 @@ async fn remote_echo_without_txn_id() {
     timeline.inner.add_event_id(&txn_id, event_id.to_owned());
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
 
     // When an event with the same ID comes in…
@@ -404,7 +406,7 @@ async fn remote_echo_without_txn_id() {
         .await;
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
 }
 
