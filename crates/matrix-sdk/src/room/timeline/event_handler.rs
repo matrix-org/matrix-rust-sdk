@@ -434,7 +434,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
                     }
                 } else {
-                    // If there is not event item, there is no day divider yet.
+                    // If there is no event item, there is no day divider yet.
                     let (year, month, day) = timestamp_to_ymd(*timestamp);
                     self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
                         VirtualTimelineItem::day_divider(year, month, day),

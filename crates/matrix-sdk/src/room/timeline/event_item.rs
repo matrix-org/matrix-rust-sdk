@@ -123,7 +123,7 @@ impl EventTimelineItem {
 
     /// Get the timestamp of this item.
     ///
-    /// If this event hasn't been echoed back by the server yet, Returns the
+    /// If this event hasn't been echoed back by the server yet, returns the
     /// time the local event was created. Otherwise, returns the origin
     /// server timestamp.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
