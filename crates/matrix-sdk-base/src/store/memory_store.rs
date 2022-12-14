@@ -34,10 +34,10 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::{deserialized_responses::MemberEvent, media::MediaRequest, MinimalRoomMemberEvent};
+use crate::{deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -48,7 +48,7 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, SyncRoomMemberEvent>>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>>,
     profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
     joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
@@ -62,7 +62,7 @@ pub struct MemoryStore {
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, StrippedRoomMemberEvent>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>>,
     stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
@@ -133,8 +133,16 @@ impl MemoryStore {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
         }
 
-        for (room, events) in &changes.members {
-            for event in events.values() {
+        for (room, raw_events) in &changes.members {
+            for raw_event in raw_events.values() {
+                let event = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        continue;
+                    }
+                };
+
                 self.stripped_joined_user_ids.remove(room);
                 self.stripped_invited_user_ids.remove(room);
 
@@ -174,7 +182,7 @@ impl MemoryStore {
                 self.members
                     .entry(room.clone())
                     .or_default()
-                    .insert(event.state_key().to_owned(), event.clone());
+                    .insert(event.state_key().to_owned(), raw_event.clone());
                 self.stripped_members.remove(room);
             }
         }
@@ -238,8 +246,16 @@ impl MemoryStore {
             self.room_info.remove(room_id);
         }
 
-        for (room, events) in &changes.stripped_members {
-            for event in events.values() {
+        for (room, raw_events) in &changes.stripped_members {
+            for raw_event in raw_events.values() {
+                let event = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        continue;
+                    }
+                };
+
                 match event.content.membership {
                     MembershipState::Join => {
                         self.stripped_joined_user_ids
@@ -276,7 +292,7 @@ impl MemoryStore {
                 self.stripped_members
                     .entry(room.clone())
                     .or_default()
-                    .insert(event.state_key.clone(), event.clone());
+                    .insert(event.state_key.clone(), raw_event.clone());
             }
         }
 
@@ -408,15 +424,15 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) =
             self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(MemberEvent::Stripped(e)))
+            Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) =
             self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(MemberEvent::Sync(e)))
+            Ok(Some(RawMemberEvent::Sync(e)))
         } else {
             Ok(None)
         }
@@ -606,7 +622,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key).await
     }
 

@@ -123,6 +123,25 @@ impl MinimalRoomMemberEvent {
     }
 }
 
+impl<C> From<SyncStateEvent<C>> for MinimalStateEvent<C>
+where
+    C: StateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent,
+{
+    fn from(ev: SyncStateEvent<C>) -> Self {
+        match ev {
+            SyncStateEvent::Original(ev) => Self::Original(OriginalMinimalStateEvent {
+                content: ev.content,
+                event_id: Some(ev.event_id),
+            }),
+            SyncStateEvent::Redacted(ev) => Self::Redacted(RedactedMinimalStateEvent {
+                content: ev.content,
+                event_id: Some(ev.event_id),
+            }),
+        }
+    }
+}
+
 impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
     C: Clone + StateEventContent + RedactContent,

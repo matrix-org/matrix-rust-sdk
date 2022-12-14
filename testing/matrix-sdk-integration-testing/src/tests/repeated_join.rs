@@ -112,8 +112,13 @@ async fn test_repeated_join_leave() -> Result<()> {
     let joined = karl.store().get_joined_user_ids(room_id).await?;
     assert!(!joined.contains(&karl_id));
 
-    let event =
-        karl.store().get_member_event(room_id, &karl_id).await?.expect("member event should exist");
+    let event = karl
+        .store()
+        .get_member_event(room_id, &karl_id)
+        .await?
+        .expect("member event should exist")
+        .deserialize()
+        .unwrap();
     assert_eq!(*event.membership(), MembershipState::Invite);
 
     // Yay, test succeeded

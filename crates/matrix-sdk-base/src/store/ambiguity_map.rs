@@ -25,7 +25,7 @@ use tracing::trace;
 
 use super::{Result, StateChanges};
 use crate::{
-    deserialized_responses::{AmbiguityChange, MemberEvent},
+    deserialized_responses::{AmbiguityChange, RawMemberEvent},
     StateStore,
 };
 
@@ -164,12 +164,13 @@ impl AmbiguityCache {
         let old_event = if let Some(m) =
             changes.members.get(room_id).and_then(|m| m.get(member_event.state_key()))
         {
-            Some(MemberEvent::Sync(m.clone()))
+            Some(RawMemberEvent::Sync(m.clone()))
         } else {
             self.store.get_member_event(room_id, member_event.state_key()).await?
         };
 
-        let old_display_name = if let Some(event) = old_event {
+        // FIXME: Use let chains once stable
+        let old_display_name = if let Some(Ok(event)) = old_event.map(|r| r.deserialize()) {
             if matches!(event.membership(), Join | Invite) {
                 let display_name = if let Some(d) = changes
                     .profiles

@@ -22,6 +22,7 @@ use ruma::{
         MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
         SyncRoomMemberEvent,
     },
+    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,26 @@ pub struct MembersResponse {
     pub chunk: Vec<RoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
+}
+
+/// Raw version of [`MemberEvent`].
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum RawMemberEvent {
+    /// A member event from a room in joined or left state.
+    Sync(Raw<SyncRoomMemberEvent>),
+    /// A member event from a room in invited state.
+    Stripped(Raw<StrippedRoomMemberEvent>),
+}
+
+impl RawMemberEvent {
+    /// Try to deserialize the inner JSON as the expected type.
+    pub fn deserialize(&self) -> serde_json::Result<MemberEvent> {
+        match self {
+            Self::Sync(e) => Ok(MemberEvent::Sync(e.deserialize()?)),
+            Self::Stripped(e) => Ok(MemberEvent::Stripped(e.deserialize()?)),
+        }
+    }
 }
 
 /// Wrapper around both MemberEvent-Types
