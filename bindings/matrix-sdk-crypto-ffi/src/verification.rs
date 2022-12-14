@@ -36,7 +36,7 @@ pub enum SasState {
     /// presented to the user.
     KeysExchanged {
         /// The emojis that represent the short auth string, will be `None` if
-        /// the emoji SAS method wasn't part of the [`AcceptedProtocols`].
+        /// the emoji SAS method wasn't one of accepted protocols.
         emojis: Option<Vec<i32>>,
         /// The list of decimals that represent the short auth string.
         decimals: Vec<i32>,
