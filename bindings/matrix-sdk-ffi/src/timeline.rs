@@ -193,8 +193,8 @@ impl EventTimelineItem {
         Arc::new(TimelineItemContent(self.0.content().clone()))
     }
 
-    pub fn origin_server_ts(&self) -> Option<u64> {
-        self.0.origin_server_ts().map(|ts| ts.0.into())
+    pub fn timestamp(&self) -> u64 {
+        self.0.timestamp().0.into()
     }
 
     pub fn reactions(&self) -> Vec<Reaction> {

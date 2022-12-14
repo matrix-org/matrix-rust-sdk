@@ -45,7 +45,7 @@ pub struct EventTimelineItem {
     pub(super) sender: OwnedUserId,
     pub(super) content: TimelineItemContent,
     pub(super) reactions: BundledReactions,
-    pub(super) origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
+    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) is_own: bool,
     pub(super) encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
@@ -60,7 +60,7 @@ impl fmt::Debug for EventTimelineItem {
             .field("sender", &self.sender)
             .field("content", &self.content)
             .field("reactions", &self.reactions)
-            .field("origin_server_ts", &self.origin_server_ts)
+            .field("timestamp", &self.timestamp)
             .field("is_own", &self.is_own)
             .field("encryption_info", &self.encryption_info)
             // skip raw, too noisy
@@ -121,11 +121,13 @@ impl EventTimelineItem {
         &self.reactions.bundled
     }
 
-    /// Get the origin server timestamp of this item.
+    /// Get the timestamp of this item.
     ///
-    /// Returns `None` if this event hasn't been echoed back by the server yet.
-    pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.origin_server_ts
+    /// If this event hasn't been echoed back by the server yet, returns the
+    /// time the local event was created. Otherwise, returns the origin
+    /// server timestamp.
+    pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
+        self.timestamp
     }
 
     /// Whether this timeline item was sent by the logged-in user themselves.
@@ -157,14 +159,14 @@ impl EventTimelineItem {
             // FIXME: Change when we support state events
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),
-            ..self(key, event_id, sender, origin_server_ts, is_own, encryption_info, raw)
+            ..self(key, event_id, sender, timestamp, is_own, encryption_info, raw)
         })
     }
 
     pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
         build!(Self {
             event_id,
-            ..self(key, sender, content, reactions, origin_server_ts, is_own, encryption_info, raw,)
+            ..self(key, sender, content, reactions, timestamp, is_own, encryption_info, raw,)
         })
     }
 
@@ -173,7 +175,7 @@ impl EventTimelineItem {
         build!(Self {
             content,
             ..self(
-                key, event_id, sender, reactions, origin_server_ts, is_own, encryption_info, raw,
+                key, event_id, sender, reactions, timestamp, is_own, encryption_info, raw,
             )
         })
     }
@@ -183,7 +185,7 @@ impl EventTimelineItem {
         build!(Self {
             reactions,
             ..self(
-                key, event_id, sender, content, origin_server_ts, is_own, encryption_info, raw,
+                key, event_id, sender, content, timestamp, is_own, encryption_info, raw,
             )
         })
     }

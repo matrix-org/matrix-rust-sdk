@@ -9,7 +9,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{fully_read::FullyReadEvent, AnyMessageLikeEventContent, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 use tracing::{error, info, warn};
 
@@ -80,7 +80,7 @@ impl TimelineInner {
             encryption_info: None,
         };
 
-        let flow = Flow::Local { txn_id };
+        let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
         let kind = TimelineEventKind::Message { content };
 
         let mut timeline_meta = self.metadata.lock().await;

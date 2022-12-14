@@ -14,6 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use chrono::{Datelike, Local, TimeZone};
 use futures_signals::signal_vec::MutableVecLockMut;
 use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
@@ -46,6 +47,7 @@ use crate::events::SyncTimelineEventWithoutContent;
 pub(super) enum Flow {
     Local {
         txn_id: OwnedTransactionId,
+        timestamp: MilliSecondsSinceUnixEpoch,
     },
     Remote {
         event_id: OwnedEventId,
@@ -60,14 +62,14 @@ impl Flow {
     fn to_key(&self) -> TimelineKey {
         match self {
             Self::Remote { event_id, .. } => TimelineKey::EventId(event_id.to_owned()),
-            Self::Local { txn_id } => TimelineKey::TransactionId(txn_id.to_owned()),
+            Self::Local { txn_id, .. } => TimelineKey::TransactionId(txn_id.to_owned()),
         }
     }
 
-    fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+    fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match self {
-            Flow::Local { .. } => None,
-            Flow::Remote { origin_server_ts, .. } => Some(*origin_server_ts),
+            Flow::Local { timestamp, .. } => *timestamp,
+            Flow::Remote { origin_server_ts, .. } => *origin_server_ts,
         }
     }
 
@@ -407,7 +409,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             sender: self.meta.sender.to_owned(),
             content,
             reactions,
-            origin_server_ts: self.flow.origin_server_ts(),
+            timestamp: self.flow.timestamp(),
             is_own: self.meta.is_own_event,
             encryption_info: self.meta.encryption_info.clone(),
             raw: self.flow.raw_event().cloned(),
@@ -415,10 +417,33 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         let item = Arc::new(TimelineItem::Event(item));
         match &self.flow {
-            Flow::Local { .. } => {
+            Flow::Local { timestamp, .. } => {
+                // Check if the latest event has the same date as this event.
+                if let Some(latest_event) = self
+                    .timeline_items
+                    .iter()
+                    .rfind(|item| item.as_event().is_some())
+                    .and_then(|item| item.as_event())
+                {
+                    let old_ts = latest_event.timestamp();
+
+                    if let Some(day_divider_item) =
+                        maybe_create_day_divider_from_timestamps(old_ts, *timestamp)
+                    {
+                        self.timeline_items
+                            .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
+                    }
+                } else {
+                    // If there is no event item, there is no day divider yet.
+                    let (year, month, day) = timestamp_to_ymd(*timestamp);
+                    self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
+                        VirtualTimelineItem::day_divider(year, month, day),
+                    )));
+                }
+
                 self.timeline_items.push_cloned(item);
             }
-            Flow::Remote { txn_id, event_id, position, raw_event, .. } => {
+            Flow::Remote { txn_id, event_id, position, raw_event, origin_server_ts, .. } => {
                 if let Some(txn_id) = txn_id {
                     if let Some((idx, _old_item)) =
                         find_event_by_txn_id(self.timeline_items, txn_id)
@@ -452,8 +477,64 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 }
 
                 match position {
-                    TimelineItemPosition::Start => self.timeline_items.insert_cloned(0, item),
-                    TimelineItemPosition::End => self.timeline_items.push_cloned(item),
+                    TimelineItemPosition::Start => {
+                        // Check if the earliest day divider has the same date as this event.
+                        if let Some(old_ymd) =
+                            self.timeline_items.get(0).and_then(|item| match item.as_virtual()? {
+                                VirtualTimelineItem::DayDivider { year, month, day } => {
+                                    Some((*year, *month, *day))
+                                }
+                                VirtualTimelineItem::ReadMarker => None,
+                            })
+                        {
+                            if let Some(day_divider_item) = maybe_create_day_divider_from_ymd(
+                                old_ymd,
+                                timestamp_to_ymd(*origin_server_ts),
+                            ) {
+                                self.timeline_items.insert_cloned(
+                                    0,
+                                    Arc::new(TimelineItem::Virtual(day_divider_item)),
+                                );
+                            }
+                        } else {
+                            // The list must always start with a day divider.
+                            let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
+                            self.timeline_items.insert_cloned(
+                                0,
+                                Arc::new(TimelineItem::Virtual(VirtualTimelineItem::day_divider(
+                                    year, month, day,
+                                ))),
+                            );
+                        }
+
+                        self.timeline_items.insert_cloned(1, item)
+                    }
+                    TimelineItemPosition::End => {
+                        // Check if the latest event has the same date as this event.
+                        if let Some(latest_event) = self
+                            .timeline_items
+                            .iter()
+                            .rfind(|item| item.as_event().is_some())
+                            .and_then(|item| item.as_event())
+                        {
+                            let old_ts = latest_event.timestamp();
+
+                            if let Some(day_divider_item) =
+                                maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
+                            {
+                                self.timeline_items
+                                    .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
+                            }
+                        } else {
+                            // If there is not event item, there is no day divider yet.
+                            let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
+                            self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
+                                VirtualTimelineItem::day_divider(year, month, day),
+                            )));
+                        }
+
+                        self.timeline_items.push_cloned(item)
+                    }
                     #[cfg(feature = "e2e-encryption")]
                     TimelineItemPosition::Update(idx) => self.timeline_items.set_cloned(*idx, item),
                 }
@@ -529,6 +610,43 @@ fn update_timeline_item(
     update: impl FnOnce(&EventTimelineItem) -> EventTimelineItem,
 ) -> bool {
     maybe_update_timeline_item(timeline_items, event_id, action, move |item| Some(update(item)))
+}
+
+/// Converts a timestamp to a `(year, month, day)` tuple.
+fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
+    let datetime = Local
+        .timestamp_millis_opt(ts.0.into())
+        // Only returns `None` if date is after Dec 31, 262143 BCE.
+        .single()
+        // Fallback to the current date to avoid issues with malicious
+        // homeservers.
+        .unwrap_or_else(Local::now);
+
+    (datetime.year(), datetime.month(), datetime.day())
+}
+
+/// Returns a new day divider item for the new timestamp if it is on a different
+/// day than the old timestamp
+fn maybe_create_day_divider_from_timestamps(
+    old_ts: MilliSecondsSinceUnixEpoch,
+    new_ts: MilliSecondsSinceUnixEpoch,
+) -> Option<VirtualTimelineItem> {
+    maybe_create_day_divider_from_ymd(timestamp_to_ymd(old_ts), timestamp_to_ymd(new_ts))
+}
+
+/// Returns a new day divider item for the new YMD `(year, month, day)` tuple if
+/// it is on a different day than the old YMD tuple.
+fn maybe_create_day_divider_from_ymd(
+    old_ymd: (i32, u32, u32),
+    new_ymd: (i32, u32, u32),
+) -> Option<VirtualTimelineItem> {
+    let (old_year, old_month, old_day) = old_ymd;
+    let (new_year, new_month, new_day) = new_ymd;
+    if old_year != new_year || old_month != new_month || old_day != new_day {
+        Some(VirtualTimelineItem::day_divider(new_year, new_month, new_day))
+    } else {
+        None
+    }
 }
 
 struct NewEventTimelineItem {

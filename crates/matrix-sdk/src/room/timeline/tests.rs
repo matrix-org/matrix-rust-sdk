@@ -62,6 +62,7 @@ async fn reaction_redaction() {
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 0);
@@ -71,7 +72,7 @@ async fn reaction_redaction() {
     let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 1);
 
@@ -81,7 +82,7 @@ async fn reaction_redaction() {
 
     timeline.handle_live_redaction(&BOB, reaction_event_id).await;
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 0);
 }
@@ -92,6 +93,7 @@ async fn invalid_edit() {
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event = item.as_event().unwrap();
     let msg = event.content.as_message().unwrap();
@@ -109,8 +111,8 @@ async fn invalid_edit() {
     timeline.handle_live_message_event(&BOB, edit).await;
 
     // Can't easily test the non-arrival of an item using the stream. Instead
-    // just assert that there is still just a single item in the timeline.
-    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+    // just assert that there is still just a couple items in the timeline.
+    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
 }
 
 #[async_test]
@@ -138,6 +140,7 @@ async fn edit_redacted() {
             },
         }))
         .await;
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
@@ -150,7 +153,7 @@ async fn edit_redacted() {
     });
     timeline.handle_live_message_event(&ALICE, edit).await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -203,8 +206,9 @@ async fn unable_to_decrypt() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
 
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event = item.as_event().unwrap();
     let session_id = assert_matches!(
@@ -231,10 +235,10 @@ async fn unable_to_decrypt() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 1);
+    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 0, value }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
     let event = item.as_event().unwrap();
     assert_matches!(&event.encryption_info, Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
@@ -247,6 +251,7 @@ async fn update_read_marker() {
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("A")).await;
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
@@ -259,7 +264,7 @@ async fn update_read_marker() {
     let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     timeline.inner.set_fully_read_event(event_id.clone()).await;
-    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 1, new_index: 2 }));
+    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 2, new_index: 3 }));
 
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
@@ -273,7 +278,7 @@ async fn update_read_marker() {
     let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     timeline.inner.set_fully_read_event(event_id).await;
-    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 2, new_index: 3 }));
+    assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 3, new_index: 4 }));
 }
 
 #[async_test]
@@ -293,6 +298,7 @@ async fn invalid_event_content() {
         }))
         .await;
 
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let event_item = item.as_event().unwrap();
     assert_eq!(event_item.sender(), "@alice:example.org");
@@ -300,7 +306,7 @@ async fn invalid_event_content() {
         *event_item.key(),
         TimelineKey::EventId(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned())
     );
-    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(10))));
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
     let event_type = assert_matches!(
         event_item.content(),
         TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
@@ -327,7 +333,7 @@ async fn invalid_event_content() {
         *event_item.key(),
         TimelineKey::EventId(event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned())
     );
-    assert_eq!(event_item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(2179))));
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
     let (event_type, state_key) = assert_matches!(
         event_item.content(),
         TimelineItemContent::FailedToParseState {
@@ -372,6 +378,8 @@ async fn remote_echo_without_txn_id() {
         ))
         .await;
 
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
 
@@ -380,7 +388,7 @@ async fn remote_echo_without_txn_id() {
     timeline.inner.add_event_id(&txn_id, event_id.to_owned());
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
 
     // When an event with the same ID comes in…
@@ -398,8 +406,94 @@ async fn remote_echo_without_txn_id() {
         .await;
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 0 }) => value);
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
+}
+
+#[async_test]
+async fn day_divider() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "msgtype": "m.text",
+                "body": "This is a first message on the first day"
+            },
+            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 1669897395000u64,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        }))
+        .await;
+
+    let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let (year, month, day) = assert_matches!(
+        day_divider.as_virtual().unwrap(),
+        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+    );
+    assert_eq!(year, 2022);
+    assert_eq!(month, 12);
+    assert_eq!(day, 1);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    item.as_event().unwrap();
+
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "msgtype": "m.text",
+                "body": "This is a second message on the first day"
+            },
+            "event_id": "$feG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 1669906604000u64,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        }))
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    item.as_event().unwrap();
+
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "msgtype": "m.text",
+                "body": "This is a first message on the next day"
+            },
+            "event_id": "$geG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 1669992963000u64,
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        }))
+        .await;
+
+    let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let (year, month, day) = assert_matches!(
+        day_divider.as_virtual().unwrap(),
+        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+    );
+    assert_eq!(year, 2022);
+    assert_eq!(month, 12);
+    assert_eq!(day, 2);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    item.as_event().unwrap();
+
+    let _ = timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("A message I'm sending just now"),
+        ))
+        .await;
+
+    // The other events are in the past so a local event always creates a new day
+    // divider.
+    let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    item.as_event().unwrap();
 }
 
 struct TestTimeline {
