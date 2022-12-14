@@ -46,8 +46,10 @@ enum SlidingSyncState {
 };
 
 enum SlidingSyncMode {
-    /// Sync up the entire room list first
-    "FullSync",
+    /// Sync up the entire room list first, page by page
+    "PagingFullSync",
+    /// Sync up the entire room list first through a growing window
+    "GrowingFullSync",
     /// Only ever sync the currently selected window
     "Selective",
 };

@@ -1,11 +1,8 @@
-//! ## Demo
+//! ## Jack-in
 //!
-//! `Demo` shows how to use tui-realm in a real case
+//! a demonstration and debugging implementation TUI client for sliding sync
 
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::Path, time::Duration};
 
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use dialoguer::{theme::ColorfulTheme, Password};
@@ -19,7 +16,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_sled::make_store_config;
 use sanitize_filename_reader_friendly::sanitize;
-use tracing::{log, warn};
+use structopt::StructOpt;
+use tracing::{error, log};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
@@ -30,7 +28,9 @@ const APP_INFO: AppInfo = AppInfo { name: "jack-in", author: "Matrix-Rust-SDK Co
 mod app;
 mod client;
 mod components;
+mod config;
 use app::model::Model;
+use config::{Opt, SlidingSyncConfig};
 use tokio::sync::mpsc;
 
 // Let's define the messages handled by our app. NOTE: it must derive
@@ -80,41 +80,6 @@ pub enum Id {
     Status,
     Rooms,
     Details,
-}
-
-use structopt::StructOpt;
-
-#[derive(Debug, StructOpt)]
-#[structopt(name = "jack-in", about = "Your experimental sliding-sync jack into the matrix")]
-struct Opt {
-    /// The address of the sliding sync server to connect (probs the proxy)
-    #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
-    sliding_sync_proxy: String,
-
-    /// The password of your account. If not given and no database found, it
-    /// will prompt you for it
-    #[structopt(short, long, env = "JACKIN_PASSWORD")]
-    password: Option<String>,
-
-    /// Create a fresh database, drop all existing cache
-    #[structopt(long)]
-    fresh: bool,
-
-    /// RUST_LOG log-levels
-    #[structopt(short, long, env = "JACKIN_LOG", default_value = "jack_in=info,warn")]
-    log: String,
-
-    /// The userID to log in with
-    #[structopt(short, long, env = "JACKIN_USER")]
-    user: String,
-
-    /// The password to encrypt the store  with
-    #[structopt(long, env = "JACKIN_STORE_PASSWORD")]
-    store_pass: Option<String>,
-
-    #[structopt(long)]
-    /// Activate tracing and write the flamegraph to the specified file
-    flames: Option<PathBuf>,
 }
 
 pub(crate) struct MatrixPoller(mpsc::Receiver<client::state::SlidingSyncState>);
@@ -267,14 +232,14 @@ async fn main() -> Result<()> {
     }
 
     let sliding_client = client.clone();
-    let proxy = opt.sliding_sync_proxy.clone();
 
     let (tx, mut rx) = mpsc::channel(100);
     let model_tx = tx.clone();
+    let sliding_sync_proxy = opt.sliding_sync.proxy.clone();
 
     tokio::spawn(async move {
-        if let Err(e) = client::run_client(sliding_client, proxy, tx).await {
-            warn!("Running the client failed: {:#?}", e);
+        if let Err(e) = client::run_client(sliding_client, tx, opt.sliding_sync).await {
+            error!("Running the client failed: {:#?}", e);
         }
     });
 
@@ -289,7 +254,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| format!("{user_id}"));
     let poller = MatrixPoller(rx);
     let mut model = Model::new(start_sync, model_tx, poller, client);
-    model.set_title(format!("{display_name} via {}", opt.sliding_sync_proxy));
+    model.set_title(format!("{display_name} via {sliding_sync_proxy}"));
     run_ui(model).await;
 
     Ok(())

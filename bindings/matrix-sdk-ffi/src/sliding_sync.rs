@@ -323,6 +323,18 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
+    pub fn room_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.limit(limit);
+        Arc::new(builder)
+    }
+
+    pub fn no_room_limit(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.limit(None);
+        Arc::new(builder)
+    }
+
     pub fn timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.timeline_limit(limit);
