@@ -311,7 +311,7 @@ macro_rules! statestore_integration_tests {
 
             let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
             let stripped_member_event = Raw::new(&stripped_member_json.clone()).unwrap().cast();
-            changes.add_stripped_member(stripped_room_id, stripped_member_event);
+            changes.add_stripped_member(stripped_room_id, user_id, stripped_member_event);
 
             store.save_changes(&changes).await?;
             Ok(())
@@ -736,7 +736,7 @@ macro_rules! statestore_integration_tests {
             assert_eq!(members, vec![user_id.to_owned()]);
 
             let mut changes = StateChanges::default();
-            changes.add_stripped_member(room_id, custom_stripped_membership_event(user_id));
+            changes.add_stripped_member(room_id, user_id, custom_stripped_membership_event(user_id));
             changes.add_stripped_room(RoomInfo::new(room_id, RoomType::Invited));
             store.save_changes(&changes).await.unwrap();
 

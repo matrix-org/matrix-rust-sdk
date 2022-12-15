@@ -893,8 +893,12 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
-        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        changes.add_stripped_member(
+            room_id,
+            matthew,
+            make_stripped_member_event(matthew, "Matthew"),
+        );
+        changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
@@ -912,8 +916,12 @@ mod test {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
 
-        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
-        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        changes.add_stripped_member(
+            room_id,
+            matthew,
+            make_stripped_member_event(matthew, "Matthew"),
+        );
+        changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(

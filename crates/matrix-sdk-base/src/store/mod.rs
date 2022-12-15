@@ -765,10 +765,16 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `StrippedMemberEvent`.
-    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: Raw<StrippedRoomMemberEvent>) {
-        let user_id =
-            event.get_field("state_key").expect("TODO deser fail").expect("TODO no state_key");
-        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
+    pub fn add_stripped_member(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        event: Raw<StrippedRoomMemberEvent>,
+    ) {
+        self.stripped_members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(user_id.to_owned(), event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
