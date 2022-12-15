@@ -24,7 +24,7 @@ use derive_builder::Builder;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo,
@@ -550,10 +550,18 @@ impl SledStateStore {
                     stripped_members,
                     stripped_state,
                 )| {
-                    for (room, events) in &changes.members {
+                    for (room, raw_events) in &changes.members {
                         let profile_changes = changes.profiles.get(room);
 
-                        for event in events.values() {
+                        for raw_event in raw_events.values() {
+                            let event = match raw_event.deserialize() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                                    continue;
+                                }
+                            };
+
                             let key = (room, event.state_key());
 
                             stripped_joined
@@ -586,7 +594,7 @@ impl SledStateStore {
 
                             members.insert(
                                 self.encode_key(MEMBER, key),
-                                self.serialize_value(&event)
+                                self.serialize_value(&raw_event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                             stripped_members.remove(self.encode_key(STRIPPED_ROOM_MEMBER, key))?;
@@ -657,8 +665,16 @@ impl SledStateStore {
                         rooms.remove(self.encode_key(ROOM, room_id))?;
                     }
 
-                    for (room, events) in &changes.stripped_members {
-                        for event in events.values() {
+                    for (room, raw_events) in &changes.stripped_members {
+                        for raw_event in raw_events.values() {
+                            let event = match raw_event.deserialize() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                                    continue;
+                                }
+                            };
+
                             let key = (room, &event.state_key);
 
                             match event.content.membership {
@@ -689,7 +705,7 @@ impl SledStateStore {
                             }
                             stripped_members.insert(
                                 self.encode_key(STRIPPED_ROOM_MEMBER, key),
-                                self.serialize_value(&event)
+                                self.serialize_value(&raw_event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -900,7 +916,7 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         let db = self.clone();
         let key = self.encode_key(MEMBER, (room_id, state_key));
         let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
@@ -911,11 +927,11 @@ impl SledStateStore {
                 .map(|v| db.deserialize_value(&v))
                 .transpose()?
             {
-                Ok(Some(MemberEvent::Stripped(e)))
+                Ok(Some(RawMemberEvent::Stripped(e)))
             } else if let Some(e) =
                 db.members.get(key)?.map(|v| db.deserialize_value(&v)).transpose()?
             {
-                Ok(Some(MemberEvent::Sync(e)))
+                Ok(Some(RawMemberEvent::Sync(e)))
             } else {
                 Ok(None)
             }
@@ -1377,7 +1393,7 @@ impl StateStore for SledStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(Into::into)
     }
 

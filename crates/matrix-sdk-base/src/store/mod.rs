@@ -68,7 +68,7 @@ use serde::de::DeserializeOwned;
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::RawMemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
@@ -222,7 +222,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>>;
+    ) -> Result<Option<RawMemberEvent>>;
 
     /// Get all the user ids of members for a given room, for stripped and
     /// regular rooms alike.
@@ -677,7 +677,7 @@ pub struct StateChanges {
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, SyncRoomMemberEvent>>,
+    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
@@ -706,7 +706,8 @@ pub struct StateChanges {
     >,
     /// A mapping of `RoomId` to a map of users and their
     /// `StrippedRoomMemberEvent`.
-    pub stripped_members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, StrippedRoomMemberEvent>>,
+    pub stripped_members:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
     /// while knocking)
     pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
@@ -764,10 +765,16 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `StrippedMemberEvent`.
-    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedRoomMemberEvent) {
-        let user_id = event.state_key.clone();
-
-        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
+    pub fn add_stripped_member(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        event: Raw<StrippedRoomMemberEvent>,
+    ) {
+        self.stripped_members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(user_id.to_owned(), event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new

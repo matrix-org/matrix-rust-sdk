@@ -27,7 +27,7 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo,
@@ -46,7 +46,7 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::warn;
+use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -641,8 +641,16 @@ impl IndexeddbStateStore {
             let store = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
             let joined = tx.object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
             let invited = tx.object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
-            for (room, events) in &changes.stripped_members {
-                for event in events.values() {
+            for (room, raw_events) in &changes.stripped_members {
+                for raw_event in raw_events.values() {
+                    let event = match raw_event.deserialize() {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            continue;
+                        }
+                    };
+
                     let key = (room, &event.state_key);
 
                     match event.content.membership {
@@ -669,7 +677,7 @@ impl IndexeddbStateStore {
                     }
                     store.put_key_val(
                         &self.encode_key(KEYS::STRIPPED_MEMBERS, key),
-                        &self.serialize_event(&event)?,
+                        &self.serialize_event(&raw_event)?,
                     )?;
                 }
             }
@@ -697,10 +705,18 @@ impl IndexeddbStateStore {
             let stripped_joined = tx.object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
             let stripped_invited = tx.object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
 
-            for (room, events) in &changes.members {
+            for (room, raw_events) in &changes.members {
                 let profile_changes = changes.profiles.get(room);
 
-                for event in events.values() {
+                for raw_event in raw_events.values() {
+                    let event = match raw_event.deserialize() {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            continue;
+                        }
+                    };
+
                     let key = (room, event.state_key());
 
                     stripped_joined
@@ -731,7 +747,7 @@ impl IndexeddbStateStore {
 
                     members.put_key_val_owned(
                         &self.encode_key(KEYS::MEMBERS, key),
-                        &self.serialize_event(&event)?,
+                        &self.serialize_event(&raw_event)?,
                     )?;
                     stripped_members.delete(&self.encode_key(KEYS::STRIPPED_MEMBERS, key))?;
 
@@ -893,7 +909,7 @@ impl IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
@@ -903,7 +919,7 @@ impl IndexeddbStateStore {
             .map(|f| self.deserialize_event(f))
             .transpose()?
         {
-            Ok(Some(MemberEvent::Stripped(e)))
+            Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) = self
             .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
@@ -913,7 +929,7 @@ impl IndexeddbStateStore {
             .map(|f| self.deserialize_event(f))
             .transpose()?
         {
-            Ok(Some(MemberEvent::Sync(e)))
+            Ok(Some(RawMemberEvent::Sync(e)))
         } else {
             Ok(None)
         }
@@ -1277,7 +1293,7 @@ impl StateStore for IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
     }
 

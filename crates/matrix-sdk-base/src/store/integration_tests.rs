@@ -137,8 +137,8 @@ macro_rules! statestore_integration_tests {
                 receipt::ReceiptType,
                 room::{
                     member::{
-                        MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                        RoomMemberUnsigned, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+                        MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
+                        SyncRoomMemberEvent,
                     },
                     power_levels::RoomPowerLevelsEventContent,
                     topic::{RoomTopicEventContent, OriginalRoomTopicEvent, RedactedRoomTopicEvent},
@@ -150,7 +150,7 @@ macro_rules! statestore_integration_tests {
             },
             room_id,
             serde::Raw,
-            user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
+            user_id, EventId,  OwnedEventId, RoomId, UserId,
         };
         use serde_json::{json, Value as JsonValue};
 
@@ -241,7 +241,7 @@ macro_rules! statestore_integration_tests {
             room_ambiguity_map
                 .insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
             room_profiles.insert(user_id.to_owned(), (&member_event).into());
-            room_members.insert(user_id.to_owned(), member_event);
+            room_members.insert(user_id.to_owned(), Raw::new(&member_event).unwrap().cast());
 
             let member_state_raw =
                 serde_json::from_value::<Raw<AnySyncStateEvent>>(member_json.clone()).unwrap();
@@ -257,7 +257,10 @@ macro_rules! statestore_integration_tests {
                 .or_default()
                 .insert(invited_user_id.to_owned());
             room_profiles.insert(invited_user_id.to_owned(), (&invited_member_event).into());
-            room_members.insert(invited_user_id.to_owned(), invited_member_event);
+            room_members.insert(
+                invited_user_id.to_owned(),
+                Raw::new(&invited_member_event).unwrap().cast(),
+            );
 
             let invited_member_state_raw =
                 serde_json::from_value::<Raw<AnySyncStateEvent>>(invited_member_json.clone())
@@ -307,10 +310,8 @@ macro_rules! statestore_integration_tests {
             changes.add_stripped_room(stripped_room);
 
             let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
-            let stripped_member_event =
-                serde_json::from_value::<StrippedRoomMemberEvent>(stripped_member_json.clone())
-                    .unwrap();
-            changes.add_stripped_member(stripped_room_id, stripped_member_event);
+            let stripped_member_event = Raw::new(&stripped_member_json.clone()).unwrap().cast();
+            changes.add_stripped_member(stripped_room_id, user_id, stripped_member_event);
 
             store.save_changes(&changes).await?;
             Ok(())
@@ -331,34 +332,39 @@ macro_rules! statestore_integration_tests {
             serde_json::from_value(event).unwrap()
         }
 
-            fn stripped_membership_event() -> StrippedRoomMemberEvent {
-                custom_stripped_membership_event(user_id())
-            }
-
-        fn custom_stripped_membership_event(user_id: &UserId) -> StrippedRoomMemberEvent {
-            StrippedRoomMemberEvent {
-                content: RoomMemberEventContent::new(MembershipState::Join),
-                sender: user_id.to_owned(),
-                state_key: user_id.to_owned(),
-            }
+        fn stripped_membership_event() -> Raw<StrippedRoomMemberEvent> {
+            custom_stripped_membership_event(user_id())
         }
 
-        fn membership_event() -> SyncRoomMemberEvent {
+        fn custom_stripped_membership_event(user_id: &UserId) -> Raw<StrippedRoomMemberEvent> {
+            let ev_json = json!({
+                "type": "m.room.member",
+                "content": RoomMemberEventContent::new(MembershipState::Join),
+                "sender": user_id,
+                "state_key": user_id,
+            });
+
+            Raw::new(&ev_json).unwrap().cast()
+        }
+
+        fn membership_event() -> Raw<SyncRoomMemberEvent> {
             custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
         }
 
         fn custom_membership_event(
             user_id: &UserId,
             event_id: OwnedEventId,
-        ) -> SyncRoomMemberEvent {
-            SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
-                event_id,
-                content: RoomMemberEventContent::new(MembershipState::Join),
-                sender: user_id.to_owned(),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
-                state_key: user_id.to_owned(),
-                unsigned: RoomMemberUnsigned::default(),
-            })
+        ) -> Raw<SyncRoomMemberEvent> {
+            let ev_json = json!({
+                "type": "m.room.member",
+                "content": RoomMemberEventContent::new(MembershipState::Join),
+                "event_id": event_id,
+                "origin_server_ts": 198,
+                "sender": user_id,
+                "state_key": user_id,
+            });
+
+            Raw::new(&ev_json).unwrap().cast()
         }
 
         #[async_test]
@@ -715,10 +721,14 @@ macro_rules! statestore_integration_tests {
             changes.add_room(RoomInfo::new(room_id, RoomType::Left));
             store.save_changes(&changes).await.unwrap();
 
-            assert!(matches!(
-                store.get_member_event(room_id, user_id).await.unwrap(),
-                Some($crate::deserialized_responses::MemberEvent::Sync(_))
-            ));
+            let member_event = store
+                .get_member_event(room_id, user_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .deserialize()
+                .unwrap();
+            assert!(matches!(member_event, $crate::deserialized_responses::MemberEvent::Sync(_)));
             assert_eq!(store.get_room_infos().await.unwrap().len(), 1);
             assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 0);
 
@@ -726,14 +736,20 @@ macro_rules! statestore_integration_tests {
             assert_eq!(members, vec![user_id.to_owned()]);
 
             let mut changes = StateChanges::default();
-            changes.add_stripped_member(room_id, custom_stripped_membership_event(user_id));
+            changes.add_stripped_member(room_id, user_id, custom_stripped_membership_event(user_id));
             changes.add_stripped_room(RoomInfo::new(room_id, RoomType::Invited));
             store.save_changes(&changes).await.unwrap();
 
-            assert!(matches!(
-                store.get_member_event(room_id, user_id).await.unwrap(),
-                Some($crate::deserialized_responses::MemberEvent::Stripped(_))
-            ));
+            let member_event = store
+                .get_member_event(room_id, user_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .deserialize()
+                .unwrap();
+            assert!(
+                matches!(member_event, $crate::deserialized_responses::MemberEvent::Stripped(_))
+            );
             assert_eq!(store.get_room_infos().await.unwrap().len(), 0);
             assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);
 

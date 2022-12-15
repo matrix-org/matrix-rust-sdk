@@ -306,11 +306,10 @@ impl BaseClient {
                                         .insert(member.sender().to_owned(), member.into());
                                 }
 
-                                changes
-                                    .members
-                                    .entry(room_id.to_owned())
-                                    .or_default()
-                                    .insert(member.state_key().to_owned(), member.clone());
+                                changes.members.entry(room_id.to_owned()).or_default().insert(
+                                    member.state_key().to_owned(),
+                                    event.event.clone().cast(),
+                                );
                             }
                             _ => {
                                 room_info.handle_state_event(s);
@@ -421,7 +420,7 @@ impl BaseClient {
         for raw_event in events {
             match raw_event.deserialize() {
                 Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                    members.insert(member.state_key.clone(), member);
+                    members.insert(member.state_key.clone(), raw_event.clone().cast());
                 }
                 Ok(e) => {
                     room_info.handle_stripped_state_event(&e);
@@ -486,7 +485,7 @@ impl BaseClient {
                     profiles.insert(member.sender().to_owned(), member.borrow().into());
                 }
 
-                members.insert(member.state_key().to_owned(), member);
+                members.insert(member.state_key().to_owned(), raw_event.clone().cast());
             } else {
                 state_events
                     .entry(event.event_type())
@@ -891,18 +890,7 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::v3::Response,
     ) -> Result<MembersResponse> {
-        let members: Vec<_> = response
-            .chunk
-            .iter()
-            .filter_map(|event| match event.deserialize() {
-                Ok(ev) => Some(ev),
-                Err(e) => {
-                    debug!(?event, "Failed to deserialize m.room.member event: {e}");
-                    None
-                }
-            })
-            .collect();
-
+        let mut chunk = Vec::with_capacity(response.chunk.len());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
@@ -914,8 +902,14 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             let mut user_ids = BTreeSet::new();
 
-            for member in &members {
-                let member: SyncRoomMemberEvent = member.clone().into();
+            for raw_event in &response.chunk {
+                let member = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        debug!(event = ?raw_event, "Failed to deserialize m.room.member event: {e}");
+                        continue;
+                    }
+                };
 
                 // TODO: All the actions in this loop used to be done only when the membership
                 // event was not in the store before. This was changed with the new room API,
@@ -934,21 +928,24 @@ impl BaseClient {
                     _ => (),
                 }
 
-                ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                let sync_member: SyncRoomMemberEvent = member.clone().into();
+
+                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await?;
 
                 if member.state_key() == member.sender() {
                     changes
                         .profiles
                         .entry(room_id.to_owned())
                         .or_default()
-                        .insert(member.sender().to_owned(), member.borrow().into());
+                        .insert(member.sender().to_owned(), sync_member.into());
                 }
 
                 changes
                     .members
                     .entry(room_id.to_owned())
                     .or_default()
-                    .insert(member.state_key().to_owned(), member);
+                    .insert(member.state_key().to_owned(), raw_event.clone().cast());
+                chunk.push(member);
             }
 
             #[cfg(feature = "e2e-encryption")]
@@ -966,7 +963,7 @@ impl BaseClient {
         }
 
         Ok(MembersResponse {
-            chunk: members,
+            chunk,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
         })
     }
@@ -1099,8 +1096,12 @@ impl BaseClient {
 
         let member_count = room_info.active_members_count();
 
-        let user_display_name = if let Some(member) =
-            changes.members.get(room_id).and_then(|members| members.get(user_id))
+        // TODO: Use if let chain once stable
+        let user_display_name = if let Some(Ok(member)) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+            .map(Raw::deserialize)
         {
             member
                 .as_original()
@@ -1151,12 +1152,16 @@ impl BaseClient {
         room_info: &RoomInfo,
         changes: &StateChanges,
     ) {
-        let room_id = &room_info.room_id;
+        let room_id = &*room_info.room_id;
 
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-        if let Some(member) =
-            changes.members.get(&**room_id).and_then(|members| members.get(user_id))
+        // TODO: Use if let chain once stable
+        if let Some(Ok(member)) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+            .map(Raw::deserialize)
         {
             push_rules.user_display_name = member
                 .as_original()
@@ -1166,7 +1171,7 @@ impl BaseClient {
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
-            .get(&**room_id)
+            .get(room_id)
             .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize().ok())
         {
