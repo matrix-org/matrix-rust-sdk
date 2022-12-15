@@ -21,15 +21,15 @@ postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
 
 e2e-encryption = [
-    "bincode",
-    "dashmap",
-    "educe",
+    "dep:bincode",
+    "dep:dashmap",
+    "dep:educe",
     "matrix-sdk-base/e2e-encryption",
-    "matrix-sdk-crypto",
-    "matrix-sdk-store-encryption",
-    "parking_lot",
-    "serde",
-    "vodozemac",
+    "dep:matrix-sdk-crypto",
+    "dep:matrix-sdk-store-encryption",
+    "dep:parking_lot",
+    "dep:serde",
+    "dep:vodozemac",
 ]
 
 # Internal feature used by ci builds
