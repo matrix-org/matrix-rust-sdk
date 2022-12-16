@@ -636,7 +636,7 @@ pub trait SupportedDatabase: Database + Sealed {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_inbound_group_session
-                WHERE room_id = $1 AND sender_key = $2 AND session_id = $3
+                WHERE room_id = $1 AND session_id = $3
             "#,
         )
     }

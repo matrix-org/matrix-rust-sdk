@@ -10,9 +10,7 @@ use async_trait::async_trait;
 use dashmap::DashSet;
 use educe::Educe;
 use futures::{StreamExt, TryStream, TryStreamExt};
-use matrix_sdk_base::{
-    deserialized_responses::MemberEvent, locks::Mutex, MinimalRoomMemberEvent, RoomInfo,
-};
+use matrix_sdk_base::{locks::Mutex, MinimalRoomMemberEvent, RoomInfo};
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -175,15 +173,14 @@ where
     Option<String>: SqlType<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     Json<Raw<PresenceEvent>>: SqlType<DB>,
-    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
     Json<MinimalRoomMemberEvent>: SqlType<DB>,
     Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
     Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
     Json<RoomInfo>: SqlType<DB>,
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-    Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    Json<MemberEvent>: SqlType<DB>,
+    Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Returns account info, if it exists
@@ -677,21 +674,16 @@ where
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         let e2e = self.ensure_e2e()?;
         let sessions = &e2e.group_sessions;
-        if let Some(v) = sessions.get(room_id, sender_key, session_id) {
+        if let Some(v) = sessions.get(room_id, session_id) {
             Ok(Some(v))
         } else {
             let room_id = e2e.encode_key(
                 "cryptostore_inbound_group_session:room_id",
                 room_id.as_bytes(),
-            );
-            let sender_key = e2e.encode_key(
-                "cryptostore_inbound_group_session:sender_key",
-                sender_key.as_bytes(),
             );
             let session_id = e2e.encode_key(
                 "cryptostore_inbound_group_session:session_id",
@@ -699,7 +691,6 @@ where
             );
             let row = DB::inbound_group_session_fetch_query()
                 .bind(room_id.as_ref())
-                .bind(sender_key.as_ref())
                 .bind(session_id.as_ref())
                 .fetch_optional(&*self.db)
                 .await?;
@@ -1124,15 +1115,14 @@ where
     Option<String>: SqlType<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     Json<Raw<PresenceEvent>>: SqlType<DB>,
-    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
     Json<MinimalRoomMemberEvent>: SqlType<DB>,
     Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
     Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
     Json<RoomInfo>: SqlType<DB>,
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-    Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    Json<MemberEvent>: SqlType<DB>,
+    Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     async fn load_account(&self) -> StoreResult<Option<ReadOnlyAccount>> {
@@ -1166,10 +1156,9 @@ where
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> StoreResult<Option<InboundGroupSession>> {
-        self.get_inbound_group_session(room_id, sender_key, session_id)
+        self.get_inbound_group_session(room_id, session_id)
             .await
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }

@@ -55,7 +55,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 
 mod helpers;
 pub use helpers::SupportedDatabase;
-use matrix_sdk_base::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent, RoomInfo};
+use matrix_sdk_base::{MinimalRoomMemberEvent, RoomInfo};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -190,15 +190,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Option<String>: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
         Json<Raw<PresenceEvent>>: SqlType<DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
+        Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
         Json<MinimalRoomMemberEvent>: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         Json<RoomInfo>: SqlType<DB>,
         Json<Receipt>: SqlType<DB>,
         Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-        Json<MemberEvent>: SqlType<DB>,
+        Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         self.cryptostore = Some(CryptostoreData::new_unencrypted());
@@ -224,15 +223,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Option<String>: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
         Json<Raw<PresenceEvent>>: SqlType<DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
+        Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
         Json<MinimalRoomMemberEvent>: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         Json<RoomInfo>: SqlType<DB>,
         Json<Receipt>: SqlType<DB>,
         Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-        Json<MemberEvent>: SqlType<DB>,
+        Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         // Try to read the store cipher
@@ -277,15 +275,14 @@ where
     Option<String>: SqlType<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     Json<Raw<PresenceEvent>>: SqlType<DB>,
-    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
     Json<MinimalRoomMemberEvent>: SqlType<DB>,
     Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
     Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
     Json<RoomInfo>: SqlType<DB>,
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-    Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    Json<MemberEvent>: SqlType<DB>,
+    Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     #[cfg(not(feature = "e2e-encryption"))]

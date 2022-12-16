@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use matrix_sdk_base::{
-    deserialized_responses::MemberEvent, media::MediaRequest, MinimalRoomMemberEvent, RoomInfo,
+    deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent, RoomInfo,
     StateChanges, StoreError,
 };
 use ruma::{
@@ -44,7 +44,7 @@ where
     String: SqlType<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     Json<Raw<PresenceEvent>>: SqlType<DB>,
-    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
     Json<MinimalRoomMemberEvent>: SqlType<DB>,
     bool: SqlType<DB>,
     Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
@@ -52,8 +52,7 @@ where
     Json<RoomInfo>: SqlType<DB>,
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-    Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    Json<MemberEvent>: SqlType<DB>,
+    Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Put arbitrary data into the custom store
@@ -306,8 +305,9 @@ where
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
-        member_event: SyncRoomMemberEvent,
+        raw_member_event: Raw<SyncRoomMemberEvent>,
     ) -> Result<()> {
+        let member_event = raw_member_event.deserialize()?;
         let displayname = member_event
             .as_original()
             .and_then(|v| v.content.displayname.clone());
@@ -320,7 +320,7 @@ where
             .bind(room_id.as_str())
             .bind(user_id.as_str())
             .bind(false)
-            .bind(Json(member_event))
+            .bind(Json(raw_member_event))
             .bind(displayname)
             .bind(joined)
             .execute(txn)
@@ -336,8 +336,9 @@ where
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
-        member_event: StrippedRoomMemberEvent,
+        raw_member_event: Raw<StrippedRoomMemberEvent>,
     ) -> Result<()> {
+        let member_event = raw_member_event.deserialize()?;
         let displayname = member_event.content.displayname.clone();
         let joined = match member_event.content.membership {
             MembershipState::Join => true,
@@ -348,7 +349,7 @@ where
             .bind(room_id.as_str())
             .bind(user_id.as_str())
             .bind(true)
-            .bind(Json(member_event))
+            .bind(Json(raw_member_event))
             .bind(displayname)
             .bind(joined)
             .execute(txn)
@@ -628,7 +629,7 @@ where
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         let row = DB::member_load_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
@@ -640,11 +641,11 @@ where
             return Ok(None);
         };
         if row.try_get::<'_, bool, _>("is_partial")? {
-            let row: Json<StrippedRoomMemberEvent> = row.try_get("member_event")?;
-            Ok(Some(MemberEvent::Stripped(row.0)))
+            let row: Json<_> = row.try_get("member_event")?;
+            Ok(Some(RawMemberEvent::Stripped(row.0)))
         } else {
-            let row: Json<SyncRoomMemberEvent> = row.try_get("member_event")?;
-            Ok(Some(MemberEvent::Sync(row.0)))
+            let row: Json<_> = row.try_get("member_event")?;
+            Ok(Some(RawMemberEvent::Sync(row.0)))
         }
     }
 
@@ -976,7 +977,7 @@ where
     String: SqlType<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     Json<Raw<PresenceEvent>>: SqlType<DB>,
-    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<SyncRoomMemberEvent>>: SqlType<DB>,
     Json<MinimalRoomMemberEvent>: SqlType<DB>,
     bool: SqlType<DB>,
     Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
@@ -984,8 +985,7 @@ where
     Json<RoomInfo>: SqlType<DB>,
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-    Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    Json<MemberEvent>: SqlType<DB>,
+    Json<Raw<StrippedRoomMemberEvent>>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Save the given filter id under the given name.
@@ -1104,7 +1104,7 @@ where
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key)
             .await
             .map_err(|e| StoreError::Backend(e.into()))
