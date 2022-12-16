@@ -81,6 +81,13 @@ This project is licensed under the Apache-2.0 License - see the [LICENSE.md](LIC
             <br />
             <sub><b>Charlotte</b></sub>
         </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/jplatte">
+            <img src="https://avatars.githubusercontent.com/u/951129?v=4" width="100;" alt="jplatte"/>
+            <br />
+            <sub><b>Jonas Platte</b></sub>
+        </a>
     </td></tr>
 </table>
 <!-- readme: contributors -end -->
