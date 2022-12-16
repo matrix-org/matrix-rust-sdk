@@ -10,23 +10,35 @@ You will need a [running sliding sync proxy](https://github.com/matrix-org/slidi
 From the roof of this workspace, run jack-in via `cargo run -p jack-in` . Please note that you need to specify the access-token and username, both can be done via environment variables, too. As well as the homeserver (or `http://localhost:8008` will be assumed). See below for how to acquire an access token.
 
 ```
-jack-in 0.2.0
 Your experimental sliding-sync jack into the matrix
 
-USAGE:
-    jack-in [OPTIONS] --token <token> --user <user>
+Usage: jack-in [OPTIONS] --user <USER>
 
-FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
-
-OPTIONS:
-        --flames <flames>                            Activate tracing and write the flamegraph to the specified file
-    -s, --sliding-sync-proxy <sliding-sync-proxy>
-            The address of the sliding sync server to connect (probs the proxy) [env: JACKIN_SYNC_PROXY=]  [default:
-            http://localhost:8008]
-    -t, --token <token>                              Your access token to connect via the [env: JACKIN_TOKEN=]
-    -u, --user <user>                                The userID associated with this access token [env: JACKIN_USER=]
+Options:
+  -p, --password <PASSWORD>
+          The password of your account. If not given and no database found, it will prompt you for it [env: JACKIN_PASSWORD=]
+      --fresh
+          Create a fresh database, drop all existing cache
+  -l, --log <LOG>
+          RUST_LOG log-levels [env: JACKIN_LOG=] [default: jack_in=info,warn]
+  -u, --user <USER>
+          The userID to log in with [env: JACKIN_USER=]
+      --store-pass <STORE_PASS>
+          The password to encrypt the store  with [env: JACKIN_STORE_PASSWORD=]
+      --flames <FLAMES>
+          Activate tracing and write the flamegraph to the specified file
+      --sliding-sync-proxy <PROXY>
+          The address of the sliding sync server to connect (probs the proxy) [env: JACKIN_SYNC_PROXY=] [default: http://localhost:8008]
+      --full-sync-mode <FULL_SYNC_MODE>
+          Activate growing window rather than pagination for full-sync [default: Paging] [possible values: Growing, Paging]
+      --limit <LIMIT>
+          Limit the growing/paging to this number of maximum items to caonsider "done"
+      --batch-size <BATCH_SIZE>
+          define the batch_size per request
+      --timeline-limit <TIMELINE_LIMIT>
+          define the timeline items to load
+  -h, --help
+          Print help information
 ```
 
 

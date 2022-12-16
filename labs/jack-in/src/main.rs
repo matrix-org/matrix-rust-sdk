@@ -5,6 +5,7 @@
 use std::{path::Path, time::Duration};
 
 use app_dirs2::{app_root, AppDataType, AppInfo};
+use clap::Parser;
 use dialoguer::{theme::ColorfulTheme, Password};
 use eyre::{eyre, Result};
 use futures_signals::signal_vec::VecDiff;
@@ -16,7 +17,6 @@ use matrix_sdk::{
 };
 use matrix_sdk_sled::make_store_config;
 use sanitize_filename_reader_friendly::sanitize;
-use structopt::StructOpt;
 use tracing::{error, log};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
@@ -103,7 +103,7 @@ fn setup_flames(path: &Path) -> impl Drop {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let user_id: OwnedUserId = opt.user.clone().parse()?;
 
