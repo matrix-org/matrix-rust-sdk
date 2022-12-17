@@ -496,6 +496,36 @@ async fn day_divider() {
     item.as_event().unwrap();
 }
 
+#[async_test]
+async fn sticker() {
+    let timeline = TestTimeline::new(&ALICE);
+    let mut stream = timeline.stream();
+
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "body": "Happy sticker",
+                "info": {
+                    "h": 398,
+                    "mimetype": "image/jpeg",
+                    "size": 31037,
+                    "w": 394
+                },
+                "url": "mxc://server.name/JWEIFJgwEIhweiWJE",
+            },
+            "event_id": "$143273582443PhrSn",
+            "origin_server_ts": 143273582,
+            "sender": "@alice:server.name",
+            "type": "m.sticker",
+        }))
+        .await;
+
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Sticker(_));
+}
+
 struct TestTimeline {
     own_user_id: OwnedUserId,
     inner: TimelineInner,
