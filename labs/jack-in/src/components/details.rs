@@ -93,6 +93,15 @@ impl Details {
                         .unwrap_or_default(),
                     e.sender(),
                 ),
+                TimelineItemContent::Sticker(s) => format!(
+                    "[{}] {}: {}",
+                    e.timestamp()
+                        .to_system_time()
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                    s.content().body,
+                ),
                 TimelineItemContent::UnableToDecrypt(_) => format!(
                     "[{}] {} - unable to decrypt -",
                     e.timestamp()
