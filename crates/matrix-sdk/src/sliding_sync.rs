@@ -698,7 +698,7 @@ impl SlidingSync {
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
                 tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-                if !updates.ops.is_empty() && view.handle_response(count, &updates.ops)? {
+                if view.handle_response(count, &updates.ops)? {
                     updated_views.push(view.name.clone());
                 }
             }
@@ -1115,10 +1115,10 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
         {
             if let Some(count) = self.view.rooms_count.get_cloned() {
                 let end = limit.unwrap_or(count);
-                if end <= position {
+                if count <= position || end <= position {
                     // we are switching to live mode
                     self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        matches!(before, SlidingSyncState::CatchingUp)
+                        !matches!(before, SlidingSyncState::Live)
                     });
                     // keep listening to the entire list to learn about position updates
                     self.view.set_range(0, end);
@@ -1402,13 +1402,17 @@ impl SlidingSyncView {
                 list.push_cloned(RoomListEntry::Empty);
                 missing -= 1;
             }
-            self.rooms_count.replace(Some(rooms_count));
             changed = true;
         }
 
         if !ops.is_empty() {
             self.room_ops(ops)?;
             changed = true;
+        }
+
+        if self.rooms_count.get() != Some(rooms_count) {
+            self.rooms_count.replace(Some(rooms_count));
+            changed = true
         }
 
         if changed {
