@@ -1,11 +1,11 @@
 use std::time::Duration;
 
+use assert_matches::assert_matches;
 use futures::{
     channel::{mpsc, oneshot},
     StreamExt,
 };
 use futures_signals::signal::SignalExt;
-use matches::assert_matches;
 use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
