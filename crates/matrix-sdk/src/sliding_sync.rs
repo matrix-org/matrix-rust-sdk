@@ -162,11 +162,19 @@ struct FrozenSlidingSyncRoom {
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
+        let locked_tl = value.timeline.lock_ref();
+        let tl_len = locked_tl.len();
+        let (prev_batch, timeline) = if tl_len > 10 {
+            let pos = tl_len - 10;
+            (None, locked_tl.iter().skip(pos).cloned().collect())
+        } else {
+            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
+        };
         FrozenSlidingSyncRoom {
+            prev_batch,
+            timeline,
             room_id: value.room_id.clone(),
             inner: value.inner.clone(),
-            prev_batch: value.prev_batch.lock_ref().clone(),
-            timeline: value.timeline.lock_ref().to_vec(),
         }
     }
 }
