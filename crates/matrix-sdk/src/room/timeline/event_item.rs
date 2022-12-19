@@ -23,6 +23,7 @@ use ruma::{
             encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
             message::MessageType,
         },
+        sticker::StickerEventContent,
         AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
@@ -248,6 +249,9 @@ pub enum TimelineItemContent {
     /// A redacted message.
     RedactedMessage,
 
+    /// An `m.sticker` event.
+    Sticker(Sticker),
+
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
 
@@ -424,5 +428,18 @@ pub struct ReactionDetails {
 impl Default for ReactionDetails {
     fn default() -> Self {
         Self { count: uint!(0), senders: TimelineDetails::Ready(Vec::new()) }
+    }
+}
+
+/// An `m.sticker` event.
+#[derive(Clone, Debug)]
+pub struct Sticker {
+    pub(super) content: StickerEventContent,
+}
+
+impl Sticker {
+    /// Get the data of this sticker.
+    pub fn content(&self) -> &StickerEventContent {
+        &self.content
     }
 }

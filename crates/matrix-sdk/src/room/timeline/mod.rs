@@ -48,7 +48,7 @@ mod virtual_item;
 use self::inner::TimelineInner;
 pub use self::{
     event_item::{
-        EncryptedMessage, EventTimelineItem, Message, ReactionDetails, TimelineDetails,
+        EncryptedMessage, EventTimelineItem, Message, ReactionDetails, Sticker, TimelineDetails,
         TimelineItemContent, TimelineKey,
     },
     virtual_item::VirtualTimelineItem,

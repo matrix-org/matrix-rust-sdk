@@ -29,6 +29,7 @@ use ruma::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
         },
+        sticker::StickerEventContent,
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
         AnySyncTimelineEvent, BundledRelations, MessageLikeEventType, StateEventType,
     },
@@ -38,7 +39,7 @@ use ruma::{
 use tracing::{debug, error, info, warn};
 
 use super::{
-    event_item::{BundledReactions, TimelineDetails},
+    event_item::{BundledReactions, Sticker, TimelineDetails},
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
@@ -208,6 +209,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
                 AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
+                AnyMessageLikeEventContent::Sticker(c) => {
+                    self.add(NewEventTimelineItem::sticker(c));
+                }
                 // TODO
                 _ => {}
             },
@@ -260,6 +264,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 TimelineItemContent::Message(msg) => msg,
                 TimelineItemContent::RedactedMessage => {
                     info!(%event_id, "Edit event applies to a redacted message, discarding");
+                    return None;
+                }
+                TimelineItemContent::Sticker(_) => {
+                    info!(%event_id, "Edit event applies to a sticker, discarding");
                     return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
@@ -680,6 +688,10 @@ impl NewEventTimelineItem {
 
     fn redacted_message() -> Self {
         Self::from_content(TimelineItemContent::RedactedMessage)
+    }
+
+    fn sticker(content: StickerEventContent) -> Self {
+        Self::from_content(TimelineItemContent::Sticker(Sticker { content }))
     }
 
     fn failed_to_parse_message_like(
