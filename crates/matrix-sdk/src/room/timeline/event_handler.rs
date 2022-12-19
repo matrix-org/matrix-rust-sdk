@@ -210,7 +210,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {
-                    self.add(NewEventTimelineItem::sticker(c))
+                    self.add(NewEventTimelineItem::sticker(c));
                 }
                 // TODO
                 _ => {}
