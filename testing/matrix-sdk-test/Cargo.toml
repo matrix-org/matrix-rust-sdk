@@ -19,12 +19,12 @@ doctest = false
 appservice = []
 
 [dependencies]
-http = "0.2.6"
+http = { workspace = true }
 matrix-sdk-test-macros = { version = "0.3.0", path = "../matrix-sdk-test-macros" }
-once_cell = "1.10.0"
+once_cell = { workspace = true }
 ruma = { workspace = true }
-serde = "1.0.136"
-serde_json = "1.0.79"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.23.1", default-features = false, features = ["rt", "macros"] }

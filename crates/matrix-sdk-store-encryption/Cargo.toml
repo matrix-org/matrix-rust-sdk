@@ -21,11 +21,11 @@ getrandom = { version = "0.2.6", optional = true }
 hmac = "0.12.1"
 pbkdf2 = "0.11.0"
 rand = "0.8.5"
-serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.79"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 sha2 = "0.10.2"
-thiserror = "1.0.30"
+thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
-anyhow = "1.0.57"
+anyhow = { workspace = true }

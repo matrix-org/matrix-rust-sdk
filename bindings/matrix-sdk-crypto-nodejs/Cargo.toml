@@ -29,8 +29,8 @@ matrix-sdk-sled = { version = "0.2.0", path = "../../crates/matrix-sdk-sled", de
 ruma = { workspace = true, features = ["rand", "unstable-msc2677"] }
 napi = { version = "2.9.1", default-features = false, features = ["napi6", "tokio_rt"] }
 napi-derive = "2.9.1"
-serde_json = "1.0.79"
-http = "0.2.6"
+serde_json = { workspace = true }
+http = { workspace = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "time", "smallvec", "fmt", "env-filter"], optional = true }
 vodozemac = { workspace = true, features = ["js"]}
 zeroize = { workspace = true }
