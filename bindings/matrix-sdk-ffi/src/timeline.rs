@@ -152,11 +152,15 @@ impl TimelineItem {
         })
     }
 
-    pub fn as_virtual(self: Arc<Self>) -> Option<Arc<VirtualTimelineItem>> {
-        use matrix_sdk::room::timeline::TimelineItem as Item;
-        unwrap_or_clone_arc_into_variant!(self, .0, Item::Virtual(vt) => {
-            Arc::new(VirtualTimelineItem(vt))
-        })
+    pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
+        use matrix_sdk::room::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
+        match &self.0 {
+            Item::Virtual(VItem::DayDivider { year, month, day }) => {
+                Some(VirtualTimelineItem::DayDivider { year: *year, month: *month, day: *day })
+            }
+            Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
+            Item::Event(_) => None,
+        }
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -532,8 +536,25 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
-pub struct VirtualTimelineItem(matrix_sdk::room::timeline::VirtualTimelineItem);
+/// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
+#[derive(uniffi::Enum)]
+pub enum VirtualTimelineItem {
+    /// A divider between messages of two days.
+    DayDivider {
+        /// The year.
+        year: i32,
+        /// The month of the year.
+        ///
+        /// A value between 1 and 12.
+        month: u32,
+        /// The day of the month.
+        ///
+        /// A value between 1 and 31.
+        day: u32,
+    },
+    /// The user's own read marker.
+    ReadMarker,
+}
 
 #[extension_trait]
 pub impl MediaSourceExt for MediaSource {
