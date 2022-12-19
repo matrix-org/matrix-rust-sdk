@@ -1,5 +1,8 @@
 #![allow(dead_code)]
-use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
+use base64::{
+    alphabet, encode_engine as base64_encode,
+    engine::fast_portable::{self, FastPortable},
+};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::{
@@ -21,6 +24,9 @@ pub const RANGE_END: &str = "\u{001E}";
 /// Using the literal escape character to escape KEY_SEPARATOR in regular keys
 /// (though super unlikely)
 pub const ESCAPED: &str = "\u{001E}\u{001D}";
+
+const STANDARD_NO_PAD: FastPortable =
+    FastPortable::from(&alphabet::STANDARD, fast_portable::NO_PAD);
 
 /// Encode value as String/JsValue/IdbKeyRange for the JS APIs in a
 /// safe, escaped manner.
@@ -54,7 +60,7 @@ pub trait SafeEncode {
     fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
         base64_encode(
             store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()),
-            STANDARD_NO_PAD,
+            &STANDARD_NO_PAD,
         )
     }
 
@@ -116,12 +122,12 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
         ]
         .concat()
@@ -151,17 +157,17 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
         ]
         .concat()
@@ -194,22 +200,22 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD,
+                &STANDARD_NO_PAD,
             ),
         ]
         .concat()

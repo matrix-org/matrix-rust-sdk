@@ -2672,7 +2672,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "atomic",
- "base64 0.13.1",
+ "base64 0.20.0",
  "bs58",
  "byteorder",
  "cfg-if",
@@ -2709,7 +2709,7 @@ name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.13.1",
+ "base64 0.20.0",
  "futures-util",
  "hmac",
  "http",
@@ -2807,7 +2807,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.13.1",
+ "base64 0.20.0",
  "dashmap",
  "derive_builder",
  "getrandom 0.2.8",
@@ -2849,7 +2849,7 @@ dependencies = [
 name = "matrix-sdk-qrcode"
 version = "0.4.0"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.20.0",
  "byteorder",
  "image 0.23.14",
  "qrcode",
