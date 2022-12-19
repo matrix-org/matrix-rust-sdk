@@ -391,9 +391,10 @@ macro_rules! statestore_integration_tests {
             let mut changes = StateChanges::default();
 
             let redaction_json: &JsonValue = &test_json::TOPIC_REDACTION;
-            let redaction_evt = serde_json::from_value(redaction_json.clone()).expect("topic redaction event making works");
+            let redaction_evt: Raw<_> = serde_json::from_value(redaction_json.clone()).expect("topic redaction event making works");
+            let redacted_event_id: OwnedEventId = redaction_evt.get_field("redacts").unwrap().unwrap();
 
-            changes.add_redaction(room_id, redaction_evt);
+            changes.add_redaction(room_id, &redacted_event_id, redaction_evt);
             store.save_changes(&changes).await?;
 
             match store
