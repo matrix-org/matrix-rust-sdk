@@ -1545,7 +1545,7 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
-    use matches::assert_matches;
+    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{

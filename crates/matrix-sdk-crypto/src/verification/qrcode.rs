@@ -847,7 +847,7 @@ impl QrState<Reciprocated> {
 mod tests {
     use std::sync::Arc;
 
-    use matches::assert_matches;
+    use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
