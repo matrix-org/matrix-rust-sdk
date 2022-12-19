@@ -40,11 +40,11 @@ async-trait = "0.1.53"
 bincode = { version = "1.3.3", optional = true }
 dashmap = { version = "5.2.0", optional = true }
 futures = "0.3.21"
-matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743" }
-matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743", optional = true }
-matrix-sdk-store-encryption = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743", optional = true }
+matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44" }
+matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", optional = true }
+matrix-sdk-store-encryption = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", optional = true }
 parking_lot = { version = "0.12.0", optional = true }
-ruma = { git = "https://github.com/ruma/ruma", rev = "3211fccab0b58a9adab1c8a775c1a3a8cff4121d" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "284b797e0513daf56859b64b8c7a506856fb11ec" }
 serde = { version = "1.0.137", features = ["derive"], optional = true }
 serde_json = { version = "1.0.81" }
 thiserror = "1.0.31"
@@ -70,8 +70,9 @@ features = ["macros", "rt-multi-thread"]
 default-features = false
 
 [dev-dependencies]
-matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743", features = ["testing"] }
-matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743", features = ["testing"] }
-matrix-sdk-test = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "05e4bc05575c153b77183ca30bf34729b5219743" }
+matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", features = ["testing"] }
+matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", features = ["testing"] }
+matrix-sdk-test = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44" }
 once_cell = "1.10.0"
+rand = "0.8.5"
 tempfile = "3.3.0"

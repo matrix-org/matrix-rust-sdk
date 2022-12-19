@@ -1298,7 +1298,7 @@ mod postgres_integration_test {
     use vodozemac::olm::Account;
 
     async fn get_store_result(
-        name: String,
+        name: &str,
         passphrase: Option<&str>,
     ) -> crate::Result<StateStore<sqlx::postgres::Postgres>> {
         let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", name);
@@ -1314,7 +1314,7 @@ mod postgres_integration_test {
 
     #[allow(clippy::panic)]
     async fn get_store(
-        name: String,
+        name: &str,
         passphrase: Option<&str>,
     ) -> StateStore<sqlx::postgres::Postgres> {
         match get_store_result(name, passphrase).await {
@@ -1328,7 +1328,7 @@ mod postgres_integration_test {
     #[async_test]
     #[allow(clippy::unwrap_used)]
     async fn cryptostore_outbound_group_session() {
-        let store = get_store("cryptostore_outbound_group_session".to_owned(), None).await;
+        let store = get_store("cryptostore_outbound_group_session", None).await;
         for _ in 0..2 {
             let mut txn = store.db.begin().await.unwrap();
             let outbound_group_session = OutboundGroupSession::new(
@@ -1336,7 +1336,8 @@ mod postgres_integration_test {
                 Arc::new(Account::new().identity_keys()),
                 room_id!("!test:localhost"),
                 EncryptionSettings::default(),
-            );
+            )
+            .unwrap();
             store
                 .save_outbound_group_session(&mut txn, outbound_group_session)
                 .await

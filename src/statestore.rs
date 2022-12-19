@@ -836,7 +836,7 @@ where
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         event_id: &EventId,
-        _redaction_event: &OriginalSyncRoomRedactionEvent,
+        _redaction_event: &Raw<OriginalSyncRoomRedactionEvent>,
     ) -> Result<()> {
         DB::state_redact_query()
             .bind(room_id.as_str())
