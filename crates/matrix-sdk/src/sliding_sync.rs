@@ -95,12 +95,6 @@ pub enum SlidingSyncMode {
     Selective,
 }
 
-impl SlidingSyncMode {
-    fn is_full_sync(&self) -> bool {
-        matches!(self, SlidingSyncMode::PagingFullSync | SlidingSyncMode::GrowingFullSync)
-    }
-}
-
 /// The Entry in the sliding sync room list per sliding sync view
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum RoomListEntry {
@@ -955,9 +949,7 @@ impl From<&SlidingSyncView> for FrozenSlidingSyncView {
 impl SlidingSyncView {
     fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
         let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
-        if self.sync_mode.lock_ref().is_full_sync() {
-            self.state.set(SlidingSyncState::Preload);
-        }
+        self.state.set(SlidingSyncState::Preload);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
@@ -1172,7 +1164,12 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
                 });
                 Some(req)
             }
-            InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
+            InnerSlidingSyncViewRequestGenerator::Live => {
+                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
+                    !matches!(before, SlidingSyncState::Live)
+                });
+                Some(self.live_request())
+            }
         }
     }
 }
