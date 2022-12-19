@@ -24,9 +24,9 @@ crypto-store = [
 ]
 
 [dependencies]
-async-stream = "0.3.3"
-async-trait = "0.1.53"
-dashmap = "5.2.0"
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
 derive_builder = "0.11.2"
 fs_extra = "1.2.0"
 futures-core = "0.3.21"
@@ -36,10 +36,10 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 ruma = { workspace = true }
-serde = "1.0.136"
-serde_json = "1.0.79"
+serde = { workspace = true }
+serde_json = { workspace = true }
 sled = "0.34.7"
-thiserror = "1.0.30"
+thiserror = { workspace = true }
 tokio = { version = "1.23.1", default-features = false, features = ["sync", "fs"] }
 tracing = { workspace = true }
 
@@ -48,6 +48,6 @@ glob = "0.3.0"
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
-once_cell = "1.10.0"
+once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { version = "1.23.1", default-features = false, features = ["rt-multi-thread", "macros"] }
