@@ -329,7 +329,8 @@ impl BaseClient {
                             ),
                         ) => {
                             room_info.handle_redaction(r);
-                            changes.add_redaction(room_id, r.clone());
+                            let raw_event = event.event.clone().cast();
+                            changes.add_redaction(room_id, &r.redacts, raw_event);
                         }
 
                         #[cfg(feature = "e2e-encryption")]

@@ -696,7 +696,8 @@ pub struct StateChanges {
 
     /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
     /// `SyncRoomRedactionEvent`.
-    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OriginalSyncRoomRedactionEvent>>,
+    pub redactions:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<OriginalSyncRoomRedactionEvent>>>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -794,11 +795,16 @@ impl StateChanges {
     }
 
     /// Redact an event in the room
-    pub fn add_redaction(&mut self, room_id: &RoomId, redaction: OriginalSyncRoomRedactionEvent) {
+    pub fn add_redaction(
+        &mut self,
+        room_id: &RoomId,
+        redacted_event_id: &EventId,
+        redaction: Raw<OriginalSyncRoomRedactionEvent>,
+    ) {
         self.redactions
             .entry(room_id.to_owned())
             .or_default()
-            .insert(redaction.redacts.clone(), redaction);
+            .insert(redacted_event_id.to_owned(), redaction);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
