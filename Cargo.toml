@@ -70,9 +70,11 @@ features = ["macros", "rt-multi-thread"]
 default-features = false
 
 [dev-dependencies]
+ctor = "0.1.26"
 matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", features = ["testing"] }
 matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44", features = ["testing"] }
 matrix-sdk-test = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "561fb97a7b2235a198f6ae45a04cea9c0153fb44" }
 once_cell = "1.10.0"
 rand = "0.8.5"
 tempfile = "3.3.0"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
