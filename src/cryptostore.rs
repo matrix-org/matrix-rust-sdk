@@ -1390,7 +1390,7 @@ mod sqlite_integration_test {
         match get_store_result(name, passphrase).await {
             Ok(v) => v,
             Err(e) => {
-                panic!("Could not open database: {:#?}", e);
+                panic!("Could not open database: {e:#?}");
             }
         }
     }

@@ -1489,7 +1489,7 @@ mod tests {
         store.insert_media(entry_1, b"media_1").await.unwrap();
 
         for entry in 2..101 {
-            let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{}", entry));
+            let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{entry}"));
             store.insert_media(&entry, b"media_0").await.unwrap();
         }
 
@@ -1512,7 +1512,7 @@ mod tests {
         store.insert_media(entry_1, b"media_1").await.unwrap();
 
         for entry in 2..101 {
-            let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{}", entry));
+            let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{entry}"));
             store.insert_media(&entry, b"media_0").await.unwrap();
         }
 
