@@ -201,6 +201,20 @@ interface Client {
     void logout();
 };
 
+dictionary SlidingSyncRequestListFilters {
+    boolean? is_dm;
+    sequence<string> spaces;
+    boolean? is_encrypted;
+    boolean? is_invite;
+    boolean? is_tombstoned;
+    sequence<string> room_types;
+    sequence<string> not_room_types;
+    string? room_name_like;
+    sequence<string> tags;
+    sequence<string> not_tags;
+//    BTreeMap<string, Value> extensions;
+};
+
 dictionary Session {
     string access_token;
     string? refresh_token;
