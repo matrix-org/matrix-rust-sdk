@@ -158,6 +158,10 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
         let locked_tl = value.timeline.lock_ref();
         let tl_len = locked_tl.len();
+        // To not overflow the database, we only freeze the newest 10 items. on doing
+        // so, we must drop the `prev_batch` key however, as we'd otherwise
+        // create a gap between what we have loaded and where the
+        // prev_batch-key will start loading when paginating backwards.
         let (prev_batch, timeline) = if tl_len > 10 {
             let pos = tl_len - 10;
             (None, locked_tl.iter().skip(pos).cloned().collect())
@@ -1411,8 +1415,8 @@ impl SlidingSyncView {
         }
 
         if self.rooms_count.get() != Some(rooms_count) {
-            self.rooms_count.replace(Some(rooms_count));
-            changed = true
+            self.rooms_count.set(Some(rooms_count));
+            changed = true;
         }
 
         if changed {
