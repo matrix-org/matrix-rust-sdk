@@ -463,6 +463,21 @@ describe(OlmMachine.name, () => {
         });
     });
 
+    test("failure to decrypt returns a valid error", async () => {
+        const m = await machine();
+        const evt = {
+            type: "m.room.encrypted",
+            event_id: "$xxxxx:example.org",
+            origin_server_ts: Date.now(),
+            sender: user.toString(),
+            content: {
+                algorithm: "m.megolm.v1.aes-sha2",
+                ciphertext: "blah",
+            },
+        };
+        await expect(() => m.decryptRoomEvent(JSON.stringify(evt), room)).rejects.toThrowError();
+    });
+
     test('can read cross-signing status', async () => {
         const m = await machine();
         const crossSigningStatus = await m.crossSigningStatus();
