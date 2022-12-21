@@ -54,7 +54,10 @@ pub use self::{
     },
     virtual_item::VirtualTimelineItem,
 };
-use self::{inner::TimelineInner, to_device::handle_room_key_event};
+use self::{
+    inner::TimelineInner,
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
+};
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -71,6 +74,7 @@ pub struct Timeline {
     _fully_read_handler_guard: Option<EventHandlerDropGuard>,
     #[cfg(feature = "e2e-encryption")]
     _room_key_handler_guard: EventHandlerDropGuard,
+    _forwarded_room_key_handler_guard: EventHandlerDropGuard,
 }
 
 /// Non-signalling parts of `TimelineInner`.
@@ -118,6 +122,14 @@ impl Timeline {
         #[cfg(feature = "e2e-encryption")]
         let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
 
+        #[cfg(feature = "e2e-encryption")]
+        let forwarded_room_key_handle = room.client.add_event_handler(
+            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
+        );
+        #[cfg(feature = "e2e-encryption")]
+        let _forwarded_room_key_handler_guard =
+            room.client.event_handler_drop_guard(forwarded_room_key_handle);
+
         Timeline {
             inner,
             room: room.clone(),
@@ -127,6 +139,8 @@ impl Timeline {
             _fully_read_handler_guard: None,
             #[cfg(feature = "e2e-encryption")]
             _room_key_handler_guard,
+            #[cfg(feature = "e2e-encryption")]
+            _forwarded_room_key_handler_guard,
         }
     }
 
