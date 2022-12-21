@@ -139,6 +139,20 @@ impl Room {
     pub fn remove_timeline(&self) {
         *self.timeline.write().unwrap() = None;
     }
+
+    pub fn retry_decryption(&self, session_ids: Vec<String>) {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't retry decryption");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            timeline.retry_decryption(&session_ids).await;
+        });
+    }
 }
 
 impl Room {
