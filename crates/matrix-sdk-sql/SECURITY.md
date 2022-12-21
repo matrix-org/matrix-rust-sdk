@@ -1,0 +1,56 @@
+# Security Policy
+
+If you have found a security issue, please send me a message using one of the following methods:
+
+- encrypted E-Mail to `lotte@chir.rs` using the key attached below
+- Signal (Phone number available upon request)
+- Matrix `@lotte:chir.rs`
+- Keybase `darkkirb`
+
+I will verify your findings. After 30 days or after the issue has been resolved, whichever comes first, you may publically talk about your findings.
+
+## PGP Key
+
+```
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+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
+=3Z2A
+-----END PGP PUBLIC KEY BLOCK-----
+```
+
+You can verify this key using keybase: https://keybase.io/darkkirb/
