@@ -29,7 +29,7 @@ use ruma::{
     events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
     EventId, OwnedEventId, OwnedUserId, TransactionId, UInt,
 };
-use tracing::{error, instrument};
+use tracing::{debug_span, error, instrument};
 
 use super::{Joined, Room};
 use crate::{
@@ -116,6 +116,7 @@ impl Timeline {
             use std::iter;
 
             use ruma::events::room_key::ToDeviceRoomKeyEvent;
+            use tracing::{trace, Instrument};
 
             use crate::Client;
 
@@ -125,6 +126,12 @@ impl Timeline {
                 let room_id = room_id.clone();
                 async move {
                     if event.content.room_id != room_id {
+                        let event_room_id = &event.content.room_id;
+                        let session_id = &event.content.session_id;
+                        trace!(
+                            %event_room_id, timeline_room_id = %room_id, %session_id,
+                            "Received to-device room key event for a different room, ignoring"
+                        );
                         return;
                     }
 
@@ -148,6 +155,7 @@ impl Timeline {
                         )
                         .await;
                 }
+                .instrument(debug_span!("handle_to_device_room_key_event"))
             }
         });
         #[cfg(feature = "e2e-encryption")]

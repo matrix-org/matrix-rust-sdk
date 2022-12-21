@@ -12,6 +12,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 use tracing::{error, info, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::{instrument, trace};
 
 use super::{
     event_handler::{
@@ -149,6 +151,7 @@ impl TimelineInner {
     }
 
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip(self, olm_machine, own_user_id))]
     pub(super) async fn retry_event_decryption(
         &self,
         room_id: &RoomId,
@@ -190,6 +193,7 @@ impl TimelineInner {
             .collect();
 
         if utds_for_session.is_empty() {
+            trace!("Found no events to retry decryption for");
             return;
         }
 
@@ -205,6 +209,11 @@ impl TimelineInner {
                     continue;
                 }
             };
+
+            trace!(
+                %event_id, %session_id,
+                "Successfully decrypted event that previously failed to decrypt"
+            );
 
             // Because metadata is always locked before we attempt to lock the
             // items, this will never be contended.
