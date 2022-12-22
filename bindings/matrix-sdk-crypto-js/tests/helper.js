@@ -31,9 +31,8 @@ async function addMachineToMachine(machineToAdd, machine) {
         expect(outgoingRequests[0].id).toBeDefined();
         expect(outgoingRequests[0].type).toStrictEqual(RequestType.KeysUpload);
 
-        const body = JSON.parse(outgoingRequests[0].body);
-        expect(body.device_keys).toBeDefined();
-        expect(body.one_time_keys).toBeDefined();
+        expect(outgoingRequests[0].device_keys).toBeDefined();
+        expect(outgoingRequests[0].one_time_keys).toBeDefined();
 
         // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysupload
         const hypothetical_response = JSON.stringify({
@@ -45,14 +44,13 @@ async function addMachineToMachine(machineToAdd, machine) {
         const marked = await machineToAdd.markRequestAsSent(outgoingRequests[0].id, outgoingRequests[0].type, hypothetical_response);
         expect(marked).toStrictEqual(true);
 
-        keysUploadRequest = body;
+        keysUploadRequest = outgoingRequests[0];
     }
 
     {
         expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
 
         let [signingKeysUploadRequest, _] = await machineToAdd.bootstrapCrossSigning(true);
-        signingKeysUploadRequest = JSON.parse(signingKeysUploadRequest.body);
 
         // Let's forge a `KeysQuery`'s response.
         let keyQueryResponse = {
@@ -64,10 +62,10 @@ async function addMachineToMachine(machineToAdd, machine) {
         const userId = machineToAdd.userId.toString();
         const deviceId = machineToAdd.deviceId.toString();
         keyQueryResponse.device_keys[userId] = {};
-        keyQueryResponse.device_keys[userId][deviceId] = keysUploadRequest.device_keys;
-        keyQueryResponse.master_keys[userId] = signingKeysUploadRequest.master_key;
-        keyQueryResponse.self_signing_keys[userId] = signingKeysUploadRequest.self_signing_key;
-        keyQueryResponse.user_signing_keys[userId] = signingKeysUploadRequest.user_signing_key;
+        keyQueryResponse.device_keys[userId][deviceId] = JSON.parse(keysUploadRequest.device_keys);
+        keyQueryResponse.master_keys[userId] = JSON.parse(signingKeysUploadRequest.master_key);
+        keyQueryResponse.self_signing_keys[userId] = JSON.parse(signingKeysUploadRequest.self_signing_key);
+        keyQueryResponse.user_signing_keys[userId] = JSON.parse(signingKeysUploadRequest.user_signing_key);
 
         const marked = await machine.markRequestAsSent(outgoingRequests[1].id, outgoingRequests[1].type, JSON.stringify(keyQueryResponse));
         expect(marked).toStrictEqual(true);
