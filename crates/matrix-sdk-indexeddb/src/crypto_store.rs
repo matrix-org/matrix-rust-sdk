@@ -30,12 +30,13 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
+    SecretInfo, TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
@@ -64,6 +65,8 @@ mod keys {
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
     pub const KEY_REQUEST: &str = "key_request";
     pub const ROOM_SETTINGS: &str = "room_settings";
+
+    pub const SECRETS_INBOX: &str = "secrets_inbox";
 
     pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 
@@ -149,7 +152,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 3)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 4)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
             // works with an unsigned integer.
@@ -201,6 +204,12 @@ impl IndexeddbCryptoStore {
 
                 // Support for MSC2399 withheld codes
                 db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
+            }
+
+            if old_version < 4 {
+                let db = evt.db();
+
+                db.create_object_store(keys::SECRETS_INBOX)?;
             }
 
             Ok(())
@@ -395,6 +404,7 @@ impl_crypto_store! {
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
             (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
             (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
+            (!changes.secrets.is_empty(), keys::SECRETS_INBOX),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -588,6 +598,17 @@ impl_crypto_store! {
                 let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serialize_value(&settings)?;
                 settings_store.put_key_val(&key, &value)?;
+            }
+        }
+
+        if !changes.secrets.is_empty() {
+            let secrets_store = tx.object_store(keys::SECRETS_INBOX)?;
+
+            for secret in changes.secrets {
+                let key = self.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
+                let value = self.serialize_value(&secret)?;
+
+                secrets_store.put_key_val(&key, &value)?;
             }
         }
 
@@ -904,6 +925,40 @@ impl_crypto_store! {
             .get(&self.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))?
             .await?
             .is_some())
+    }
+
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+        ) -> Result<Vec<GossippedSecret>> {
+        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readonly)?
+            .object_store(keys::SECRETS_INBOX)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .map(|d| {
+                let secret = self.deserialize_value(d)?;
+                Ok(secret)
+            }).collect()
+    }
+
+    async fn delete_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<()> {
+        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readwrite)?
+            .object_store(keys::SECRETS_INBOX)?
+            .delete(&range)?;
+
+        Ok(())
     }
 
     async fn get_secret_request_by_info(

@@ -63,6 +63,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
 use crate::{
+    gossiping::GossippedSecret,
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
@@ -151,6 +152,7 @@ pub struct Changes {
     /// Stores when a `m.room_key.withheld` is received
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
+    pub secrets: Vec<GossippedSecret>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -701,12 +703,8 @@ impl Store {
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
-    pub(crate) async fn import_secret(
-        &self,
-        secret_name: &SecretName,
-        secret: &str,
-    ) -> Result<(), SecretImportError> {
-        match secret_name {
+    pub async fn import_secret(&self, secret: &GossippedSecret) -> Result<(), SecretImportError> {
+        match &secret.secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
             | SecretName::CrossSigningSelfSigningKey => {
@@ -715,9 +713,15 @@ impl Store {
                 {
                     let identity = self.inner.identity.lock().await;
 
-                    identity.import_secret(public_identity, secret_name, secret).await?;
+                    identity
+                        .import_secret(
+                            public_identity,
+                            &secret.secret_name,
+                            &secret.event.content.secret,
+                        )
+                        .await?;
                     info!(
-                        secret_name = secret_name.as_ref(),
+                        secret_name = ?secret.secret_name,
                         "Successfully imported a private cross signing key"
                     );
 
@@ -730,8 +734,9 @@ impl Store {
             SecretName::RecoveryKey => {
                 // We don't import the recovery key here since we'll want to
                 // check if the public key matches to the latest version on the
-                // server. We instead leave the key in the event and let the
-                // user import it later.
+                // server. We instead put the secret into a secret inbox where
+                // it will stay until it either gets overwritten
+                // or the user accepts the secret.
             }
             name => {
                 warn!(secret = ?name, "Tried to import an unknown secret");

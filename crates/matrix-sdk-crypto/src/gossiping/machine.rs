@@ -35,10 +35,10 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-use super::{GossipRequest, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
+use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
     olm::{InboundGroupSession, Session},
@@ -794,30 +794,32 @@ impl GossipMachine {
 
     async fn accept_secret(
         &self,
-        event: &DecryptedSecretSendEvent,
-        request: &GossipRequest,
-        secret_name: &SecretName,
+        secret: GossippedSecret,
+        changes: &mut Changes,
     ) -> Result<(), CryptoStoreError> {
-        if secret_name != &SecretName::RecoveryKey {
-            match self.inner.store.import_secret(secret_name, &event.content.secret).await {
-                Ok(_) => self.mark_as_done(request).await?,
+        if secret.secret_name != SecretName::RecoveryKey {
+            match self.inner.store.import_secret(&secret).await {
+                Ok(_) => self.mark_as_done(&secret.gossip_request).await?,
                 // If this is a store error propagate it up the call stack.
                 Err(SecretImportError::Store(e)) => return Err(e),
                 // Otherwise warn that there was something wrong with the
                 // secret.
                 Err(e) => {
                     warn!(
-                        secret_name = secret_name.as_ref(),
+                        secret_name = %secret.secret_name,
                         error = ?e,
                         "Error while importing a secret"
                     );
                 }
             }
         } else {
-            // Skip importing the recovery key here since we'll want to check
-            // if the public key matches to the latest version on the server.
-            // The key will not be zeroized and  instead leave the key in the
-            // event and let the user import it later.
+            // We would need to fire out a request to figure out if this backup recovery key
+            // is the one that is used for the current backup and if the backup
+            // is trusted.
+            //
+            // So we put the secret into our inbox. Later users can inspect the contents of
+            // the inbox and decide if they want to activate the backup.
+            changes.secrets.push(secret);
         }
 
         Ok(())
@@ -826,74 +828,71 @@ impl GossipMachine {
     async fn receive_secret(
         &self,
         sender_key: Curve25519PublicKey,
-        event: &DecryptedSecretSendEvent,
-        request: &GossipRequest,
-        secret_name: &SecretName,
+        secret: GossippedSecret,
+        changes: &mut Changes,
     ) -> Result<(), CryptoStoreError> {
-        debug!(
-            request_id = event.content.request_id.as_str(),
-            secret_name = secret_name.as_ref(),
-            "Received a m.secret.send event with a matching request"
-        );
+        debug!("Received a m.secret.send event with a matching request");
 
         if let Some(device) =
-            self.inner.store.get_device_from_curve_key(&event.sender, sender_key).await?
+            self.inner.store.get_device_from_curve_key(&secret.event.sender, sender_key).await?
         {
             // Only accept secrets from one of our own trusted devices.
             if device.user_id() == self.user_id() && device.is_verified() {
-                self.accept_secret(event, request, secret_name).await?;
+                self.accept_secret(secret, changes).await?;
             } else {
-                warn!(
-                    request_id = event.content.request_id.as_str(),
-                    secret_name = secret_name.as_ref(),
-                    "Received a m.secret.send event from another user or from \
-                    unverified device"
-                );
+                warn!("Received a m.secret.send event from another user or from unverified device");
             }
         } else {
-            warn!(
-                request_id = event.content.request_id.as_str(),
-                secret_name = secret_name.as_ref(),
-                "Received a m.secret.send event from an unknown device"
-            );
-            self.inner.store.mark_user_as_changed(&event.sender).await?;
+            warn!("Received a m.secret.send event from an unknown device");
+
+            self.inner.store.mark_user_as_changed(&secret.event.sender).await?;
         }
 
         Ok(())
     }
 
+    #[instrument(skip_all, fields(sender_key, sender = ?event.sender, request_id = ?event.content.request_id, secret_name))]
     pub async fn receive_secret_event(
         &self,
         sender_key: Curve25519PublicKey,
         event: &DecryptedSecretSendEvent,
+        changes: &mut Changes,
     ) -> Result<Option<SecretName>, CryptoStoreError> {
-        debug!(request_id = event.content.request_id.as_str(), "Received a m.secret.send event");
+        debug!("Received a m.secret.send event");
 
-        let maybe_request = self
-            .inner
-            .store
-            .get_outgoing_secret_requests(event.content.request_id.as_str().into())
-            .await?;
+        let request_id = &event.content.request_id;
 
-        Ok(if let Some(request) = maybe_request {
+        let name = if let Some(request) =
+            self.inner.store.get_outgoing_secret_requests(request_id).await?
+        {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
-                    warn!(
-                        request_id = event.content.request_id.as_str(),
-                        "Received a m.secret.send event but the request was for a room key"
-                    );
+                    warn!("Received a m.secret.send event but the request was for a room key");
 
                     None
                 }
                 SecretInfo::SecretRequest(secret_name) => {
-                    self.receive_secret(sender_key, event, &request, secret_name).await?;
+                    Span::current().record("secret_name", debug(secret_name));
 
-                    Some(secret_name.to_owned())
+                    let secret_name = secret_name.to_owned();
+
+                    let secret = GossippedSecret {
+                        secret_name: secret_name.to_owned(),
+                        event: event.to_owned(),
+                        gossip_request: request,
+                    };
+
+                    self.receive_secret(sender_key, secret, changes).await?;
+
+                    Some(secret_name)
                 }
             }
         } else {
+            warn!("Received a m.secret.send event, but no matching request was found");
             None
-        })
+        };
+
+        Ok(name)
     }
 
     async fn accept_forwarded_room_key(
