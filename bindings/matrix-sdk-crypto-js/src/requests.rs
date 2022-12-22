@@ -33,34 +33,18 @@ pub struct KeysUploadRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// A JSON-encoded string representing identity keys for the device.
-    ///
-    /// May be absent if no new identity keys are required.
+    /// A JSON-encoded string containing the rest of the payload: `device_keys`,
+    /// `one_time_keys`, `fallback_keys`.
     #[wasm_bindgen(readonly)]
-    pub device_keys: JsString,
-
-    /// A JSON-encoded string representing one-time public keys for “pre-key”
-    /// messages.
-    #[wasm_bindgen(readonly)]
-    pub one_time_keys: JsString,
-
-    /// A JSON-encoded string representing fallback public keys for “pre-key”
-    /// messages.
-    #[wasm_bindgen(readonly)]
-    pub fallback_keys: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysUploadRequest {
     /// Create a new `KeysUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        id: JsString,
-        device_keys: JsString,
-        one_time_keys: JsString,
-        fallback_keys: JsString,
-    ) -> KeysUploadRequest {
-        Self { id: Some(id), device_keys, one_time_keys, fallback_keys }
+    pub fn new(id: JsString, body: JsString) -> KeysUploadRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -83,37 +67,18 @@ pub struct KeysQueryRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// An optional integer representing the time (in milliseconds) to wait when
-    /// downloading keys from remote servers. 10 seconds is the recommended
-    /// default.
+    /// A JSON-encoded string containing the rest of the payload: `timeout`,
+    /// `device_keys`, `token`.
     #[wasm_bindgen(readonly)]
-    pub timeout: Option<u64>,
-
-    /// A JSON-encoded string representing the keys to be downloaded. An empty
-    /// list indicates all devices for the corresponding user.
-    #[wasm_bindgen(readonly)]
-    pub device_keys: JsString,
-
-    /// An optional string representing if the client is fetching keys as a
-    /// result of a device update received in a sync request, this should be the
-    /// `since` token of that sync request, or any later sync token. This allows
-    /// the server to ensure its response contains the keys advertised by the
-    /// notification in that sync.
-    #[wasm_bindgen(readonly)]
-    pub token: Option<String>,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysQueryRequest {
     /// Create a new `KeysQueryRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        id: JsString,
-        timeout: Option<u64>,
-        device_keys: JsString,
-        token: Option<String>,
-    ) -> KeysQueryRequest {
-        Self { id: Some(id), timeout, device_keys, token }
+    pub fn new(id: JsString, body: JsString) -> KeysQueryRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -137,23 +102,18 @@ pub struct KeysClaimRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// An optional integer representing the time (in milliseconds) to wait when
-    /// downloading keys from remote servers. 10 seconds is the recommended
-    /// default.
+    /// A JSON-encoded string containing the rest of the payload: `timeout`,
+    /// `one_time_keys`.
     #[wasm_bindgen(readonly)]
-    pub timeout: Option<u64>,
-
-    /// A JSON-encoded string representing the keys to be claimed.
-    #[wasm_bindgen(readonly)]
-    pub one_time_keys: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysClaimRequest {
     /// Create a new `KeysClaimRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, timeout: Option<u64>, one_time_keys: JsString) -> KeysClaimRequest {
-        Self { id: Some(id), timeout, one_time_keys }
+    pub fn new(id: JsString, body: JsString) -> KeysClaimRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -185,12 +145,9 @@ pub struct ToDeviceRequest {
     #[wasm_bindgen(readonly)]
     pub txn_id: JsString,
 
-    /// A JSON-encoded string representing a map of users to devices to a
-    /// content for a message event to be sent to the user's device. Individual
-    /// message events can be sent to devices, but all events must be of the
-    /// same type.
+    /// A JSON-encoded string containing the rest of the payload: `messages`.
     #[wasm_bindgen(readonly)]
-    pub messages: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
@@ -201,9 +158,9 @@ impl ToDeviceRequest {
         id: JsString,
         event_type: JsString,
         txn_id: JsString,
-        messages: JsString,
+        body: JsString,
     ) -> ToDeviceRequest {
-        Self { id: Some(id), event_type, txn_id, messages }
+        Self { id: Some(id), event_type, txn_id, body }
     }
 
     /// Get its request type.
@@ -226,17 +183,17 @@ pub struct SignatureUploadRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// A JSON-encoded string representing the signed keys.
+    /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
     #[wasm_bindgen(readonly)]
-    pub signed_keys: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl SignatureUploadRequest {
     /// Create a new `SignatureUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, signed_keys: JsString) -> SignatureUploadRequest {
-        Self { id: Some(id), signed_keys }
+    pub fn new(id: JsString, body: JsString) -> SignatureUploadRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -269,9 +226,9 @@ pub struct RoomMessageRequest {
     #[wasm_bindgen(readonly)]
     pub txn_id: JsString,
 
-    /// A JSON-encoded string representing the event content to send.
+    /// A JSON-encoded string containing the rest of the payload: `content`.
     #[wasm_bindgen(readonly)]
-    pub content: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
@@ -282,9 +239,9 @@ impl RoomMessageRequest {
         id: JsString,
         room_id: JsString,
         txn_id: JsString,
-        content: JsString,
+        body: JsString,
     ) -> RoomMessageRequest {
-        Self { id: Some(id), room_id, txn_id, content }
+        Self { id: Some(id), room_id, txn_id, body }
     }
 
     /// Get its request type.
@@ -305,18 +262,17 @@ pub struct KeysBackupRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// A JSON-encoded string representing the map from room ID to a backed up
-    /// room key that we're going to upload to the server.
+    /// A JSON-encoded string containing the rest of the payload: `rooms`.
     #[wasm_bindgen(readonly)]
-    pub rooms: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysBackupRequest {
     /// Create a new `KeysBackupRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, rooms: JsString) -> KeysBackupRequest {
-        Self { id: Some(id), rooms }
+    pub fn new(id: JsString, body: JsString) -> KeysBackupRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -338,30 +294,28 @@ pub struct SigningKeysUploadRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// A JSON-encoded string representing the user's master key..
+    /// A JSON-encoded string containing the rest of the payload: `master_key`,
+    /// `self_signing_key`, `user_signing_key`.
     #[wasm_bindgen(readonly)]
-    pub master_key: JsString,
-
-    /// A JSON-encoded string representing the user's self-signing key. Must
-    /// be signed with the accompanied master, or by the user's most recently
-    /// uploaded master key if no master key is included in the request.
-    #[wasm_bindgen(readonly)]
-    pub self_signing_key: JsString,
-
-    /// A JSON-encoded string representing the user's user-signing key. Must
-    /// be signed with the accompanied master, or by the user's most recently
-    /// uploaded master key if no master key is included in the request.
-    #[wasm_bindgen(readonly)]
-    pub user_signing_key: JsString,
+    pub body: JsString,
 }
 
 macro_rules! request {
-    ( $destination_request:ident from $source_request:ident maps fields $( $field:ident: $field_type:ident ),+ $(,)? ) => {
+    (
+        $destination_request:ident from $source_request:ident
+        $( extracts fields $( $field:ident: $field_type:ident ),+ $(,)? )?
+        $( $( and )? groups fields $( $grouped_field:ident ),+ $(,)? )?
+    ) => {
         impl TryFrom<&$source_request> for $destination_request {
             type Error = serde_json::Error;
 
             fn try_from(request: &$source_request) -> Result<Self, Self::Error> {
-                request!(@__try_from $destination_request from $source_request (request_id = None, request = request) maps fields $( $field: $field_type, )+ )
+                request!(
+                    @__try_from $destination_request from $source_request
+                    (request_id = None, request = request)
+                    $( extracts [ $( $field: $field_type, )+ ] )?
+                    $( groups [ $( $grouped_field, )+ ] )?
+                )
             }
         }
 
@@ -371,18 +325,41 @@ macro_rules! request {
             fn try_from(
                 (request_id, request): (String, &$source_request),
             ) -> Result<Self, Self::Error> {
-                request!(@__try_from $destination_request from $source_request (request_id = Some(request_id.into()), request = request) maps fields $( $field: $field_type, )+ )
+                request!(
+                    @__try_from $destination_request from $source_request
+                    (request_id = Some(request_id.into()), request = request)
+                    $( extracts [ $( $field: $field_type, )+ ] )?
+                    $( groups [ $( $grouped_field, )+ ] )?
+                )
             }
         }
     };
 
-    ( @__try_from $destination_request:ident from $source_request:ident (request_id = $request_id:expr, request = $request:expr) maps fields $( $field:ident: $field_type:ident ),+ $(,)? ) => {
+    (
+        @__try_from $destination_request:ident from $source_request:ident
+        (request_id = $request_id:expr, request = $request:expr)
+        $( extracts [ $( $field:ident: $field_type:ident ),* $(,)? ] )?
+        $( groups [ $( $grouped_field:ident ),* $(,)? ] )?
+    ) => {
         {
             Ok($destination_request {
                 id: $request_id,
                 $(
-                    $field: request!(@__field as $field_type (request = $request, field = $field)),
-                )+
+                    $(
+                        $field: request!(@__field as $field_type (request = $request, field = $field)),
+                    )*
+                )?
+                $(
+                    body: {
+                        let mut map = serde_json::Map::new();
+                        $(
+                            map.insert(stringify!($grouped_field).to_owned(), serde_json::to_value(&$request.$grouped_field).unwrap());
+                        )*
+                        let object = serde_json::Value::Object(map);
+
+                        serde_json::to_string(&object)?.into()
+                    }
+                )?
             })
         }
     };
@@ -405,16 +382,16 @@ macro_rules! request {
 }
 
 // Outgoing Requests
-request!(KeysUploadRequest from OriginalKeysUploadRequest maps fields device_keys: json, one_time_keys: json, fallback_keys: json);
-request!(KeysQueryRequest from OriginalKeysQueryRequest maps fields timeout: duration, device_keys: json, token: native);
-request!(KeysClaimRequest from OriginalKeysClaimRequest maps fields timeout: duration, one_time_keys: json);
-request!(ToDeviceRequest from OriginalToDeviceRequest maps fields event_type: string, txn_id: string, messages: json);
-request!(SignatureUploadRequest from OriginalSignatureUploadRequest maps fields signed_keys: json);
-request!(RoomMessageRequest from OriginalRoomMessageRequest maps fields room_id: string, txn_id: string, content: json);
-request!(KeysBackupRequest from OriginalKeysBackupRequest maps fields rooms: json);
+request!(KeysUploadRequest from OriginalKeysUploadRequest groups fields device_keys, one_time_keys, fallback_keys);
+request!(KeysQueryRequest from OriginalKeysQueryRequest groups fields timeout, device_keys, token);
+request!(KeysClaimRequest from OriginalKeysClaimRequest groups fields timeout, one_time_keys);
+request!(ToDeviceRequest from OriginalToDeviceRequest extracts fields event_type: string, txn_id: string and groups fields messages);
+request!(SignatureUploadRequest from OriginalSignatureUploadRequest groups fields signed_keys);
+request!(RoomMessageRequest from OriginalRoomMessageRequest extracts fields room_id: string, txn_id: string and groups fields content);
+request!(KeysBackupRequest from OriginalKeysBackupRequest groups fields rooms);
 
 // Other Requests
-request!(SigningKeysUploadRequest from OriginalUploadSigningKeysRequest maps fields master_key: json, self_signing_key: json, user_signing_key: json);
+request!(SigningKeysUploadRequest from OriginalUploadSigningKeysRequest groups fields master_key, self_signing_key, user_signing_key);
 
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hiding everything behind a
