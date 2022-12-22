@@ -22,8 +22,8 @@ use std::{
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -34,7 +34,7 @@ use super::{
     RoomSettings, Session,
 };
 use crate::{
-    gossiping::{GossipRequest, SecretInfo},
+    gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
@@ -63,6 +63,7 @@ pub struct MemoryStore {
     direct_withheld_info: DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>,
     custom_values: DashMap<String, Vec<u8>>,
     leases: DashMap<String, (String, Instant)>,
+    secret_inbox: DashMap<String, Vec<GossippedSecret>>,
 }
 
 impl Default for MemoryStore {
@@ -78,6 +79,7 @@ impl Default for MemoryStore {
             direct_withheld_info: Default::default(),
             custom_values: Default::default(),
             leases: Default::default(),
+            secret_inbox: Default::default(),
         }
     }
 }
@@ -159,6 +161,10 @@ impl CryptoStore for MemoryStore {
             self.key_requests_by_info.insert(info_string, id);
         }
 
+        for secret in changes.secrets {
+            self.secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
+        }
+
         for (room_id, data) in changes.withheld_session_info {
             for (session_id, event) in data {
                 self.direct_withheld_info
@@ -181,6 +187,17 @@ impl CryptoStore for MemoryStore {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         Ok(self.inbound_group_sessions.get(room_id, session_id))
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        Ok(self
+            .direct_withheld_info
+            .get(room_id)
+            .and_then(|e| Some(e.value().get(session_id)?.value().to_owned())))
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -213,6 +230,10 @@ impl CryptoStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
+        Ok(BackupKeys::default())
     }
 
     async fn get_outbound_group_session(&self, _: &RoomId) -> Result<Option<OutboundGroupSession>> {
@@ -291,19 +312,17 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        Ok(BackupKeys::default())
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>> {
+        Ok(self.secret_inbox.entry(secret_name.to_string()).or_default().to_owned())
     }
 
-    async fn get_withheld_info(
-        &self,
-        room_id: &RoomId,
-        session_id: &str,
-    ) -> Result<Option<RoomKeyWithheldEvent>> {
-        Ok(self
-            .direct_withheld_info
-            .get(room_id)
-            .and_then(|e| Some(e.value().get(session_id)?.value().to_owned())))
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        self.secret_inbox.remove(secret_name.as_str());
+
+        Ok(())
     }
 
     async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {

@@ -649,11 +649,12 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &self,
         event: &EncryptedToDeviceEvent,
+        changes: &mut Changes,
     ) -> OlmResult<OlmDecryptionInfo> {
         let mut decrypted = self.inner.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
-        self.handle_decrypted_to_device_event(&mut decrypted).await?;
+        self.handle_decrypted_to_device_event(&mut decrypted, changes).await?;
 
         Ok(decrypted)
     }
@@ -894,6 +895,7 @@ impl OlmMachine {
     async fn handle_decrypted_to_device_event(
         &self,
         decrypted: &mut OlmDecryptionInfo,
+        changes: &mut Changes,
     ) -> OlmResult<()> {
         debug!("Received a decrypted to-device event");
 
@@ -914,7 +916,7 @@ impl OlmMachine {
                 let name = self
                     .inner
                     .key_request_machine
-                    .receive_secret_event(decrypted.result.sender_key, e)
+                    .receive_secret_event(decrypted.result.sender_key, e, changes)
                     .await?;
 
                 // Set the secret name so other consumers of the event know
@@ -1048,7 +1050,7 @@ impl OlmMachine {
 
         match event {
             ToDeviceEvents::RoomEncrypted(e) => {
-                let decrypted = match self.decrypt_to_device_event(&e).await {
+                let decrypted = match self.decrypt_to_device_event(&e, changes).await {
                     Ok(e) => e,
                     Err(err) => {
                         if let OlmError::SessionWedged(sender, curve_key) = err {
@@ -1947,6 +1949,7 @@ pub(crate) mod tests {
         error::EventError,
         machine::OlmMachine,
         olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
+        store::Changes,
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -2083,7 +2086,7 @@ pub(crate) mod tests {
         let event =
             ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as().unwrap());
 
-        let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = bob.decrypt_to_device_event(&event, &mut Changes::default()).await.unwrap();
         bob.store().save_sessions(&[decrypted.session.session()]).await.unwrap();
 
         (alice, bob)
@@ -2417,9 +2420,8 @@ pub(crate) mod tests {
         );
 
         // Decrypting the first time should succeed.
-
         let decrypted = bob
-            .decrypt_to_device_event(&event)
+            .decrypt_to_device_event(&event, &mut Changes::default())
             .await
             .expect("We should be able to decrypt the event.")
             .result
@@ -2431,7 +2433,7 @@ pub(crate) mod tests {
         assert_eq!(&decrypted.sender, alice.user_id());
 
         // Replaying the event should now result in a decryption failure.
-        bob.decrypt_to_device_event(&event).await.expect_err(
+        bob.decrypt_to_device_event(&event, &mut Changes::default()).await.expect_err(
             "Decrypting a replayed event should not succeed, even if it's a pre-key message",
         );
     }
@@ -2507,8 +2509,12 @@ pub(crate) mod tests {
 
         let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
 
-        let group_session =
-            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session.unwrap();
+        let group_session = bob
+            .decrypt_to_device_event(&event, &mut Changes::default())
+            .await
+            .unwrap()
+            .inbound_group_session
+            .unwrap();
         bob.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
 
         // when we decrypt the room key, the
@@ -2651,8 +2657,11 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
-        let group_session =
-            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
+        let group_session = bob
+            .decrypt_to_device_event(&event, &mut Changes::default())
+            .await
+            .unwrap()
+            .inbound_group_session;
 
         let export = group_session.as_ref().unwrap().clone().export().await;
 
@@ -3068,8 +3077,11 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
-        let group_session =
-            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
+        let group_session = bob
+            .decrypt_to_device_event(&event, &mut Changes::default())
+            .await
+            .unwrap()
+            .inbound_group_session;
         bob.store().save_inbound_group_sessions(&[group_session.unwrap()]).await.unwrap();
 
         let room_event = json_convert(&room_event).unwrap();
@@ -3383,7 +3395,7 @@ pub(crate) mod tests {
         let event: EncryptedToDeviceEvent = serde_json::from_value(event).unwrap();
 
         assert_matches!(
-            bob.decrypt_to_device_event(&event).await,
+            bob.decrypt_to_device_event(&event, &mut Changes::default()).await,
             Err(OlmError::EventError(EventError::UnsupportedAlgorithm))
         );
 

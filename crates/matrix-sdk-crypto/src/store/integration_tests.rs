@@ -10,6 +10,7 @@ macro_rules! cryptostore_integration_tests {
             use ruma::{
                 device_id,
                 encryption::SignedKey,
+                events::secret::request::SecretName,
                 room_id,
                 serde::{Base64, Raw},
                 to_device::DeviceIdOrAllDevices,
@@ -34,11 +35,13 @@ macro_rules! cryptostore_integration_tests {
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent, WithheldCode,
                         },
+                        olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
+                        secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
                     EventEncryptionAlgorithm,
                 },
-                ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
+                ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser, GossippedSecret,
             };
 
             use super::get_store;
@@ -639,6 +642,82 @@ macro_rules! cryptostore_integration_tests {
                 let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
                 assert_eq!(None, stored_request);
                 assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
+            }
+
+            #[async_test]
+            async fn gossipped_secret_saving() {
+                let (account, store) = get_loaded_store("key_request_saving").await;
+
+                let secret = "It is a secret to everybody";
+
+                let id = TransactionId::new();
+                let info: SecretInfo = MegolmV1AesSha2Content {
+                    room_id: room_id!("!test:localhost").to_owned(),
+                    sender_key: account.identity_keys().curve25519,
+                    session_id: "test_session_id".to_owned(),
+                }
+                .into();
+
+                let gossip_request = GossipRequest {
+                    request_recipient: account.user_id().to_owned(),
+                    request_id: id.clone(),
+                    info: info.clone(),
+                    sent_out: true,
+                };
+
+                let mut event = DecryptedSecretSendEvent {
+                    sender: account.user_id().to_owned(),
+                    recipient: account.user_id().to_owned(),
+                    keys: OlmV1Keys {
+                        ed25519: account.identity_keys().ed25519,
+                    },
+                    recipient_keys: OlmV1Keys {
+                        ed25519: account.identity_keys().ed25519,
+                    },
+                    content: SecretSendContent::new(id.to_owned(), secret.to_owned()),
+                };
+
+                let value = GossippedSecret {
+                    secret_name: SecretName::RecoveryKey,
+                    gossip_request: gossip_request.to_owned(),
+                    event: event.to_owned(),
+                };
+
+                assert!(
+                    store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap().is_empty(),
+                    "No secret should initially be found in the store"
+                );
+
+                let mut changes = Changes::default();
+                changes.secrets.push(value);
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                let first_secret = restored.first().expect("We should have restored a secret now");
+                assert_eq!(first_secret.event.content.secret, secret);
+                assert_eq!(restored.len(), 1, "We should only have one secret stored for now");
+
+                event.content.request_id = TransactionId::new();
+                let another_secret = GossippedSecret {
+                    secret_name: SecretName::RecoveryKey,
+                    gossip_request,
+                    event,
+                };
+
+                let mut changes = Changes::default();
+                changes.secrets.push(another_secret);
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                assert_eq!(restored.len(), 2, "We should only have two secrets stored");
+
+                let restored = store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
+                assert!(restored.is_empty(), "We should not have secrets of a different type stored");
+
+                store.delete_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+
+                let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                assert!(restored.is_empty(), "We should not have any secrets after we have deleted them");
             }
 
             #[async_test]

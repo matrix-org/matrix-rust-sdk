@@ -29,12 +29,13 @@ use matrix_sdk_crypto::{
     },
     store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
+    SecretInfo, TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
@@ -195,7 +196,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 7;
+const DATABASE_VERSION: u8 = 8;
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
@@ -263,6 +264,13 @@ async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 8 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))
+        })
+        .await?;
+    }
+
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
@@ -308,6 +316,8 @@ trait SqliteConnectionExt {
     ) -> rusqlite::Result<()>;
 
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_secret(&self, request_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -422,6 +432,16 @@ impl SqliteConnectionExt for rusqlite::Connection {
             ON CONFLICT (room_id) DO UPDATE SET data = ?2",
             (room_id, data),
         )?;
+        Ok(())
+    }
+
+    fn set_secret(&self, secret_name: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO secrets (secret_name, data)
+            VALUES (?1, ?2)",
+            (secret_name, data),
+        )?;
+
         Ok(())
     }
 }
@@ -589,6 +609,19 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
     async fn delete_key_request(&self, request_id: Key) -> Result<()> {
         self.execute("DELETE FROM key_requests WHERE request_id = ?", (request_id,)).await?;
+        Ok(())
+    }
+
+    async fn get_secrets_from_inbox(&self, secret_name: Key) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM secrets WHERE secret_name = ?", |mut stmt| {
+                stmt.query((secret_name,))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: Key) -> Result<()> {
+        self.execute("DELETE FROM secrets WHERE secret_name = ?", (secret_name,)).await?;
         Ok(())
     }
 
@@ -803,6 +836,12 @@ impl CryptoStore for SqliteCryptoStore {
                     let room_id = this.encode_key("room_settings", room_id.as_bytes());
                     let value = this.serialize_value(&settings)?;
                     txn.set_room_settings(&room_id, &value)?;
+                }
+
+                for secret in changes.secrets {
+                    let secret_name = this.encode_key("secrets", secret.secret_name.to_string());
+                    let value = this.serialize_json(&secret)?;
+                    txn.set_secret(&secret_name, &value)?;
                 }
 
                 Ok::<_, Error>(())
@@ -1060,6 +1099,26 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
+    }
+
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>> {
+        let secret_name = self.encode_key("secrets", secret_name.to_string());
+
+        self.acquire()
+            .await?
+            .get_secrets_from_inbox(secret_name)
+            .await?
+            .into_iter()
+            .map(|value| self.deserialize_json(value.as_ref()))
+            .collect()
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        let secret_name = self.encode_key("secrets", secret_name.to_string());
+        self.acquire().await?.delete_secrets_from_inbox(secret_name).await
     }
 
     async fn get_withheld_info(
