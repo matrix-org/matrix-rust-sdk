@@ -266,7 +266,7 @@ jobs:
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
         with:
-          version: latest
+          version: v0.10.3
 
       - name: Load cache
         uses: Swatinem/rust-cache@v1
