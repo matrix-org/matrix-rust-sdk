@@ -36,7 +36,7 @@ use ruma::{
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::{
     event_item::{BundledReactions, Sticker, TimelineDetails},
@@ -470,7 +470,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 }
 
                 if let Some((idx, old_item)) = find_event_by_id(self.timeline_items, event_id) {
-                    warn!(
+                    // This occurs very often right now due to a sliding-sync
+                    // bug: https://github.com/matrix-org/sliding-sync/issues/3
+                    // TODO: Use warn log level once that bug is fixed.
+                    trace!(
                         ?item,
                         ?old_item,
                         raw = raw_event.json().get(),
