@@ -1,9 +1,10 @@
 use std::sync::{Arc, RwLock};
 
+use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
         identities::UserIdentity,
-        verification::{SasVerification, VerificationRequest},
+        verification::{SasState, SasVerification, VerificationRequest},
     },
     ruma::{
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
@@ -36,10 +37,12 @@ pub trait SessionVerificationControllerDelegate: Sync + Send {
     fn did_finish(&self);
 }
 
+pub type Delegate = Arc<RwLock<Option<Box<dyn SessionVerificationControllerDelegate>>>>;
+
 #[derive(Clone)]
 pub struct SessionVerificationController {
     user_identity: UserIdentity,
-    delegate: Arc<RwLock<Option<Box<dyn SessionVerificationControllerDelegate>>>>,
+    delegate: Delegate,
     verification_request: Arc<RwLock<Option<VerificationRequest>>>,
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
 }
@@ -111,56 +114,13 @@ impl SessionVerificationController {
 
     pub async fn process_to_device_message(&self, event: AnyToDeviceEvent) {
         match event {
+            // TODO: Use the changes stream for this as well once we expose
+            // VerificationRequest::changes() in the main crate.
             AnyToDeviceEvent::KeyVerificationReady(event) => {
                 if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
                     return;
                 }
                 self.start_sas_verification().await;
-            }
-            AnyToDeviceEvent::KeyVerificationCancel(event) => {
-                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                    return;
-                }
-
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_cancel()
-                }
-            }
-            AnyToDeviceEvent::KeyVerificationKey(event) => {
-                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                    return;
-                }
-
-                if let Some(sas_verification) = &*self.sas_verification.read().unwrap() {
-                    if let Some(emojis) = sas_verification.emoji() {
-                        if let Some(delegate) = &*self.delegate.read().unwrap() {
-                            let emojis = emojis
-                                .iter()
-                                .map(|e| {
-                                    Arc::new(SessionVerificationEmoji {
-                                        symbol: e.symbol.to_owned(),
-                                        description: e.description.to_owned(),
-                                    })
-                                })
-                                .collect::<Vec<_>>();
-
-                            delegate.did_receive_verification_data(emojis);
-                        }
-                    } else if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_fail()
-                    }
-                } else if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_fail()
-                }
-            }
-            AnyToDeviceEvent::KeyVerificationDone(event) => {
-                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
-                    return;
-                }
-
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_finish()
-                }
             }
             _ => (),
         }
@@ -179,14 +139,63 @@ impl SessionVerificationController {
         }
     }
 
+    async fn listen_to_changes(delegate: Delegate, sas: SasVerification) {
+        let mut stream = sas.changes();
+
+        while let Some(state) = stream.next().await {
+            match state {
+                SasState::KeysExchanged { emojis, decimals: _ } => {
+                    // TODO: If emojis is None, decimals should be used.
+                    if let Some(emojis) = emojis {
+                        if let Some(delegate) = &*delegate.read().unwrap() {
+                            let emojis = emojis
+                                .emojis
+                                .iter()
+                                .map(|e| {
+                                    Arc::new(SessionVerificationEmoji {
+                                        symbol: e.symbol.to_owned(),
+                                        description: e.description.to_owned(),
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+
+                            delegate.did_receive_verification_data(emojis);
+                        }
+                    } else if let Some(delegate) = &*delegate.read().unwrap() {
+                        delegate.did_fail()
+                    }
+                }
+                SasState::Done { .. } => {
+                    if let Some(delegate) = &*delegate.read().unwrap() {
+                        delegate.did_finish()
+                    }
+                    break;
+                }
+                SasState::Cancelled(_cancel_info) => {
+                    // TODO: The cancel_info is usable, we should tell the user why we were
+                    // cancelled.
+                    if let Some(delegate) = &*delegate.read().unwrap() {
+                        delegate.did_cancel()
+                    }
+                    break;
+                }
+                SasState::Started { .. } | SasState::Accepted { .. } | SasState::Confirmed => (),
+            }
+        }
+    }
+
     async fn start_sas_verification(&self) {
         let verification_request = self.verification_request.read().unwrap().clone();
+
         if let Some(verification) = verification_request {
             match verification.start_sas().await {
-                Ok(verification) => {
-                    *self.sas_verification.write().unwrap() = verification;
+                Ok(Some(verification)) => {
+                    *self.sas_verification.write().unwrap() = Some(verification.clone());
+
+                    let delegate = self.delegate.clone();
+                    RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
                 }
-                Err(_) => {
+                _ => {
                     if let Some(delegate) = &*self.delegate.read().unwrap() {
                         delegate.did_fail()
                     }
