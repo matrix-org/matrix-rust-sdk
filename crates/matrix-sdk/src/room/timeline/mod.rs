@@ -33,7 +33,7 @@ use tracing::{error, instrument};
 
 use super::{Joined, Room};
 use crate::{
-    event_handler::EventHandlerDropGuard,
+    event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
     Result,
 };
@@ -70,11 +70,15 @@ pub struct Timeline {
     room: room::Common,
     start_token: StdMutex<Option<String>>,
     _end_token: StdMutex<Option<String>>,
-    _timeline_event_handler_guard: EventHandlerDropGuard,
-    _fully_read_handler_guard: Option<EventHandlerDropGuard>,
-    #[cfg(feature = "e2e-encryption")]
-    _room_key_handler_guard: EventHandlerDropGuard,
-    _forwarded_room_key_handler_guard: EventHandlerDropGuard,
+    event_handler_handles: Vec<EventHandlerHandle>,
+}
+
+impl Drop for Timeline {
+    fn drop(&mut self) {
+        for handle in self.event_handler_handles.drain(..) {
+            self.room.client.remove_event_handler(handle);
+        }
+    }
 }
 
 /// Non-signalling parts of `TimelineInner`.
@@ -110,8 +114,6 @@ impl Timeline {
                 }
             }
         });
-        let _timeline_event_handler_guard =
-            room.client.event_handler_drop_guard(timeline_event_handle);
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
@@ -120,27 +122,24 @@ impl Timeline {
             .client
             .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
         #[cfg(feature = "e2e-encryption")]
-        let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
-
-        #[cfg(feature = "e2e-encryption")]
         let forwarded_room_key_handle = room.client.add_event_handler(
             handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
         );
-        #[cfg(feature = "e2e-encryption")]
-        let _forwarded_room_key_handler_guard =
-            room.client.event_handler_drop_guard(forwarded_room_key_handle);
+
+        let event_handler_handles = vec![
+            timeline_event_handle,
+            #[cfg(feature = "e2e-encryption")]
+            room_key_handle,
+            #[cfg(feature = "e2e-encryption")]
+            forwarded_room_key_handle,
+        ];
 
         Timeline {
             inner,
             room: room.clone(),
             start_token: StdMutex::new(prev_token),
             _end_token: StdMutex::new(None),
-            _timeline_event_handler_guard,
-            _fully_read_handler_guard: None,
-            #[cfg(feature = "e2e-encryption")]
-            _room_key_handler_guard,
-            #[cfg(feature = "e2e-encryption")]
-            _forwarded_room_key_handler_guard,
+            event_handler_handles,
         }
     }
 
@@ -168,8 +167,7 @@ impl Timeline {
                 inner.handle_fully_read(event).await;
             }
         });
-        self._fully_read_handler_guard =
-            Some(self.room.client.event_handler_drop_guard(fully_read_handle));
+        self.event_handler_handles.push(fully_read_handle);
 
         self
     }
