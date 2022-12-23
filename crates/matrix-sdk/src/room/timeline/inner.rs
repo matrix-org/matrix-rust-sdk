@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use futures_signals::signal_vec::{MutableVec, MutableVecLockMut};
 use matrix_sdk_base::{
@@ -7,9 +10,13 @@ use matrix_sdk_base::{
     locks::Mutex,
 };
 use ruma::{
-    events::{fully_read::FullyReadEvent, AnyMessageLikeEventContent, AnySyncTimelineEvent},
+    events::{
+        fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
+        AnySyncTimelineEvent,
+    },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use tracing::{error, info, warn};
 #[cfg(feature = "e2e-encryption")]
@@ -20,7 +27,7 @@ use super::{
         update_read_marker, Flow, TimelineEventHandler, TimelineEventKind, TimelineEventMetadata,
         TimelineItemPosition,
     },
-    find_event_by_txn_id, TimelineInnerMetadata, TimelineItem, TimelineKey,
+    find_event_by_txn_id, TimelineItem, TimelineKey,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -28,6 +35,15 @@ use crate::events::SyncTimelineEventWithoutContent;
 pub(super) struct TimelineInner {
     pub(super) items: MutableVec<Arc<TimelineItem>>,
     pub(super) metadata: Mutex<TimelineInnerMetadata>,
+}
+
+/// Non-signalling parts of `TimelineInner`.
+#[derive(Debug, Default)]
+pub(super) struct TimelineInnerMetadata {
+    // Reaction event / txn ID => sender and reaction data
+    pub(super) reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    pub(super) fully_read_event: Option<OwnedEventId>,
+    pub(super) fully_read_event_in_timeline: bool,
 }
 
 impl TimelineInner {

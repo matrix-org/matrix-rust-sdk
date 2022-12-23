@@ -16,18 +16,15 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex as StdMutex},
-};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
 use ruma::{
     assign,
-    events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
-    EventId, OwnedEventId, OwnedUserId, TransactionId, UInt,
+    events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
+    EventId, TransactionId, UInt,
 };
 use tracing::{error, instrument};
 
@@ -55,7 +52,7 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    inner::TimelineInner,
+    inner::{TimelineInner, TimelineInnerMetadata},
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
@@ -79,15 +76,6 @@ impl Drop for Timeline {
             self.room.client.remove_event_handler(handle);
         }
     }
-}
-
-/// Non-signalling parts of `TimelineInner`.
-#[derive(Debug, Default)]
-struct TimelineInnerMetadata {
-    // Reaction event / txn ID => sender and reaction data
-    reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
-    fully_read_event: Option<OwnedEventId>,
-    fully_read_event_in_timeline: bool,
 }
 
 impl Timeline {
