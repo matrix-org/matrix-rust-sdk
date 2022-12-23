@@ -18,11 +18,6 @@ This crate allows you to use your postgres/sqlite database as a state and crypto
 
 Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres` or `sqlite` must be enabled.
 
-## Minimum Supported Rust Version
-The MSRV is currently 1.62.0.
-
-Increasing the MSRV is a breaking change.
-
 ## Usage
 
 This crate integrates with your existing [SQLx](https://github.com/launchbadge/sqlx) database pool.
@@ -64,30 +59,3 @@ If you are using the `store_config` function, the store will be automatically un
 ## License
 
 This project is licensed under the Apache-2.0 License - see the [LICENSE.md](LICENSE.md) file for details
-
-## Acknowledgments
-
-- [awesome-readme](https://github.com/matiassingers/awesome-readme)
-- [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk)
-
-## Contributors
-
-<!-- readme: contributors -start -->
-<table>
-<tr>
-    <td align="center">
-        <a href="https://github.com/DarkKirb">
-            <img src="https://avatars.githubusercontent.com/u/23011243?v=4" width="100;" alt="DarkKirb"/>
-            <br />
-            <sub><b>Charlotte</b></sub>
-        </a>
-    </td>
-    <td align="center">
-        <a href="https://github.com/jplatte">
-            <img src="https://avatars.githubusercontent.com/u/951129?v=4" width="100;" alt="jplatte"/>
-            <br />
-            <sub><b>Jonas Platte</b></sub>
-        </a>
-    </td></tr>
-</table>
-<!-- readme: contributors -end -->
