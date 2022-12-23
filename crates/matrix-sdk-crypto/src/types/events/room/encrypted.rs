@@ -249,19 +249,6 @@ impl SupportedEventEncryptionSchemes<'_> {
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.session_id,
         }
     }
-
-    /// The algorithm that was used to encrypt the event content.
-    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
-        match self {
-            SupportedEventEncryptionSchemes::MegolmV1AesSha2(_) => {
-                EventEncryptionAlgorithm::MegolmV1AesSha2
-            }
-            #[cfg(feature = "experimental-algorithms")]
-            SupportedEventEncryptionSchemes::MegolmV2AesSha2(_) => {
-                EventEncryptionAlgorithm::MegolmV2AesSha2
-            }
-        }
-    }
 }
 
 impl<'a> From<&'a MegolmV1AesSha2Content> for SupportedEventEncryptionSchemes<'a> {
