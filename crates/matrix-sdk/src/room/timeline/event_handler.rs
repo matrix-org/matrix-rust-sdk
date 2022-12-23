@@ -36,7 +36,11 @@ use ruma::{
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{
+    debug, error,
+    field::{debug, display},
+    info, instrument, trace, warn,
+};
 
 use super::{
     event_item::{BundledReactions, Sticker, TimelineDetails},
@@ -164,6 +168,7 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
     }
 }
 
+#[derive(Debug)]
 pub(super) enum TimelineItemPosition {
     Start,
     End,
@@ -223,11 +228,36 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     /// Handle an event.
     ///
     /// Returns the number of timeline updates that were made.
+    #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> u16 {
+        let span = tracing::Span::current();
+        match &self.flow {
+            Flow::Local { txn_id, .. } => {
+                span.record("txn_id", display(txn_id));
+            }
+            Flow::Remote { event_id, txn_id, position, .. } => {
+                span.record("event_id", display(event_id));
+                span.record("position", debug(position));
+                if let Some(txn_id) = txn_id {
+                    span.record("txn_id", display(txn_id));
+                }
+            }
+        }
+
         match event_kind {
             TimelineEventKind::Message { content } => match content {
-                AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
-                AnyMessageLikeEventContent::RoomMessage(c) => self.handle_room_message(c),
+                AnyMessageLikeEventContent::Reaction(c) => {
+                    self.handle_reaction(c);
+                }
+                AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
+                    relates_to: Some(message::Relation::Replacement(re)),
+                    ..
+                }) => {
+                    self.handle_room_message_edit(re);
+                }
+                AnyMessageLikeEventContent::RoomMessage(c) => {
+                    self.add(NewEventTimelineItem::message(c, self.meta.relations.clone()));
+                }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {
                     self.add(NewEventTimelineItem::sticker(c));
@@ -259,24 +289,12 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         self.item_created as u16 + self.items_updated
     }
 
-    fn handle_room_message(&mut self, content: RoomMessageEventContent) {
-        match content.relates_to {
-            Some(message::Relation::Replacement(re)) => {
-                self.handle_room_message_edit(re);
-            }
-            _ => {
-                self.add(NewEventTimelineItem::message(content, self.meta.relations.clone()));
-            }
-        }
-    }
-
+    #[instrument(skip_all, fields(replacement_event_id = %replacement.event_id))]
     fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
-        let event_id = &replacement.event_id;
-
-        update_timeline_item!(self, event_id, "edit", |item| {
+        update_timeline_item!(self, &replacement.event_id, "edit", |item| {
             if self.meta.sender != item.sender() {
                 info!(
-                    %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
+                    original_sender = %item.sender(), edit_sender = %self.meta.sender,
                     "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
@@ -285,26 +303,20 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             let msg = match &item.content {
                 TimelineItemContent::Message(msg) => msg,
                 TimelineItemContent::RedactedMessage => {
-                    info!(%event_id, "Edit event applies to a redacted message, discarding");
+                    info!("Edit event applies to a redacted message, discarding");
                     return None;
                 }
                 TimelineItemContent::Sticker(_) => {
-                    info!(%event_id, "Edit event applies to a sticker, discarding");
+                    info!("Edit event applies to a sticker, discarding");
                     return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
-                    info!(
-                        %event_id,
-                        "Edit event applies to event that couldn't be decrypted, discarding"
-                    );
+                    info!("Edit event applies to event that couldn't be decrypted, discarding");
                     return None;
                 }
                 TimelineItemContent::FailedToParseMessageLike { .. }
                 | TimelineItemContent::FailedToParseState { .. } => {
-                    info!(
-                        %event_id,
-                        "Edit event applies to event that couldn't be parsed, discarding"
-                    );
+                    info!("Edit event applies to event that couldn't be parsed, discarding");
                     return None;
                 }
             };
@@ -315,11 +327,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 edited: true,
             });
 
+            trace!("Applying edit");
             Some(item.with_content(content))
         });
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
+    #[instrument(skip_all, fields(relates_to_event_id = %c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
 
@@ -327,7 +341,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
             if let TimelineItemContent::RedactedMessage = item.content {
-                debug!(%event_id, "Ignoring reaction on redacted event");
+                debug!("Ignoring reaction on redacted event");
                 None
             } else {
                 let mut reactions = item.reactions.clone();
@@ -339,6 +353,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     senders.push(self.meta.sender.clone());
                 }
 
+                trace!("Adding reaction");
                 Some(item.with_reactions(reactions))
             }
         });
@@ -348,11 +363,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         }
     }
 
+    #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
         match c.relates_to {
             Some(encrypted::Relation::Replacement(_) | encrypted::Relation::Annotation(_)) => {
                 // Do nothing for these, as they would not produce a new
                 // timeline item when decrypted either
+                debug!("Ignoring aggregating event that failed to decrypt");
             }
             _ => {
                 self.add(NewEventTimelineItem::unable_to_decrypt(c));
@@ -361,6 +378,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
+    #[instrument(skip_all, fields(redacts_event_id = %redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
         if let Some((sender, rel)) =
             self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
@@ -405,6 +423,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     // return here.
                 }
 
+                trace!("Removing reaction");
                 Some(item.with_reactions(reactions))
             });
 
@@ -420,7 +439,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         if self.items_updated > 0 {
             // We will want to know this when debugging redaction issues.
-            debug!(redaction_key = ?self.flow.to_key(), %redacts, "redaction affected no event");
+            debug!(redaction_key = ?self.flow.to_key(), "redaction affected no event");
         }
     }
 
@@ -479,7 +498,6 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                         return;
                     } else {
                         warn!(
-                            %txn_id, %event_id,
                             "Received event with transaction ID, but didn't \
                              find matching timeline item"
                         );
@@ -623,7 +641,7 @@ fn _update_timeline_item(
             *items_updated += 1;
         }
     } else {
-        debug!(%event_id, "Timeline item not found, discarding {action}");
+        debug!("Timeline item not found, discarding {action}");
     }
 }
 
