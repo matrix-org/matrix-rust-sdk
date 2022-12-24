@@ -586,13 +586,13 @@ pub struct SlidingSync {
     /// keeping track of retries and failure cunts
     failure_count: Arc<AtomicU8>,
 
-    /// the initial set of extensions used for this sliding sync instance - this is what
-    /// we reset the extensions to when the session expires.
+    /// the initial set of extensions used for this sliding sync instance - this
+    /// is what we reset the extensions to when the session expires.
     initial_extensions: Option<ExtensionsConfig>,
 
-    /// the current state of the extensions being supplied to sliding /sync calls
-    /// may be None, if the extensions are static and sticky, or may contain the latest next_batch
-    /// for to_devices, etc.
+    /// the current state of the extensions being supplied to sliding /sync
+    /// calls may be None, if the extensions are static and sticky, or may
+    /// contain the latest next_batch for to_devices, etc.
     extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
@@ -761,7 +761,10 @@ impl SlidingSync {
         let views = self.views.lock_ref().to_vec();
         let client = self.client.clone();
 
-        tracing::debug!("Setting view stream going with self.initial_extensions={:?}", self.initial_extensions);
+        tracing::debug!(
+            "Setting view stream going with self.initial_extensions={:?}",
+            self.initial_extensions
+        );
         tracing::debug!("Setting view stream going with self.extensions={:?}", self.extensions);
 
         Ok(async_stream::stream! {
