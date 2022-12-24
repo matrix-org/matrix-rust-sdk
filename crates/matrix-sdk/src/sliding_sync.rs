@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -423,7 +423,8 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
-            extensions: Mutable::new(extensions),
+            initial_extensions: extensions.clone(),
+            extensions: Mutex::new(extensions).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
@@ -585,7 +586,14 @@ pub struct SlidingSync {
     /// keeping track of retries and failure cunts
     failure_count: Arc<AtomicU8>,
 
-    extensions: Mutable<Option<ExtensionsConfig>>,
+    /// the initial set of extensions used for this sliding sync instance - this is what
+    /// we reset the extensions to when the session expires.
+    initial_extensions: Option<ExtensionsConfig>,
+
+    /// the current state of the extensions being supplied to sliding /sync calls
+    /// may be None, if the extensions are static and sticky, or may contain the latest next_batch
+    /// for to_devices, etc.
+    extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -664,7 +672,8 @@ impl SlidingSync {
 
     fn update_to_device_since(&self, since: String) {
         self.extensions
-            .lock_mut()
+            .lock()
+            .unwrap()
             .get_or_insert_with(Default::default)
             .to_device
             .get_or_insert_with(Default::default)
@@ -750,17 +759,20 @@ impl SlidingSync {
         &self,
     ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
-        let extensions = self.extensions.clone();
         let client = self.client.clone();
 
+        tracing::debug!("Setting view stream going with self.initial_extensions={:?}", self.initial_extensions);
+        tracing::debug!("Setting view stream going with self.extensions={:?}", self.extensions);
+
         Ok(async_stream::stream! {
-            let initial_extensions = extensions.lock_ref().clone();
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                tracing::debug!("Sync loop running with self.extensions={:?}", self.extensions);
+
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
@@ -794,7 +806,8 @@ impl SlidingSync {
                     pos,
                     room_subscriptions,
                     unsubscribe_rooms,
-                    extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
+                    // extensions are sticky, we pop them here once; they will get rebuilt again if needed
+                    extensions: self.extensions.lock().unwrap().take().unwrap_or_default(),
                 });
                 tracing::debug!("requesting");
 
@@ -830,7 +843,11 @@ impl SlidingSync {
                                 .map(SlidingSyncView::request_generator)
                                 .collect();
                             *self.pos.lock_mut() = None;
-                            *self.extensions.lock_mut() = initial_extensions.clone();
+                            *self.extensions.lock().unwrap() = self.initial_extensions.clone();
+
+                            tracing::debug!("Resetting view stream with self.initial_extensions={:?}", self.initial_extensions);
+                            tracing::debug!("Resetting view stream with self.extensions={:?}", self.extensions);
+
                             continue
                         }
                         yield Err(e.into());
