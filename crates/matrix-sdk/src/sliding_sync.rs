@@ -814,7 +814,7 @@ impl SlidingSync {
                     // then we don't know to re-add the sticky extension on the next request. So either we need to retry
                     // and queue all requests as a matter of course - or we need to only pop extensions when we know this
                     // req has succeeded. for now, we make extensions non-sticky to make things work reliably...
-                    extensions: self.extensions.lock().unwrap().as_ref().unwrap().clone(),
+                    extensions: self.extensions.lock().unwrap().clone().unwrap_or_default(),
                 });
                 tracing::debug!("requesting");
 
