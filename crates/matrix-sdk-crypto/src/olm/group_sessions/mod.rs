@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, JsOption, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
 mod inbound;
@@ -156,7 +156,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                                 .forwarding_curve25519_key_chain
                                 .clone(),
                             other: Default::default(),
-                            trusted: Some(room_key.trusted),
+                            trusted: JsOption::Some(room_key.trusted),
                         }
                         .into(),
                     ))

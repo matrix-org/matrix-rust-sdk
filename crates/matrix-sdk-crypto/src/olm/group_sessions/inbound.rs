@@ -25,7 +25,7 @@ use matrix_sdk_common::{deserialized_responses::KeySafety, locks::Mutex};
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
+    DeviceKeyAlgorithm, JsOption, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -524,7 +524,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
             safety: match value.trusted {
-                Some(true) => KeySafety::Safe,
+                JsOption::Some(true) => KeySafety::Safe,
                 _ => KeySafety::Unsafe,
             },
         }
@@ -549,7 +549,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
             safety: match value.trusted {
-                Some(true) => KeySafety::Safe,
+                JsOption::Some(true) => KeySafety::Safe,
                 _ => KeySafety::Unsafe,
             },
         }

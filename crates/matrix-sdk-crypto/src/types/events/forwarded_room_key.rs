@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, JsOption, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey, Ed25519PublicKey};
@@ -136,9 +136,9 @@ pub struct ForwardedMegolmV1AesSha2Content {
     #[serde(
         rename = "org.matrix.msc3879.trusted",
         default = "default_forward_trusted",
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "JsOption::is_undefined"
     )]
-    pub trusted: Option<bool>,
+    pub trusted: JsOption<bool>,
 }
 
 /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key` content.
@@ -178,12 +178,16 @@ pub struct ForwardedMegolmV2AesSha2Content {
     /// The property is set to true if the forwarder believes the session should
     /// be trusted. If the property is set to false or is absent, this
     /// indicates that the session cannot be trusted.
-    #[serde(rename = "org.matrix.msc3879.trusted", default = "default_forward_trusted")]
-    pub trusted: Option<bool>,
+    #[serde(
+        rename = "org.matrix.msc3879.trusted",
+        default = "default_forward_trusted",
+        skip_serializing_if = "JsOption::is_undefined"
+    )]
+    pub trusted: JsOption<bool>,
 }
 
-fn default_forward_trusted() -> Option<bool> {
-    None
+fn default_forward_trusted() -> JsOption<bool> {
+    JsOption::Undefined
 }
 
 /// An unknown and unsupported `m.forwarded_room_key` algorithm.
