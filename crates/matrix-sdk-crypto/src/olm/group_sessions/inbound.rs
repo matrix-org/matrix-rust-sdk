@@ -208,15 +208,15 @@ impl InboundGroupSession {
 
     /// Is this session safe.
     pub fn trusted(&self) -> bool {
-        return match self.safety {
+        match self.safety {
             KeySafety::Safe => true,
             KeySafety::Unsafe => false,
-        };
+        }
     }
 
     /// Session safety
     pub fn key_safety(&self) -> KeySafety {
-        return self.safety.into();
+        self.safety
     }
 
     /// Reset the backup state of the inbound group session.
@@ -239,10 +239,10 @@ impl InboundGroupSession {
     /// If not will override and set to unsafe.
     /// This takes ownership of the old version
     pub fn from_trusted_source(self, trusted: bool) -> InboundGroupSession {
-        return InboundGroupSession {
+        InboundGroupSession {
             safety: if trusted { self.safety } else { KeySafety::Unsafe },
             ..self
-        };
+        }
     }
 
     /// Export this session at the given message index.
