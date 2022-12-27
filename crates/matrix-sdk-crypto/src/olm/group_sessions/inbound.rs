@@ -573,6 +573,7 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_common::deserialized_responses::KeySafety;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, DeviceId, UserId};
     use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
@@ -630,6 +631,8 @@ mod test {
         let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
 
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+        // trusted if absent by default should be false
+        assert!(!unpickled.trusted());
     }
 
     #[async_test]
@@ -652,5 +655,32 @@ mod test {
                 .unwrap();
 
         assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
+    }
+
+    #[async_test]
+    async fn session_trusted_flag_import() {
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        assert!(inbound.trusted());
+
+        let from_untrusted_source = inbound.from_trusted_source(false);
+
+        assert!(!from_untrusted_source.trusted());
+
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        assert!(inbound.trusted());
+
+        let from_trusted_source = inbound.from_trusted_source(true);
+
+        assert!(from_trusted_source.trusted());
+
+        let untrusted_copy =
+            InboundGroupSession { safety: KeySafety::Unsafe, ..from_trusted_source };
+
+        assert!(!untrusted_copy.from_trusted_source(true).trusted());
     }
 }

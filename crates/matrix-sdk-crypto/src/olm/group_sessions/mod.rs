@@ -174,6 +174,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                         claimed_sender_key: room_key.sender_key,
                         claimed_signing_keys: room_key.sender_claimed_keys,
                         other: Default::default(),
+                        trusted: JsOption::Some(room_key.trusted),
                     }
                     .into(),
                 ))
