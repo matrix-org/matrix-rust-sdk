@@ -20,6 +20,7 @@ use std::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 
 use futures_core::stream::Stream;
@@ -45,7 +46,7 @@ use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
 use crate::room::timeline::{EventTimelineItem, Timeline};
-use crate::{Client, HttpError, Result, RumaApiError};
+use crate::{Client, HttpError, config::RequestConfig, Result, RumaApiError};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -804,9 +805,11 @@ impl SlidingSync {
                     }
                     unsubs
                 };
+                let timeout = Some(Duration::from_secs(30));
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    timeout,
                     room_subscriptions,
                     unsubscribe_rooms,
                     // extensions are sticky, so we could. pop them here once; they will get rebuilt again if needed
@@ -818,7 +821,9 @@ impl SlidingSync {
                 });
                 tracing::debug!("requesting");
 
-                let req = client.send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string));
+                // 30s for the long poll + 30s for network delays
+                let request_config = RequestConfig::default().timeout(timeout.unwrap() + Duration::from_secs(30));
+                let req = client.send_with_homeserver(req, Some(request_config), self.homeserver.as_ref().map(ToString::to_string));
 
                 #[cfg(feature = "e2e-encryption")]
                 let resp_res = {
