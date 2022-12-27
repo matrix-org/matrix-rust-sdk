@@ -214,6 +214,7 @@ impl InboundGroupSession {
         };
     }
 
+    /// Session safety
     pub fn key_safety(&self) -> KeySafety {
         return self.safety.into();
     }

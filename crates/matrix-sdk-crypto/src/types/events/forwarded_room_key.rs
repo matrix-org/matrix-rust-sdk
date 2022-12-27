@@ -133,7 +133,11 @@ pub struct ForwardedMegolmV1AesSha2Content {
     /// The property is set to true if the forwarder believes the session should
     /// be trusted. If the property is set to false or is absent, this
     /// indicates that the session cannot be trusted.
-    #[serde(rename = "org.matrix.msc3879.trusted", default = "default_forward_trusted")]
+    #[serde(
+        rename = "org.matrix.msc3879.trusted",
+        default = "default_forward_trusted",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub trusted: Option<bool>,
 }
 
