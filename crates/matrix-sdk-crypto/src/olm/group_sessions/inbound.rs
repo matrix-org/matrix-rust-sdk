@@ -21,7 +21,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::{deserialized_responses::KeySafety, locks::Mutex};
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
@@ -80,6 +80,7 @@ pub struct InboundGroupSession {
     imported: bool,
     algorithm: Arc<EventEncryptionAlgorithm>,
     backed_up: Arc<AtomicBool>,
+    safety: KeySafety,
 }
 
 impl InboundGroupSession {
@@ -106,6 +107,7 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
+        safety: KeySafety,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -127,6 +129,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
+            safety,
         })
     }
 
@@ -159,6 +162,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             session_key: backup.session_key,
             sender_claimed_keys: backup.sender_claimed_keys,
+            trusted: false,
         })
     }
 
@@ -180,6 +184,7 @@ impl InboundGroupSession {
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
+            trusted: self.trusted(),
         }
     }
 
@@ -201,6 +206,18 @@ impl InboundGroupSession {
         self.backed_up.load(SeqCst)
     }
 
+    /// Is this session safe.
+    pub fn trusted(&self) -> bool {
+        return match self.safety {
+            KeySafety::Safe => true,
+            KeySafety::Unsafe => false,
+        };
+    }
+
+    pub fn key_safety(&self) -> KeySafety {
+        return self.safety.into();
+    }
+
     /// Reset the backup state of the inbound group session.
     pub fn reset_backup_state(&self) {
         self.backed_up.store(false, SeqCst)
@@ -215,6 +232,16 @@ impl InboundGroupSession {
     /// Get the map of signing keys this session was received from.
     pub fn signing_keys(&self) -> &SigningKeys<DeviceKeyAlgorithm> {
         &self.signing_keys
+    }
+
+    /// If from a trusted source will keep the safe flag
+    /// If not will override and set to unsafe.
+    /// This takes ownership of the old version
+    pub fn from_trusted_source(self, trusted: bool) -> InboundGroupSession {
+        return InboundGroupSession {
+            safety: if trusted { self.safety } else { KeySafety::Unsafe },
+            ..self
+        };
     }
 
     /// Export this session at the given message index.
@@ -232,6 +259,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             sender_claimed_keys: (*self.signing_keys).clone(),
             session_key,
+            trusted: self.trusted(),
         }
     }
 
@@ -262,6 +290,7 @@ impl InboundGroupSession {
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
             imported: pickle.imported,
+            safety: if pickle.trusted { KeySafety::Safe } else { KeySafety::Unsafe },
         })
     }
 
@@ -438,6 +467,10 @@ pub struct PickledInboundGroupSession {
     /// The algorithm of this inbound group session.
     #[serde(default = "default_algorithm")]
     pub algorithm: EventEncryptionAlgorithm,
+    /// Flag remembering if the session is safe. Reflects the fact that we are
+    /// sure that this group key is owned by sender_key.
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
@@ -463,6 +496,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
+            safety: if key.trusted { KeySafety::Safe } else { KeySafety::Unsafe },
         })
     }
 }
@@ -488,6 +522,10 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            safety: match value.trusted {
+                Some(true) => KeySafety::Safe,
+                _ => KeySafety::Unsafe,
+            },
         }
     }
 }
@@ -509,6 +547,10 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            safety: match value.trusted {
+                Some(true) => KeySafety::Safe,
+                _ => KeySafety::Unsafe,
+            },
         }
     }
 }

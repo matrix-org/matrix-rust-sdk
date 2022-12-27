@@ -44,6 +44,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use tokio::runtime::Runtime;
+use tracing::debug;
 use zeroize::Zeroize;
 
 use crate::{
@@ -690,6 +691,7 @@ impl OlmMachine {
                         .cloned(),
                     forwarding_curve25519_chain: vec![],
                     verification_state: encryption_info.verification_state,
+                    key_safety: encryption_info.safety,
                 }
             }
         })
@@ -813,7 +815,17 @@ impl OlmMachine {
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys: Vec<Value> = serde_json::from_str(keys)?;
 
-        let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
+        let keys = keys
+            .into_iter()
+            .map(serde_json::from_value)
+            .filter_map(|k| match k {
+                Ok(export) => Some(export),
+                Err(error) => {
+                    debug!("Failed to deserialize decrypted Key: {}", error.to_string());
+                    None
+                }
+            })
+            .collect();
 
         self.import_room_keys_helper(keys, true, progress_listener)
     }

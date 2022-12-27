@@ -165,6 +165,7 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_common::deserialized_responses::KeySafety;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
@@ -227,6 +228,7 @@ mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            KeySafety::Safe,
         )
         .unwrap();
 

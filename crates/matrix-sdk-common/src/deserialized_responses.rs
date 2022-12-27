@@ -33,6 +33,26 @@ pub enum AlgorithmInfo {
     },
 }
 
+/// Key Safety
+///
+/// A Megolm key is safe iff:
+//
+//     - It was created on the device (i.e. the device has an outbound session).
+//     - It is received via an initial key share (m.room_key).
+//     - It is received via a safe key forward. (forwarded from own trusted device that indicates it
+//       to be safe)
+//     - It is retrieved from a symmetric (v2) Megolm key backup, and it’s indicated that the key is
+//       safe in the encrypted payload
+//
+// Otherwise, the key is unsafe.
+#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+pub enum KeySafety {
+    /// The authenticity of this key is guaranteed
+    Safe,
+    /// The authenticity of this key cannot be guaranteed
+    Unsafe,
+}
+
 /// Struct containing information on how an event was decrypted.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
@@ -48,6 +68,9 @@ pub struct EncryptionInfo {
     /// is the state of the device at the time of decryption. It may change in
     /// the future if a device gets verified or deleted.
     pub verification_state: VerificationState,
+    /// Whether the device that sent this message is the creator of the used
+    /// megolm session.
+    pub safety: KeySafety,
 }
 
 /// A customized version of a room event coming from a sync that holds optional

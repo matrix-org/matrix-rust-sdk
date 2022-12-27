@@ -38,7 +38,8 @@ pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use assert_matches::assert_matches;
+    use matches::assert_matches;
+    use matrix_sdk_common::deserialized_responses::KeySafety;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
@@ -186,6 +187,7 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            KeySafety::Safe,
         )
         .expect("We can always create an inbound group session from an outbound one");
 
@@ -229,6 +231,7 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
+            KeySafety::Safe,
         )
         .unwrap();
 

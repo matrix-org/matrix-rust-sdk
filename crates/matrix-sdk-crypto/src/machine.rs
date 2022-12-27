@@ -20,7 +20,9 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, TimelineEvent, VerificationState},
+    deserialized_responses::{
+        AlgorithmInfo, EncryptionInfo, KeySafety, TimelineEvent, VerificationState,
+    },
     locks::Mutex,
 };
 use ruma::{
@@ -571,6 +573,7 @@ impl OlmMachine {
             &content.session_key,
             event.content.algorithm(),
             None,
+            KeySafety::Safe,
         );
 
         if let Ok(session) = session {
@@ -1101,6 +1104,7 @@ impl OlmMachine {
 
         let sender = sender.to_owned();
 
+        let safety = session.key_safety();
         Ok(EncryptionInfo {
             sender,
             sender_device: device_id,
@@ -1113,6 +1117,7 @@ impl OlmMachine {
                     .collect(),
             },
             verification_state,
+            safety,
         })
     }
 
@@ -1350,7 +1355,7 @@ impl OlmMachine {
     pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
-        #[allow(unused_variables)] from_backup: bool,
+        from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
         let mut sessions = Vec::new();
@@ -1370,7 +1375,9 @@ impl OlmMachine {
         let mut keys = BTreeMap::new();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
-            match InboundGroupSession::from_export(&key) {
+            match InboundGroupSession::from_export(&key)
+                .map(|inb| inb.from_trusted_source(!from_backup))
+            {
                 Ok(session) => {
                     let old_session = self
                         .store

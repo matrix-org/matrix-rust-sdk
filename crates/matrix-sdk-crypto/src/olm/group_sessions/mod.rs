@@ -95,6 +95,10 @@ pub struct ExportedRoomKey {
         serialize_with = "serialize_curve_key_vec"
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Is the key trusted (safely owned by sender_key)
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 /// A backed up version of an `InboundGroupSession`
@@ -152,6 +156,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                                 .forwarding_curve25519_key_chain
                                 .clone(),
                             other: Default::default(),
+                            trusted: Some(room_key.trusted),
                         }
                         .into(),
                     ))
@@ -211,6 +216,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                     sender_claimed_keys,
                     sender_key: content.claimed_sender_key,
                     session_key: content.session_key,
+                    trusted: false,
                 })
             }
             #[cfg(feature = "experimental-algorithms")]
@@ -222,6 +228,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                 sender_claimed_keys: content.claimed_signing_keys,
                 sender_key: content.claimed_sender_key,
                 session_key: content.session_key,
+                trusted: false,
             }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }

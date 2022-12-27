@@ -28,7 +28,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::VerificationState;
+use matrix_sdk_common::deserialized_responses::{KeySafety, VerificationState};
 use matrix_sdk_crypto::{
     backups::SignatureState,
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
@@ -281,6 +281,9 @@ pub fn migrate(
             backed_up: session.backed_up,
             history_visibility: None,
             algorithm: RustEventEncryptionAlgorithm::MegolmV1AesSha2,
+            // Only for migration from old sdk
+            // using forwarding_chains as an heuristic? or maybe should consider unsafe?
+            trusted: session.forwarding_chains.is_empty(),
         };
 
         let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;
@@ -464,6 +467,10 @@ pub struct DecryptedEvent {
     /// is the state of the device at the time of decryption. It may change in
     /// the future if a device gets verified or deleted.
     pub verification_state: VerificationState,
+    /// Safe or Unsafe as per key safety definition.
+    /// Reflects the fact that we are sure that this group key
+    /// is owned by the sending device.
+    pub key_safety: KeySafety,
 }
 
 /// Struct representing the state of our private cross signing keys, it shows

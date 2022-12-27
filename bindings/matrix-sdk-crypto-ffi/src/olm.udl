@@ -79,6 +79,7 @@ dictionary DecryptedEvent {
     string? claimed_ed25519_key;
     sequence<string> forwarding_curve25519_chain;
     VerificationState verification_state;
+    KeySafety key_safety;
 };
 
 dictionary Device {
@@ -320,6 +321,11 @@ enum VerificationState {
     "Trusted",
     "Untrusted",
     "UnknownDevice",
+};
+
+enum KeySafety {
+    "Safe",
+    "Unsafe",
 };
 
 enum EventEncryptionAlgorithm {

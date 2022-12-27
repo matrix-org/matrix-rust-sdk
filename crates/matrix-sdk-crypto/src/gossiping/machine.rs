@@ -862,8 +862,11 @@ impl GossipMachine {
         info: &GossipRequest,
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
+        should_trust_safe_flag: bool,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match InboundGroupSession::try_from(event) {
+        match InboundGroupSession::try_from(event)
+            .map(|inb| inb.from_trusted_source(should_trust_safe_flag))
+        {
             Ok(session) => {
                 if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
                     self.mark_as_done(info).await?;
@@ -874,6 +877,7 @@ impl GossipMachine {
                         room_id = session.room_id().as_str(),
                         session_id = session.session_id(),
                         algorithm = ?session.algorithm(),
+                        trusted = session.trusted(),
                         "Received a forwarded room key",
                     );
 
@@ -902,14 +906,20 @@ impl GossipMachine {
         &self,
         info: &GossipRequest,
         sender_key: Curve25519PublicKey,
-    ) -> Result<bool, CryptoStoreError> {
+    ) -> Result<(bool, bool), CryptoStoreError> {
         let device =
             self.store.get_device_from_curve_key(&info.request_recipient, sender_key).await?;
 
         if let Some(device) = device {
-            Ok(device.user_id() == self.user_id() && device.is_verified())
+            let is_from_own_trusted_device =
+                device.user_id() == self.user_id() && device.is_verified();
+            // for now we only accept forwards from own trusted device so it's returning the
+            // same value for should_accept and should_trust_safe_flag
+            // It could be possible to accept more forwards (share on invite), in this case
+            // would be true,false
+            Ok((is_from_own_trusted_device, is_from_own_trusted_device))
         } else {
-            Ok(false)
+            Ok((false, false))
         }
     }
 
@@ -942,8 +952,11 @@ impl GossipMachine {
                 return Ok(None);
             };
 
-        if self.should_accept_forward(&request, sender_key).await? {
-            self.accept_forwarded_room_key(&request, sender_key, event).await
+        let (should_accept, should_trust_safe_flag) =
+            self.should_accept_forward(&request, sender_key).await?;
+        if should_accept {
+            self.accept_forwarded_room_key(&request, sender_key, event, should_trust_safe_flag)
+                .await
         } else {
             warn!(
                 ?sender_key,

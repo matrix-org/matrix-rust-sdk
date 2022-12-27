@@ -129,6 +129,12 @@ pub struct ForwardedMegolmV1AesSha2Content {
 
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
+
+    /// The property is set to true if the forwarder believes the session should
+    /// be trusted. If the property is set to false or is absent, this
+    /// indicates that the session cannot be trusted.
+    #[serde(rename = "org.matrix.msc3879.trusted", default = "default_forward_trusted")]
+    pub trusted: Option<bool>,
 }
 
 /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key` content.
@@ -164,6 +170,16 @@ pub struct ForwardedMegolmV2AesSha2Content {
 
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
+
+    /// The property is set to true if the forwarder believes the session should
+    /// be trusted. If the property is set to false or is absent, this
+    /// indicates that the session cannot be trusted.
+    #[serde(rename = "org.matrix.msc3879.trusted", default = "default_forward_trusted")]
+    pub trusted: Option<bool>,
+}
+
+fn default_forward_trusted() -> Option<bool> {
+    None
 }
 
 /// An unknown and unsupported `m.forwarded_room_key` algorithm.
@@ -184,6 +200,7 @@ impl std::fmt::Debug for ForwardedMegolmV1AesSha2Content {
             .field("forwarding_curve25519_key_chain", &self.forwarding_curve25519_key_chain)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("claimed_ed25519_key", &self.claimed_ed25519_key)
+            .field("org.matrix.msc3879.trusted", &self.trusted)
             .finish_non_exhaustive()
     }
 }
@@ -195,6 +212,7 @@ impl std::fmt::Debug for ForwardedMegolmV2AesSha2Content {
             .field("session_id", &self.session_id)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("sender_claimed_keys", &self.claimed_signing_keys)
+            .field("org.matrix.msc3879.trusted", &self.trusted)
             .finish_non_exhaustive()
     }
 }
