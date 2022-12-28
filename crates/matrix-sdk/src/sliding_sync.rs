@@ -808,7 +808,7 @@ impl SlidingSync {
                     }
                     unsubs
                 };
-                let timeout = Some(Duration::from_secs(30));
+                let timeout = Duration::from_secs(30);
 
                 // implement stickiness by only sending extensions if they have changed since the last time we sent them
                 // TODO: use PartialEq instead rather than comparing JSON forms of ExtensionsConfig?
@@ -822,7 +822,7 @@ impl SlidingSync {
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
-                    timeout,
+                    timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
                     extensions: extensions.clone().unwrap_or_default(),
@@ -830,7 +830,7 @@ impl SlidingSync {
                 tracing::debug!("requesting");
 
                 // 30s for the long poll + 30s for network delays
-                let request_config = RequestConfig::default().timeout(timeout.unwrap() + Duration::from_secs(30));
+                let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
                 let req = client.send_with_homeserver(req, Some(request_config), self.homeserver.as_ref().map(ToString::to_string));
 
                 #[cfg(feature = "e2e-encryption")]
