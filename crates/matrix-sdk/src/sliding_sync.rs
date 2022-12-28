@@ -46,7 +46,7 @@ use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
 use crate::room::timeline::{EventTimelineItem, Timeline};
-use crate::{Client, HttpError, config::RequestConfig, Result, RumaApiError};
+use crate::{config::RequestConfig, Client, HttpError, Result, RumaApiError};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -424,8 +424,8 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
-            initial_extensions: extensions.clone(),
             extensions: Mutex::new(extensions).into(),
+            sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
@@ -584,17 +584,16 @@ pub struct SlidingSync {
     /// The rooms details
     rooms: RoomsMap,
 
-    /// keeping track of retries and failure cunts
+    /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
 
-    /// the initial set of extensions used for this sliding sync instance - this
-    /// is what we reset the extensions to when the session expires.
-    initial_extensions: Option<ExtensionsConfig>,
-
-    /// the current state of the extensions being supplied to sliding /sync
-    /// calls may be None, if the extensions are static and sticky, or may
-    /// contain the latest next_batch for to_devices, etc.
+    /// the intended state of the extensions being supplied to sliding /sync
+    /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
+
+    /// the last extensions known to be successfully sent to the server.
+    /// if the current extensions match this, we can avoid sending them again.
+    sent_extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -693,6 +692,7 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         resp: v4::Response,
+        extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
@@ -745,6 +745,13 @@ impl SlidingSync {
             if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
                 self.update_to_device_since(to_device_since)
             }
+
+            // track the most recently successfully sent extensions (needed for sticky
+            // semantics)
+            if !extensions.is_none() {
+                *self.sent_extensions.lock().unwrap() = extensions;
+            }
+
             UpdateSummary { views: updated_views, rooms }
         };
 
@@ -762,10 +769,6 @@ impl SlidingSync {
         let views = self.views.lock_ref().to_vec();
         let client = self.client.clone();
 
-        tracing::debug!(
-            "Setting view stream going with self.initial_extensions={:?}",
-            self.initial_extensions
-        );
         tracing::debug!("Setting view stream going with self.extensions={:?}", self.extensions);
 
         Ok(async_stream::stream! {
@@ -806,18 +809,23 @@ impl SlidingSync {
                     unsubs
                 };
                 let timeout = Some(Duration::from_secs(30));
+
+                // implement stickiness by only sending extensions if they have changed since the last time we sent them
+                // TODO: use PartialEq instead rather than comparing JSON forms of ExtensionsConfig?
+                let extensions_json = serde_json::to_string(&self.extensions.lock().unwrap().clone()).unwrap();
+                let sent_extensions_json = serde_json::to_string(&self.sent_extensions.lock().unwrap().clone()).unwrap();
+                let extensions = if extensions_json == sent_extensions_json {
+                    None
+                } else {
+                    self.extensions.lock().unwrap().clone()
+                };
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
                     timeout,
                     room_subscriptions,
                     unsubscribe_rooms,
-                    // extensions are sticky, so we could. pop them here once; they will get rebuilt again if needed
-                    // ...except this doesn't work: if this request fails for some reason (e.g. timing out),
-                    // then we don't know to re-add the sticky extension on the next request. So either we need to retry
-                    // and queue all requests as a matter of course - or we need to only pop extensions when we know this
-                    // req has succeeded. for now, we make extensions non-sticky to make things work reliably...
-                    extensions: self.extensions.lock().unwrap().clone().unwrap_or_default(),
+                    extensions: extensions.clone().unwrap_or_default(),
                 });
                 tracing::debug!("requesting");
 
@@ -855,9 +863,11 @@ impl SlidingSync {
                                 .map(SlidingSyncView::request_generator)
                                 .collect();
                             *self.pos.lock_mut() = None;
-                            *self.extensions.lock().unwrap() = self.initial_extensions.clone();
 
-                            tracing::debug!("Resetting view stream with self.initial_extensions={:?}", self.initial_extensions);
+                            // reset our extensions to the last known good ones.
+                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().clone();
+                            self.sent_extensions.lock().unwrap().take();
+
                             tracing::debug!("Resetting view stream with self.extensions={:?}", self.extensions);
 
                             continue
@@ -869,7 +879,7 @@ impl SlidingSync {
 
                 tracing::debug!("received");
 
-                let updates =  match self.handle_response(resp, &remaining_views).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
