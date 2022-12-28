@@ -748,7 +748,7 @@ impl SlidingSync {
 
             // track the most recently successfully sent extensions (needed for sticky
             // semantics)
-            if !extensions.is_none() {
+            if extensions.is_some() {
                 *self.sent_extensions.lock().unwrap() = extensions;
             }
 
