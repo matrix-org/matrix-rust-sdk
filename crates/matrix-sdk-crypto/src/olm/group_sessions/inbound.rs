@@ -523,7 +523,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
-            safety: match value.trusted {
+            safety: match value.claimed_trust {
                 JsOption::Some(true) => KeySafety::Safe,
                 _ => KeySafety::Unsafe,
             },
@@ -548,7 +548,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
-            safety: match value.trusted {
+            safety: match value.claimed_trust {
                 JsOption::Some(true) => KeySafety::Safe,
                 _ => KeySafety::Unsafe,
             },

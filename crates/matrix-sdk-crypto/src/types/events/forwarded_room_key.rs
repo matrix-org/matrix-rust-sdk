@@ -138,7 +138,7 @@ pub struct ForwardedMegolmV1AesSha2Content {
         default = "default_forward_trusted",
         skip_serializing_if = "JsOption::is_undefined"
     )]
-    pub trusted: JsOption<bool>,
+    pub claimed_trust: JsOption<bool>,
 }
 
 /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key` content.
@@ -183,7 +183,7 @@ pub struct ForwardedMegolmV2AesSha2Content {
         default = "default_forward_trusted",
         skip_serializing_if = "JsOption::is_undefined"
     )]
-    pub trusted: JsOption<bool>,
+    pub claimed_trust: JsOption<bool>,
 }
 
 fn default_forward_trusted() -> JsOption<bool> {
@@ -208,7 +208,7 @@ impl std::fmt::Debug for ForwardedMegolmV1AesSha2Content {
             .field("forwarding_curve25519_key_chain", &self.forwarding_curve25519_key_chain)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("claimed_ed25519_key", &self.claimed_ed25519_key)
-            .field("org.matrix.msc3879.trusted", &self.trusted)
+            .field("claimed_trust", &self.claimed_trust)
             .finish_non_exhaustive()
     }
 }
@@ -220,7 +220,7 @@ impl std::fmt::Debug for ForwardedMegolmV2AesSha2Content {
             .field("session_id", &self.session_id)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("sender_claimed_keys", &self.claimed_signing_keys)
-            .field("org.matrix.msc3879.trusted", &self.trusted)
+            .field("claimed_trust", &self.claimed_trust)
             .finish_non_exhaustive()
     }
 }
