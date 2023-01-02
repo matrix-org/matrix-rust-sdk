@@ -778,7 +778,7 @@ impl SlidingSync {
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
-                tracing::debug!("Sync loop running with self.extensions={:?}", self.extensions);
+                tracing::debug!(?self.extensions, "Sync loop running");
 
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
@@ -867,10 +867,9 @@ impl SlidingSync {
                             *self.pos.lock_mut() = None;
 
                             // reset our extensions to the last known good ones.
-                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().clone();
-                            self.sent_extensions.lock().unwrap().take();
+                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
 
-                            tracing::debug!("Resetting view stream with self.extensions={:?}", self.extensions);
+                            tracing::debug!(?self.extensions, "Resetting view stream");
 
                             continue
                         }
