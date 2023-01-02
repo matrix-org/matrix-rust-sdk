@@ -451,7 +451,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
                 self.timeline_items.push_cloned(item);
             }
-            Flow::Remote { txn_id, event_id, position, raw_event, origin_server_ts, .. } => {
+            Flow::Remote { txn_id, event_id, position, origin_server_ts, .. } => {
                 if let Some(txn_id) = txn_id {
                     if let Some((idx, _old_item)) =
                         find_event_by_txn_id(self.timeline_items, txn_id)
@@ -476,7 +476,6 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     trace!(
                         ?item,
                         ?old_item,
-                        raw = raw_event.json().get(),
                         "Received event with an ID we already have a timeline item for"
                     );
 
