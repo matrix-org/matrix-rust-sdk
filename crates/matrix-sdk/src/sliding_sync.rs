@@ -18,8 +18,9 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    time::Duration,
 };
 
 use futures_core::stream::Stream;
@@ -45,7 +46,7 @@ use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
 use crate::room::timeline::{EventTimelineItem, Timeline};
-use crate::{Client, HttpError, Result, RumaApiError};
+use crate::{config::RequestConfig, Client, HttpError, Result, RumaApiError};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -423,7 +424,8 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
-            extensions: Mutable::new(extensions),
+            extensions: Mutex::new(extensions).into(),
+            sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
@@ -582,10 +584,16 @@ pub struct SlidingSync {
     /// The rooms details
     rooms: RoomsMap,
 
-    /// keeping track of retries and failure cunts
+    /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
 
-    extensions: Mutable<Option<ExtensionsConfig>>,
+    /// the intended state of the extensions being supplied to sliding /sync
+    /// calls. May contain the latest next_batch for to_devices, etc.
+    extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
+
+    /// the last extensions known to be successfully sent to the server.
+    /// if the current extensions match this, we can avoid sending them again.
+    sent_extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -664,7 +672,8 @@ impl SlidingSync {
 
     fn update_to_device_since(&self, since: String) {
         self.extensions
-            .lock_mut()
+            .lock()
+            .unwrap()
             .get_or_insert_with(Default::default)
             .to_device
             .get_or_insert_with(Default::default)
@@ -683,6 +692,7 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         resp: v4::Response,
+        extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
@@ -735,6 +745,13 @@ impl SlidingSync {
             if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
                 self.update_to_device_since(to_device_since)
             }
+
+            // track the most recently successfully sent extensions (needed for sticky
+            // semantics)
+            if extensions.is_some() {
+                *self.sent_extensions.lock().unwrap() = extensions;
+            }
+
             UpdateSummary { views: updated_views, rooms }
         };
 
@@ -750,17 +767,19 @@ impl SlidingSync {
         &self,
     ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
-        let extensions = self.extensions.clone();
         let client = self.client.clone();
 
+        tracing::debug!("Setting view stream going with self.extensions={:?}", self.extensions);
+
         Ok(async_stream::stream! {
-            let initial_extensions = extensions.lock_ref().clone();
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                tracing::debug!(?self.extensions, "Sync loop running");
+
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
@@ -789,16 +808,32 @@ impl SlidingSync {
                     }
                     unsubs
                 };
+                let timeout = Duration::from_secs(30);
+
+                // implement stickiness by only sending extensions if they have
+                // changed since the last time we sent them
+                let extensions = {
+                    let extensions = self.extensions.lock().unwrap();
+                    if *extensions == *self.sent_extensions.lock().unwrap() {
+                        None
+                    } else {
+                        extensions.clone()
+                    }
+                };
+
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
-                    extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
+                    extensions: extensions.clone().unwrap_or_default(),
                 });
                 tracing::debug!("requesting");
 
-                let req = client.send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string));
+                // 30s for the long poll + 30s for network delays
+                let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
+                let req = client.send_with_homeserver(req, Some(request_config), self.homeserver.as_ref().map(ToString::to_string));
 
                 #[cfg(feature = "e2e-encryption")]
                 let resp_res = {
@@ -830,7 +865,12 @@ impl SlidingSync {
                                 .map(SlidingSyncView::request_generator)
                                 .collect();
                             *self.pos.lock_mut() = None;
-                            *self.extensions.lock_mut() = initial_extensions.clone();
+
+                            // reset our extensions to the last known good ones.
+                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
+
+                            tracing::debug!(?self.extensions, "Resetting view stream");
+
                             continue
                         }
                         yield Err(e.into());
@@ -840,7 +880,7 @@ impl SlidingSync {
 
                 tracing::debug!("received");
 
-                let updates =  match self.handle_response(resp, &remaining_views).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());

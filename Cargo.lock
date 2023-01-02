@@ -387,6 +387,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "base64"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
+
+[[package]]
 name = "base64ct"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2026,7 +2032,7 @@ checksum = "6e9b187a72d63adbfba487f48095306ac823049cb504ee195541e91c7775f5ad"
 dependencies = [
  "anyhow",
  "async-channel",
- "base64",
+ "base64 0.13.1",
  "futures-lite",
  "http",
  "infer",
@@ -2585,6 +2591,7 @@ dependencies = [
  "reqwest",
  "ruma",
  "serde",
+ "serde_html_form",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -2614,6 +2621,7 @@ dependencies = [
  "regex",
  "ruma",
  "serde",
+ "serde_html_form",
  "serde_json",
  "serde_yaml",
  "thiserror",
@@ -2682,7 +2690,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "atomic",
- "base64",
+ "base64 0.13.1",
  "bs58",
  "byteorder",
  "cfg-if",
@@ -2720,7 +2728,7 @@ name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.13.1",
  "futures-util",
  "hmac",
  "http",
@@ -2818,7 +2826,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64",
+ "base64 0.13.1",
  "dashmap",
  "derive_builder",
  "getrandom 0.2.8",
@@ -2860,7 +2868,7 @@ dependencies = [
 name = "matrix-sdk-qrcode"
 version = "0.4.0"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "byteorder",
  "image 0.23.14",
  "qrcode",
@@ -3870,7 +3878,7 @@ version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68cc60575865c7831548863cc02356512e3f1dc2f3f82cb837d7fc4cc8f3c97c"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -3940,7 +3948,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.7.4"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "assign",
  "js_int",
@@ -3954,7 +3962,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3965,7 +3973,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.15.3"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "assign",
  "bytes",
@@ -3973,24 +3981,23 @@ dependencies = [
  "js_int",
  "js_option",
  "maplit",
- "percent-encoding",
  "ruma-common",
  "serde",
+ "serde_html_form",
  "serde_json",
 ]
 
 [[package]]
 name = "ruma-common"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
- "base64",
+ "base64 0.20.0",
  "bytes",
  "form_urlencoded",
  "getrandom 0.2.8",
  "http",
  "indexmap",
- "itoa",
  "js-sys",
  "js_int",
  "js_option",
@@ -4002,6 +4009,7 @@ dependencies = [
  "ruma-identifiers-validation",
  "ruma-macros",
  "serde",
+ "serde_html_form",
  "serde_json",
  "thiserror",
  "tracing",
@@ -4013,7 +4021,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4024,7 +4032,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4033,7 +4041,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=284b797e0513daf56859b64b8c7a506856fb11ec#284b797e0513daf56859b64b8c7a506856fb11ec"
+source = "git+https://github.com/ruma/ruma?rev=022a0c0475f7ffeccd5a26c15b9465edf06ba8b8#022a0c0475f7ffeccd5a26c15b9465edf06ba8b8"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4083,7 +4091,7 @@ version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0864aeff53f8c05aa08d86e5ef839d3dfcf07aeba2db32f12db0ef716e87bd55"
 dependencies = [
- "base64",
+ "base64 0.13.1",
 ]
 
 [[package]]
@@ -4273,6 +4281,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_html_form"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53192e38d5c88564b924dbe9b60865ecbb71b81d38c4e61c817cffd3e36ef696"
+dependencies = [
+ "form_urlencoded",
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
@@ -5331,7 +5352,7 @@ checksum = "f6f20153a1c82ac5f1243b62e80f067ae608facc415c6ef82f88426a61c79886"
 dependencies = [
  "aes",
  "arrayvec",
- "base64",
+ "base64 0.13.1",
  "cbc",
  "ed25519-dalek",
  "hkdf",
@@ -5708,7 +5729,7 @@ checksum = "249dc68542861d17eae4b4e5e8fb381c2f9e8f255a84f6771d5fdf8b6c03ce3c"
 dependencies = [
  "assert-json-diff",
  "async-trait",
- "base64",
+ "base64 0.13.1",
  "deadpool",
  "futures",
  "futures-timer",
