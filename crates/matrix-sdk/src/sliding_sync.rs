@@ -810,15 +810,17 @@ impl SlidingSync {
                 };
                 let timeout = Duration::from_secs(30);
 
-                // implement stickiness by only sending extensions if they have changed since the last time we sent them
-                // TODO: use PartialEq instead rather than comparing JSON forms of ExtensionsConfig?
-                let extensions_json = serde_json::to_string(&self.extensions.lock().unwrap().clone()).unwrap();
-                let sent_extensions_json = serde_json::to_string(&self.sent_extensions.lock().unwrap().clone()).unwrap();
-                let extensions = if extensions_json == sent_extensions_json {
-                    None
-                } else {
-                    self.extensions.lock().unwrap().clone()
+                // implement stickiness by only sending extensions if they have
+                // changed since the last time we sent them
+                let extensions = {
+                    let extensions = self.extensions.lock().unwrap();
+                    if *extensions == *self.sent_extensions.lock().unwrap() {
+                        None
+                    } else {
+                        extensions.clone()
+                    }
                 };
+
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
