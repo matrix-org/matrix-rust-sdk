@@ -289,6 +289,8 @@ dictionary MoveData {
 dictionary PaginationOutcome {
     // Whether there's more messages to be paginated.
     boolean more_messages;
+    // The number of updated or added timeline items.
+    u16 num_updates;
 };
 
 interface RoomMessageEventContent {};
