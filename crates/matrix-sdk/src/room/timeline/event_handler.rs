@@ -182,7 +182,7 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
-    event_added: bool,
+    item_created: bool,
 }
 
 impl<'a, 'i> TimelineEventHandler<'a, 'i> {
@@ -199,7 +199,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             reaction_map: &mut timeline_meta.reaction_map,
             fully_read_event: &mut timeline_meta.fully_read_event,
             fully_read_event_in_timeline: &mut timeline_meta.fully_read_event_in_timeline,
-            event_added: false,
+            item_created: false,
         }
     }
 
@@ -232,7 +232,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
-        if !self.event_added {
+        if !self.item_created {
             // TODO: Add event as raw
         }
     }
@@ -408,7 +408,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     }
 
     fn add(&mut self, item: NewEventTimelineItem) {
-        self.event_added = true;
+        self.item_created = true;
 
         let NewEventTimelineItem { content, reactions } = item;
         let item = EventTimelineItem {
