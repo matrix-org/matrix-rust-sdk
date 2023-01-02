@@ -251,7 +251,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
         let event_id = &replacement.event_id;
 
-        maybe_update_timeline_item(self.timeline_items, event_id, "edit", |item| {
+        update_timeline_item(self.timeline_items, event_id, "edit", |item| {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
@@ -302,7 +302,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         let event_id: &EventId = &c.relates_to.event_id;
 
         let items = &mut *self.timeline_items;
-        let did_update = maybe_update_timeline_item(items, event_id, "reaction", |item| {
+        let did_update = update_timeline_item(items, event_id, "reaction", |item| {
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
             if let TimelineItemContent::RedactedMessage = item.content {
@@ -347,7 +347,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
         {
             let items = &mut *self.timeline_items;
-            did_update = maybe_update_timeline_item(items, &rel.event_id, "redaction", |item| {
+            did_update = update_timeline_item(items, &rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
                 let Entry::Occupied(mut details_entry) = reactions.bundled.entry(rel.key) else {
@@ -399,7 +399,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         // `reaction_map`), it can still be present in the timeline items
         // directly with the raw event timeline feature (not yet implemented).
         let items = &mut *self.timeline_items;
-        did_update |= update_timeline_item(items, &redacts, "redaction", |item| item.to_redacted());
+        did_update |=
+            update_timeline_item(items, &redacts, "redaction", |item| Some(item.to_redacted()));
 
         if !did_update {
             // We will want to know this when debugging redaction issues.
@@ -594,7 +595,7 @@ pub(crate) fn update_read_marker(
 }
 
 /// Returns whether an update happened
-fn maybe_update_timeline_item(
+fn update_timeline_item(
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     event_id: &EventId,
     action: &str,
@@ -610,16 +611,6 @@ fn maybe_update_timeline_item(
     }
 
     false
-}
-
-/// Returns whether an update happened
-fn update_timeline_item(
-    timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
-    event_id: &EventId,
-    action: &str,
-    update: impl FnOnce(&EventTimelineItem) -> EventTimelineItem,
-) -> bool {
-    maybe_update_timeline_item(timeline_items, event_id, action, move |item| Some(update(item)))
 }
 
 /// Converts a timestamp to a `(year, month, day)` tuple.
