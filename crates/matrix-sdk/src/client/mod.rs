@@ -1791,7 +1791,6 @@ impl Client {
             )
             .await?
             .known_versions()
-            .into_iter()
             .collect();
 
         if server_versions.is_empty() {
