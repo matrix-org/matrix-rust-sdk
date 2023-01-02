@@ -184,13 +184,14 @@ impl Timeline {
             }))
             .await?;
 
-        let outcome = PaginationOutcome { more_messages: messages.end.is_some() };
-        *self.start_token.lock().unwrap() = messages.end;
-
         let own_user_id = self.room.own_user_id();
+        let mut num_updates = 0;
         for room_ev in messages.chunk {
-            self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
+            num_updates += self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
+
+        let outcome = PaginationOutcome { more_messages: messages.end.is_some(), num_updates };
+        *self.start_token.lock().unwrap() = messages.end;
 
         Ok(outcome)
     }
@@ -344,6 +345,13 @@ impl TimelineItem {
 pub struct PaginationOutcome {
     /// Whether there's more messages to be paginated.
     pub more_messages: bool,
+
+    /// The number of timeline updates to expect from this pagination.
+    ///
+    /// Since timeline updates are received asynchronously, you can use this
+    /// number to determine whether all updates have been observed, and whether
+    /// another back pagination request should be made.
+    pub num_updates: u16,
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up

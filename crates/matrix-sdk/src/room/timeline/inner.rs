@@ -91,11 +91,14 @@ impl TimelineInner {
             .handle_event(kind);
     }
 
+    /// Handle a back-paginated event.
+    ///
+    /// Returns the number of timeline updates that were made.
     pub(super) async fn handle_back_paginated_event(
         &self,
         event: TimelineEvent,
         own_user_id: &UserId,
-    ) {
+    ) -> u16 {
         let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
             event.event.cast(),
@@ -104,7 +107,7 @@ impl TimelineInner {
             TimelineItemPosition::Start,
             &mut self.items.lock_mut(),
             &mut metadata_lock,
-        );
+        )
     }
 
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
@@ -233,6 +236,9 @@ impl TimelineInner {
     }
 }
 
+/// Handle a remote event.
+///
+/// Returns the number of timeline updates that were made.
 fn handle_remote_event(
     raw: Raw<AnySyncTimelineEvent>,
     own_user_id: &UserId,
@@ -240,7 +246,7 @@ fn handle_remote_event(
     position: TimelineItemPosition,
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut TimelineInnerMetadata,
-) {
+) -> u16 {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
             Ok(event) => (
@@ -262,7 +268,7 @@ fn handle_remote_event(
                 ),
                 Err(e) => {
                     warn!("Failed to deserialize timeline event: {e}");
-                    return;
+                    return 0;
                 }
             },
         };

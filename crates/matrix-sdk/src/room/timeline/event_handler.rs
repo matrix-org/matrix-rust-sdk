@@ -183,6 +183,22 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     item_created: bool,
+    items_updated: u16,
+}
+
+// This is a macro instead of a method plus free fn so the borrow checker can
+// "see through" it, allowing borrows of TimelineEventHandler fields other than
+// `timeline_items` and `items_updated` in the update closure.
+macro_rules! update_timeline_item {
+    ($this:ident, $event_id:expr, $action:expr, $update:expr) => {
+        _update_timeline_item(
+            &mut *$this.timeline_items,
+            &mut $this.items_updated,
+            $event_id,
+            $action,
+            $update,
+        )
+    };
 }
 
 impl<'a, 'i> TimelineEventHandler<'a, 'i> {
@@ -200,10 +216,14 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             fully_read_event: &mut timeline_meta.fully_read_event,
             fully_read_event_in_timeline: &mut timeline_meta.fully_read_event_in_timeline,
             item_created: false,
+            items_updated: 0,
         }
     }
 
-    pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) {
+    /// Handle an event.
+    ///
+    /// Returns the number of timeline updates that were made.
+    pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> u16 {
         match event_kind {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => self.handle_reaction(c),
@@ -235,6 +255,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         if !self.item_created {
             // TODO: Add event as raw
         }
+
+        self.item_created as u16 + self.items_updated
     }
 
     fn handle_room_message(&mut self, content: RoomMessageEventContent) {
@@ -251,7 +273,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
         let event_id = &replacement.event_id;
 
-        update_timeline_item(self.timeline_items, event_id, "edit", |item| {
+        update_timeline_item!(self, event_id, "edit", |item| {
             if self.meta.sender != item.sender() {
                 info!(
                     %event_id, original_sender = %item.sender(), edit_sender = %self.meta.sender,
@@ -301,8 +323,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
 
-        let items = &mut *self.timeline_items;
-        let did_update = update_timeline_item(items, event_id, "reaction", |item| {
+        update_timeline_item!(self, event_id, "reaction", |item| {
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
             if let TimelineItemContent::RedactedMessage = item.content {
@@ -322,7 +343,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         });
 
-        if did_update {
+        if self.items_updated > 0 {
             self.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
         }
     }
@@ -341,13 +362,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
     // Redacted redactions are no-ops (unfortunately)
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
-        let mut did_update = false;
-
         if let Some((sender, rel)) =
             self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
         {
-            let items = &mut *self.timeline_items;
-            did_update = update_timeline_item(items, &rel.event_id, "redaction", |item| {
+            update_timeline_item!(self, &rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
                 let Entry::Occupied(mut details_entry) = reactions.bundled.entry(rel.key) else {
@@ -390,7 +408,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 Some(item.with_reactions(reactions))
             });
 
-            if !did_update {
+            if !self.items_updated > 0 {
                 warn!("reaction_map out of sync with timeline items");
             }
         }
@@ -398,11 +416,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         // Even if the event being redacted is a reaction (found in
         // `reaction_map`), it can still be present in the timeline items
         // directly with the raw event timeline feature (not yet implemented).
-        let items = &mut *self.timeline_items;
-        did_update |=
-            update_timeline_item(items, &redacts, "redaction", |item| Some(item.to_redacted()));
+        update_timeline_item!(self, &redacts, "redaction", |item| Some(item.to_redacted()));
 
-        if !did_update {
+        if self.items_updated > 0 {
             // We will want to know this when debugging redaction issues.
             debug!(redaction_key = ?self.flow.to_key(), %redacts, "redaction affected no event");
         }
@@ -594,23 +610,21 @@ pub(crate) fn update_read_marker(
     }
 }
 
-/// Returns whether an update happened
-fn update_timeline_item(
+fn _update_timeline_item(
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
+    items_updated: &mut u16,
     event_id: &EventId,
     action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
-) -> bool {
+) {
     if let Some((idx, item)) = find_event_by_id(timeline_items, event_id) {
         if let Some(new_item) = update(item) {
             timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(new_item)));
-            return true;
+            *items_updated += 1;
         }
     } else {
         debug!(%event_id, "Timeline item not found, discarding {action}");
     }
-
-    false
 }
 
 /// Converts a timestamp to a `(year, month, day)` tuple.
