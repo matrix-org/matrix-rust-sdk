@@ -39,6 +39,7 @@ matrix-sdk = { version = "0.6.0", path = "../matrix-sdk", default-features = fal
 regex = "1.5.5"
 ruma = { workspace = true, features = ["appservice-api-s"] }
 serde = "1.0.136"
+serde_html_form = "0.2.0"
 serde_json = "1.0.79"
 serde_yaml = "0.9.4"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }

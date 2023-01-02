@@ -31,7 +31,7 @@ use axum::{
 };
 use http::StatusCode;
 use hyper::Body;
-use matrix_sdk::ruma::{self, api::IncomingRequest};
+use matrix_sdk::ruma::api::IncomingRequest;
 use serde::{Deserialize, Serialize};
 use tower::{Service, ServiceBuilder};
 
@@ -241,7 +241,7 @@ async fn validate_access_token<B>(
         req.extensions().get::<AppService>().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let query_string = req.uri().query().unwrap_or("");
-    match ruma::serde::urlencoded::from_str::<QueryParameters>(query_string) {
+    match serde_html_form::from_str::<QueryParameters>(query_string) {
         Ok(query) if query.access_token == appservice.registration.hs_token => {
             Ok(next.run(req).await)
         }

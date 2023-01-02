@@ -1,8 +1,8 @@
 use ruma::{
     events::{
         room::member::{MembershipState, RoomMemberEventContent},
-        RedactContent, RedactedEventContent, RedactedStateEventContent, StateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        OriginalStateEventContent, RedactContent, RedactedEventContent, RedactedStateEventContent,
+        StateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     EventId, OwnedEventId, RoomVersionId,
 };
@@ -125,7 +125,7 @@ impl MinimalRoomMemberEvent {
 
 impl<C> From<SyncStateEvent<C>> for MinimalStateEvent<C>
 where
-    C: StateEventContent + RedactContent,
+    C: OriginalStateEventContent,
     C::Redacted: RedactedStateEventContent,
 {
     fn from(ev: SyncStateEvent<C>) -> Self {
@@ -144,7 +144,7 @@ where
 
 impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
-    C: Clone + StateEventContent + RedactContent,
+    C: Clone + OriginalStateEventContent,
     C::Redacted: Clone + RedactedStateEventContent,
 {
     fn from(ev: &SyncStateEvent<C>) -> Self {

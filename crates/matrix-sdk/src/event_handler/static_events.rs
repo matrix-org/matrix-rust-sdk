@@ -21,9 +21,9 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
-        GlobalAccountDataEventContent, MessageLikeEventContent, RedactContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, RoomAccountDataEventContent,
-        StateEventContent, StaticEventContent, ToDeviceEventContent,
+        GlobalAccountDataEventContent, MessageLikeEventContent, OriginalStateEventContent,
+        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
+        RoomAccountDataEventContent, StateEventContent, StaticEventContent, ToDeviceEventContent,
     },
     serde::Raw,
 };
@@ -99,7 +99,7 @@ impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
 
 impl<C> SyncEvent for events::SyncStateEvent<C>
 where
-    C: StaticEventContent + StateEventContent + RedactContent,
+    C: StaticEventContent + OriginalStateEventContent,
     C::Redacted: RedactedStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::State;
@@ -108,7 +108,7 @@ where
 
 impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
 where
-    C: StaticEventContent + StateEventContent,
+    C: StaticEventContent + OriginalStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::OriginalState;
     const TYPE: Option<&'static str> = Some(C::TYPE);

@@ -55,9 +55,9 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        GlobalAccountDataEventType, OriginalStateEventContent, RedactedStateEventContent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventType, StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -385,7 +385,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent<StateKey = EmptyStateKey>,
         C::Redacted: RedactedStateEventContent + DeserializeOwned,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
@@ -402,7 +402,7 @@ pub trait StateStoreExt: StateStore {
         state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -420,7 +420,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::Redacted: RedactedStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions

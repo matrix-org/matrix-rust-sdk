@@ -1,9 +1,10 @@
 use ruma::{
     events::{
         BundledRelations, EventContent, MessageLikeEventContent, MessageLikeEventType,
-        OriginalSyncMessageLikeEvent, OriginalSyncStateEvent, RedactedEventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
-        RedactedSyncStateEvent, StateEventContent, StateEventType, StateUnsigned,
+        OriginalStateEventContent, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+        RedactContent, RedactedEventContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent,
+        StateEventContent, StateEventType, StateUnsigned,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -138,8 +139,17 @@ impl EventContent for NoStateEventContent {
         Ok(Self { event_type: event_type.into() })
     }
 }
+impl RedactContent for NoStateEventContent {
+    type Redacted = Self;
+
+    fn redact(self, _version: &ruma::RoomVersionId) -> Self::Redacted {
+        self
+    }
+}
 impl StateEventContent for NoStateEventContent {
     type StateKey = String;
+}
+impl OriginalStateEventContent for NoStateEventContent {
     type Unsigned = StateUnsigned<Self>;
 }
 impl RedactedEventContent for NoStateEventContent {}
