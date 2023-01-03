@@ -725,7 +725,7 @@ impl ReadOnlyAccount {
     /// **Note**: Use this method with caution, the `canonical_json` needs to be
     /// correctly canonicalized and make sure that the object you are checking
     /// the signature for is allowed to be signed by our own device.
-    #[cfg(feature = "backups_v1")]
+    #[cfg(any(test, feature = "backups_v1"))]
     pub fn has_signed_raw(
         &self,
         signatures: &crate::types::Signatures,
@@ -1231,11 +1231,17 @@ mod tests {
         ops::Deref,
     };
 
+    use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+    use serde_json::json;
 
     use super::ReadOnlyAccount;
-    use crate::error::OlmResult as Result;
+    use crate::{
+        olm::SignedJsonObject,
+        types::{DeviceKeys, SignedKey},
+        ReadOnlyDevice,
+    };
 
     fn user_id() -> &'static UserId {
         user_id!("@alice:localhost")
@@ -1313,6 +1319,66 @@ mod tests {
         account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref())).await;
         let (_, _, fallback_keys) = account.keys_for_upload().await;
         assert!(fallback_keys.is_empty());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn fallback_key_signing() -> Result<()> {
+        let key = vodozemac::Curve25519PublicKey::from_base64(
+            "7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs",
+        )?;
+        let account = ReadOnlyAccount::new(user_id(), device_id());
+
+        let key = account.sign_key(key, true).await;
+
+        let canonical_key = key.to_canonical_json()?;
+
+        account
+            .has_signed_raw(key.signatures(), &canonical_key)
+            .expect("Couldn't verify signature");
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn fallback_key_signature_verification() -> Result<()> {
+        let fallback_key = json!({
+            "fallback": true,
+            "key": "XPFqtLvBepBmW6jSAbBuJbhEpprBhQOX1IjUu+cnMF4",
+            "signatures": {
+                "@dkasak_c:matrix.org": {
+                    "ed25519:EXPDYDPWZH": "RJCBMJPL5hvjxgq8rmLmqkNOuPsaan7JeL1wsE+gW6R39G894lb2sBmzapHeKCn/KFjmkonPLkICApRDS+zyDw"
+                }
+            }
+        });
+
+        let device_keys = json!({
+            "algorithms": [
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+            ],
+            "device_id": "EXPDYDPWZH",
+            "keys": {
+                "curve25519:EXPDYDPWZH": "k7f3igo0Vrdm88JSSA5d3OCuUfHYELChB2b57aOROB8",
+                "ed25519:EXPDYDPWZH": "GdjYI8fxs175gSpYRJkyN6FRfvcyTsNOhJ2OR/Ggp+E"
+            },
+            "signatures": {
+                "@dkasak_c:matrix.org": {
+                    "ed25519:EXPDYDPWZH": "kzrtfQMbJXWXQ1uzhybtwFnGk0JJBS4Mg8VPMusMu6U8MPJccwoHVZKo5+owuHTzIodI+GZYqLmMSzvfvsChAA"
+                }
+            },
+            "user_id": "@dkasak_c:matrix.org",
+            "unsigned": {}
+        });
+
+        let device_keys: DeviceKeys = serde_json::from_value(device_keys).unwrap();
+        let device = ReadOnlyDevice::try_from(&device_keys).unwrap();
+        let fallback_key: SignedKey = serde_json::from_value(fallback_key).unwrap();
+
+        device
+            .verify_one_time_key(&fallback_key)
+            .expect("The fallback key should pass the signature verification");
 
         Ok(())
     }
