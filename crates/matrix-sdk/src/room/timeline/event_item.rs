@@ -298,7 +298,7 @@ impl TimelineItemContent {
 }
 
 /// An `m.room.message` event or extensible event, including edits.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Message {
     pub(super) msgtype: MessageType,
     // TODO: Add everything required to display the replied-to event, plus a
@@ -329,6 +329,14 @@ impl Message {
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+}
+
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // since timeline items are logged, don't include all fields here so
+        // people don't leak personal data in bug reports
+        f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
     }
 }
 

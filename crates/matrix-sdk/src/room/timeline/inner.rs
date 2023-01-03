@@ -12,6 +12,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 use tracing::{error, info, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::{instrument, trace};
 
 use super::{
     event_handler::{
@@ -89,11 +91,14 @@ impl TimelineInner {
             .handle_event(kind);
     }
 
+    /// Handle a back-paginated event.
+    ///
+    /// Returns the number of timeline updates that were made.
     pub(super) async fn handle_back_paginated_event(
         &self,
         event: TimelineEvent,
         own_user_id: &UserId,
-    ) {
+    ) -> u16 {
         let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
             event.event.cast(),
@@ -102,7 +107,7 @@ impl TimelineInner {
             TimelineItemPosition::Start,
             &mut self.items.lock_mut(),
             &mut metadata_lock,
-        );
+        )
     }
 
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
@@ -149,6 +154,7 @@ impl TimelineInner {
     }
 
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip(self, olm_machine, own_user_id))]
     pub(super) async fn retry_event_decryption(
         &self,
         room_id: &RoomId,
@@ -190,6 +196,7 @@ impl TimelineInner {
             .collect();
 
         if utds_for_session.is_empty() {
+            trace!("Found no events to retry decryption for");
             return;
         }
 
@@ -205,6 +212,11 @@ impl TimelineInner {
                     continue;
                 }
             };
+
+            trace!(
+                %event_id, %session_id,
+                "Successfully decrypted event that previously failed to decrypt"
+            );
 
             // Because metadata is always locked before we attempt to lock the
             // items, this will never be contended.
@@ -224,6 +236,9 @@ impl TimelineInner {
     }
 }
 
+/// Handle a remote event.
+///
+/// Returns the number of timeline updates that were made.
 fn handle_remote_event(
     raw: Raw<AnySyncTimelineEvent>,
     own_user_id: &UserId,
@@ -231,7 +246,7 @@ fn handle_remote_event(
     position: TimelineItemPosition,
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut TimelineInnerMetadata,
-) {
+) -> u16 {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
             Ok(event) => (
@@ -253,7 +268,7 @@ fn handle_remote_event(
                 ),
                 Err(e) => {
                     warn!("Failed to deserialize timeline event: {e}");
-                    return;
+                    return 0;
                 }
             },
         };

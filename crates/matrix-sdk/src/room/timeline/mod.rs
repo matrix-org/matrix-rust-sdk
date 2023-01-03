@@ -33,7 +33,7 @@ use tracing::{error, instrument};
 
 use super::{Joined, Room};
 use crate::{
-    event_handler::EventHandlerDropGuard,
+    event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
     Result,
 };
@@ -43,15 +43,20 @@ mod event_item;
 mod inner;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "e2e-encryption")]
+mod to_device;
 mod virtual_item;
 
-use self::inner::TimelineInner;
 pub use self::{
     event_item::{
         EncryptedMessage, EventTimelineItem, Message, ReactionDetails, Sticker, TimelineDetails,
         TimelineItemContent, TimelineKey,
     },
     virtual_item::VirtualTimelineItem,
+};
+use self::{
+    inner::TimelineInner,
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
 /// A high-level view into a regular¹ room's contents.
@@ -65,10 +70,15 @@ pub struct Timeline {
     room: room::Common,
     start_token: StdMutex<Option<String>>,
     _end_token: StdMutex<Option<String>>,
-    _timeline_event_handler_guard: EventHandlerDropGuard,
-    _fully_read_handler_guard: Option<EventHandlerDropGuard>,
-    #[cfg(feature = "e2e-encryption")]
-    _room_key_handler_guard: EventHandlerDropGuard,
+    event_handler_handles: Vec<EventHandlerHandle>,
+}
+
+impl Drop for Timeline {
+    fn drop(&mut self) {
+        for handle in self.event_handler_handles.drain(..) {
+            self.room.client.remove_event_handler(handle);
+        }
+    }
 }
 
 /// Non-signalling parts of `TimelineInner`.
@@ -104,64 +114,32 @@ impl Timeline {
                 }
             }
         });
-        let _timeline_event_handler_guard =
-            room.client.event_handler_drop_guard(timeline_event_handle);
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
         #[cfg(feature = "e2e-encryption")]
-        let room_id = room.room_id().to_owned();
+        let room_key_handle = room
+            .client
+            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
         #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = room.client.add_event_handler({
-            use std::iter;
+        let forwarded_room_key_handle = room.client.add_event_handler(
+            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
+        );
 
-            use ruma::events::room_key::ToDeviceRoomKeyEvent;
-
-            use crate::Client;
-
-            let inner = inner.clone();
-            move |event: ToDeviceRoomKeyEvent, client: Client| {
-                let inner = inner.clone();
-                let room_id = room_id.clone();
-                async move {
-                    if event.content.room_id != room_id {
-                        return;
-                    }
-
-                    let Some(olm_machine) = client.olm_machine() else {
-                        error!("The olm machine isn't yet available");
-                        return;
-                    };
-
-                    let session_id = event.content.session_id;
-                    let Some(own_user_id) = client.user_id() else {
-                        error!("The user's own ID isn't available");
-                        return;
-                    };
-
-                    inner
-                        .retry_event_decryption(
-                            &room_id,
-                            olm_machine,
-                            iter::once(session_id.as_str()).collect(),
-                            own_user_id,
-                        )
-                        .await;
-                }
-            }
-        });
-        #[cfg(feature = "e2e-encryption")]
-        let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
+        let event_handler_handles = vec![
+            timeline_event_handle,
+            #[cfg(feature = "e2e-encryption")]
+            room_key_handle,
+            #[cfg(feature = "e2e-encryption")]
+            forwarded_room_key_handle,
+        ];
 
         Timeline {
             inner,
             room: room.clone(),
             start_token: StdMutex::new(prev_token),
             _end_token: StdMutex::new(None),
-            _timeline_event_handler_guard,
-            _fully_read_handler_guard: None,
-            #[cfg(feature = "e2e-encryption")]
-            _room_key_handler_guard,
+            event_handler_handles,
         }
     }
 
@@ -189,8 +167,7 @@ impl Timeline {
                 inner.handle_fully_read(event).await;
             }
         });
-        self._fully_read_handler_guard =
-            Some(self.room.client.event_handler_drop_guard(fully_read_handle));
+        self.event_handler_handles.push(fully_read_handle);
 
         self
     }
@@ -207,13 +184,14 @@ impl Timeline {
             }))
             .await?;
 
-        let outcome = PaginationOutcome { more_messages: messages.end.is_some() };
-        *self.start_token.lock().unwrap() = messages.end;
-
         let own_user_id = self.room.own_user_id();
+        let mut num_updates = 0;
         for room_ev in messages.chunk {
-            self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
+            num_updates += self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
+
+        let outcome = PaginationOutcome { more_messages: messages.end.is_some(), num_updates };
+        *self.start_token.lock().unwrap() = messages.end;
 
         Ok(outcome)
     }
@@ -367,6 +345,13 @@ impl TimelineItem {
 pub struct PaginationOutcome {
     /// Whether there's more messages to be paginated.
     pub more_messages: bool,
+
+    /// The number of timeline updates to expect from this pagination.
+    ///
+    /// Since timeline updates are received asynchronously, you can use this
+    /// number to determine whether all updates have been observed, and whether
+    /// another back pagination request should be made.
+    pub num_updates: u16,
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
