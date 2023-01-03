@@ -34,6 +34,7 @@ use matrix_sdk_crypto::{
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
+use matrix_sdk_sql::StateStore as SqlStore;
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -173,7 +174,6 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use matrix_sdk_sled::SledCryptoStore;
     use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
@@ -197,7 +197,7 @@ pub fn migrate(
     };
 
     let runtime = Runtime::new()?;
-    let store = runtime.block_on(SledCryptoStore::open(path, passphrase.as_deref()))?;
+    let store = runtime.block_on(open_sqlite_store(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -315,7 +315,8 @@ pub fn migrate(
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
 
-    runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
+    // FIXME
+    //runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -335,6 +336,25 @@ pub fn migrate(
     listener(processed_steps, total_steps);
 
     Ok(())
+}
+
+async fn open_sqlite_store(
+    path: &str,
+    passphrase: Option<&str>,
+) -> Result<SqlStore<sqlx::Sqlite>, matrix_sdk_sql::SQLStoreError> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+
+    let db = SqlitePool::connect_with(
+        SqliteConnectOptions::new().filename(path).create_if_missing(true),
+    )
+    .await?;
+    let mut store = SqlStore::new(&Arc::new(db)).await?;
+    if let Some(passphrase) = passphrase {
+        store.unlock_with_passphrase(passphrase).await?;
+    } else {
+        store.unlock().await?;
+    }
+    Ok(store)
 }
 
 /// Callback that will be passed over the FFI to report progress

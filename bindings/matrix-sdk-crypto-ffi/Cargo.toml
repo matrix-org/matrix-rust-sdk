@@ -32,6 +32,7 @@ uniffi = { workspace = true }
 uniffi_macros = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
+sqlx = "0.6.0, <0.6.2"
 
 [dependencies.js_int]
 version = "0.2.2"
@@ -46,11 +47,11 @@ path = "../../crates/matrix-sdk-crypto"
 version = "0.6.0"
 features = ["qrcode", "backups_v1"]
 
-[dependencies.matrix-sdk-sled]
-path = "../../crates/matrix-sdk-sled"
-version = "0.2.0"
+[dependencies.matrix-sdk-sql]
+path = "../../crates/matrix-sdk-sql"
+version = "0.1.0-beta.2"
 default_features = false
-features = ["crypto-store"]
+features = ["e2e-encryption", "sqlite"]
 
 [dependencies.tokio]
 version = "1.17.0"
