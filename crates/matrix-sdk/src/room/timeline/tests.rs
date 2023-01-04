@@ -23,7 +23,7 @@ use assert_matches::assert_matches;
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
-use matrix_sdk_base::crypto::OlmMachine;
+use matrix_sdk_base::{crypto::OlmMachine, deserialized_responses::SyncTimelineEvent};
 use matrix_sdk_test::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
@@ -524,6 +524,24 @@ async fn sticker() {
     assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Sticker(_));
 }
 
+#[async_test]
+async fn initial_events() {
+    let timeline = TestTimeline::with_initial_events(
+        &ALICE,
+        [
+            (*ALICE, RoomMessageEventContent::text_plain("A").into()),
+            (*BOB, RoomMessageEventContent::text_plain("B").into()),
+        ],
+    );
+    let mut stream = timeline.stream();
+
+    let items = assert_matches!(stream.next().await, Some(VecDiff::Replace { values }) => values);
+    assert_eq!(items.len(), 3);
+    assert_matches!(items[0].as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
+    assert_eq!(items[1].as_event().unwrap().sender(), *ALICE);
+    assert_eq!(items[2].as_event().unwrap().sender(), *BOB);
+}
+
 struct TestTimeline {
     own_user_id: OwnedUserId,
     inner: TimelineInner,
@@ -531,7 +549,27 @@ struct TestTimeline {
 
 impl TestTimeline {
     fn new(own_user_id: &UserId) -> Self {
-        Self { own_user_id: own_user_id.to_owned(), inner: Default::default() }
+        Self::with_initial_events(own_user_id, [])
+    }
+
+    fn with_initial_events<'a>(
+        own_user_id: &UserId,
+        events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
+    ) -> Self {
+        let mut inner = TimelineInner::default();
+        inner.add_initial_events(
+            events
+                .into_iter()
+                .map(|(sender, content)| {
+                    let event =
+                        serde_json::from_value(make_message_event(sender, content)).unwrap();
+                    SyncTimelineEvent { event, encryption_info: None }
+                })
+                .collect(),
+            own_user_id,
+        );
+
+        Self { own_user_id: own_user_id.to_owned(), inner }
     }
 
     fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
@@ -542,13 +580,7 @@ impl TestTimeline {
     where
         C: MessageLikeEventContent,
     {
-        let ev = json!({
-            "type": content.event_type(),
-            "content": content,
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "origin_server_ts": next_server_ts(),
-        });
+        let ev = make_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None, &self.own_user_id).await;
     }
@@ -576,6 +608,16 @@ impl TestTimeline {
         self.inner.handle_local_event(txn_id.clone(), content, &self.own_user_id).await;
         txn_id
     }
+}
+
+fn make_message_event<C: MessageLikeEventContent>(sender: &UserId, content: C) -> JsonValue {
+    json!({
+        "type": content.event_type(),
+        "content": content,
+        "event_id": EventId::new(server_name!("dummy.server")),
+        "sender": sender,
+        "origin_server_ts": next_server_ts(),
+    })
 }
 
 fn next_server_ts() -> MilliSecondsSinceUnixEpoch {
