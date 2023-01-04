@@ -52,6 +52,10 @@ impl TimelineInner {
         events: Vec<SyncTimelineEvent>,
         own_user_id: &UserId,
     ) {
+        if events.is_empty() {
+            return;
+        }
+
         let timeline_meta = self.metadata.get_mut();
         let timeline_items = &mut self.items.lock_mut();
 
