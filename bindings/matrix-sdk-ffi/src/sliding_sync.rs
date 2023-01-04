@@ -17,7 +17,7 @@ pub use matrix_sdk::{
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{debug, error, warn};
 
 use super::{Client, Room, RUNTIME};
 use crate::{
@@ -139,7 +139,7 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> Option<Arc<StoppableSpawn>> {
         let Some(timeline) = RUNTIME.block_on(async move { self.inner.timeline().await }) else {
-            tracing::warn!(room_id=?self.room_id(), "Could not set timeline listener: no timeline found.");
+            warn!(room_id = ?self.room_id(), "Could not set timeline listener: no timeline found.");
             return None;
         };
 
@@ -580,7 +580,7 @@ impl SlidingSync {
                             }
                         }
                         None => {
-                            tracing::debug!("No update from loop, cancelled");
+                            debug!("No update from loop, cancelled");
                             break;
                         }
                     };
