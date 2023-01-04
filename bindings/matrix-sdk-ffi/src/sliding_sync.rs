@@ -138,13 +138,20 @@ impl SlidingSyncRoom {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> Option<Arc<StoppableSpawn>> {
-        let Some(timeline) = RUNTIME.block_on(async move { self.inner.timeline().await }) else {
-            warn!(room_id = ?self.room_id(), "Could not set timeline listener: no timeline found.");
-            return None;
+        let mut timeline_lock = self.timeline.write().unwrap();
+        let timeline_signal = match &*timeline_lock {
+            Some(timeline) => timeline.signal(),
+            None => {
+                let Some(timeline) = RUNTIME.block_on(self.inner.timeline()) else {
+                    warn!(
+                        room_id = ?self.room_id(),
+                        "Could not set timeline listener: no timeline found."
+                    );
+                    return None;
+                };
+                timeline_lock.insert(Arc::new(timeline)).signal()
+            }
         };
-
-        let timeline_signal =
-            self.timeline.write().unwrap().get_or_insert_with(|| Arc::new(timeline)).signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
         Some(Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(timeline_signal.for_each(

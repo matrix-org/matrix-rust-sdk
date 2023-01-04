@@ -220,12 +220,16 @@ impl Room {
     }
 
     pub fn add_timeline_listener(&self, listener: Box<dyn TimelineListener>) {
-        let room = self.room.clone();
-
-        let timeline = RUNTIME.block_on(async move { room.timeline().await });
-
-        let timeline_signal =
-            self.timeline.write().unwrap().get_or_insert_with(|| Arc::new(timeline)).signal();
+        let timeline_signal = self
+            .timeline
+            .write()
+            .unwrap()
+            .get_or_insert_with(|| {
+                let room = self.room.clone();
+                let timeline = RUNTIME.block_on(async move { room.timeline().await });
+                Arc::new(timeline)
+            })
+            .signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
         RUNTIME.spawn(timeline_signal.for_each(move |diff| {
