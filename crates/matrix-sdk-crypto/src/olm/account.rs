@@ -1334,9 +1334,17 @@ mod tests {
 
         let canonical_key = key.to_canonical_json()?;
 
+        assert_eq!(
+            canonical_key,
+            "{\"fallback\":true,\"key\":\"7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs\"}"
+        );
+
         account
             .has_signed_raw(key.signatures(), &canonical_key)
             .expect("Couldn't verify signature");
+
+        let device = ReadOnlyDevice::from_account(&account).await;
+        device.verify_one_time_key(&key).expect("The device can verify its own signature");
 
         Ok(())
     }
