@@ -18,12 +18,6 @@ impl fmt::Display for ElapsedError {
 
 impl Error for ElapsedError {}
 
-impl From<std::io::Error> for ElapsedError {
-    fn from(io_error: std::io::Error) -> Self {
-        io_error.into()
-    }
-}
-
 /// Wait for `future` to be completed. `future` needs to return
 /// a `Result`.
 ///
@@ -38,15 +32,8 @@ where
 
     #[cfg(target_arch = "wasm32")]
     {
-        let try_future = async {
-            let output = future.await;
-
-            // Contrary to clippy's note, the qualification of the Result is necessary
-            #[allow(unused_qualifications)]
-            Result::<T, ElapsedError>::Ok(output)
-        };
-
-        try_future.timeout(duration).await
+        let try_future = async { Ok::<T, std::io::Error>(future.await) };
+        try_future.timeout(duration).await.map_err(|_| ElapsedError(()))
     }
 }
 
