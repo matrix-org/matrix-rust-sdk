@@ -18,7 +18,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -55,6 +55,8 @@ impl TimelineInner {
         if events.is_empty() {
             return;
         }
+
+        debug!("Adding {} initial events", events.len());
 
         let timeline_meta = self.metadata.get_mut();
         let timeline_items = &mut self.items.lock_mut();
