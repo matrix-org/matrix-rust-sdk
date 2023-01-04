@@ -30,7 +30,7 @@ Options:
       --sliding-sync-proxy <PROXY>
           The address of the sliding sync server to connect (probs the proxy) [env: JACKIN_SYNC_PROXY=] [default: http://localhost:8008]
       --full-sync-mode <FULL_SYNC_MODE>
-          Activate growing window rather than pagination for full-sync [default: Paging] [possible values: Growing, Paging]
+          Activate growing window rather than pagination for full-sync [default: paging] [possible values: growing, paging]
       --limit <LIMIT>
           Limit the growing/paging to this number of maximum items to caonsider "done"
       --batch-size <BATCH_SIZE>
