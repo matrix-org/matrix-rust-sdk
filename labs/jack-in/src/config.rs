@@ -37,7 +37,7 @@ pub struct Opt {
 }
 
 #[derive(Debug, Clone, ValueEnum)]
-#[value(rename_all = "PascalCase")]
+#[value(rename_all = "lower")]
 pub enum FullSyncMode {
     Growing,
     Paging,
@@ -63,7 +63,7 @@ pub struct SlidingSyncConfig {
     pub proxy: String,
 
     /// Activate growing window rather than pagination for full-sync
-    #[arg(long, default_value = "Paging")]
+    #[arg(long, default_value = "paging")]
     pub full_sync_mode: FullSyncMode,
 
     /// Limit the growing/paging to this number of maximum items to caonsider
