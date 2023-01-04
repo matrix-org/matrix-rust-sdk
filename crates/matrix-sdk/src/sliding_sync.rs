@@ -27,14 +27,11 @@ use futures_core::stream::Stream;
 use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
-    api::{
-        client::{
-            error::{ErrorBody, ErrorKind},
-            sync::sync_events::v4::{
-                self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
-            },
+    api::client::{
+        error::ErrorKind,
+        sync::sync_events::v4::{
+            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
         },
-        error::FromHttpResponseError,
     },
     assign,
     events::RoomEventType,
@@ -47,7 +44,7 @@ use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
 use crate::room::timeline::{EventTimelineItem, Timeline};
-use crate::{config::RequestConfig, Client, HttpError, Result, RumaApiError};
+use crate::{config::RequestConfig, Client, Result};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -853,7 +850,7 @@ impl SlidingSync {
                         r
                     },
                     Err(e) => {
-                        if matches!(e, HttpError::Api(FromHttpResponseError::Server(RumaApiError::ClientApi(ruma::api::client::Error { body: ErrorBody::Standard { kind: ErrorKind::UnknownPos, .. }, .. })))) {
+                        if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
                             if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
                                 error!("session expired three times in a row");
