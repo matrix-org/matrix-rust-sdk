@@ -379,10 +379,12 @@ impl SlidingSyncConfig {
             storage_key,
             client,
             mut views,
-            extensions,
+            mut extensions,
             subscriptions,
         } = self;
-        let rooms = if let Some(storage_key) = storage_key.as_ref() {
+        let mut rooms = Default::default();
+
+        if let Some(storage_key) = storage_key.as_ref() {
             if let Some(mut f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
@@ -396,15 +398,20 @@ impl SlidingSyncConfig {
                     }
                 }
 
-                f.rooms
+                rooms = f
+                    .rooms
                     .into_iter()
                     .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect()
-            } else {
-                Default::default()
+                    .collect();
+
+                if let Some(since) = f.to_device_since {
+                    extensions
+                        .get_or_insert_with(Default::default)
+                        .to_device
+                        .get_or_insert_with(Default::default)
+                        .since = Some(since);
+                }
             }
-        } else {
-            Default::default()
         };
 
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
@@ -598,6 +605,8 @@ pub struct SlidingSync {
 struct FrozenSlidingSync {
     views: BTreeMap<String, FrozenSlidingSyncView>,
     rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_device_since: Option<String>,
 }
 
 impl From<&SlidingSync> for FrozenSlidingSync {
@@ -605,6 +614,12 @@ impl From<&SlidingSync> for FrozenSlidingSync {
         FrozenSlidingSync {
             views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
             rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
+            to_device_since: v
+                .extensions
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|ext| ext.to_device.as_ref()?.since.clone()),
         }
     }
 }
