@@ -524,16 +524,11 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 match position {
                     TimelineItemPosition::Start => {
                         // Check if the earliest day divider has the same date as this event.
-                        if let Some(old_ymd) =
-                            self.timeline_items.get(0).and_then(|item| match item.as_virtual()? {
-                                VirtualTimelineItem::DayDivider { year, month, day } => {
-                                    Some((*year, *month, *day))
-                                }
-                                VirtualTimelineItem::ReadMarker => None,
-                            })
+                        if let Some(VirtualTimelineItem::DayDivider { year, month, day }) =
+                            self.timeline_items.get(0).and_then(|item| item.as_virtual())
                         {
                             if let Some(day_divider_item) = maybe_create_day_divider_from_ymd(
-                                old_ymd,
+                                (*year, *month, *day),
                                 timestamp_to_ymd(*origin_server_ts),
                             ) {
                                 self.timeline_items.insert_cloned(
@@ -556,11 +551,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     }
                     TimelineItemPosition::End => {
                         // Check if the latest event has the same date as this event.
-                        if let Some(latest_event) = self
-                            .timeline_items
-                            .iter()
-                            .rfind(|item| item.as_event().is_some())
-                            .and_then(|item| item.as_event())
+                        if let Some(latest_event) =
+                            self.timeline_items.iter().rev().find_map(|item| item.as_event())
                         {
                             let old_ts = latest_event.timestamp();
 
