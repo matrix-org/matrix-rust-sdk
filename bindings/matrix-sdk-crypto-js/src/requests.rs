@@ -36,15 +36,15 @@ pub struct KeysUploadRequest {
     /// A JSON-encoded string containing the rest of the payload: `device_keys`,
     /// `one_time_keys`, `fallback_keys`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysUploadRequest {
     /// Create a new `KeysUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> KeysUploadRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, extra: JsString) -> KeysUploadRequest {
+        Self { id: Some(id), extra }
     }
 
     /// Get its request type.
@@ -70,15 +70,15 @@ pub struct KeysQueryRequest {
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `device_keys`, `token`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysQueryRequest {
     /// Create a new `KeysQueryRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> KeysQueryRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, extra: JsString) -> KeysQueryRequest {
+        Self { id: Some(id), extra }
     }
 
     /// Get its request type.
@@ -105,15 +105,15 @@ pub struct KeysClaimRequest {
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `one_time_keys`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysClaimRequest {
     /// Create a new `KeysClaimRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> KeysClaimRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, extra: JsString) -> KeysClaimRequest {
+        Self { id: Some(id), extra }
     }
 
     /// Get its request type.
@@ -147,7 +147,7 @@ pub struct ToDeviceRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `messages`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
@@ -158,9 +158,9 @@ impl ToDeviceRequest {
         id: JsString,
         event_type: JsString,
         txn_id: JsString,
-        body: JsString,
+        extra: JsString,
     ) -> ToDeviceRequest {
-        Self { id: Some(id), event_type, txn_id, body }
+        Self { id: Some(id), event_type, txn_id, extra }
     }
 
     /// Get its request type.
@@ -185,15 +185,15 @@ pub struct SignatureUploadRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
 impl SignatureUploadRequest {
     /// Create a new `SignatureUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> SignatureUploadRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, extra: JsString) -> SignatureUploadRequest {
+        Self { id: Some(id), extra }
     }
 
     /// Get its request type.
@@ -228,7 +228,7 @@ pub struct RoomMessageRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `content`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
@@ -239,9 +239,9 @@ impl RoomMessageRequest {
         id: JsString,
         room_id: JsString,
         txn_id: JsString,
-        body: JsString,
+        extra: JsString,
     ) -> RoomMessageRequest {
-        Self { id: Some(id), room_id, txn_id, body }
+        Self { id: Some(id), room_id, txn_id, extra }
     }
 
     /// Get its request type.
@@ -264,15 +264,15 @@ pub struct KeysBackupRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `rooms`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysBackupRequest {
     /// Create a new `KeysBackupRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> KeysBackupRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, extra: JsString) -> KeysBackupRequest {
+        Self { id: Some(id), extra }
     }
 
     /// Get its request type.
@@ -297,7 +297,7 @@ pub struct SigningKeysUploadRequest {
     /// A JSON-encoded string containing the rest of the payload: `master_key`,
     /// `self_signing_key`, `user_signing_key`.
     #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    pub extra: JsString,
 }
 
 macro_rules! request {
@@ -350,7 +350,7 @@ macro_rules! request {
                     )*
                 )?
                 $(
-                    body: {
+                    extra: {
                         let mut map = serde_json::Map::new();
                         $(
                             map.insert(stringify!($grouped_field).to_owned(), serde_json::to_value(&$request.$grouped_field).unwrap());
@@ -364,20 +364,8 @@ macro_rules! request {
         }
     };
 
-    ( @__field as json (request = $request:expr, field = $field:ident) ) => {
-        serde_json::to_string(&$request.$field)?.into()
-    };
-
     ( @__field as string (request = $request:expr, field = $field:ident) ) => {
         $request.$field.to_string().into()
-    };
-
-    ( @__field as duration (request = $request:expr, field = $field:ident) ) => {
-        $request.$field.map(|duration| duration.as_millis() as u64)
-    };
-
-    ( @__field as native (request = $request:expr, field = $field:ident) ) => {
-        $request.$field.clone()
     };
 }
 

@@ -198,9 +198,9 @@ describe(OlmMachine.name, () => {
             expect(outgoingRequests[0]).toBeInstanceOf(KeysUploadRequest);
             expect(outgoingRequests[0].id).toBeDefined();
             expect(outgoingRequests[0].type).toStrictEqual(RequestType.KeysUpload);
-            expect(outgoingRequests[0].body).toBeDefined();
+            expect(outgoingRequests[0].extra).toBeDefined();
 
-            const body = JSON.parse(outgoingRequests[0].body)
+            const body = JSON.parse(outgoingRequests[0].extra)
             expect(body.device_keys).toBeDefined();
             expect(body.one_time_keys).toBeDefined();
         }
@@ -209,9 +209,9 @@ describe(OlmMachine.name, () => {
             expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
             expect(outgoingRequests[1].id).toBeDefined();
             expect(outgoingRequests[1].type).toStrictEqual(RequestType.KeysQuery);
-            expect(outgoingRequests[1].body).toBeDefined();
+            expect(outgoingRequests[1].extra).toBeDefined();
 
-            const body = JSON.parse(outgoingRequests[1].body);
+            const body = JSON.parse(outgoingRequests[1].extra);
             expect(body.timeout).toBeDefined();
             expect(body.device_keys).toBeDefined();
             expect(body.token).toBeDefined();

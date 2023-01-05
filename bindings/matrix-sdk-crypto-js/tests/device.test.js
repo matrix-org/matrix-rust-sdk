@@ -177,7 +177,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send the verification request to `m2`.
@@ -228,7 +228,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId2.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
             }];
 
             // Let's send the verification ready to `m1`.
@@ -281,7 +281,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId2.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
             }];
 
             // Let's send the SAS start to `m1`.
@@ -326,7 +326,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send the SAS accept to `m2`.
@@ -349,7 +349,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId2.toString(),
                 type: toDeviceRequest.event_type,
-                content: JSON.parse(toDeviceRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                content: JSON.parse(toDeviceRequest.extra).messages[userId1.toString()][deviceId1.toString()],
             }];
 
             // Let's send te SAS key to `m1`.
@@ -369,7 +369,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: toDeviceRequest.event_type,
-                content: JSON.parse(toDeviceRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(toDeviceRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send te SAS key to `m2`.
@@ -438,7 +438,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send te SAS confirmation to `m2`.
@@ -462,7 +462,7 @@ describe('Key Verification', () => {
                 const toDeviceEvents = [{
                     sender: userId2.toString(),
                     type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                    content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
                 }];
 
                 // Let's send te SAS confirmation to `m1`.
@@ -479,7 +479,7 @@ describe('Key Verification', () => {
                 const toDeviceEvents = [{
                     sender: userId2.toString(),
                     type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                    content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
                 }];
 
                 // Let's send te SAS done to `m1`.
@@ -499,7 +499,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: toDeviceRequest.event_type,
-                content: JSON.parse(toDeviceRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(toDeviceRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send te SAS key to `m2`.
@@ -585,7 +585,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send the verification request to `m2`.
@@ -639,7 +639,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId2.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
             }];
 
             // Let's send the verification ready to `m1`.
@@ -796,7 +796,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId1.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][deviceId2.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId2.toString()][deviceId2.toString()],
             }];
 
             // Let's send the verification request to `m2`.
@@ -816,7 +816,7 @@ describe('Key Verification', () => {
             const toDeviceEvents = [{
                 sender: userId2.toString(),
                 type: outgoingVerificationRequest.event_type,
-                content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][deviceId1.toString()],
+                content: JSON.parse(outgoingVerificationRequest.extra).messages[userId1.toString()][deviceId1.toString()],
             }];
 
             // Let's send the verification request to `m2`.
