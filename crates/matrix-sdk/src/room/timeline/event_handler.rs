@@ -523,16 +523,24 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
                 match position {
                     TimelineItemPosition::Start => {
+                        // If there is a loading indicator at the top, check for / insert the day
+                        // divider at position 1 and the new event at 2 rather than 0 and 1.
+                        let offset =
+                            match self.timeline_items.first().and_then(|item| item.as_virtual()) {
+                                Some(VirtualTimelineItem::LoadingIndicator) => 1,
+                                _ => 0,
+                            };
+
                         // Check if the earliest day divider has the same date as this event.
                         if let Some(VirtualTimelineItem::DayDivider { year, month, day }) =
-                            self.timeline_items.get(0).and_then(|item| item.as_virtual())
+                            self.timeline_items.get(offset).and_then(|item| item.as_virtual())
                         {
                             if let Some(day_divider_item) = maybe_create_day_divider_from_ymd(
                                 (*year, *month, *day),
                                 timestamp_to_ymd(*origin_server_ts),
                             ) {
                                 self.timeline_items.insert_cloned(
-                                    0,
+                                    offset,
                                     Arc::new(TimelineItem::Virtual(day_divider_item)),
                                 );
                             }
@@ -540,14 +548,14 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             // The list must always start with a day divider.
                             let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
                             self.timeline_items.insert_cloned(
-                                0,
+                                offset,
                                 Arc::new(TimelineItem::Virtual(VirtualTimelineItem::day_divider(
                                     year, month, day,
                                 ))),
                             );
                         }
 
-                        self.timeline_items.insert_cloned(1, item)
+                        self.timeline_items.insert_cloned(offset + 1, item)
                     }
                     TimelineItemPosition::End => {
                         // Check if the latest event has the same date as this event.
