@@ -167,6 +167,7 @@ impl Timeline {
     #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
     pub async fn paginate_backwards(&self, limit: UInt) -> Result<PaginationOutcome> {
         let mut start_lock = self.start_token.lock().await;
+        self.inner.add_loading_indicator();
         let messages = self
             .room
             .messages(assign!(MessagesOptions::backward(), {
@@ -181,6 +182,7 @@ impl Timeline {
             num_updates += self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
 
+        self.inner.remove_loading_indicator();
         let outcome = PaginationOutcome { more_messages: messages.end.is_some(), num_updates };
         *start_lock = messages.end;
 
@@ -326,6 +328,14 @@ impl TimelineItem {
             Self::Virtual(v) => Some(v),
             _ => None,
         }
+    }
+
+    fn loading_indicator() -> Self {
+        Self::Virtual(VirtualTimelineItem::LoadingIndicator)
+    }
+
+    fn is_loading_indicator(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::LoadingIndicator))
     }
 }
 

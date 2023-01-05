@@ -159,6 +159,7 @@ impl TimelineItem {
                 Some(VirtualTimelineItem::DayDivider { year: *year, month: *month, day: *day })
             }
             Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
+            Item::Virtual(VItem::LoadingIndicator) => Some(VirtualTimelineItem::LoadingIndicator),
             Item::Event(_) => None,
         }
     }
@@ -589,8 +590,12 @@ pub enum VirtualTimelineItem {
         /// A value between 1 and 31.
         day: u32,
     },
+
     /// The user's own read marker.
     ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
 }
 
 #[extension_trait]

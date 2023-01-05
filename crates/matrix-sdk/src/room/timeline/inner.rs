@@ -145,6 +145,28 @@ impl TimelineInner {
         }
     }
 
+    #[instrument(skip_all)]
+    pub(super) fn add_loading_indicator(&self) {
+        let mut lock = self.items.lock_mut();
+        if lock.first().map_or(false, |item| item.is_loading_indicator()) {
+            warn!("There is already a loading indicator");
+            return;
+        }
+
+        lock.insert_cloned(0, Arc::new(TimelineItem::loading_indicator()));
+    }
+
+    #[instrument(skip_all)]
+    pub(super) fn remove_loading_indicator(&self) {
+        let mut lock = self.items.lock_mut();
+        if !lock.first().map_or(false, |item| item.is_loading_indicator()) {
+            warn!("There is no loading indicator");
+            return;
+        }
+
+        lock.remove(0);
+    }
+
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
         let fully_read_event = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
