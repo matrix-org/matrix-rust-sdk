@@ -224,12 +224,12 @@ pub struct TimelineItemContent(matrix_sdk::room::timeline::TimelineItemContent);
 #[uniffi::export]
 impl TimelineItemContent {
     pub fn kind(&self) -> TimelineItemContentKind {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
 
         match &self.0 {
-            C::Message(_) => TimelineItemContentKind::Message,
-            C::RedactedMessage => TimelineItemContentKind::RedactedMessage,
-            C::Sticker(sticker) => {
+            Content::Message(_) => TimelineItemContentKind::Message,
+            Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
+            Content::Sticker(sticker) => {
                 let content = sticker.content();
                 TimelineItemContentKind::Sticker {
                     body: content.body.clone(),
@@ -237,16 +237,16 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
-            C::UnableToDecrypt(msg) => {
+            Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
-            C::FailedToParseMessageLike { event_type, error } => {
+            Content::FailedToParseMessageLike { event_type, error } => {
                 TimelineItemContentKind::FailedToParseMessageLike {
                     event_type: event_type.to_string(),
                     error: error.to_string(),
                 }
             }
-            C::FailedToParseState { event_type, state_key, error } => {
+            Content::FailedToParseState { event_type, state_key, error } => {
                 TimelineItemContentKind::FailedToParseState {
                     event_type: event_type.to_string(),
                     state_key: state_key.to_string(),
@@ -257,8 +257,8 @@ impl TimelineItemContent {
     }
 
     pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
-        unwrap_or_clone_arc_into_variant!(self, .0, C::Message(msg) => Arc::new(Message(msg)))
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
+        unwrap_or_clone_arc_into_variant!(self, .0, Content::Message(msg) => Arc::new(Message(msg)))
     }
 }
 
@@ -527,18 +527,18 @@ pub enum EncryptedMessage {
 
 impl EncryptedMessage {
     fn new(msg: &matrix_sdk::room::timeline::EncryptedMessage) -> Self {
-        use matrix_sdk::room::timeline::EncryptedMessage as E;
+        use matrix_sdk::room::timeline::EncryptedMessage as Message;
 
         match msg {
-            E::OlmV1Curve25519AesSha2 { sender_key } => {
+            Message::OlmV1Curve25519AesSha2 { sender_key } => {
                 let sender_key = sender_key.clone();
-                EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key }
+                Self::OlmV1Curve25519AesSha2 { sender_key }
             }
-            E::MegolmV1AesSha2 { session_id, .. } => {
+            Message::MegolmV1AesSha2 { session_id, .. } => {
                 let session_id = session_id.clone();
-                EncryptedMessage::MegolmV1AesSha2 { session_id }
+                Self::MegolmV1AesSha2 { session_id }
             }
-            E::Unknown => EncryptedMessage::Unknown,
+            Message::Unknown => Self::Unknown,
         }
     }
 }
