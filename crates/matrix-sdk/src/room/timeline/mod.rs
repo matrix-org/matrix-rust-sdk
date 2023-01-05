@@ -16,11 +16,14 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    locks::Mutex,
+};
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
@@ -65,8 +68,8 @@ use self::{
 pub struct Timeline {
     inner: Arc<TimelineInner>,
     room: room::Common,
-    start_token: StdMutex<Option<String>>,
-    _end_token: StdMutex<Option<String>>,
+    start_token: Mutex<Option<String>>,
+    _end_token: Mutex<Option<String>>,
     event_handler_handles: Vec<EventHandlerHandle>,
 }
 
@@ -125,8 +128,8 @@ impl Timeline {
         Timeline {
             inner,
             room: room.clone(),
-            start_token: StdMutex::new(prev_token),
-            _end_token: StdMutex::new(None),
+            start_token: Mutex::new(prev_token),
+            _end_token: Mutex::new(None),
             event_handler_handles,
         }
     }
@@ -163,11 +166,11 @@ impl Timeline {
     /// Add more events to the start of the timeline.
     #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
     pub async fn paginate_backwards(&self, limit: UInt) -> Result<PaginationOutcome> {
-        let start = self.start_token.lock().unwrap().clone();
+        let mut start_lock = self.start_token.lock().await;
         let messages = self
             .room
             .messages(assign!(MessagesOptions::backward(), {
-                from: start,
+                from: start_lock.clone(),
                 limit,
             }))
             .await?;
@@ -179,7 +182,7 @@ impl Timeline {
         }
 
         let outcome = PaginationOutcome { more_messages: messages.end.is_some(), num_updates };
-        *self.start_token.lock().unwrap() = messages.end;
+        *start_lock = messages.end;
 
         Ok(outcome)
     }
