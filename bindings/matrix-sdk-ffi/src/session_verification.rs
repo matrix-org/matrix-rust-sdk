@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
         identities::UserIdentity,
-        verification::{SasState, SasVerification, VerificationRequest},
+        verification::{SasState, SasVerification, VerificationRequest}, Encryption,
     },
     ruma::{
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
@@ -31,6 +31,8 @@ impl SessionVerificationEmoji {
 }
 
 pub trait SessionVerificationControllerDelegate: Sync + Send {
+    fn did_accept_verification_request(&self);
+    fn did_start_sas_verification(&self);
     fn did_receive_verification_data(&self, data: Vec<Arc<SessionVerificationEmoji>>);
     fn did_fail(&self);
     fn did_cancel(&self);
@@ -41,6 +43,7 @@ pub type Delegate = Arc<RwLock<Option<Box<dyn SessionVerificationControllerDeleg
 
 #[derive(Clone)]
 pub struct SessionVerificationController {
+    encryption: Encryption,
     user_identity: UserIdentity,
     delegate: Delegate,
     verification_request: Arc<RwLock<Option<VerificationRequest>>>,
@@ -55,8 +58,9 @@ impl SessionVerificationController {
 }
 
 impl SessionVerificationController {
-    pub fn new(user_identity: UserIdentity) -> Self {
+    pub fn new(encryption: Encryption, user_identity: UserIdentity) -> Self {
         SessionVerificationController {
+            encryption,
             user_identity,
             delegate: Arc::new(RwLock::new(None)),
             verification_request: Arc::new(RwLock::new(None)),
@@ -74,6 +78,34 @@ impl SessionVerificationController {
             let verification_request =
                 self.user_identity.request_verification_with_methods(methods).await?;
             *self.verification_request.write().unwrap() = Some(verification_request);
+
+            Ok(())
+        })
+    }
+
+    pub fn start_sas_verification(&self) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            let verification_request = self.verification_request.read().unwrap().clone();
+
+            if let Some(verification) = verification_request {
+                match verification.start_sas().await {
+                    Ok(Some(verification)) => {
+                        *self.sas_verification.write().unwrap() = Some(verification.clone());
+
+                        if let Some(delegate) = &*self.delegate.read().unwrap() {
+                            delegate.did_start_sas_verification()
+                        }
+
+                        let delegate = self.delegate.clone();
+                        RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
+                    }
+                    _ => {
+                        if let Some(delegate) = &*self.delegate.read().unwrap() {
+                            delegate.did_fail()
+                        }
+                    }
+                }
+            }
 
             Ok(())
         })
@@ -116,11 +148,37 @@ impl SessionVerificationController {
         match event {
             // TODO: Use the changes stream for this as well once we expose
             // VerificationRequest::changes() in the main crate.
+            AnyToDeviceEvent::KeyVerificationStart(event) => {
+                if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
+                    return;
+                }
+                if let Some(verification) = self.encryption.get_verification(self.user_identity.user_id(), event.content.transaction_id.as_str()).await {
+                    if let Some(sas_verification) = verification.sas() {
+                        *self.sas_verification.write().unwrap() = Some(sas_verification.clone());
+
+                        if sas_verification.accept().await.is_ok() {
+                            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                                delegate.did_start_sas_verification()
+                            }
+                            
+                            let delegate = self.delegate.clone();
+                            RUNTIME.spawn(Self::listen_to_changes(delegate, sas_verification));
+                        } else {
+                            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                                delegate.did_fail()
+                            }
+                        }
+                    }
+                }
+            },
             AnyToDeviceEvent::KeyVerificationReady(event) => {
                 if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
                     return;
                 }
-                self.start_sas_verification().await;
+                
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_accept_verification_request()
+                }
             }
             _ => (),
         }
@@ -180,26 +238,6 @@ impl SessionVerificationController {
                     break;
                 }
                 SasState::Started { .. } | SasState::Accepted { .. } | SasState::Confirmed => (),
-            }
-        }
-    }
-
-    async fn start_sas_verification(&self) {
-        let verification_request = self.verification_request.read().unwrap().clone();
-
-        if let Some(verification) = verification_request {
-            match verification.start_sas().await {
-                Ok(Some(verification)) => {
-                    *self.sas_verification.write().unwrap() = Some(verification.clone());
-
-                    let delegate = self.delegate.clone();
-                    RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
-                }
-                _ => {
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_fail()
-                    }
-                }
             }
         }
     }
