@@ -11,10 +11,13 @@ use matrix_sdk_crypto::{
     },
     OutgoingRequests,
 };
-use ruma::api::client::keys::{
-    claim_keys::v3::Request as OriginalKeysClaimRequest,
-    upload_keys::v3::Request as OriginalKeysUploadRequest,
-    upload_signatures::v3::Request as OriginalSignatureUploadRequest,
+use ruma::{
+    api::client::keys::{
+        claim_keys::v3::Request as OriginalKeysClaimRequest,
+        upload_keys::v3::Request as OriginalKeysUploadRequest,
+        upload_signatures::v3::Request as OriginalSignatureUploadRequest,
+    },
+    events::EventContent,
 };
 use wasm_bindgen::prelude::*;
 
@@ -226,7 +229,11 @@ pub struct RoomMessageRequest {
     #[wasm_bindgen(readonly)]
     pub txn_id: JsString,
 
-    /// A JSON-encoded string containing the `content` field of this event.
+    /// A string representing the type of even from the message's content.
+    #[wasm_bindgen(readonly)]
+    pub event_type: JsString,
+
+    /// A JSON-encoded string containing the message's content.
     #[wasm_bindgen(readonly)]
     pub content: JsString,
 }
@@ -239,9 +246,10 @@ impl RoomMessageRequest {
         id: JsString,
         room_id: JsString,
         txn_id: JsString,
+        event_type: JsString,
         content: JsString,
     ) -> RoomMessageRequest {
-        Self { id: Some(id), room_id, txn_id, content }
+        Self { id: Some(id), room_id, txn_id, event_type, content }
     }
 
     /// Get its request type.
@@ -303,8 +311,8 @@ pub struct SigningKeysUploadRequest {
 macro_rules! request {
     (
         $destination_request:ident from $source_request:ident
-        $( extracts fields $( $field_name:ident : $field_type:ident ),+ $(,)? )?
-        $( $( and )? groups fields $( $grouped_field_name:ident ),+ $(,)? )?
+        $( extracts $( $field_name:ident : $field_type:tt ),+ $(,)? )?
+        $( $( and )? groups $( $grouped_field_name:ident ),+ $(,)? )?
     ) => {
         impl TryFrom<&$source_request> for $destination_request {
             type Error = serde_json::Error;
@@ -338,7 +346,7 @@ macro_rules! request {
     (
         @__try_from $destination_request:ident from $source_request:ident
         (request_id = $request_id:expr, request = $request:expr)
-        $( extracts [ $( $field_name:ident : $field_type:ident ),* $(,)? ] )?
+        $( extracts [ $( $field_name:ident : $field_type:tt ),* $(,)? ] )?
         $( groups [ $( $grouped_field_name:ident ),* $(,)? ] )?
     ) => {
         {
@@ -346,7 +354,7 @@ macro_rules! request {
                 id: $request_id,
                 $(
                     $(
-                        $field_name: request!(@__field as $field_type (request = $request, field = $field_name)),
+                        $field_name: request!(@__field $field_name : $field_type ; request = $request),
                     )*
                 )?
                 $(
@@ -364,26 +372,43 @@ macro_rules! request {
         }
     };
 
-    ( @__field as string (request = $request:expr, field = $field_name:ident) ) => {
+    ( @__field $field_name:ident : $field_type:ident ; request = $request:expr ) => {
+        request!(@__field_type as $field_type ; request = $request, field_name = $field_name)
+    };
+
+    /*
+    ( @__field $field_name:ident : $field_mapper:block ; request = $request:expr ) => {
+        {
+            let mapper = $field_mapper;
+            mapper($request)
+        }
+    };
+    */
+
+    ( @__field_type as string ; request = $request:expr, field_name = $field_name:ident ) => {
         $request.$field_name.to_string().into()
     };
 
-    ( @__field as json (request = $request:expr, field = $field_name:ident) ) => {
+    ( @__field_type as json ; request = $request:expr, field_name = $field_name:ident ) => {
         serde_json::to_string(&$request.$field_name)?.into()
-    }
+    };
+
+    ( @__field_type as event_type ; request = $request:expr, field_name = $field_name:ident ) => {
+        $request.content.event_type().to_string().into()
+    };
 }
 
 // Outgoing Requests
-request!(KeysUploadRequest from OriginalKeysUploadRequest groups fields device_keys, one_time_keys, fallback_keys);
-request!(KeysQueryRequest from OriginalKeysQueryRequest groups fields timeout, device_keys, token);
-request!(KeysClaimRequest from OriginalKeysClaimRequest groups fields timeout, one_time_keys);
-request!(ToDeviceRequest from OriginalToDeviceRequest extracts fields event_type: string, txn_id: string and groups fields messages);
-request!(SignatureUploadRequest from OriginalSignatureUploadRequest groups fields signed_keys);
-request!(RoomMessageRequest from OriginalRoomMessageRequest extracts fields room_id: string, txn_id: string, content: json);
-request!(KeysBackupRequest from OriginalKeysBackupRequest groups fields rooms);
+request!(KeysUploadRequest from OriginalKeysUploadRequest groups device_keys, one_time_keys, fallback_keys);
+request!(KeysQueryRequest from OriginalKeysQueryRequest groups timeout, device_keys, token);
+request!(KeysClaimRequest from OriginalKeysClaimRequest groups timeout, one_time_keys);
+request!(ToDeviceRequest from OriginalToDeviceRequest extracts event_type: string, txn_id: string and groups messages);
+request!(SignatureUploadRequest from OriginalSignatureUploadRequest groups signed_keys);
+request!(RoomMessageRequest from OriginalRoomMessageRequest extracts room_id: string, txn_id: string, event_type: event_type, content: json);
+request!(KeysBackupRequest from OriginalKeysBackupRequest groups rooms);
 
 // Other Requests
-request!(SigningKeysUploadRequest from OriginalUploadSigningKeysRequest groups fields master_key, self_signing_key, user_signing_key);
+request!(SigningKeysUploadRequest from OriginalUploadSigningKeysRequest groups master_key, self_signing_key, user_signing_key);
 
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hiding everything behind a
