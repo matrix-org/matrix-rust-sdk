@@ -39,15 +39,15 @@ pub struct KeysUploadRequest {
     /// A JSON-encoded string containing the rest of the payload: `device_keys`,
     /// `one_time_keys`, `fallback_keys`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysUploadRequest {
     /// Create a new `KeysUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, extra: JsString) -> KeysUploadRequest {
-        Self { id: Some(id), extra }
+    pub fn new(id: JsString, body: JsString) -> KeysUploadRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -73,15 +73,15 @@ pub struct KeysQueryRequest {
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `device_keys`, `token`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysQueryRequest {
     /// Create a new `KeysQueryRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, extra: JsString) -> KeysQueryRequest {
-        Self { id: Some(id), extra }
+    pub fn new(id: JsString, body: JsString) -> KeysQueryRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -108,15 +108,15 @@ pub struct KeysClaimRequest {
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `one_time_keys`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysClaimRequest {
     /// Create a new `KeysClaimRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, extra: JsString) -> KeysClaimRequest {
-        Self { id: Some(id), extra }
+    pub fn new(id: JsString, body: JsString) -> KeysClaimRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -150,7 +150,7 @@ pub struct ToDeviceRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `messages`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
@@ -161,9 +161,9 @@ impl ToDeviceRequest {
         id: JsString,
         event_type: JsString,
         txn_id: JsString,
-        extra: JsString,
+        body: JsString,
     ) -> ToDeviceRequest {
-        Self { id: Some(id), event_type, txn_id, extra }
+        Self { id: Some(id), event_type, txn_id, body }
     }
 
     /// Get its request type.
@@ -188,15 +188,15 @@ pub struct SignatureUploadRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl SignatureUploadRequest {
     /// Create a new `SignatureUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, extra: JsString) -> SignatureUploadRequest {
-        Self { id: Some(id), extra }
+    pub fn new(id: JsString, body: JsString) -> SignatureUploadRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -272,15 +272,15 @@ pub struct KeysBackupRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `rooms`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 #[wasm_bindgen]
 impl KeysBackupRequest {
     /// Create a new `KeysBackupRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, extra: JsString) -> KeysBackupRequest {
-        Self { id: Some(id), extra }
+    pub fn new(id: JsString, body: JsString) -> KeysBackupRequest {
+        Self { id: Some(id), body }
     }
 
     /// Get its request type.
@@ -305,7 +305,7 @@ pub struct SigningKeysUploadRequest {
     /// A JSON-encoded string containing the rest of the payload: `master_key`,
     /// `self_signing_key`, `user_signing_key`.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub body: JsString,
 }
 
 macro_rules! request {
@@ -358,7 +358,7 @@ macro_rules! request {
                     )*
                 )?
                 $(
-                    extra: {
+                    body: {
                         let mut map = serde_json::Map::new();
                         $(
                             map.insert(stringify!($grouped_field_name).to_owned(), serde_json::to_value(&$request.$grouped_field_name).unwrap());
