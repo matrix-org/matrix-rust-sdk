@@ -226,9 +226,9 @@ pub struct RoomMessageRequest {
     #[wasm_bindgen(readonly)]
     pub txn_id: JsString,
 
-    /// A JSON-encoded string containing the rest of the payload: `content`.
+    /// A JSON-encoded string containing the `content` field of this event.
     #[wasm_bindgen(readonly)]
-    pub extra: JsString,
+    pub content: JsString,
 }
 
 #[wasm_bindgen]
@@ -239,9 +239,9 @@ impl RoomMessageRequest {
         id: JsString,
         room_id: JsString,
         txn_id: JsString,
-        extra: JsString,
+        content: JsString,
     ) -> RoomMessageRequest {
-        Self { id: Some(id), room_id, txn_id, extra }
+        Self { id: Some(id), room_id, txn_id, content }
     }
 
     /// Get its request type.
@@ -303,8 +303,8 @@ pub struct SigningKeysUploadRequest {
 macro_rules! request {
     (
         $destination_request:ident from $source_request:ident
-        $( extracts fields $( $field:ident: $field_type:ident ),+ $(,)? )?
-        $( $( and )? groups fields $( $grouped_field:ident ),+ $(,)? )?
+        $( extracts fields $( $field_name:ident : $field_type:ident ),+ $(,)? )?
+        $( $( and )? groups fields $( $grouped_field_name:ident ),+ $(,)? )?
     ) => {
         impl TryFrom<&$source_request> for $destination_request {
             type Error = serde_json::Error;
@@ -313,8 +313,8 @@ macro_rules! request {
                 request!(
                     @__try_from $destination_request from $source_request
                     (request_id = None, request = request)
-                    $( extracts [ $( $field: $field_type, )+ ] )?
-                    $( groups [ $( $grouped_field, )+ ] )?
+                    $( extracts [ $( $field_name : $field_type, )+ ] )?
+                    $( groups [ $( $grouped_field_name, )+ ] )?
                 )
             }
         }
@@ -328,8 +328,8 @@ macro_rules! request {
                 request!(
                     @__try_from $destination_request from $source_request
                     (request_id = Some(request_id.into()), request = request)
-                    $( extracts [ $( $field: $field_type, )+ ] )?
-                    $( groups [ $( $grouped_field, )+ ] )?
+                    $( extracts [ $( $field_name : $field_type, )+ ] )?
+                    $( groups [ $( $grouped_field_name, )+ ] )?
                 )
             }
         }
@@ -338,22 +338,22 @@ macro_rules! request {
     (
         @__try_from $destination_request:ident from $source_request:ident
         (request_id = $request_id:expr, request = $request:expr)
-        $( extracts [ $( $field:ident: $field_type:ident ),* $(,)? ] )?
-        $( groups [ $( $grouped_field:ident ),* $(,)? ] )?
+        $( extracts [ $( $field_name:ident : $field_type:ident ),* $(,)? ] )?
+        $( groups [ $( $grouped_field_name:ident ),* $(,)? ] )?
     ) => {
         {
             Ok($destination_request {
                 id: $request_id,
                 $(
                     $(
-                        $field: request!(@__field as $field_type (request = $request, field = $field)),
+                        $field_name: request!(@__field as $field_type (request = $request, field = $field_name)),
                     )*
                 )?
                 $(
                     extra: {
                         let mut map = serde_json::Map::new();
                         $(
-                            map.insert(stringify!($grouped_field).to_owned(), serde_json::to_value(&$request.$grouped_field).unwrap());
+                            map.insert(stringify!($grouped_field_name).to_owned(), serde_json::to_value(&$request.$grouped_field_name).unwrap());
                         )*
                         let object = serde_json::Value::Object(map);
 
@@ -364,9 +364,13 @@ macro_rules! request {
         }
     };
 
-    ( @__field as string (request = $request:expr, field = $field:ident) ) => {
-        $request.$field.to_string().into()
+    ( @__field as string (request = $request:expr, field = $field_name:ident) ) => {
+        $request.$field_name.to_string().into()
     };
+
+    ( @__field as json (request = $request:expr, field = $field_name:ident) ) => {
+        serde_json::to_string(&$request.$field_name)?.into()
+    }
 }
 
 // Outgoing Requests
@@ -375,7 +379,7 @@ request!(KeysQueryRequest from OriginalKeysQueryRequest groups fields timeout, d
 request!(KeysClaimRequest from OriginalKeysClaimRequest groups fields timeout, one_time_keys);
 request!(ToDeviceRequest from OriginalToDeviceRequest extracts fields event_type: string, txn_id: string and groups fields messages);
 request!(SignatureUploadRequest from OriginalSignatureUploadRequest groups fields signed_keys);
-request!(RoomMessageRequest from OriginalRoomMessageRequest extracts fields room_id: string, txn_id: string and groups fields content);
+request!(RoomMessageRequest from OriginalRoomMessageRequest extracts fields room_id: string, txn_id: string, content: json);
 request!(KeysBackupRequest from OriginalKeysBackupRequest groups fields rooms);
 
 // Other Requests
