@@ -255,7 +255,7 @@ interface Room {
     //
     // Raises an exception if there are no timeline listeners.
     [Throws=ClientError]
-    PaginationOutcome paginate_backwards(u16 limit);
+    void paginate_backwards(PaginationOptions opts);
 
     [Throws=ClientError]
     void send(RoomMessageEventContent msg, string? txn_id);
@@ -286,11 +286,10 @@ dictionary MoveData {
     u32 new_index;
 };
 
-dictionary PaginationOutcome {
-    // Whether there's more messages to be paginated.
-    boolean more_messages;
-    // The number of updated or added timeline items.
-    u16 num_updates;
+[Enum]
+interface PaginationOptions {
+    SingleRequest(u16 event_limit);
+    UntilNumItems(u16 event_limit, u16 items);
 };
 
 interface RoomMessageEventContent {};

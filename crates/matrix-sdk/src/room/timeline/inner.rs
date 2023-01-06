@@ -24,8 +24,8 @@ use tracing::{instrument, trace};
 
 use super::{
     event_handler::{
-        update_read_marker, Flow, TimelineEventHandler, TimelineEventKind, TimelineEventMetadata,
-        TimelineItemPosition,
+        update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
+        TimelineEventMetadata, TimelineItemPosition,
     },
     find_event_by_txn_id, TimelineItem, TimelineKey,
 };
@@ -120,7 +120,7 @@ impl TimelineInner {
         &self,
         event: TimelineEvent,
         own_user_id: &UserId,
-    ) -> u16 {
+    ) -> HandleEventResult {
         let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
             event.event.cast(),
@@ -294,7 +294,7 @@ fn handle_remote_event(
     position: TimelineItemPosition,
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut TimelineInnerMetadata,
-) -> u16 {
+) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
             Ok(event) => (
@@ -316,7 +316,7 @@ fn handle_remote_event(
                 ),
                 Err(e) => {
                     warn!("Failed to deserialize timeline event: {e}");
-                    return 0;
+                    return HandleEventResult::default();
                 }
             },
         };

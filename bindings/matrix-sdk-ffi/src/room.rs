@@ -6,10 +6,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use futures_signals::signal_vec::SignalVecExt;
 use matrix_sdk::{
-    room::{
-        timeline::{PaginationOutcome, Timeline},
-        Room as SdkRoom,
-    },
+    room::{timeline::Timeline, Room as SdkRoom},
     ruma::{
         events::{
             reaction::ReactionEventContent,
@@ -245,9 +242,9 @@ impl Room {
         }));
     }
 
-    pub fn paginate_backwards(&self, limit: u16) -> Result<PaginationOutcome> {
+    pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<()> {
         if let Some(timeline) = &*self.timeline.read().unwrap() {
-            RUNTIME.block_on(async move { Ok(timeline.paginate_backwards(limit.into()).await?) })
+            RUNTIME.block_on(async move { Ok(timeline.paginate_backwards(opts.into()).await?) })
         } else {
             bail!("No timeline listeners registered, can't paginate");
         }
@@ -396,5 +393,22 @@ impl std::ops::Deref for Room {
 
     fn deref(&self) -> &SdkRoom {
         &self.room
+    }
+}
+
+pub enum PaginationOptions {
+    SingleRequest { event_limit: u16 },
+    UntilNumItems { event_limit: u16, items: u16 },
+}
+
+impl From<PaginationOptions> for matrix_sdk::room::timeline::PaginationOptions<'static> {
+    fn from(value: PaginationOptions) -> Self {
+        use matrix_sdk::room::timeline::PaginationOptions as Opts;
+        match value {
+            PaginationOptions::SingleRequest { event_limit } => Opts::single_request(event_limit),
+            PaginationOptions::UntilNumItems { event_limit, items } => {
+                Opts::until_num_items(event_limit, items)
+            }
+        }
     }
 }
