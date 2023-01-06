@@ -176,6 +176,12 @@ pub(super) enum TimelineItemPosition {
     Update(usize),
 }
 
+#[derive(Default)]
+pub(super) struct HandleEventResult {
+    pub(super) item_added: bool,
+    pub(super) items_updated: u16,
+}
+
 // Bundles together a few things that are needed throughout the different stages
 // of handling an event (figuring out whether it should update an existing
 // timeline item, transforming that item or creating a new one, updating the
@@ -187,8 +193,7 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
-    item_created: bool,
-    items_updated: u16,
+    result: HandleEventResult,
 }
 
 // This is a macro instead of a method plus free fn so the borrow checker can
@@ -198,7 +203,7 @@ macro_rules! update_timeline_item {
     ($this:ident, $event_id:expr, $action:expr, $update:expr) => {
         _update_timeline_item(
             &mut *$this.timeline_items,
-            &mut $this.items_updated,
+            &mut $this.result.items_updated,
             $event_id,
             $action,
             $update,
@@ -220,8 +225,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             reaction_map: &mut timeline_meta.reaction_map,
             fully_read_event: &mut timeline_meta.fully_read_event,
             fully_read_event_in_timeline: &mut timeline_meta.fully_read_event_in_timeline,
-            item_created: false,
-            items_updated: 0,
+            result: HandleEventResult::default(),
         }
     }
 
@@ -229,7 +233,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     ///
     /// Returns the number of timeline updates that were made.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> u16 {
+    pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> HandleEventResult {
         let span = tracing::Span::current();
         match &self.flow {
             Flow::Local { txn_id, .. } => {
@@ -282,11 +286,11 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
-        if !self.item_created {
+        if !self.result.item_added {
             // TODO: Add event as raw
         }
 
-        self.item_created as u16 + self.items_updated
+        self.result
     }
 
     #[instrument(skip_all, fields(replacement_event_id = %replacement.event_id))]
@@ -358,7 +362,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         });
 
-        if self.items_updated > 0 {
+        if self.result.items_updated > 0 {
             self.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
         }
     }
@@ -427,7 +431,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 Some(item.with_reactions(reactions))
             });
 
-            if !self.items_updated > 0 {
+            if !self.result.items_updated > 0 {
                 warn!("reaction_map out of sync with timeline items");
             }
         }
@@ -437,14 +441,14 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |item| Some(item.to_redacted()));
 
-        if self.items_updated > 0 {
+        if self.result.items_updated > 0 {
             // We will want to know this when debugging redaction issues.
             debug!(redaction_key = ?self.flow.to_key(), "redaction affected no event");
         }
     }
 
     fn add(&mut self, item: NewEventTimelineItem) {
-        self.item_created = true;
+        self.result.item_added = true;
 
         let NewEventTimelineItem { content, reactions } = item;
         let item = EventTimelineItem {

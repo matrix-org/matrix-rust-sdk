@@ -27,9 +27,9 @@ use matrix_sdk_base::{
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
-    EventId, TransactionId, UInt,
+    EventId, TransactionId,
 };
-use tracing::{error, instrument};
+use tracing::{error, instrument, warn};
 
 use super::{Joined, Room};
 use crate::{
@@ -41,6 +41,7 @@ use crate::{
 mod event_handler;
 mod event_item;
 mod inner;
+mod pagination;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
@@ -52,6 +53,7 @@ pub use self::{
         EncryptedMessage, EventTimelineItem, Message, ReactionDetails, Sticker, TimelineDetails,
         TimelineItemContent, TimelineKey,
     },
+    pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
 };
 use self::{
@@ -164,30 +166,77 @@ impl Timeline {
     }
 
     /// Add more events to the start of the timeline.
-    #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
-    pub async fn paginate_backwards(&self, limit: UInt) -> Result<PaginationOutcome> {
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_pagination_size`: The number of events to fetch from the
+    ///   server in the first pagination request. The server may choose return
+    ///   fewer events, for example because the supplied number is too big or
+    ///   the beginning of the visible timeline was reached.
+    /// * `
+    #[instrument(skip_all, fields(initial_pagination_size, room_id = %self.room.room_id()))]
+    pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
-        self.inner.add_loading_indicator();
-        let messages = self
-            .room
-            .messages(assign!(MessagesOptions::backward(), {
-                from: start_lock.clone(),
-                limit,
-            }))
-            .await?;
-
-        let own_user_id = self.room.own_user_id();
-        let mut num_updates = 0;
-        for room_ev in messages.chunk {
-            num_updates += self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
+        if start_lock.is_none()
+            && self.inner.items.lock_ref().first().map_or(false, |item| item.is_timeline_start())
+        {
+            warn!("Start of timeline reached, ignoring backwards-pagination request");
+            return Ok(());
         }
 
-        let more_messages = messages.end.is_some();
-        self.inner.remove_loading_indicator(more_messages);
-        let outcome = PaginationOutcome { more_messages, num_updates };
-        *start_lock = messages.end;
+        self.inner.add_loading_indicator();
 
-        Ok(outcome)
+        let own_user_id = self.room.own_user_id();
+        let mut from = start_lock.clone();
+        let mut outcome = PaginationOutcome::new();
+
+        while let Some(limit) = opts.next_event_limit(outcome) {
+            let messages = self
+                .room
+                .messages(assign!(MessagesOptions::backward(), {
+                    from,
+                    limit: limit.into(),
+                }))
+                .await?;
+
+            let process_events_result = async {
+                outcome.events_received = messages.chunk.len().try_into().ok()?;
+                outcome.total_events_received =
+                    outcome.total_events_received.checked_add(outcome.events_received)?;
+                outcome.items_added = 0;
+                outcome.items_updated = 0;
+
+                for room_ev in messages.chunk {
+                    let res = self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
+                    outcome.items_added = outcome.items_added.checked_add(res.item_added as u16)?;
+                    outcome.items_updated = outcome.items_updated.checked_add(res.items_updated)?;
+                }
+
+                outcome.total_items_added =
+                    outcome.total_items_added.checked_add(outcome.items_added)?;
+                outcome.total_items_updated =
+                    outcome.total_items_updated.checked_add(outcome.items_updated)?;
+
+                Some(())
+            }
+            .await;
+
+            from = messages.end;
+
+            if from.is_none() {
+                break;
+            }
+
+            if process_events_result.is_none() {
+                error!("Received an excessive number of events, ending pagination (u16 overflow)");
+                break;
+            }
+        }
+
+        self.inner.remove_loading_indicator(from.is_some());
+        *start_lock = from;
+
+        Ok(())
     }
 
     /// Retry decryption of previously un-decryptable events given a list of
@@ -355,22 +404,10 @@ impl TimelineItem {
     fn is_loading_indicator(&self) -> bool {
         matches!(self, Self::Virtual(VirtualTimelineItem::LoadingIndicator))
     }
-}
 
-/// The result of a successful pagination request.
-#[derive(Debug)]
-// TODO: non-exhaustive breaks UniFFI bridge
-//#[non_exhaustive]
-pub struct PaginationOutcome {
-    /// Whether there's more messages to be paginated.
-    pub more_messages: bool,
-
-    /// The number of timeline updates to expect from this pagination.
-    ///
-    /// Since timeline updates are received asynchronously, you can use this
-    /// number to determine whether all updates have been observed, and whether
-    /// another back pagination request should be made.
-    pub num_updates: u16,
+    fn is_timeline_start(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::TimelineStart))
+    }
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up

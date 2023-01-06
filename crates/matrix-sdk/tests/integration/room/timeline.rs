@@ -7,7 +7,9 @@ use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    room::timeline::{TimelineDetails, TimelineItemContent, TimelineKey, VirtualTimelineItem},
+    room::timeline::{
+        PaginationOptions, TimelineDetails, TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    },
     ruma::MilliSecondsSinceUnixEpoch,
 };
 use matrix_sdk_common::executor::spawn;
@@ -259,7 +261,7 @@ async fn back_pagination() {
         .mount(&server)
         .await;
 
-    timeline.paginate_backwards(uint!(10)).await.unwrap();
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
     server.reset().await;
 
     let loading = assert_matches!(
@@ -313,7 +315,7 @@ async fn back_pagination() {
         .mount(&server)
         .await;
 
-    timeline.paginate_backwards(uint!(10)).await.unwrap();
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
 
     let loading = assert_matches!(
         timeline_stream.next().await,
