@@ -35,11 +35,3 @@ pub enum VirtualTimelineItem {
     /// A loading indicator for a pagination request.
     LoadingIndicator,
 }
-
-impl VirtualTimelineItem {
-    /// Creates a new `VirtualTimelineItem::DayDivider` from the given year,
-    /// month and day.
-    pub(crate) fn day_divider(year: i32, month: u32, day: u32) -> Self {
-        Self::DayDivider { year, month, day }
-    }
-}

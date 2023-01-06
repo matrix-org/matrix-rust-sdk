@@ -474,15 +474,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, *timestamp)
                     {
-                        self.timeline_items
-                            .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
+                        self.timeline_items.push_cloned(Arc::new(day_divider_item));
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
                     let (year, month, day) = timestamp_to_ymd(*timestamp);
-                    self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
-                        VirtualTimelineItem::day_divider(year, month, day),
-                    )));
+                    self.timeline_items
+                        .push_cloned(Arc::new(TimelineItem::day_divider(year, month, day)));
                 }
 
                 self.timeline_items.push_cloned(item);
@@ -539,19 +537,15 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                                 (*year, *month, *day),
                                 timestamp_to_ymd(*origin_server_ts),
                             ) {
-                                self.timeline_items.insert_cloned(
-                                    offset,
-                                    Arc::new(TimelineItem::Virtual(day_divider_item)),
-                                );
+                                self.timeline_items
+                                    .insert_cloned(offset, Arc::new(day_divider_item));
                             }
                         } else {
                             // The list must always start with a day divider.
                             let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
                             self.timeline_items.insert_cloned(
                                 offset,
-                                Arc::new(TimelineItem::Virtual(VirtualTimelineItem::day_divider(
-                                    year, month, day,
-                                ))),
+                                Arc::new(TimelineItem::day_divider(year, month, day)),
                             );
                         }
 
@@ -567,15 +561,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             if let Some(day_divider_item) =
                                 maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
                             {
-                                self.timeline_items
-                                    .push_cloned(Arc::new(TimelineItem::Virtual(day_divider_item)));
+                                self.timeline_items.push_cloned(Arc::new(day_divider_item));
                             }
                         } else {
                             // If there is not event item, there is no day divider yet.
                             let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
-                            self.timeline_items.push_cloned(Arc::new(TimelineItem::Virtual(
-                                VirtualTimelineItem::day_divider(year, month, day),
-                            )));
+                            self.timeline_items
+                                .push_cloned(Arc::new(TimelineItem::day_divider(year, month, day)));
                         }
 
                         self.timeline_items.push_cloned(item)
@@ -662,7 +654,7 @@ fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
 fn maybe_create_day_divider_from_timestamps(
     old_ts: MilliSecondsSinceUnixEpoch,
     new_ts: MilliSecondsSinceUnixEpoch,
-) -> Option<VirtualTimelineItem> {
+) -> Option<TimelineItem> {
     maybe_create_day_divider_from_ymd(timestamp_to_ymd(old_ts), timestamp_to_ymd(new_ts))
 }
 
@@ -671,11 +663,11 @@ fn maybe_create_day_divider_from_timestamps(
 fn maybe_create_day_divider_from_ymd(
     old_ymd: (i32, u32, u32),
     new_ymd: (i32, u32, u32),
-) -> Option<VirtualTimelineItem> {
+) -> Option<TimelineItem> {
     let (old_year, old_month, old_day) = old_ymd;
     let (new_year, new_month, new_day) = new_ymd;
     if old_year != new_year || old_month != new_month || old_day != new_day {
-        Some(VirtualTimelineItem::day_divider(new_year, new_month, new_day))
+        Some(TimelineItem::day_divider(new_year, new_month, new_day))
     } else {
         None
     }
