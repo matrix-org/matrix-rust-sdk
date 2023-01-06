@@ -182,8 +182,9 @@ impl Timeline {
             num_updates += self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
         }
 
-        self.inner.remove_loading_indicator();
-        let outcome = PaginationOutcome { more_messages: messages.end.is_some(), num_updates };
+        let more_messages = messages.end.is_some();
+        self.inner.remove_loading_indicator(more_messages);
+        let outcome = PaginationOutcome { more_messages, num_updates };
         *start_lock = messages.end;
 
         Ok(outcome)
@@ -341,6 +342,10 @@ impl TimelineItem {
 
     fn loading_indicator() -> Self {
         Self::Virtual(VirtualTimelineItem::LoadingIndicator)
+    }
+
+    fn timeline_start() -> Self {
+        Self::Virtual(VirtualTimelineItem::TimelineStart)
     }
 
     fn is_read_marker(&self) -> bool {

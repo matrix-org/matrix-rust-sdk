@@ -34,4 +34,10 @@ pub enum VirtualTimelineItem {
 
     /// A loading indicator for a pagination request.
     LoadingIndicator,
+
+    /// The beginning of the visible timeline.
+    ///
+    /// There might be earlier events the user is not allowed to see due to
+    /// history visibility.
+    TimelineStart,
 }
