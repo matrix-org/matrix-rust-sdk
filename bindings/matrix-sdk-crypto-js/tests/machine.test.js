@@ -99,7 +99,7 @@ describe(OlmMachine.name, () => {
     test('can drop/close', async () => {
         m = await machine();
         m.close();
-    })
+    });
 
     test('can drop/close with a store', async () => {
         let store_name = 'temporary';
@@ -133,7 +133,7 @@ describe(OlmMachine.name, () => {
             deleting.onerror = () => { throw new Error('failed to remove the database (error)') };
             deleting.onblocked = () => { throw new Error('failed to remove the database (blocked)') };
         }
-    })
+    });
 
     test('can read user ID', async () => {
         expect((await machine()).userId.toString()).toStrictEqual(user.toString());
@@ -200,7 +200,7 @@ describe(OlmMachine.name, () => {
             expect(outgoingRequests[0].type).toStrictEqual(RequestType.KeysUpload);
             expect(outgoingRequests[0].body).toBeDefined();
 
-            const body = JSON.parse(outgoingRequests[0].body)
+            const body = JSON.parse(outgoingRequests[0].body);
             expect(body.device_keys).toBeDefined();
             expect(body.one_time_keys).toBeDefined();
         }

@@ -38,6 +38,8 @@ pub struct KeysUploadRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `device_keys`,
     /// `one_time_keys`, `fallback_keys`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -72,6 +74,8 @@ pub struct KeysQueryRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `device_keys`, `token`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -107,6 +111,8 @@ pub struct KeysClaimRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `timeout`,
     /// `one_time_keys`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -149,6 +155,8 @@ pub struct ToDeviceRequest {
     pub txn_id: JsString,
 
     /// A JSON-encoded string containing the rest of the payload: `messages`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -187,6 +195,8 @@ pub struct SignatureUploadRequest {
     pub id: Option<JsString>,
 
     /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -271,6 +281,8 @@ pub struct KeysBackupRequest {
     pub id: Option<JsString>,
 
     /// A JSON-encoded string containing the rest of the payload: `rooms`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -304,6 +316,8 @@ pub struct SigningKeysUploadRequest {
 
     /// A JSON-encoded string containing the rest of the payload: `master_key`,
     /// `self_signing_key`, `user_signing_key`.
+    ///
+    /// It represents the body of the HTTP request.
     #[wasm_bindgen(readonly)]
     pub body: JsString,
 }
@@ -375,15 +389,6 @@ macro_rules! request {
     ( @__field $field_name:ident : $field_type:ident ; request = $request:expr ) => {
         request!(@__field_type as $field_type ; request = $request, field_name = $field_name)
     };
-
-    /*
-    ( @__field $field_name:ident : $field_mapper:block ; request = $request:expr ) => {
-        {
-            let mapper = $field_mapper;
-            mapper($request)
-        }
-    };
-    */
 
     ( @__field_type as string ; request = $request:expr, field_name = $field_name:ident ) => {
         $request.$field_name.to_string().into()
