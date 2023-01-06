@@ -525,7 +525,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                         // divider at position 1 and the new event at 2 rather than 0 and 1.
                         let offset =
                             match self.timeline_items.first().and_then(|item| item.as_virtual()) {
-                                Some(VirtualTimelineItem::LoadingIndicator) => 1,
+                                Some(
+                                    VirtualTimelineItem::LoadingIndicator
+                                    | VirtualTimelineItem::TimelineStart,
+                                ) => 1,
                                 _ => 0,
                             };
 

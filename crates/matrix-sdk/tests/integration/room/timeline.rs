@@ -260,6 +260,7 @@ async fn back_pagination() {
         .await;
 
     timeline.paginate_backwards(uint!(10)).await.unwrap();
+    server.reset().await;
 
     let loading = assert_matches!(
         timeline_stream.next().await,
@@ -297,6 +298,34 @@ async fn back_pagination() {
 
     // Removal of the loading indicator
     assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            // Usually there would be a few events here, but we just want to test
+            // that the timeline start item is added when there is no end token
+            "chunk": [],
+            "start": "t47409-4357353_219380_26003_2269"
+        })))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    timeline.paginate_backwards(uint!(10)).await.unwrap();
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::InsertAt { index: 0, value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::UpdateAt { index: 0, value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::TimelineStart);
 }
 
 #[async_test]
