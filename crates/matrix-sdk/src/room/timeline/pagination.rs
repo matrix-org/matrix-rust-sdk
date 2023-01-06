@@ -9,14 +9,14 @@ impl<'a> PaginationOptions<'a> {
     /// Do a single pagination request, asking the server for the given
     /// maximum number of events.
     ///
-    /// The server may choose to return fewer events, even if the end of the
-    /// visible timeline is not yet reached.
+    /// The server may choose to return fewer events, even if the start or end
+    /// of the visible timeline is not yet reached.
     pub fn single_request(event_limit: u16) -> Self {
         Self::new(PaginationOptionsInner::SingleRequest { event_limit_if_first: Some(event_limit) })
     }
 
     /// Continually paginate with a fixed `limit` until at least the given
-    /// amount of timeline items have been added (unless the end of the
+    /// amount of timeline items have been added (unless the start or end of the
     /// visible timeline is reached).
     ///
     /// The `event_limit` represents the maximum number of events the server
