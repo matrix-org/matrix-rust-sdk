@@ -10,7 +10,7 @@ test = false
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.23.1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
 url = "2.2.2"
 
