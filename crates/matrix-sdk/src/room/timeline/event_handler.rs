@@ -609,8 +609,7 @@ pub(crate) fn update_read_marker(
         (None, None) => {}
         (None, Some(idx)) => {
             *fully_read_event_in_timeline = true;
-            let item = TimelineItem::Virtual(VirtualTimelineItem::ReadMarker);
-            items_lock.insert_cloned(idx + 1, item.into());
+            items_lock.insert_cloned(idx + 1, Arc::new(TimelineItem::read_marker()));
         }
         (Some(_), None) => {
             // Keep the current position of the read marker, hopefully we

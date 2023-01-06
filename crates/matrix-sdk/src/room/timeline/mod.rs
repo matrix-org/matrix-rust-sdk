@@ -330,8 +330,16 @@ impl TimelineItem {
         }
     }
 
+    fn read_marker() -> Self {
+        Self::Virtual(VirtualTimelineItem::ReadMarker)
+    }
+
     fn loading_indicator() -> Self {
         Self::Virtual(VirtualTimelineItem::LoadingIndicator)
+    }
+
+    fn is_read_marker(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::ReadMarker))
     }
 
     fn is_loading_indicator(&self) -> bool {
@@ -378,10 +386,5 @@ fn find_event_by_txn_id<'a>(
 }
 
 fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
-    lock.iter()
-        .enumerate()
-        .rfind(|(_, item)| {
-            item.as_virtual().filter(|v| matches!(v, VirtualTimelineItem::ReadMarker)).is_some()
-        })
-        .map(|(idx, _)| idx)
+    lock.iter().rposition(|item| item.is_read_marker())
 }
