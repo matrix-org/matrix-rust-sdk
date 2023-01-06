@@ -330,6 +330,11 @@ impl TimelineItem {
         }
     }
 
+    /// Creates a new day divider from the given year, month and day.
+    fn day_divider(year: i32, month: u32, day: u32) -> Self {
+        Self::Virtual(VirtualTimelineItem::DayDivider { year, month, day })
+    }
+
     fn read_marker() -> Self {
         Self::Virtual(VirtualTimelineItem::ReadMarker)
     }
