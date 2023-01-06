@@ -4,7 +4,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
         identities::UserIdentity,
-        verification::{SasState, SasVerification, VerificationRequest}, Encryption,
+        verification::{SasState, SasVerification, VerificationRequest},
+        Encryption,
     },
     ruma::{
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
@@ -152,7 +153,14 @@ impl SessionVerificationController {
                 if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
                     return;
                 }
-                if let Some(verification) = self.encryption.get_verification(self.user_identity.user_id(), event.content.transaction_id.as_str()).await {
+                if let Some(verification) = self
+                    .encryption
+                    .get_verification(
+                        self.user_identity.user_id(),
+                        event.content.transaction_id.as_str(),
+                    )
+                    .await
+                {
                     if let Some(sas_verification) = verification.sas() {
                         *self.sas_verification.write().unwrap() = Some(sas_verification.clone());
 
@@ -160,22 +168,20 @@ impl SessionVerificationController {
                             if let Some(delegate) = &*self.delegate.read().unwrap() {
                                 delegate.did_start_sas_verification()
                             }
-                            
+
                             let delegate = self.delegate.clone();
                             RUNTIME.spawn(Self::listen_to_changes(delegate, sas_verification));
-                        } else {
-                            if let Some(delegate) = &*self.delegate.read().unwrap() {
-                                delegate.did_fail()
-                            }
+                        } else if let Some(delegate) = &*self.delegate.read().unwrap() {
+                            delegate.did_fail()
                         }
                     }
                 }
-            },
+            }
             AnyToDeviceEvent::KeyVerificationReady(event) => {
                 if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
                     return;
                 }
-                
+
                 if let Some(delegate) = &*self.delegate.read().unwrap() {
                     delegate.did_accept_verification_request()
                 }
