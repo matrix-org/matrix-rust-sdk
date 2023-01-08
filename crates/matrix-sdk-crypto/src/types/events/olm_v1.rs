@@ -82,6 +82,8 @@ pub enum AnyDecryptedOlmEvent {
     ForwardedRoomKey(DecryptedForwardedRoomKeyEvent),
     /// The `m.secret.send` decrypted to-device event.
     SecretSend(DecryptedSecretSendEvent),
+    /// The `m.dummy` decrypted to-device event.
+    Dummy(Box<ToDeviceDummyEvent>),
     /// A decrypted to-device event of an unknown or custom type.
     Custom(Box<ToDeviceCustomEvent>),
 }
@@ -93,6 +95,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => &e.sender,
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.sender,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.sender,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.sender,
             AnyDecryptedOlmEvent::Custom(e) => &e.sender,
         }
     }
@@ -103,6 +106,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => &e.recipient,
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.recipient,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient,
         }
     }
@@ -113,6 +117,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => &e.keys,
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.keys,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.keys,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.keys,
         }
     }
@@ -123,6 +128,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient_keys,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient_keys,
         }
     }
@@ -131,6 +137,7 @@ impl AnyDecryptedOlmEvent {
     pub fn event_type(&self) -> &str {
         match self {
             AnyDecryptedOlmEvent::Custom(e) => &e.event_type,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.event_type,
             AnyDecryptedOlmEvent::RoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.content.event_type(),
@@ -167,6 +174,22 @@ impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
             content,
         }
     }
+}
+
+/// A decrypted to-device "m.dummy" event.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ToDeviceDummyEvent {
+    /// The sender of the encrypted to-device event.
+    pub sender: OwnedUserId,
+    /// The recipient of the encrypted to-device event.
+    pub recipient: OwnedUserId,
+    /// The sender's signing keys of the encrypted event.
+    pub keys: OlmV1Keys,
+    /// The recipient's signing keys of the encrypted event.
+    pub recipient_keys: OlmV1Keys,
+    /// The type of the event.
+    #[serde(rename = "type")]
+    pub event_type: String,
 }
 
 /// A decrypted to-device event with an unknown type and content.
@@ -217,7 +240,7 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
             "m.room_key" => AnyDecryptedOlmEvent::RoomKey(from_str(json)?),
             "m.forwarded_room_key" => AnyDecryptedOlmEvent::ForwardedRoomKey(from_str(json)?),
             "m.secret.send" => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
-
+            "m.dummy" => AnyDecryptedOlmEvent::Dummy(from_str(json)?),
             _ => AnyDecryptedOlmEvent::Custom(from_str(json)?),
         })
     }
