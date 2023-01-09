@@ -55,7 +55,7 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 cfg-if = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.18", default-features = false, features = ["time"] }
+tokio = { version = "1.23", default-features = false, features = ["time"] }
 
 [dev-dependencies]
 anyhow = "1.0.65"
@@ -66,4 +66,4 @@ matches = "0.1.9"
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
-tokio = { version = "1.7.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.23.1", default-features = false, features = ["macros", "rt-multi-thread"] }

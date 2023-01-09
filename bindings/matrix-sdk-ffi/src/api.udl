@@ -303,6 +303,8 @@ dictionary MoveData {
 dictionary PaginationOutcome {
     // Whether there's more messages to be paginated.
     boolean more_messages;
+    // The number of updated or added timeline items.
+    u16 num_updates;
 };
 
 interface RoomMessageEventContent {};
@@ -318,6 +320,8 @@ interface AuthenticationService {
 interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
+    void did_accept_verification_request();
+    void did_start_sas_verification();
     void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
     void did_fail();
     void did_cancel();
@@ -329,6 +333,9 @@ interface SessionVerificationController {
 
     [Throws=ClientError]
     void request_verification();
+
+    [Throws=ClientError]
+    void start_sas_verification();
 
     [Throws=ClientError]
     void approve_verification();

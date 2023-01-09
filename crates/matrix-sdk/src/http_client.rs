@@ -30,7 +30,7 @@ use tracing::trace;
 
 use crate::{config::RequestConfig, error::HttpError};
 
-pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.

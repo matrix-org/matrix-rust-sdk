@@ -31,9 +31,9 @@ use ruma::{
             server_acl::RoomServerAclEventContent, MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey,
+        OriginalStateEventContent, RedactedStateEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
     serde::Raw,
@@ -579,7 +579,7 @@ impl Common {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::Redacted: RedactedStateEventContent,
     {
         Ok(self.client.store().get_state_events_static(self.room_id()).await?)
@@ -618,7 +618,7 @@ impl Common {
     /// ```
     pub async fn get_state_event_static<C>(&self) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent<StateKey = EmptyStateKey>,
         C::Redacted: RedactedStateEventContent,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
@@ -646,7 +646,7 @@ impl Common {
         state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,

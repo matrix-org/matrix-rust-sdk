@@ -334,8 +334,8 @@ where
 
             if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
                 let query_string = request.uri().query().unwrap_or("");
-                let query: QueryParameters = ruma::serde::urlencoded::from_str(query_string)
-                    .map_err(|_| {
+                let query: QueryParameters =
+                    serde_html_form::from_str(query_string).map_err(|_| {
                         debug!("Failed to deserialize query parameters");
                         StatusCode::BAD_REQUEST
                     })?;

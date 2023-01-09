@@ -159,6 +159,7 @@ impl TimelineItem {
                 Some(VirtualTimelineItem::DayDivider { year: *year, month: *month, day: *day })
             }
             Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
+            Item::Virtual(VItem::LoadingIndicator) => Some(VirtualTimelineItem::LoadingIndicator),
             Item::Event(_) => None,
         }
     }
@@ -223,34 +224,53 @@ pub struct TimelineItemContent(matrix_sdk::room::timeline::TimelineItemContent);
 
 #[uniffi::export]
 impl TimelineItemContent {
-    pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
-        unwrap_or_clone_arc_into_variant!(self, .0, C::Message(msg) => Arc::new(Message(msg)))
-    }
-
-    pub fn as_unable_to_decrypt(&self) -> Option<EncryptedMessage> {
-        use matrix_sdk::room::timeline::{EncryptedMessage as E, TimelineItemContent as C};
+    pub fn kind(&self) -> TimelineItemContentKind {
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
 
         match &self.0 {
-            C::UnableToDecrypt(utd) => Some(match utd {
-                E::OlmV1Curve25519AesSha2 { sender_key } => {
-                    let sender_key = sender_key.clone();
-                    EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key }
+            Content::Message(_) => TimelineItemContentKind::Message,
+            Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
+            Content::Sticker(sticker) => {
+                let content = sticker.content();
+                TimelineItemContentKind::Sticker {
+                    body: content.body.clone(),
+                    info: (&content.info).into(),
+                    url: content.url.to_string(),
                 }
-                E::MegolmV1AesSha2 { session_id, .. } => {
-                    let session_id = session_id.clone();
-                    EncryptedMessage::MegolmV1AesSha2 { session_id }
+            }
+            Content::UnableToDecrypt(msg) => {
+                TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
+            }
+            Content::FailedToParseMessageLike { event_type, error } => {
+                TimelineItemContentKind::FailedToParseMessageLike {
+                    event_type: event_type.to_string(),
+                    error: error.to_string(),
                 }
-                E::Unknown => EncryptedMessage::Unknown,
-            }),
-            _ => None,
+            }
+            Content::FailedToParseState { event_type, state_key, error } => {
+                TimelineItemContentKind::FailedToParseState {
+                    event_type: event_type.to_string(),
+                    state_key: state_key.to_string(),
+                    error: error.to_string(),
+                }
+            }
         }
     }
 
-    pub fn is_redacted_message(&self) -> bool {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
-        matches!(self.0, C::RedactedMessage)
+    pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
+        unwrap_or_clone_arc_into_variant!(self, .0, Content::Message(msg) => Arc::new(Message(msg)))
     }
+}
+
+#[derive(uniffi::Enum)]
+pub enum TimelineItemContentKind {
+    Message,
+    RedactedMessage,
+    Sticker { body: String, info: ImageInfo, url: String },
+    UnableToDecrypt { msg: EncryptedMessage },
+    FailedToParseMessageLike { event_type: String, error: String },
+    FailedToParseState { event_type: String, state_key: String, error: String },
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -506,6 +526,24 @@ pub enum EncryptedMessage {
     Unknown,
 }
 
+impl EncryptedMessage {
+    fn new(msg: &matrix_sdk::room::timeline::EncryptedMessage) -> Self {
+        use matrix_sdk::room::timeline::EncryptedMessage as Message;
+
+        match msg {
+            Message::OlmV1Curve25519AesSha2 { sender_key } => {
+                let sender_key = sender_key.clone();
+                Self::OlmV1Curve25519AesSha2 { sender_key }
+            }
+            Message::MegolmV1AesSha2 { session_id, .. } => {
+                let session_id = session_id.clone();
+                Self::MegolmV1AesSha2 { session_id }
+            }
+            Message::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct Reaction {
     pub key: String,
@@ -552,8 +590,12 @@ pub enum VirtualTimelineItem {
         /// A value between 1 and 31.
         day: u32,
     },
+
     /// The user's own read marker.
     ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
 }
 
 #[extension_trait]

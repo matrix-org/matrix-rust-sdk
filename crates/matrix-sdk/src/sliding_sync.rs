@@ -18,22 +18,20 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    time::Duration,
 };
 
 use futures_core::stream::Stream;
 use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
-    api::{
-        client::{
-            error::{ErrorBody, ErrorKind},
-            sync::sync_events::v4::{
-                self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
-            },
+    api::client::{
+        error::ErrorKind,
+        sync::sync_events::v4::{
+            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
         },
-        error::FromHttpResponseError,
     },
     assign,
     events::RoomEventType,
@@ -41,11 +39,12 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
 use crate::room::timeline::{EventTimelineItem, Timeline};
-use crate::{Client, HttpError, Result, RumaApiError};
+use crate::{config::RequestConfig, Client, Result};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -247,7 +246,7 @@ impl SlidingSyncRoom {
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::with_events(&invited_room, None, vec![]))
         } else {
-            tracing::error!(
+            error!(
                 room_id = ?self.room_id,
                 "Room not found in client. Can't provide a timeline for it"
             );
@@ -380,10 +379,12 @@ impl SlidingSyncConfig {
             storage_key,
             client,
             mut views,
-            extensions,
+            mut extensions,
             subscriptions,
         } = self;
-        let rooms = if let Some(storage_key) = storage_key.as_ref() {
+        let mut rooms = Default::default();
+
+        if let Some(storage_key) = storage_key.as_ref() {
             if let Some(mut f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
@@ -397,15 +398,20 @@ impl SlidingSyncConfig {
                     }
                 }
 
-                f.rooms
+                rooms = f
+                    .rooms
                     .into_iter()
                     .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect()
-            } else {
-                Default::default()
+                    .collect();
+
+                if let Some(since) = f.to_device_since {
+                    extensions
+                        .get_or_insert_with(Default::default)
+                        .to_device
+                        .get_or_insert_with(Default::default)
+                        .since = Some(since);
+                }
             }
-        } else {
-            Default::default()
         };
 
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
@@ -423,7 +429,8 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
-            extensions: Mutable::new(extensions),
+            extensions: Mutex::new(extensions).into(),
+            sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
@@ -582,16 +589,24 @@ pub struct SlidingSync {
     /// The rooms details
     rooms: RoomsMap,
 
-    /// keeping track of retries and failure cunts
+    /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
 
-    extensions: Mutable<Option<ExtensionsConfig>>,
+    /// the intended state of the extensions being supplied to sliding /sync
+    /// calls. May contain the latest next_batch for to_devices, etc.
+    extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
+
+    /// the last extensions known to be successfully sent to the server.
+    /// if the current extensions match this, we can avoid sending them again.
+    sent_extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
     views: BTreeMap<String, FrozenSlidingSyncView>,
     rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_device_since: Option<String>,
 }
 
 impl From<&SlidingSync> for FrozenSlidingSync {
@@ -599,6 +614,12 @@ impl From<&SlidingSync> for FrozenSlidingSync {
         FrozenSlidingSync {
             views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
             rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
+            to_device_since: v
+                .extensions
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|ext| ext.to_device.as_ref()?.since.clone()),
         }
     }
 }
@@ -664,7 +685,8 @@ impl SlidingSync {
 
     fn update_to_device_since(&self, since: String) {
         self.extensions
-            .lock_mut()
+            .lock()
+            .unwrap()
             .get_or_insert_with(Default::default)
             .to_device
             .get_or_insert_with(Default::default)
@@ -683,10 +705,11 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         resp: v4::Response,
+        extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
-        tracing::debug!("main client processed.");
+        debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let update = {
             let mut updated_views = Vec::new();
@@ -701,7 +724,7 @@ impl SlidingSync {
             for (view, updates) in std::iter::zip(views, &resp.lists) {
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
-                tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
+                trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
                 if view.handle_response(count, &updates.ops)? {
                     updated_views.push(view.name.clone());
                 }
@@ -735,6 +758,13 @@ impl SlidingSync {
             if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
                 self.update_to_device_since(to_device_since)
             }
+
+            // track the most recently successfully sent extensions (needed for sticky
+            // semantics)
+            if extensions.is_some() {
+                *self.sent_extensions.lock().unwrap() = extensions;
+            }
+
             UpdateSummary { views: updated_views, rooms }
         };
 
@@ -750,17 +780,19 @@ impl SlidingSync {
         &self,
     ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
-        let extensions = self.extensions.clone();
         let client = self.client.clone();
 
+        debug!(?self.extensions, "Setting view stream going");
+
         Ok(async_stream::stream! {
-            let initial_extensions = extensions.lock_ref().clone();
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                debug!(?self.extensions, "Sync loop running");
+
                 let mut requests = Vec::new();
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
@@ -789,22 +821,38 @@ impl SlidingSync {
                     }
                     unsubs
                 };
+                let timeout = Duration::from_secs(30);
+
+                // implement stickiness by only sending extensions if they have
+                // changed since the last time we sent them
+                let extensions = {
+                    let extensions = self.extensions.lock().unwrap();
+                    if *extensions == *self.sent_extensions.lock().unwrap() {
+                        None
+                    } else {
+                        extensions.clone()
+                    }
+                };
+
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
-                    extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
+                    extensions: extensions.clone().unwrap_or_default(),
                 });
-                tracing::debug!("requesting");
+                debug!("requesting");
 
-                let req = client.send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string));
+                // 30s for the long poll + 30s for network delays
+                let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
+                let req = client.send_with_homeserver(req, Some(request_config), self.homeserver.as_ref().map(ToString::to_string));
 
                 #[cfg(feature = "e2e-encryption")]
                 let resp_res = {
                     let (e2ee_uploads, resp) = futures_util::join!(client.send_outgoing_requests(), req);
                     if let Err(e) = e2ee_uploads {
-                        tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
+                        error!(error = ?e, "Error while sending outgoing E2EE requests");
                     }
                     resp
                 };
@@ -817,20 +865,25 @@ impl SlidingSync {
                         r
                     },
                     Err(e) => {
-                        if matches!(e, HttpError::Api(FromHttpResponseError::Server(RumaApiError::ClientApi(ruma::api::client::Error { body: ErrorBody::Standard { kind: ErrorKind::UnknownPos, .. }, .. })))) {
+                        if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
                             if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
-                                tracing::error!("session expired three times in a row");
+                                error!("session expired three times in a row");
                                 yield Err(e.into());
                                 break
                             }
-                            tracing::warn!("Session expired. Restarting sliding sync.");
+                            warn!("Session expired. Restarting sliding sync.");
                             remaining_generators = views
                                 .iter()
                                 .map(SlidingSyncView::request_generator)
                                 .collect();
                             *self.pos.lock_mut() = None;
-                            *self.extensions.lock_mut() = initial_extensions.clone();
+
+                            // reset our extensions to the last known good ones.
+                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
+
+                            debug!(?self.extensions, "Resetting view stream");
+
                             continue
                         }
                         yield Err(e.into());
@@ -838,16 +891,16 @@ impl SlidingSync {
                     }
                 };
 
-                tracing::debug!("received");
+                debug!("received");
 
-                let updates =  match self.handle_response(resp, &remaining_views).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
                         continue
                     }
                 };
-                tracing::debug!("handled");
+                debug!("handled");
                 yield Ok(updates);
             }
         })
@@ -1257,7 +1310,7 @@ impl SlidingSyncView {
         self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
-    #[tracing::instrument(skip(self, ops))]
+    #[instrument(skip(self, ops))]
     fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> Result<(), Error> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
@@ -1386,7 +1439,7 @@ impl SlidingSyncView {
                     }
                 }
                 s => {
-                    tracing::warn!("Unknown operation occurred: {:?}", s);
+                    warn!("Unknown operation occurred: {:?}", s);
                 }
             }
         }
@@ -1394,7 +1447,7 @@ impl SlidingSyncView {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, ops))]
+    #[instrument(skip(self, ops))]
     fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> Result<bool, Error> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
@@ -1421,7 +1474,7 @@ impl SlidingSyncView {
 
         if changed {
             if let Err(e) = self.rooms_updated_signal.send(()) {
-                tracing::warn!("Could not inform about rooms updated: {:?}", e);
+                warn!("Could not inform about rooms updated: {:?}", e);
             }
         }
 
@@ -1447,13 +1500,13 @@ impl Client {
         SlidingSyncBuilder::default().client(self.clone())
     }
 
-    #[tracing::instrument(skip(self, response))]
+    #[instrument(skip(self, response))]
     pub(crate) async fn process_sliding_sync(
         &self,
         response: v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
-        tracing::debug!("done processing on base_client");
+        debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;
         Ok(response)
     }

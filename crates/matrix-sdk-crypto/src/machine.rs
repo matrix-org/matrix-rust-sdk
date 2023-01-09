@@ -43,7 +43,7 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, field::display, info, instrument, trace, warn};
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
@@ -552,6 +552,13 @@ impl OlmMachine {
         Ok(decrypted)
     }
 
+    #[instrument(
+        skip_all,
+        // This function is only ever called by add_room_key via
+        // handle_decrypted_to_device_event, so sender and sender_key are
+        // already recorded.
+        fields(room_id = %content.room_id, algorithm = %event.content.algorithm())
+    )]
     async fn handle_key(
         &self,
         sender_key: Curve25519PublicKey,
@@ -568,56 +575,31 @@ impl OlmMachine {
         );
 
         if let Ok(session) = session {
-            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
-                info!(
-                    sender = %event.sender,
-                    %sender_key,
-                    room_id = %content.room_id,
-                    session_id = session.session_id(),
-                    algorithm = %event.content.algorithm(),
-                    "Received a new megolm room key",
-                );
+            tracing::Span::current().record("session_id", session.session_id());
 
+            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
+                info!("Received a new megolm room key");
                 Ok(Some(session))
             } else {
                 warn!(
-                    sender = %event.sender,
-                    %sender_key,
-                    room_id = %content.room_id,
-                    session_id = session.session_id(),
-                    algorithm = %event.content.algorithm(),
-                    "Received a megolm room key that we already have a better version of, discarding",
+                    "Received a megolm room key that we already have a better \
+                     version of, discarding",
                 );
-
                 Ok(None)
             }
         } else {
-            warn!(
-                sender = %event.sender,
-                %sender_key,
-                algorithm = %event.content.algorithm(),
-                "Received room key with unsupported key algorithm",
-            );
-
+            warn!("Received a room key with an unsupported algorithm");
             Ok(None)
         }
     }
 
     /// Create a group session from a room key and add it to our crypto store.
+    #[instrument(skip_all, fields(algorithm = %event.content.algorithm()))]
     async fn add_room_key(
         &self,
         sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyEvent,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let unsupported_warning = || {
-            warn!(
-                sender = %event.sender,
-                %sender_key,
-                algorithm = %event.content.algorithm(),
-                "Received room key with unsupported key algorithm",
-            );
-        };
-
         match &event.content {
             RoomKeyContent::MegolmV1AesSha2(content) => {
                 self.handle_key(sender_key, event, content).await
@@ -627,7 +609,7 @@ impl OlmMachine {
                 self.handle_key(sender_key, event, content).await
             }
             RoomKeyContent::Unknown(_) => {
-                unsupported_warning();
+                warn!("Received a room key with an unsupported algorithm");
                 Ok(None)
             }
         }
@@ -761,16 +743,19 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `decrypted` - The decrypted event and some associated metadata.
+    #[instrument(
+        skip_all,
+        fields(
+            sender = %decrypted.sender,
+            sender_key = %decrypted.result.sender_key,
+            event_type = decrypted.result.event.event_type(),
+        ),
+    )]
     async fn handle_decrypted_to_device_event(
         &self,
         decrypted: &mut OlmDecryptionInfo,
     ) -> OlmResult<()> {
-        trace!(
-            sender = %decrypted.sender,
-            sender_key = %decrypted.result.sender_key,
-            event_type = decrypted.result.event.event_type(),
-            "Received a decrypted to-device event"
-        );
+        debug!("Received a decrypted to-device event");
 
         match &decrypted.result.event {
             AnyDecryptedOlmEvent::RoomKey(e) => {
@@ -799,11 +784,8 @@ impl OlmMachine {
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
                 }
             }
-            AnyDecryptedOlmEvent::Custom(e) => {
-                warn!(
-                    event_type = ?e.event_type,
-                    "Received an unexpected encrypted to-device event"
-                );
+            AnyDecryptedOlmEvent::Custom(_) => {
+                warn!("Received an unexpected encrypted to-device event");
             }
         }
 
@@ -812,7 +794,7 @@ impl OlmMachine {
 
     async fn handle_verification_event(&self, event: &ToDeviceEvents) {
         if let Err(e) = self.verification_machine.receive_any_event(event).await {
-            error!("Error handling a verification event: {:?}", e);
+            error!("Error handling a verification event: {e:?}");
         }
     }
 
@@ -921,10 +903,7 @@ impl OlmMachine {
                 Ok(e) => e,
                 Err(e) => {
                     // Skip invalid events.
-                    warn!(
-                        error = ?e,
-                        "Received an invalid to-device event"
-                    );
+                    warn!("Received an invalid to-device event: {e}");
                     events.push(raw_event);
                     continue;
                 }
@@ -986,10 +965,7 @@ impl OlmMachine {
                                 .cast();
                         }
                         Err(e) => {
-                            warn!(
-                                error = ?e,
-                                "Received an invalid encrypted to-device event"
-                            );
+                            warn!("Received an invalid encrypted to-device event: {e}");
                             raw_event = decrypted.result.raw_event;
                         }
                     }
@@ -1100,6 +1076,12 @@ impl OlmMachine {
         })
     }
 
+    #[instrument(
+        skip_all,
+        // This function is only ever called by decrypt_room_event, so
+        // room_id, sender, algorithm and session_id are recorded already
+        fields(sender_key, event_type),
+    )]
     async fn decrypt_megolm_events(
         &self,
         room_id: &RoomId,
@@ -1109,36 +1091,23 @@ impl OlmMachine {
         if let Some(session) =
             self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
-            // TODO check the message index.
+            tracing::Span::current().record("sender_key", session.sender_key().to_base64());
+
+            // TODO: check the message index.
             let (decrypted_event, _) = session.decrypt(event).await?;
 
             match decrypted_event.deserialize() {
                 Ok(e) => {
-                    // TODO log the event type once `AnySyncRoomEvent` has the
+                    // TODO: log the event type once `AnyTimelineEvent` has the
                     // method as well
-                    trace!(
-                        sender = event.sender.as_str(),
-                        room_id = room_id.as_str(),
-                        session_id = session.session_id(),
-                        sender_key = session.sender_key().to_base64(),
-                        algorithm = %session.algorithm(),
-                        "Successfully decrypted a room event"
-                    );
+                    trace!("Successfully decrypted a room event");
 
                     if let AnyTimelineEvent::MessageLike(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        sender = event.sender.as_str(),
-                        room_id = room_id.as_str(),
-                        session_id = session.session_id(),
-                        sender_key = session.sender_key().to_base64(),
-                        algorithm = %session.algorithm(),
-                        error = ?e,
-                        "Event was successfully decrypted but has an invalid format"
-                    );
+                    warn!("Event was successfully decrypted but has an invalid format: {e}");
                 }
             }
 
@@ -1157,6 +1126,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
+    #[instrument(skip_all, fields(%room_id, sender, algorithm, session_id))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1164,22 +1134,21 @@ impl OlmMachine {
     ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
-        let content = match &event.content.scheme {
+        let span = tracing::Span::current();
+        span.record("sender", display(&event.sender));
+        span.record("algorithm", display(event.content.algorithm()));
+
+        let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
             #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
-            RoomEventEncryptionScheme::Unknown(c) => {
-                warn!(
-                    sender = event.sender.as_str(),
-                    room_id = room_id.as_str(),
-                    algorithm = %c.algorithm,
-                    "Received an encrypted room event with an unsupported algorithm"
-                );
-
+            RoomEventEncryptionScheme::Unknown(_) => {
+                warn!("Received an encrypted room event with an unsupported algorithm");
                 return Err(EventError::UnsupportedAlgorithm.into());
             }
         };
 
+        span.record("session_id", content.session_id());
         let result = self.decrypt_megolm_events(room_id, &event, &content).await;
 
         if let Err(e) = &result {
@@ -1188,23 +1157,13 @@ impl OlmMachine {
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
                     // TODO: log the withheld reason if we have one.
                     debug!(
-                        sender = event.sender.as_str(),
-                        room_id = room_id.as_str(),
-                        session_id = content.session_id(),
-                        algorithm = %content.algorithm(),
-                        "Failed to decrypt a room event, the room key is missing or has been ratcheted"
+                        "Failed to decrypt a room event, the room key is \
+                         missing or has been ratcheted"
                     );
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
                 _ => {
-                    warn!(
-                        sender = event.sender.as_str(),
-                        room_id = room_id.as_str(),
-                        session_id = content.session_id(),
-                        algorithm = %content.algorithm(),
-                        error = ?e,
-                        "Failed to decrypt a room event"
-                    );
+                    warn!("Failed to decrypt a room event: {e}");
                 }
             }
         }

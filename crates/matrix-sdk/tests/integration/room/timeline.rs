@@ -261,10 +261,18 @@ async fn back_pagination() {
 
     timeline.paginate_backwards(uint!(10)).await.unwrap();
 
-    let _day_divider = assert_matches!(
+    let loading = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::Push { value }) => value
     );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::Push { value }) => value
+    );
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
+
     let message = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::Push { value }) => value
@@ -278,7 +286,7 @@ async fn back_pagination() {
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 1, value }) => value
+        Some(VecDiff::InsertAt { index: 2, value }) => value
     );
     let msg = assert_matches!(
         message.as_event().unwrap().content(),
@@ -286,6 +294,9 @@ async fn back_pagination() {
     );
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "the world is big");
+
+    // Removal of the loading indicator
+    assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));
 }
 
 #[async_test]

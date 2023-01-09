@@ -28,7 +28,7 @@ use ruma::{
     uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, field::display, info, instrument, trace, warn};
 
 use super::{
     cache::{RequestInfo, VerificationCache},
@@ -311,11 +311,16 @@ impl VerificationMachine {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(event_type, sender))]
     pub async fn receive_any_event(
         &self,
         event: impl Into<AnyEvent<'_>>,
     ) -> Result<(), CryptoStoreError> {
         let event = event.into();
+
+        let span = tracing::Span::current();
+        span.record("event_type", display(event.event_type()));
+        span.record("sender", display(event.sender()));
 
         let Ok(flow_id) = FlowId::try_from(&event) else {
             // This isn't a verification event, return early.
@@ -324,12 +329,11 @@ impl VerificationMachine {
 
         let flow_id_mismatch = || {
             warn!(
-                sender = event.sender().as_str(),
                 flow_id = flow_id.as_str(),
                 "Received a verification event with a mismatched flow id, \
-                  the verification object was created for a in-room \
-                  verification but a event was received over to-device \
-                  messaging or vice versa"
+                 the verification object was created for a in-room \
+                 verification but a event was received over to-device \
+                 messaging or vice versa"
             );
         };
 
@@ -345,14 +349,12 @@ impl VerificationMachine {
         match &content {
             AnyVerificationContent::Request(r) => {
                 info!(
-                    sender = event.sender().as_str(),
                     from_device = r.from_device().as_str(),
                     "Received a new verification request",
                 );
 
                 let Some(timestamp) = event.timestamp() else {
                     warn!(
-                        sender = event.sender().as_str(),
                         from_device = r.from_device().as_str(),
                         "The key verification request didn't contain a valid timestamp"
                     );
@@ -361,7 +363,6 @@ impl VerificationMachine {
 
                 if !Self::is_timestamp_valid(timestamp) {
                     trace!(
-                        sender = event.sender().as_str(),
                         from_device = r.from_device().as_str(),
                         ?timestamp,
                         "The received verification request was too old or too far into the future",
@@ -371,7 +372,6 @@ impl VerificationMachine {
 
                 if event_sent_from_us(&event, r.from_device()) {
                     trace!(
-                        sender = event.sender().as_str(),
                         from_device = r.from_device().as_str(),
                         "The received verification request was sent by us, ignoring it",
                     );

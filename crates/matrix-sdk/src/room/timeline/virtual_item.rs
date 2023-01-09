@@ -28,8 +28,12 @@ pub enum VirtualTimelineItem {
         /// A value between 1 and 31.
         day: u32,
     },
+
     /// The user's own read marker.
     ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
 }
 
 impl VirtualTimelineItem {

@@ -297,7 +297,8 @@ impl Client {
                 .await?
                 .context("Failed retrieving user identity")?;
 
-            let session_verification_controller = SessionVerificationController::new(user_identity);
+            let session_verification_controller =
+                SessionVerificationController::new(self.client.encryption(), user_identity);
 
             *self.session_verification_controller.write().await =
                 Some(session_verification_controller.clone());

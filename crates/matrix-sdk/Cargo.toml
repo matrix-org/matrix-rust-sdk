@@ -83,6 +83,7 @@ rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
 ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = "1.0.136"
+serde_html_form = "0.2.0"
 serde_json = "1.0.79"
 thiserror = "1.0.30"
 tokio-stream = { version = "0.1.8", features = ["net"], optional = true }
@@ -117,7 +118,7 @@ wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-tokio = { version = "1.17.0", default-features = false, features = ["fs", "rt"] }
+tokio = { version = "1.23.1", default-features = false, features = ["fs", "rt"] }
 
 [dev-dependencies]
 anyhow = "1.0.57"
@@ -137,5 +138,5 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = "0.1.23"
-tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.23.1", default-features = false, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
