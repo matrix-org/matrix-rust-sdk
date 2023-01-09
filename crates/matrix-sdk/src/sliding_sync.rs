@@ -1419,7 +1419,9 @@ impl SlidingSyncView {
                         ));
                     }
 
-                    while pos < end {
+                    // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
+                    // ensure we pick them all up
+                    while pos <= end {
                         if pos as usize >= max_len {
                             break; // how does this happen?
                         }
