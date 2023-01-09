@@ -422,29 +422,17 @@ impl ReadOnlyDevice {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&DeviceKey> {
-        self.inner.keys.get(&DeviceKeyId::from_parts(algorithm, self.device_id()))
+        self.inner.get_key(algorithm)
     }
 
     /// Get the Curve25519 key of the given device.
     pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Curve25519).and_then(|k| {
-            if let DeviceKey::Curve25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.inner.curve25519_key()
     }
 
     /// Get the Ed25519 key of the given device.
     pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Ed25519).and_then(|k| {
-            if let DeviceKey::Ed25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.inner.ed25519_key()
     }
 
     /// Get a map containing all the device keys.
@@ -605,9 +593,19 @@ impl ReadOnlyDevice {
     /// Update a device with a new device keys struct.
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         self.verify_device_keys(device_keys)?;
-        self.inner = device_keys.clone().into();
 
-        Ok(())
+        if self.user_id() != device_keys.user_id || self.device_id() != device_keys.device_id {
+            Err(SignatureError::UserIdMismatch)
+        } else if self.ed25519_key() != device_keys.ed25519_key() {
+            Err(SignatureError::SigningKeyChanged(
+                self.ed25519_key().map(Box::new),
+                device_keys.ed25519_key().map(Box::new),
+            ))
+        } else {
+            self.inner = device_keys.clone().into();
+
+            Ok(())
+        }
     }
 
     pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
