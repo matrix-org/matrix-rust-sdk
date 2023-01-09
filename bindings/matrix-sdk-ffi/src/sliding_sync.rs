@@ -13,7 +13,8 @@ use matrix_sdk::ruma::{
     assign, IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
-    room::timeline::Timeline, Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
+    room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
+    Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::task::JoinHandle;
@@ -285,6 +286,41 @@ pub struct SlidingSyncViewBuilder {
     inner: matrix_sdk::SlidingSyncViewBuilder,
 }
 
+#[derive(uniffi::Record)]
+pub struct SlidingSyncRequestListFilters {
+    pub is_dm: Option<bool>,
+    pub spaces: Vec<String>,
+    pub is_encrypted: Option<bool>,
+    pub is_invite: Option<bool>,
+    pub is_tombstoned: Option<bool>,
+    pub room_types: Vec<String>,
+    pub not_room_types: Vec<String>,
+    pub room_name_like: Option<String>,
+    pub tags: Vec<String>,
+    pub not_tags: Vec<String>,
+    // pub extensions: BTreeMap<String, Value>,
+}
+
+impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
+    fn from(value: SlidingSyncRequestListFilters) -> Self {
+        let SlidingSyncRequestListFilters {
+            is_dm,
+            spaces,
+            is_encrypted,
+            is_invite,
+            is_tombstoned,
+            room_types,
+            not_room_types,
+            room_name_like,
+            tags,
+            not_tags,
+        } = value;
+        assign!(SyncRequestListFilters::default(), {
+            is_dm, spaces, is_encrypted, is_invite, is_tombstoned, room_types, not_room_types, room_name_like, tags, not_tags,
+        })
+    }
+}
+
 impl SlidingSyncViewBuilder {
     pub fn new() -> Self {
         Default::default()
@@ -321,6 +357,18 @@ impl SlidingSyncViewBuilder {
         builder.inner = builder
             .inner
             .required_state(required_state.into_iter().map(|s| (s.key.into(), s.value)).collect());
+        Arc::new(builder)
+    }
+
+    pub fn filters(self: Arc<Self>, filters: SlidingSyncRequestListFilters) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.filters(Some(filters.into()));
+        Arc::new(builder)
+    }
+
+    pub fn no_filters(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.filters(None);
         Arc::new(builder)
     }
 
