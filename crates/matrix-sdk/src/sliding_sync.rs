@@ -405,11 +405,11 @@ impl SlidingSyncConfig {
                     .collect();
 
                 if let Some(since) = f.to_device_since {
-                    extensions
-                        .get_or_insert_with(Default::default)
-                        .to_device
-                        .get_or_insert_with(Default::default)
-                        .since = Some(since);
+                    if let Some(to_device_ext) =
+                        extensions.get_or_insert_with(Default::default).to_device.as_mut()
+                    {
+                        to_device_ext.since = Some(since);
+                    }
                 }
             }
         };
