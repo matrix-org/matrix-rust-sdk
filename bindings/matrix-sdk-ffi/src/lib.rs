@@ -87,6 +87,7 @@ mod uniffi_types {
         sliding_sync::{
             RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,
             SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
+            SlidingSyncRequestListFilters,
         },
         timeline::{
             EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,

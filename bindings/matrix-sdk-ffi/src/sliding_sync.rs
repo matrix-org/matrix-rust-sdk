@@ -286,6 +286,7 @@ pub struct SlidingSyncViewBuilder {
     inner: matrix_sdk::SlidingSyncViewBuilder,
 }
 
+#[derive(uniffi::Record)]
 pub struct SlidingSyncRequestListFilters {
     pub is_dm: Option<bool>,
     pub spaces: Vec<String>,
@@ -331,18 +332,6 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
-    pub fn filters(self: Arc<Self>, filters: SlidingSyncRequestListFilters) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.filters(Some(filters.into()));
-        Arc::new(builder)
-    }
-
-    pub fn no_filters(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.filters(None);
-        Arc::new(builder)
-    }
-
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.ranges(ranges);
@@ -368,6 +357,18 @@ impl SlidingSyncViewBuilder {
         builder.inner = builder
             .inner
             .required_state(required_state.into_iter().map(|s| (s.key.into(), s.value)).collect());
+        Arc::new(builder)
+    }
+
+    pub fn filters(self: Arc<Self>, filters: SlidingSyncRequestListFilters) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.filters(Some(filters.into()));
+        Arc::new(builder)
+    }
+
+    pub fn no_filters(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.filters(None);
         Arc::new(builder)
     }
 
