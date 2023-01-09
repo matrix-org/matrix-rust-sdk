@@ -192,6 +192,10 @@ pub enum SignatureError {
     #[error("the given signature is not valid and can't be decoded")]
     InvalidSignature,
 
+    /// The signing key that used to sign the object has been changed.
+    #[error("the signing key that used to sign the object has changed, old: {0:?}, new: {1:?}")]
+    SigningKeyChanged(Option<Box<Ed25519PublicKey>>, Option<Box<Ed25519PublicKey>>),
+
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] CanonicalJsonError),
