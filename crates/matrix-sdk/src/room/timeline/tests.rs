@@ -42,7 +42,7 @@ use ruma::{
     room_id,
     serde::Raw,
     server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
-    OwnedUserId, TransactionId, UserId,
+    TransactionId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -56,7 +56,7 @@ static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 
 #[async_test]
 async fn reaction_redaction() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
@@ -87,7 +87,7 @@ async fn reaction_redaction() {
 
 #[async_test]
 async fn invalid_edit() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
@@ -115,7 +115,7 @@ async fn invalid_edit() {
 
 #[async_test]
 async fn edit_redacted() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     // Ruma currently fails to serialize most redacted events correctly
@@ -176,7 +176,7 @@ async fn unable_to_decrypt() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline
@@ -245,7 +245,7 @@ async fn unable_to_decrypt() {
 
 #[async_test]
 async fn update_read_marker() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("A")).await;
@@ -281,7 +281,7 @@ async fn update_read_marker() {
 
 #[async_test]
 async fn invalid_event_content() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     // m.room.message events must have a msgtype and body in content, so this
@@ -346,7 +346,7 @@ async fn invalid_event_content() {
 
 #[async_test]
 async fn invalid_event() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
 
     // This event is missing the sender field which the homeserver must add to
     // all timeline events. Because the event is malformed, it will be ignored.
@@ -366,7 +366,7 @@ async fn invalid_event() {
 
 #[async_test]
 async fn remote_echo_without_txn_id() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     // Given a local event…
@@ -410,7 +410,7 @@ async fn remote_echo_without_txn_id() {
 
 #[async_test]
 async fn day_divider() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline
@@ -496,7 +496,7 @@ async fn day_divider() {
 
 #[async_test]
 async fn sticker() {
-    let timeline = TestTimeline::new(&ALICE);
+    let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
     timeline
@@ -526,13 +526,10 @@ async fn sticker() {
 
 #[async_test]
 async fn initial_events() {
-    let timeline = TestTimeline::with_initial_events(
-        &ALICE,
-        [
-            (*ALICE, RoomMessageEventContent::text_plain("A").into()),
-            (*BOB, RoomMessageEventContent::text_plain("B").into()),
-        ],
-    );
+    let timeline = TestTimeline::with_initial_events([
+        (*ALICE, RoomMessageEventContent::text_plain("A").into()),
+        (*BOB, RoomMessageEventContent::text_plain("B").into()),
+    ]);
     let mut stream = timeline.stream();
 
     let items = assert_matches!(stream.next().await, Some(VecDiff::Replace { values }) => values);
@@ -543,17 +540,15 @@ async fn initial_events() {
 }
 
 struct TestTimeline {
-    own_user_id: OwnedUserId,
     inner: TimelineInner,
 }
 
 impl TestTimeline {
-    fn new(own_user_id: &UserId) -> Self {
-        Self::with_initial_events(own_user_id, [])
+    fn new() -> Self {
+        Self::with_initial_events([])
     }
 
     fn with_initial_events<'a>(
-        own_user_id: &UserId,
         events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
     ) -> Self {
         let mut inner = TimelineInner::default();
@@ -566,10 +561,10 @@ impl TestTimeline {
                     SyncTimelineEvent { event, encryption_info: None }
                 })
                 .collect(),
-            own_user_id,
+            &ALICE,
         );
 
-        Self { own_user_id: own_user_id.to_owned(), inner }
+        Self { inner }
     }
 
     fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
@@ -582,12 +577,12 @@ impl TestTimeline {
     {
         let ev = make_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
+        self.inner.handle_live_event(raw, None, &ALICE).await;
     }
 
     async fn handle_live_custom_event(&self, event: JsonValue) {
         let raw = Raw::new(&event).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
+        self.inner.handle_live_event(raw, None, &ALICE).await;
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
@@ -600,12 +595,12 @@ impl TestTimeline {
             "origin_server_ts": next_server_ts(),
         });
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &self.own_user_id).await;
+        self.inner.handle_live_event(raw, None, &ALICE).await;
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_event(txn_id.clone(), content, &self.own_user_id).await;
+        self.inner.handle_local_event(txn_id.clone(), content, &ALICE).await;
         txn_id
     }
 }
