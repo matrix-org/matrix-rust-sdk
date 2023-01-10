@@ -110,7 +110,7 @@ async fn invalid_edit() {
 
     // Can't easily test the non-arrival of an item using the stream. Instead
     // just assert that there is still just a couple items in the timeline.
-    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
+    assert_eq!(timeline.inner.items().len(), 2);
 }
 
 #[async_test]
@@ -151,7 +151,7 @@ async fn edit_redacted() {
     });
     timeline.handle_live_message_event(&ALICE, edit).await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
+    assert_eq!(timeline.inner.items().len(), 2);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -204,7 +204,7 @@ async fn unable_to_decrypt() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
+    assert_eq!(timeline.inner.items().len(), 2);
 
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
@@ -233,7 +233,7 @@ async fn unable_to_decrypt() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items.lock_ref().len(), 2);
+    assert_eq!(timeline.inner.items().len(), 2);
 
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
@@ -361,7 +361,7 @@ async fn invalid_event() {
             "type": "m.room.message",
         }))
         .await;
-    assert_eq!(timeline.inner.items.lock_ref().len(), 0);
+    assert_eq!(timeline.inner.items().len(), 0);
 }
 
 #[async_test]
@@ -568,7 +568,7 @@ impl TestTimeline {
     }
 
     fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
-        self.inner.items.signal_vec_cloned().to_stream()
+        self.inner.items_signal().to_stream()
     }
 
     async fn handle_live_message_event<C>(&self, sender: &UserId, content: C)

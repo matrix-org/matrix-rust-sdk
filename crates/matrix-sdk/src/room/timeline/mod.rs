@@ -178,7 +178,7 @@ impl Timeline {
     pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
-            && self.inner.items.lock_ref().first().map_or(false, |item| item.is_timeline_start())
+            && self.inner.items().first().map_or(false, |item| item.is_timeline_start())
         {
             warn!("Start of timeline reached, ignoring backwards-pagination request");
             return Ok(());
@@ -282,7 +282,7 @@ impl Timeline {
 
     /// Get the latest of the timeline's event items.
     pub fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.items.lock_ref().last()?.as_event().cloned()
+        self.inner.items().last()?.as_event().cloned()
     }
 
     /// Get a signal of the timeline's items.
@@ -293,7 +293,7 @@ impl Timeline {
     /// See [`SignalVecExt`](futures_signals::signal_vec::SignalVecExt) for a
     /// high-level API on top of [`SignalVec`].
     pub fn signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
-        self.inner.items.signal_vec_cloned()
+        self.inner.items_signal()
     }
 
     /// Get a stream of timeline changes.

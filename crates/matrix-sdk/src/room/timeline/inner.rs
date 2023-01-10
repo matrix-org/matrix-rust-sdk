@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use futures_signals::signal_vec::{MutableVec, MutableVecLockMut};
+use futures_signals::signal_vec::{MutableVec, MutableVecLockMut, MutableVecLockRef, SignalVec};
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
@@ -33,8 +33,8 @@ use crate::events::SyncTimelineEventWithoutContent;
 
 #[derive(Debug, Default)]
 pub(super) struct TimelineInner {
-    pub(super) items: MutableVec<Arc<TimelineItem>>,
-    pub(super) metadata: Mutex<TimelineInnerMetadata>,
+    items: MutableVec<Arc<TimelineItem>>,
+    metadata: Mutex<TimelineInnerMetadata>,
 }
 
 /// Non-signalling parts of `TimelineInner`.
@@ -47,6 +47,14 @@ pub(super) struct TimelineInnerMetadata {
 }
 
 impl TimelineInner {
+    pub(super) fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
+        self.items.lock_ref()
+    }
+
+    pub(super) fn items_signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
+        self.items.signal_vec_cloned()
+    }
+
     pub(super) fn add_initial_events(
         &mut self,
         events: Vec<SyncTimelineEvent>,
