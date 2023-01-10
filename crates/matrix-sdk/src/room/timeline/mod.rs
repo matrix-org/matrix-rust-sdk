@@ -31,7 +31,7 @@ use ruma::{
 };
 use tracing::{error, instrument, warn};
 
-use super::{Joined, Room};
+use super::Joined;
 use crate::{
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
@@ -68,8 +68,7 @@ use self::{
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: Arc<TimelineInner>,
-    room: room::Common,
+    inner: Arc<TimelineInner<room::Common>>,
     start_token: Mutex<Option<String>>,
     _end_token: Mutex<Option<String>>,
     event_handler_handles: Vec<EventHandlerHandle>,
@@ -78,7 +77,7 @@ pub struct Timeline {
 impl Drop for Timeline {
     fn drop(&mut self) {
         for handle in self.event_handler_handles.drain(..) {
-            self.room.client.remove_event_handler(handle);
+            self.inner.room().client().remove_event_handler(handle);
         }
     }
 }
@@ -93,17 +92,17 @@ impl Timeline {
         prev_token: Option<String>,
         events: Vec<SyncTimelineEvent>,
     ) -> Self {
-        let mut inner = TimelineInner::default();
-        inner.add_initial_events(events, room.own_user_id());
+        let mut inner = TimelineInner::new(room.to_owned());
+        inner.add_initial_events(events);
 
         let inner = Arc::new(inner);
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
+            move |event, encryption_info: Option<EncryptionInfo>| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_live_event(event, encryption_info, room.own_user_id()).await;
+                    inner.handle_live_event(event, encryption_info).await;
                 }
             }
         });
@@ -129,16 +128,19 @@ impl Timeline {
 
         Timeline {
             inner,
-            room: room.clone(),
             start_token: Mutex::new(prev_token),
             _end_token: Mutex::new(None),
             event_handler_handles,
         }
     }
 
+    fn room(&self) -> &room::Common {
+        self.inner.room()
+    }
+
     /// Enable tracking of the fully-read marker on this `Timeline`.
     pub async fn with_fully_read_tracking(mut self) -> Self {
-        match self.room.account_data_static::<FullyReadEventContent>().await {
+        match self.room().account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
                 Ok(fully_read) => {
                     self.inner.set_fully_read_event(fully_read.content.event_id).await
@@ -154,7 +156,7 @@ impl Timeline {
         }
 
         let inner = self.inner.clone();
-        let fully_read_handle = self.room.add_event_handler(move |event| {
+        let fully_read_handle = self.room().add_event_handler(move |event| {
             let inner = inner.clone();
             async move {
                 inner.handle_fully_read(event).await;
@@ -174,7 +176,7 @@ impl Timeline {
     ///   fewer events, for example because the supplied number is too big or
     ///   the beginning of the visible timeline was reached.
     /// * `
-    #[instrument(skip_all, fields(initial_pagination_size, room_id = ?self.room.room_id()))]
+    #[instrument(skip_all, fields(initial_pagination_size, room_id = ?self.room().room_id()))]
     pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
@@ -186,13 +188,12 @@ impl Timeline {
 
         self.inner.add_loading_indicator();
 
-        let own_user_id = self.room.own_user_id();
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();
 
         while let Some(limit) = opts.next_event_limit(outcome) {
             let messages = self
-                .room
+                .room()
                 .messages(assign!(MessagesOptions::backward(), {
                     from,
                     limit: limit.into(),
@@ -207,7 +208,7 @@ impl Timeline {
                 outcome.items_updated = 0;
 
                 for room_ev in messages.chunk {
-                    let res = self.inner.handle_back_paginated_event(room_ev, own_user_id).await;
+                    let res = self.inner.handle_back_paginated_event(room_ev).await;
                     outcome.items_added = outcome.items_added.checked_add(res.item_added as u16)?;
                     outcome.items_updated = outcome.items_updated.checked_add(res.items_updated)?;
                 }
@@ -272,10 +273,9 @@ impl Timeline {
     ) {
         self.inner
             .retry_event_decryption(
-                self.room.room_id(),
-                self.room.client.olm_machine().expect("Olm machine wasn't started"),
+                self.room().room_id(),
+                self.room().client.olm_machine().expect("Olm machine wasn't started"),
                 session_ids.into_iter().map(AsRef::as_ref).collect(),
-                self.room.own_user_id(),
             )
             .await;
     }
@@ -329,20 +329,18 @@ impl Timeline {
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    #[instrument(skip(self, content), fields(room_id = ?self.room.room_id()))]
+    #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
         txn_id: Option<&TransactionId>,
     ) -> Result<()> {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        self.inner
-            .handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id())
-            .await;
+        self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
         // If this room isn't actually in joined state, we'll get a server error.
         // Not ideal, but works for now.
-        let room = Joined { inner: self.room.clone() };
+        let room = Joined { inner: self.room().clone() };
 
         let response = room.send(content, Some(&txn_id)).await?;
         self.inner.add_event_id(&txn_id, response.event_id);

@@ -47,8 +47,8 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent, TimelineKey,
-    VirtualTimelineItem,
+    inner::ProfileProvider, EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent,
+    TimelineKey, VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -229,7 +229,6 @@ async fn unable_to_decrypt() {
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             &olm_machine,
             iter::once(SESSION_ID).collect(),
-            own_user_id,
         )
         .await;
 
@@ -540,7 +539,7 @@ async fn initial_events() {
 }
 
 struct TestTimeline {
-    inner: TimelineInner,
+    inner: TimelineInner<TestProfileProvider>,
 }
 
 impl TestTimeline {
@@ -551,7 +550,7 @@ impl TestTimeline {
     fn with_initial_events<'a>(
         events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
     ) -> Self {
-        let mut inner = TimelineInner::default();
+        let mut inner = TimelineInner::new(TestProfileProvider);
         inner.add_initial_events(
             events
                 .into_iter()
@@ -561,7 +560,6 @@ impl TestTimeline {
                     SyncTimelineEvent { event, encryption_info: None }
                 })
                 .collect(),
-            &ALICE,
         );
 
         Self { inner }
@@ -577,12 +575,12 @@ impl TestTimeline {
     {
         let ev = make_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &ALICE).await;
+        self.inner.handle_live_event(raw, None).await;
     }
 
     async fn handle_live_custom_event(&self, event: JsonValue) {
         let raw = Raw::new(&event).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &ALICE).await;
+        self.inner.handle_live_event(raw, None).await;
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
@@ -595,13 +593,21 @@ impl TestTimeline {
             "origin_server_ts": next_server_ts(),
         });
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, &ALICE).await;
+        self.inner.handle_live_event(raw, None).await;
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_event(txn_id.clone(), content, &ALICE).await;
+        self.inner.handle_local_event(txn_id.clone(), content).await;
         txn_id
+    }
+}
+
+struct TestProfileProvider;
+
+impl ProfileProvider for TestProfileProvider {
+    fn own_user_id(&self) -> &UserId {
+        &ALICE
     }
 }
 

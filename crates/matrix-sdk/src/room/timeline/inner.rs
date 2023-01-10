@@ -29,12 +29,13 @@ use super::{
     },
     find_event_by_txn_id, TimelineItem, TimelineKey,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, room};
 
-#[derive(Debug, Default)]
-pub(super) struct TimelineInner {
+#[derive(Debug)]
+pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
     items: MutableVec<Arc<TimelineItem>>,
     metadata: Mutex<TimelineInnerMetadata>,
+    profile_provider: P,
 }
 
 /// Non-signalling parts of `TimelineInner`.
@@ -46,7 +47,11 @@ pub(super) struct TimelineInnerMetadata {
     pub(super) fully_read_event_in_timeline: bool,
 }
 
-impl TimelineInner {
+impl<P: ProfileProvider> TimelineInner<P> {
+    pub(super) fn new(profile_provider: P) -> Self {
+        Self { items: Default::default(), metadata: Default::default(), profile_provider }
+    }
+
     pub(super) fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
         self.items.lock_ref()
     }
@@ -55,11 +60,7 @@ impl TimelineInner {
         self.items.signal_vec_cloned()
     }
 
-    pub(super) fn add_initial_events(
-        &mut self,
-        events: Vec<SyncTimelineEvent>,
-        own_user_id: &UserId,
-    ) {
+    pub(super) fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
         }
@@ -72,11 +73,11 @@ impl TimelineInner {
         for event in events {
             handle_remote_event(
                 event.event,
-                own_user_id,
                 event.encryption_info,
                 TimelineItemPosition::End,
                 timeline_items,
                 timeline_meta,
+                &self.profile_provider,
             );
         }
     }
@@ -85,16 +86,15 @@ impl TimelineInner {
         &self,
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
-        own_user_id: &UserId,
     ) {
         let mut timeline_meta = self.metadata.lock().await;
         handle_remote_event(
             raw,
-            own_user_id,
             encryption_info,
             TimelineItemPosition::End,
             &mut self.items.lock_mut(),
             &mut timeline_meta,
+            &self.profile_provider,
         );
     }
 
@@ -102,10 +102,9 @@ impl TimelineInner {
         &self,
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
-        own_user_id: &UserId,
     ) {
         let event_meta = TimelineEventMetadata {
-            sender: own_user_id.to_owned(),
+            sender: self.profile_provider.own_user_id().to_owned(),
             is_own_event: true,
             relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
@@ -127,16 +126,15 @@ impl TimelineInner {
     pub(super) async fn handle_back_paginated_event(
         &self,
         event: TimelineEvent,
-        own_user_id: &UserId,
     ) -> HandleEventResult {
         let mut metadata_lock = self.metadata.lock().await;
         handle_remote_event(
             event.event.cast(),
-            own_user_id,
             event.encryption_info,
             TimelineItemPosition::Start,
             &mut self.items.lock_mut(),
             &mut metadata_lock,
+            &self.profile_provider,
         )
     }
 
@@ -210,13 +208,12 @@ impl TimelineInner {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip(self, olm_machine, own_user_id))]
+    #[instrument(skip(self, olm_machine))]
     pub(super) async fn retry_event_decryption(
         &self,
         room_id: &RoomId,
         olm_machine: &OlmMachine,
         session_ids: BTreeSet<&str>,
-        own_user_id: &UserId,
     ) {
         use super::EncryptedMessage;
 
@@ -284,26 +281,42 @@ impl TimelineInner {
             let mut items_lock = self.items.lock_mut();
             handle_remote_event(
                 event.event.cast(),
-                own_user_id,
                 event.encryption_info,
                 TimelineItemPosition::Update(*idx),
                 &mut items_lock,
                 &mut metadata_lock,
+                &self.profile_provider,
             );
         }
+    }
+}
+
+impl TimelineInner {
+    pub(super) fn room(&self) -> &room::Common {
+        &self.profile_provider
+    }
+}
+
+pub(super) trait ProfileProvider {
+    fn own_user_id(&self) -> &UserId;
+}
+
+impl ProfileProvider for room::Common {
+    fn own_user_id(&self) -> &UserId {
+        (**self).own_user_id()
     }
 }
 
 /// Handle a remote event.
 ///
 /// Returns the number of timeline updates that were made.
-fn handle_remote_event(
+fn handle_remote_event<P: ProfileProvider>(
     raw: Raw<AnySyncTimelineEvent>,
-    own_user_id: &UserId,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
     timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
     timeline_meta: &mut TimelineInnerMetadata,
+    profile_provider: &P,
 ) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
@@ -331,7 +344,7 @@ fn handle_remote_event(
             },
         };
 
-    let is_own_event = sender == own_user_id;
+    let is_own_event = sender == profile_provider.own_user_id();
     let event_meta = TimelineEventMetadata { sender, is_own_event, relations, encryption_info };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
