@@ -69,20 +69,6 @@ impl fmt::Debug for EventTimelineItem {
     }
 }
 
-macro_rules! build {
-    (
-        $ty:ident {
-            $( $field:ident $(: $value:expr)?, )*
-            ..$this:ident( $($this_field:ident),* $(,)? )
-        }
-    ) => {
-        $ty {
-            $( $field $(: $value)?, )*
-            $( $this_field: $this.$this_field.clone() ),*
-        }
-    }
-}
-
 impl EventTimelineItem {
     /// Get the [`TimelineKey`] of this item.
     pub fn key(&self) -> &TimelineKey {
@@ -156,39 +142,24 @@ impl EventTimelineItem {
     }
 
     pub(super) fn to_redacted(&self) -> Self {
-        build!(Self {
+        Self {
             // FIXME: Change when we support state events
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),
-            ..self(key, event_id, sender, timestamp, is_own, encryption_info, raw)
-        })
+            ..self.clone()
+        }
     }
 
     pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
-        build!(Self {
-            event_id,
-            ..self(key, sender, content, reactions, timestamp, is_own, encryption_info, raw,)
-        })
+        Self { event_id, ..self.clone() }
     }
 
-    #[rustfmt::skip]
     pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
-        build!(Self {
-            content,
-            ..self(
-                key, event_id, sender, reactions, timestamp, is_own, encryption_info, raw,
-            )
-        })
+        Self { content, ..self.clone() }
     }
 
-    #[rustfmt::skip]
     pub(super) fn with_reactions(&self, reactions: BundledReactions) -> Self {
-        build!(Self {
-            reactions,
-            ..self(
-                key, event_id, sender, content, timestamp, is_own, encryption_info, raw,
-            )
-        })
+        Self { reactions, ..self.clone() }
     }
 }
 
