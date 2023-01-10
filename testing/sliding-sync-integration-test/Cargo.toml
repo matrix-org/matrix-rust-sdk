@@ -11,3 +11,4 @@ matrix-sdk-integration-testing = { path = "../matrix-sdk-integration-testing", f
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 futures = { version = "0.3.25" }
+uuid = { version = "1.2.2" }

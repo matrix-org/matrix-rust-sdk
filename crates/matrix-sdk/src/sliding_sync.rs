@@ -693,6 +693,11 @@ impl SlidingSync {
             .since = Some(since);
     }
 
+    /// Get access to the SlidingSyncView named `view_name`
+    pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
+        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned().clone()
+    }
+
     /// Lookup a set of rooms
     pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
         &self,
@@ -1051,6 +1056,12 @@ impl SlidingSyncViewBuilder {
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges =
             Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
+        self
+    }
+
+    /// Set a single range fetch
+    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
+        let r = self.ranges = Some(RangeState::new(vec![(from.into(), to.into())]));
         self
     }
 

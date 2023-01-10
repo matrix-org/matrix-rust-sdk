@@ -4451,6 +4451,7 @@ dependencies = [
  "matrix-sdk",
  "matrix-sdk-integration-testing",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
