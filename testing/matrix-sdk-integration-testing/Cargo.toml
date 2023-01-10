@@ -5,7 +5,11 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[dev-dependencies]
+[features]
+# activate to steal helper functions from this crate for other testing
+helpers = []
+
+[dependencies]
 anyhow = { workspace = true }
 assign = "1"
 ctor = { workspace = true }

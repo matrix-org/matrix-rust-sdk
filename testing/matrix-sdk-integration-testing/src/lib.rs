@@ -1,5 +1,5 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod helpers;
+#[cfg(any(test, feature="helpers"))]
+pub mod helpers;
