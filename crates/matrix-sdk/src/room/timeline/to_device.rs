@@ -61,17 +61,7 @@ async fn retry_decryption(
         return;
     };
 
-    let Some(own_user_id) = client.user_id() else {
-        error!("The user's own ID isn't available");
-        return;
-    };
-
     inner
-        .retry_event_decryption(
-            &room_id,
-            olm_machine,
-            iter::once(session_id.as_str()).collect(),
-            own_user_id,
-        )
+        .retry_event_decryption(&room_id, olm_machine, iter::once(session_id.as_str()).collect())
         .await;
 }
