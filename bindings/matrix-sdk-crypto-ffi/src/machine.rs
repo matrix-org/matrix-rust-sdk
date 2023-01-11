@@ -34,7 +34,10 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{key::verification::VerificationMethod, AnySyncMessageLikeEvent},
+    events::{
+        key::verification::VerificationMethod, room::message::MessageType, AnyMessageLikeEvent,
+        AnySyncMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
+    },
     serde::Raw,
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
@@ -635,6 +638,7 @@ impl OlmMachine {
         &self,
         event: &str,
         room_id: &str,
+        handle_verification_events: bool,
     ) -> Result<DecryptedEvent, DecryptionError> {
         // Element Android wants only the content and the type and will create a
         // decrypted event with those two itself, this struct makes sure we
@@ -651,6 +655,25 @@ impl OlmMachine {
         let room_id = RoomId::parse(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
+
+        if handle_verification_events {
+            if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {
+                match &e {
+                    AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
+                        original_event,
+                    )) => {
+                        if let MessageType::VerificationRequest(_) = &original_event.content.msgtype
+                        {
+                            self.runtime.block_on(self.inner.receive_verification_event(&e))?;
+                        }
+                    }
+                    _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                        self.runtime.block_on(self.inner.receive_verification_event(&e))?;
+                    }
+                    _ => (),
+                }
+            }
+        }
 
         let encryption_info =
             decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
@@ -817,12 +840,24 @@ impl OlmMachine {
         event: &str,
         room_id: &str,
     ) -> Result<(), CryptoStoreError> {
+        self.receive_verification_event(event, room_id)
+    }
+
+    /// Receive an verification event.
+    ///
+    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`.
+    pub fn receive_verification_event(
+        &self,
+        event: &str,
+        room_id: &str,
+    ) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
         let event: AnySyncMessageLikeEvent = serde_json::from_str(event)?;
 
         let event = event.into_full_event(room_id);
 
-        self.runtime.block_on(self.inner.receive_unencrypted_verification_event(&event))?;
+        self.runtime.block_on(self.inner.receive_verification_event(&event))?;
 
         Ok(())
     }

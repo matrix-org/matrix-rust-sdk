@@ -633,24 +633,17 @@ impl OlmMachine {
             .collect()
     }
 
-    /// Receive an unencrypted verification event.
+    /// Receive a verification event.
     ///
     /// This method can be used to pass verification events that are
-    /// happening in unencrypted rooms to the `OlmMachine`.
-    ///
-    /// Note: This does not need to be called for encrypted events
-    /// since those will get passed to the `OlmMachine` during
-    /// decryption.
-    #[wasm_bindgen(js_name = "receiveUnencryptedVerificationEvent")]
-    pub fn receive_unencrypted_verification_event(&self, event: &str) -> Result<Promise, JsError> {
+    /// happening in rooms to the `OlmMachine`.
+    #[wasm_bindgen(js_name = "receiveVerificationEvent")]
+    pub fn receive_verification_event(&self, event: &str) -> Result<Promise, JsError> {
         let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(me
-                .receive_unencrypted_verification_event(&event)
-                .await
-                .map(|_| JsValue::UNDEFINED)?)
+            Ok(me.receive_verification_event(&event).await.map(|_| JsValue::UNDEFINED)?)
         }))
     }
 

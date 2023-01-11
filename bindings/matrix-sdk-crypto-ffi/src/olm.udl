@@ -59,6 +59,7 @@ enum DecryptionError {
     "Identifier",
     "Serialization",
     "Megolm",
+    "Store",
 };
 
 dictionary DeviceLists {
@@ -365,7 +366,7 @@ interface OlmMachine {
     );
 
     [Throws=DecryptionError]
-    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id);
+    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id, boolean handle_verificaton_events);
     [Throws=CryptoStoreError]
     string encrypt([ByRef] string room_id, [ByRef] string event_type, [ByRef] string content);
 
@@ -396,6 +397,8 @@ interface OlmMachine {
 
     [Throws=CryptoStoreError]
     void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
+    [Throws=CryptoStoreError]
+    void receive_verification_event([ByRef] string event, [ByRef] string room_id);
     sequence<VerificationRequest> get_verification_requests([ByRef] string user_id);
     VerificationRequest? get_verification_request([ByRef] string user_id, [ByRef] string flow_id);
     Verification? get_verification([ByRef] string user_id, [ByRef] string flow_id);

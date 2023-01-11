@@ -31,7 +31,10 @@ use matrix_sdk_crypto::{
 use once_cell::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::{history_visibility::HistoryVisibility, redaction::SyncRoomRedactionEvent},
+    room::{
+        history_visibility::HistoryVisibility, message::MessageType,
+        redaction::SyncRoomRedactionEvent,
+    },
     AnySyncMessageLikeEvent, SyncMessageLikeEvent,
 };
 use ruma::{
@@ -240,19 +243,47 @@ impl BaseClient {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn handle_unencrypted_verification_event(
+    async fn handle_verification_event(
         &self,
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
         if let Some(olm) = self.olm_machine() {
-            olm.receive_unencrypted_verification_event(
-                &event.clone().into_full_event(room_id.to_owned()),
-            )
-            .await?;
+            olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
+                .await?;
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    async fn decrypt_sync_room_event(
+        &self,
+        event: &Raw<AnySyncTimelineEvent>,
+        room_id: &RoomId,
+    ) -> Result<Option<SyncTimelineEvent>> {
+        let Some(olm) = self.olm_machine() else { return Ok(None) };
+
+        let event = olm.decrypt_room_event(event.cast_ref(), room_id).await.unwrap();
+        let event: SyncTimelineEvent = event.into();
+
+        if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
+            match &e {
+                AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+                    original_event,
+                )) => {
+                    if let MessageType::VerificationRequest(_) = &original_event.content.msgtype {
+                        self.handle_verification_event(&e, room_id).await?;
+                    }
+                }
+                _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                    self.handle_verification_event(&e, room_id).await?;
+                }
+                _ => (),
+            }
+        }
+
+        Ok(Some(event))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -338,13 +369,10 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Some(olm) = self.olm_machine() {
-                                    if let Ok(decrypted) = olm
-                                        .decrypt_room_event(event.event.cast_ref(), room_id)
-                                        .await
-                                    {
-                                        event = decrypted.into();
-                                    }
+                                if let Ok(Some(e)) =
+                                    self.decrypt_sync_room_event(&event.event, room_id).await
+                                {
+                                    event = e;
                                 }
                             }
                             AnySyncMessageLikeEvent::RoomMessage(
@@ -353,12 +381,12 @@ impl BaseClient {
                                 ruma::events::room::message::MessageType::VerificationRequest(
                                     _,
                                 ) => {
-                                    self.handle_unencrypted_verification_event(e, room_id).await?;
+                                    self.handle_verification_event(e, room_id).await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                self.handle_unencrypted_verification_event(e, room_id).await?;
+                                self.handle_verification_event(e, room_id).await?;
                             }
                             _ => (),
                         },
