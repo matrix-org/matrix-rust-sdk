@@ -92,8 +92,8 @@ mod uniffi_types {
         timeline::{
             EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,
             FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, Message, MessageFormat,
-            MessageType, NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo,
-            TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent,
+            MessageType, NoticeMessageContent, Profile, Reaction, TextMessageContent,
+            ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent,
             TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo, VideoMessageContent,
             VirtualTimelineItem,
         },
