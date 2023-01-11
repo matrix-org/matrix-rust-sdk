@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use futures_signals::signal_vec::{MutableVec, MutableVecLockMut, MutableVecLockRef, SignalVec};
+use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
@@ -68,14 +68,13 @@ impl<P: ProfileProvider> TimelineInner<P> {
         debug!("Adding {} initial events", events.len());
 
         let timeline_meta = self.metadata.get_mut();
-        let timeline_items = &mut self.items.lock_mut();
 
         for event in events {
             handle_remote_event(
                 event.event,
                 event.encryption_info,
                 TimelineItemPosition::End,
-                timeline_items,
+                &self.items,
                 timeline_meta,
                 &self.profile_provider,
             );
@@ -92,7 +91,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             raw,
             encryption_info,
             TimelineItemPosition::End,
-            &mut self.items.lock_mut(),
+            &self.items,
             &mut timeline_meta,
             &self.profile_provider,
         );
@@ -132,7 +131,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             event.event.cast(),
             event.encryption_info,
             TimelineItemPosition::Start,
-            &mut self.items.lock_mut(),
+            &self.items,
             &mut metadata_lock,
             &self.profile_provider,
         )
@@ -273,17 +272,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 "Successfully decrypted event that previously failed to decrypt"
             );
 
-            // Because metadata is always locked before we attempt to lock the
-            // items, this will never be contended.
-            // Because there is an `.await` in this loop, we have to re-lock
-            // this mutex every iteration because holding it across `.await`
-            // makes the future `!Send`, which makes it not event-handler-safe.
-            let mut items_lock = self.items.lock_mut();
             handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
                 TimelineItemPosition::Update(*idx),
-                &mut items_lock,
+                &self.items,
                 &mut metadata_lock,
                 &self.profile_provider,
             );
@@ -314,7 +307,9 @@ fn handle_remote_event<P: ProfileProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
-    timeline_items: &mut MutableVecLockMut<'_, Arc<TimelineItem>>,
+    // MutableVecLock can't be held across `.await`s in `Send` futures, so we
+    // can't lock it ahead of time like `timeline_meta`.
+    timeline_items: &MutableVec<Arc<TimelineItem>>,
     timeline_meta: &mut TimelineInnerMetadata,
     profile_provider: &P,
 ) -> HandleEventResult {
@@ -348,6 +343,7 @@ fn handle_remote_event<P: ProfileProvider>(
     let event_meta = TimelineEventMetadata { sender, is_own_event, relations, encryption_info };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
-    TimelineEventHandler::new(event_meta, flow, timeline_items, timeline_meta)
+    let mut timeline_items = timeline_items.lock_mut();
+    TimelineEventHandler::new(event_meta, flow, &mut timeline_items, timeline_meta)
         .handle_event(event_kind)
 }
