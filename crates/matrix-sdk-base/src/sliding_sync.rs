@@ -45,32 +45,33 @@ impl BaseClient {
 
         let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
 
-        #[cfg(feature = "e2e-encryption")]
-        let to_device_events = {
-            if let Some(e2ee) = &e2ee {
-                self.preprocess_to_device_events(
-                    to_device_events,
-                    &e2ee.device_lists,
-                    &e2ee.device_one_time_keys_count,
-                    e2ee.device_unused_fallback_key_types.as_deref(),
-                )
-                .await?
-            } else {
-                to_device_events
-            }
-        };
-
-        let (device_lists, device_one_time_keys_count) = e2ee
+        // Destructure the single `None` of the E2EE extension into separate objects
+        // since that's what the OlmMachine API expects. Passing in the default
+        // empty maps and vecs for this is completely fine, since the OlmMachine
+        // assumes empty maps/vecs mean no change in the one-time key counts.
+        let (device_lists, device_one_time_keys_count, device_unused_fallback_key_types) = e2ee
             .map(|e2ee| {
                 (
                     e2ee.device_lists,
-                    e2ee.device_one_time_keys_count
-                        .into_iter()
-                        .map(|(k, v)| (k, v.into()))
-                        .collect(),
+                    e2ee.device_one_time_keys_count,
+                    e2ee.device_unused_fallback_key_types,
                 )
             })
             .unwrap_or_default();
+
+        // Process the to-device events and other related e2ee data. This returns a list
+        // of all the to-device events that were passed in but encrypted ones
+        // were replaced with their decrypted version.
+        #[cfg(feature = "e2e-encryption")]
+        let to_device_events = {
+            self.preprocess_to_device_events(
+                to_device_events,
+                &device_lists,
+                &device_one_time_keys_count,
+                device_unused_fallback_key_types.as_deref(),
+            )
+            .await?
+        };
 
         let store = self.store.clone();
         let mut changes = StateChanges::default();
@@ -230,6 +231,9 @@ impl BaseClient {
         store.save_changes(&changes).await?;
         self.apply_changes(&changes).await;
         tracing::debug!("applied changes");
+
+        let device_one_time_keys_count =
+            device_one_time_keys_count.into_iter().map(|(k, v)| (k, v.into())).collect();
 
         Ok(SyncResponse {
             rooms: new_rooms,
