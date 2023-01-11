@@ -447,7 +447,9 @@ jobs:
 
   sliding-sync-integration-tests:
     name: Sliding Sync Integration test
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    # disabled until we can figure out the weird docker-not-starting-situation
+    if: false
+    # if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
     # Service containers to run with `runner-job`
