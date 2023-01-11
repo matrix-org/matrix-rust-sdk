@@ -20,6 +20,7 @@ use std::sync::{
 };
 
 use assert_matches::assert_matches;
+use async_trait::async_trait;
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
@@ -47,8 +48,8 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    inner::ProfileProvider, EncryptedMessage, TimelineInner, TimelineItem, TimelineItemContent,
-    TimelineKey, VirtualTimelineItem,
+    inner::ProfileProvider, EncryptedMessage, Profile, TimelineInner, TimelineItem,
+    TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -528,7 +529,8 @@ async fn initial_events() {
     let timeline = TestTimeline::with_initial_events([
         (*ALICE, RoomMessageEventContent::text_plain("A").into()),
         (*BOB, RoomMessageEventContent::text_plain("B").into()),
-    ]);
+    ])
+    .await;
     let mut stream = timeline.stream();
 
     let items = assert_matches!(stream.next().await, Some(VecDiff::Replace { values }) => values);
@@ -544,23 +546,25 @@ struct TestTimeline {
 
 impl TestTimeline {
     fn new() -> Self {
-        Self::with_initial_events([])
+        Self { inner: TimelineInner::new(TestProfileProvider) }
     }
 
-    fn with_initial_events<'a>(
+    async fn with_initial_events<'a>(
         events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
     ) -> Self {
         let mut inner = TimelineInner::new(TestProfileProvider);
-        inner.add_initial_events(
-            events
-                .into_iter()
-                .map(|(sender, content)| {
-                    let event =
-                        serde_json::from_value(make_message_event(sender, content)).unwrap();
-                    SyncTimelineEvent { event, encryption_info: None }
-                })
-                .collect(),
-        );
+        inner
+            .add_initial_events(
+                events
+                    .into_iter()
+                    .map(|(sender, content)| {
+                        let event =
+                            serde_json::from_value(make_message_event(sender, content)).unwrap();
+                        SyncTimelineEvent { event, encryption_info: None }
+                    })
+                    .collect(),
+            )
+            .await;
 
         Self { inner }
     }
@@ -605,9 +609,14 @@ impl TestTimeline {
 
 struct TestProfileProvider;
 
+#[async_trait]
 impl ProfileProvider for TestProfileProvider {
     fn own_user_id(&self) -> &UserId {
         &ALICE
+    }
+
+    async fn profile(&self, _user_id: &UserId) -> Profile {
+        Profile { display_name: None, avatar_url: None }
     }
 }
 
