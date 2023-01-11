@@ -22,7 +22,7 @@ futures-core = "0.3.17"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.17", default-features = false }
 mime = "0.3.16"
-# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
+# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
 once_cell = { workspace = true }
 sanitize-filename-reader-friendly = "2.2.1"
@@ -38,9 +38,9 @@ uniffi_macros = { workspace = true }
 tracing = { version = "0.1.29", default-features = false, features = ["log"] }
 android_logger = "0.11"
 log-panics = { version = "2", features = ["with-backtrace"]}
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "experimental-sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync", "socks"], version = "0.6.0" }
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "experimental-sliding-sync", "socks"], version = "0.6.0" }
