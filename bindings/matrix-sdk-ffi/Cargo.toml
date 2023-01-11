@@ -17,6 +17,7 @@ uniffi = { workspace = true, features = ["build"] }
 
 [dependencies]
 anyhow = { workspace = true }
+async-compat = "0.2.1"
 base64 = "0.21"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
