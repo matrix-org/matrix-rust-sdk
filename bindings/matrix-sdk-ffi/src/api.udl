@@ -82,9 +82,8 @@ interface SlidingSyncViewRoomsListDiff {
         u32 new_index
     );
     Push(RoomListEntry value);
-    // The following are supported by the generic VecDiff-type but
-    // in sliding sync effectively do not happen and thus aren't exposed
-    // to not pollute the API: Pop(); Clear();
+    Pop();
+    Clear();
 };
 
 callback interface SlidingSyncViewRoomListObserver {

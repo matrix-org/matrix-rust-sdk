@@ -216,6 +216,8 @@ pub enum SlidingSyncViewRoomsListDiff {
     RemoveAt { index: u32 },
     Move { old_index: u32, new_index: u32 },
     Push { value: RoomListEntry },
+    Pop,   // removes the last item
+    Clear, // clears the list
 }
 
 impl From<VecDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
@@ -242,7 +244,8 @@ impl From<VecDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
             VecDiff::Push { value } => {
                 SlidingSyncViewRoomsListDiff::Push { value: (&value).into() }
             }
-            _ => unimplemented!("Clear and Pop aren't provided within sliding sync"),
+            VecDiff::Pop {} => SlidingSyncViewRoomsListDiff::Pop,
+            VecDiff::Clear {} => SlidingSyncViewRoomsListDiff::Clear,
         }
     }
 }
