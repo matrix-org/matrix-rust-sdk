@@ -187,6 +187,10 @@ impl EventTimelineItem {
         self.0.sender().to_string()
     }
 
+    pub fn sender_profile(&self) -> Profile {
+        self.0.sender_profile().into()
+    }
+
     pub fn is_own(&self) -> bool {
         self.0.is_own()
     }
@@ -217,6 +221,21 @@ impl EventTimelineItem {
 
     pub fn fmt_debug(&self) -> String {
         format!("{:#?}", self.0)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct Profile {
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+}
+
+impl From<&matrix_sdk::room::timeline::Profile> for Profile {
+    fn from(p: &matrix_sdk::room::timeline::Profile) -> Self {
+        Self {
+            display_name: p.display_name.clone(),
+            avatar_url: p.avatar_url.as_ref().map(ToString::to_string),
+        }
     }
 }
 
