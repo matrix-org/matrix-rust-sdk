@@ -155,10 +155,13 @@ impl SlidingSyncRoom {
             .get_room(self.inner.room_id())
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
+}
 
+#[uniffi::export(async_runtime = "tokio")]
+impl SlidingSyncRoom {
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        let item = RUNTIME.block_on(self.inner.latest_event())?;
+    pub async fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
+        let item = self.inner.latest_event().await?;
         Some(Arc::new(EventTimelineItem(item)))
     }
 }

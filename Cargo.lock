@@ -5733,6 +5733,7 @@ version = "0.23.0"
 source = "git+https://github.com/matrix-org/uniffi-rs?rev=cacb8b0b87a8fac111f96129e01bc20ae6118b89#cacb8b0b87a8fac111f96129e01bc20ae6118b89"
 dependencies = [
  "anyhow",
+ "async-compat",
  "bytes",
  "camino",
  "cargo_metadata",
