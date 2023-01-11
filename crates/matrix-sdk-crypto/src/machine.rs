@@ -875,6 +875,7 @@ impl OlmMachine {
     /// response returned.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
+    #[instrument(skip_all)]
     pub async fn receive_sync_changes(
         &self,
         to_device_events: Vec<Raw<AnyToDeviceEvent>>,
