@@ -20,7 +20,7 @@ default = []
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
-sliding-sync = ["ruma/unstable-msc3575"]
+experimental-sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
 testing = ["dep:http"]

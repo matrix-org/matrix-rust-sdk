@@ -1708,7 +1708,7 @@ impl Client {
         res
     }
 
-    #[cfg(feature = "sliding-sync")]
+    #[cfg(feature = "experimental-sliding-sync")]
     // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
     // anymore
     pub(crate) async fn send_with_homeserver<Request>(

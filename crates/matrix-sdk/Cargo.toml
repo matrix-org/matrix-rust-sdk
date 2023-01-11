@@ -44,8 +44,8 @@ image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-timeline = ["ruma/unstable-msc2677", "dep:chrono"]
 
-sliding-sync = [
-    "matrix-sdk-base/sliding-sync",
+experimental-sliding-sync = [
+    "matrix-sdk-base/experimental-sliding-sync",
     "experimental-timeline",
     "dep:derive_builder",
 ]
