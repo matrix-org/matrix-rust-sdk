@@ -694,8 +694,43 @@ impl SlidingSync {
     }
 
     /// Get access to the SlidingSyncView named `view_name`
+    ///
+    /// Note: Remember that this list might have been changed since you started
+    /// listening to the stream and is therefor not necessarily up to date
+    /// with the views used for the stream.
     pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
-        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned().clone()
+        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned()
+    }
+
+    /// Remove the SlidingSyncView named `view_name` from the views list if
+    /// found
+    ///
+    /// Note: Remember that this change will only be applicable for any new
+    /// stream created after this. The old stream will still continue to use the
+    /// previous set of views
+    pub fn pop_view(&self, _view_name: &str) -> Option<SlidingSyncView> {
+        unimplemented!("Index based sliding sync doesn't have support removing views");
+    }
+
+    /// Add the view to the list of views
+    ///
+    /// As views need to have a unique `.name`, if a view with the same name
+    /// is found the new view will replace the old one and the return will give
+    /// the position it was found at. If none is found, the view will be pushed
+    /// to the end and `None` is returned.
+    ///
+    /// Note: Remember that this change will only be applicable for any new
+    /// stream created after this. The old stream will still continue to use the
+    /// previous set of views
+    pub fn add_view(&self, view: SlidingSyncView) -> Option<usize> {
+        let mut v = self.views.lock_mut();
+        if let Some(idx) = v.iter().position(|v| v.name == view.name) {
+            v.set_cloned(idx, view);
+            Some(idx)
+        } else {
+            v.push_cloned(view);
+            None
+        }
     }
 
     /// Lookup a set of rooms
