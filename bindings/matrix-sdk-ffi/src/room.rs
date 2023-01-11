@@ -39,7 +39,7 @@ pub struct Room {
     timeline: TimelineLock,
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(Clone)]
 pub enum MembershipState {
     /// The user is banned.
     Ban,
