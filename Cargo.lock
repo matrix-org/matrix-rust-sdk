@@ -5556,6 +5556,7 @@ version = "0.23.0"
 source = "git+https://github.com/mozilla/uniffi-rs?rev=f243005ee79c1f3f39b63ba0d722f011f90fff46#f243005ee79c1f3f39b63ba0d722f011f90fff46"
 dependencies = [
  "anyhow",
+ "async-compat",
  "bytes",
  "camino",
  "cargo_metadata",
