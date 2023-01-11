@@ -27,8 +27,8 @@ use ruma::{
         AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -44,6 +44,7 @@ pub struct EventTimelineItem {
     // response.
     pub(super) event_id: Option<OwnedEventId>,
     pub(super) sender: OwnedUserId,
+    pub(super) sender_profile: Profile,
     pub(super) content: TimelineItemContent,
     pub(super) reactions: BundledReactions,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
@@ -94,6 +95,11 @@ impl EventTimelineItem {
     /// Get the sender of this item.
     pub fn sender(&self) -> &UserId {
         &self.sender
+    }
+
+    /// Get the profile of the sender.
+    pub fn sender_profile(&self) -> &Profile {
+        &self.sender_profile
     }
 
     /// Get the content of this item.
@@ -193,6 +199,15 @@ impl PartialEq<TransactionId> for TimelineKey {
     fn eq(&self, id: &TransactionId) -> bool {
         matches!(self, TimelineKey::TransactionId(txn_id) if txn_id == id)
     }
+}
+
+/// The display name and avatar URL of a room member.
+#[derive(Clone, Debug)]
+pub struct Profile {
+    /// The display name, if set.
+    pub display_name: Option<String>,
+    /// The avatar URL, if set.
+    pub avatar_url: Option<OwnedMxcUri>,
 }
 
 /// Some details of an [`EventTimelineItem`] that may require server requests

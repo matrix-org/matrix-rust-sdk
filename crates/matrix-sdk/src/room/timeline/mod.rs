@@ -50,8 +50,8 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        EncryptedMessage, EventTimelineItem, Message, ReactionDetails, Sticker, TimelineDetails,
-        TimelineItemContent, TimelineKey,
+        EncryptedMessage, EventTimelineItem, Message, Profile, ReactionDetails, Sticker,
+        TimelineDetails, TimelineItemContent, TimelineKey,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
@@ -83,19 +83,22 @@ impl Drop for Timeline {
 }
 
 impl Timeline {
-    pub(super) async fn new(room: &room::Common) -> Self {
-        Self::with_events(room, None, Vec::new())
+    pub(super) fn new(room: &room::Common) -> Self {
+        Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
     }
 
-    pub(crate) fn with_events(
+    pub(crate) async fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
         events: Vec<SyncTimelineEvent>,
     ) -> Self {
         let mut inner = TimelineInner::new(room.to_owned());
-        inner.add_initial_events(events);
+        inner.add_initial_events(events).await;
+        Self::from_inner(Arc::new(inner), prev_token)
+    }
 
-        let inner = Arc::new(inner);
+    fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
+        let room = inner.room();
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();

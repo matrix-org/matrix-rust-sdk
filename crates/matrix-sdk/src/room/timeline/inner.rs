@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
 use matrix_sdk_base::{
     crypto::OlmMachine,
@@ -27,7 +28,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_txn_id, TimelineItem, TimelineKey,
+    find_event_by_txn_id, Profile, TimelineItem, TimelineKey,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room};
 
@@ -60,7 +61,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.signal_vec_cloned()
     }
 
-    pub(super) fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+    pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
         }
@@ -77,7 +78,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 &self.items,
                 timeline_meta,
                 &self.profile_provider,
-            );
+            )
+            .await;
         }
     }
 
@@ -94,7 +96,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
             &self.items,
             &mut timeline_meta,
             &self.profile_provider,
-        );
+        )
+        .await;
     }
 
     pub(super) async fn handle_local_event(
@@ -102,8 +105,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
     ) {
+        let sender = self.profile_provider.own_user_id().to_owned();
+        let sender_profile = self.profile_provider.profile(&sender).await;
         let event_meta = TimelineEventMetadata {
-            sender: self.profile_provider.own_user_id().to_owned(),
+            sender,
+            sender_profile,
             is_own_event: true,
             relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
@@ -135,6 +141,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             &mut metadata_lock,
             &self.profile_provider,
         )
+        .await
     }
 
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
@@ -279,7 +286,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 &self.items,
                 &mut metadata_lock,
                 &self.profile_provider,
-            );
+            )
+            .await;
         }
     }
 }
@@ -290,20 +298,37 @@ impl TimelineInner {
     }
 }
 
+#[async_trait]
 pub(super) trait ProfileProvider {
     fn own_user_id(&self) -> &UserId;
+    async fn profile(&self, user_id: &UserId) -> Profile;
 }
 
+#[async_trait]
 impl ProfileProvider for room::Common {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
+    }
+
+    async fn profile(&self, user_id: &UserId) -> Profile {
+        match self.get_member_no_sync(user_id).await {
+            Ok(Some(member)) => Profile {
+                display_name: member.display_name().map(ToOwned::to_owned),
+                avatar_url: member.avatar_url().map(ToOwned::to_owned),
+            },
+            Ok(None) => Profile { display_name: None, avatar_url: None },
+            Err(e) => {
+                error!(%user_id, "Failed to getch room member information: {e}");
+                Profile { display_name: None, avatar_url: None }
+            }
+        }
     }
 }
 
 /// Handle a remote event.
 ///
 /// Returns the number of timeline updates that were made.
-fn handle_remote_event<P: ProfileProvider>(
+async fn handle_remote_event<P: ProfileProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
@@ -340,7 +365,9 @@ fn handle_remote_event<P: ProfileProvider>(
         };
 
     let is_own_event = sender == profile_provider.own_user_id();
-    let event_meta = TimelineEventMetadata { sender, is_own_event, relations, encryption_info };
+    let sender_profile = profile_provider.profile(&sender).await;
+    let event_meta =
+        TimelineEventMetadata { sender, sender_profile, is_own_event, relations, encryption_info };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
     let mut timeline_items = timeline_items.lock_mut();

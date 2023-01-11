@@ -129,7 +129,7 @@ impl SlidingSyncRoom {
 
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        let item = self.inner.latest_event()?;
+        let item = RUNTIME.block_on(self.inner.latest_event())?;
         Some(Arc::new(EventTimelineItem(item)))
     }
 }
