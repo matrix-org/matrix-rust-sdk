@@ -46,6 +46,7 @@ experimental-timeline = ["ruma/unstable-msc2677", "dep:chrono"]
 
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
+    "experimental-timeline",
     "dep:derive_builder",
 ]
 
