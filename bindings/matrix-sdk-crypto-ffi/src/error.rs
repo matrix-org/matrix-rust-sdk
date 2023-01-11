@@ -61,4 +61,6 @@ pub enum DecryptionError {
     Identifier(#[from] IdParseError),
     #[error(transparent)]
     Megolm(#[from] MegolmError),
+    #[error(transparent)]
+    Store(#[from] InnerStoreError),
 }

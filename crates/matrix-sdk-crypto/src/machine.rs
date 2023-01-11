@@ -35,15 +35,14 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        MessageLikeEventContent,
+        secret::request::SecretName, AnyMessageLikeEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tracing::{debug, error, field::debug, info, instrument, trace, warn};
+use tracing::{debug, error, field::debug, info, instrument, warn};
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
@@ -731,10 +730,19 @@ impl OlmMachine {
     ///
     /// **Note**: This does not need to be called for encrypted events since
     /// those will get passed to the `OlmMachine` during decryption.
+    #[deprecated(note = "Use OlmMachine::receive_verification_event instead", since = "0.7.0")]
     pub async fn receive_unencrypted_verification_event(
         &self,
         event: &AnyMessageLikeEvent,
     ) -> StoreResult<()> {
+        self.verification_machine.receive_any_event(event).await
+    }
+
+    /// Receive an verification event.
+    ///
+    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`.
+    pub async fn receive_verification_event(&self, event: &AnyMessageLikeEvent) -> StoreResult<()> {
         self.verification_machine.receive_any_event(event).await
     }
 
@@ -1127,22 +1135,6 @@ impl OlmMachine {
 
             // TODO: check the message index.
             let (decrypted_event, _) = session.decrypt(event).await?;
-
-            match decrypted_event.deserialize() {
-                Ok(e) => {
-                    // TODO: log the event type once `AnyTimelineEvent` has the
-                    // method as well
-                    trace!("Successfully decrypted a room event");
-
-                    if let AnyTimelineEvent::MessageLike(e) = e {
-                        self.verification_machine.receive_any_event(&e).await?;
-                    }
-                }
-                Err(e) => {
-                    warn!("Event was successfully decrypted but has an invalid format: {e}");
-                }
-            }
-
             let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
