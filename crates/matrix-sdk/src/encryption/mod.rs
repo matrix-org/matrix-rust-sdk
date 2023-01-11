@@ -338,9 +338,8 @@ impl Client {
         &self,
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
-        let event_type = request.event_type.to_string();
         let request = RumaToDeviceRequest::new_raw(
-            event_type,
+            request.event_type.clone(),
             request.txn_id.clone(),
             request.messages.clone(),
         );

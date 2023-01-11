@@ -34,7 +34,7 @@ use ruma::{
         },
     },
     assign,
-    events::RoomEventType,
+    events::TimelineEventType,
     OwnedRoomId, RoomId, UInt,
 };
 use serde::{Deserialize, Serialize};
@@ -935,7 +935,7 @@ pub struct SlidingSyncView {
 
     /// Required states to return per room
     #[builder(default = "SlidingSyncViewBuilder::default_required_state()")]
-    required_state: Vec<(RoomEventType, String)>,
+    required_state: Vec<(TimelineEventType, String)>,
 
     /// How many rooms request at a time when doing a full-sync catch up
     #[builder(default = "20")]
@@ -1034,10 +1034,10 @@ impl SlidingSyncViewBuilder {
         vec!["by_recency".to_owned(), "by_name".to_owned()]
     }
 
-    fn default_required_state() -> Vec<(RoomEventType, String)> {
+    fn default_required_state() -> Vec<(TimelineEventType, String)> {
         vec![
-            (RoomEventType::RoomEncryption, "".to_owned()),
-            (RoomEventType::RoomTombstone, "".to_owned()),
+            (TimelineEventType::RoomEncryption, "".to_owned()),
+            (TimelineEventType::RoomTombstone, "".to_owned()),
         ]
     }
 

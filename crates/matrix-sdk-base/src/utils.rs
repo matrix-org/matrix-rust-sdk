@@ -1,8 +1,8 @@
 use ruma::{
     events::{
         room::member::{MembershipState, RoomMemberEventContent},
-        OriginalStateEventContent, RedactContent, RedactedEventContent, RedactedStateEventContent,
-        StateEventContent, StrippedStateEvent, SyncStateEvent,
+        OriginalStateEventContent, RedactContent, RedactedStateEventContent, StateEventContent,
+        StrippedStateEvent, SyncStateEvent,
     },
     EventId, OwnedEventId, RoomVersionId,
 };
@@ -55,7 +55,7 @@ where
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RedactedMinimalStateEvent<C>
 where
-    C: StateEventContent + RedactedEventContent,
+    C: RedactedStateEventContent,
 {
     /// The event's content.
     pub content: C,

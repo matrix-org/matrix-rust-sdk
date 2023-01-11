@@ -12,15 +12,17 @@ use ruma::events::{
     SyncMessageLikeEvent,
 };
 use ruma::{
-    api::client::{
-        config::set_global_account_data,
-        error::ErrorKind,
-        filter::RoomEventFilter,
-        membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events,
-        room::get_room_event,
-        state::get_state_events_for_key,
-        tag::{create_tag, delete_tag},
+    api::{
+        client::{
+            config::set_global_account_data,
+            error::ErrorKind,
+            filter::RoomEventFilter,
+            membership::{get_member_events, join_room_by_id, leave_room},
+            message::get_message_events,
+            room::get_room_event,
+            state::get_state_events_for_key,
+            tag::{create_tag, delete_tag},
+        },
         Direction,
     },
     assign,

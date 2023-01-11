@@ -1,10 +1,10 @@
 use ruma::{
     events::{
-        BundledRelations, EventContent, MessageLikeEventContent, MessageLikeEventType,
-        OriginalStateEventContent, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
-        RedactContent, RedactedEventContent, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent,
-        StateEventContent, StateEventType, StateUnsigned,
+        BundledRelations, EventContent, EventContentFromType, MessageLikeEventContent,
+        MessageLikeEventType, MessageLikeUnsigned, OriginalStateEventContent,
+        OriginalSyncMessageLikeEvent, OriginalSyncStateEvent, RedactContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
+        RedactedSyncStateEvent, StateEventContent, StateEventType,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -113,13 +113,13 @@ impl EventContent for NoMessageLikeEventContent {
     fn event_type(&self) -> Self::EventType {
         self.event_type.clone()
     }
-
+}
+impl EventContentFromType for NoMessageLikeEventContent {
     fn from_parts(event_type: &str, _content: &RawJsonValue) -> serde_json::Result<Self> {
         Ok(Self { event_type: event_type.into() })
     }
 }
 impl MessageLikeEventContent for NoMessageLikeEventContent {}
-impl RedactedEventContent for NoMessageLikeEventContent {}
 impl RedactedMessageLikeEventContent for NoMessageLikeEventContent {}
 
 #[derive(Clone, Debug, Serialize)]
@@ -134,7 +134,8 @@ impl EventContent for NoStateEventContent {
     fn event_type(&self) -> Self::EventType {
         self.event_type.clone()
     }
-
+}
+impl EventContentFromType for NoStateEventContent {
     fn from_parts(event_type: &str, _content: &RawJsonValue) -> serde_json::Result<Self> {
         Ok(Self { event_type: event_type.into() })
     }
@@ -150,7 +151,10 @@ impl StateEventContent for NoStateEventContent {
     type StateKey = String;
 }
 impl OriginalStateEventContent for NoStateEventContent {
-    type Unsigned = StateUnsigned<Self>;
+    // We don't care about the `prev_content` since it wont deserialize with useful
+    // data. Use this type which is `StateUnsigned` minus the `prev_content`
+    // field.
+    type Unsigned = MessageLikeUnsigned;
+    type PossiblyRedacted = Self;
 }
-impl RedactedEventContent for NoStateEventContent {}
 impl RedactedStateEventContent for NoStateEventContent {}
