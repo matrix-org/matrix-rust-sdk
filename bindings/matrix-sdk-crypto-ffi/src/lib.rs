@@ -47,6 +47,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
+use uniffi_api::*;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,

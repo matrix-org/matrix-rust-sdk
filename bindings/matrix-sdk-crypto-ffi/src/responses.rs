@@ -112,7 +112,7 @@ impl From<ToDeviceRequest> for OutgoingVerificationRequest {
     }
 }
 
-#[derive(Debug, uniffi::Enum)]
+#[derive(Debug)]
 pub enum Request {
     ToDevice { request_id: String, event_type: String, body: String },
     KeysUpload { request_id: String, body: String },
