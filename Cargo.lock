@@ -241,6 +241,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compat"
+version = "0.2.1"
+source = "git+https://github.com/jplatte/async-compat?rev=b83b197622d8b5756d3594ce73b720896b07faae#b83b197622d8b5756d3594ce73b720896b07faae"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "once_cell",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "async-compression"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2782,6 +2794,7 @@ name = "matrix-sdk-ffi"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-compat",
  "base64 0.21.0",
  "extension-trait",
  "eyeball",

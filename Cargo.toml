@@ -79,3 +79,6 @@ incremental = false
 # Compile all non-workspace crate in the dependency tree with optimizations
 [profile.reldbg.package."*"]
 opt-level = 3
+
+[patch.crates-io]
+async-compat = { git = "https://github.com/jplatte/async-compat", rev = "b83b197622d8b5756d3594ce73b720896b07faae" }
