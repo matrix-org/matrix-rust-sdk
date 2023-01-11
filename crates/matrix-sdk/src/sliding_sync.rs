@@ -712,6 +712,7 @@ impl SlidingSync {
         resp: v4::Response,
         extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
+        ranges: &[Vec<(usize, usize)>],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         debug!("main client processed.");
@@ -726,11 +727,13 @@ impl SlidingSync {
                 .into());
             }
 
-            for (view, updates) in std::iter::zip(views, &resp.lists) {
+            for ((view, ranges), updates) in
+                std::iter::zip(std::iter::zip(views, ranges), &resp.lists)
+            {
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
                 trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-                if view.handle_response(count, &updates.ops)? {
+                if view.handle_response(count, &updates.ops, ranges)? {
                     updated_views.push(view.name.clone());
                 }
             }
@@ -799,12 +802,14 @@ impl SlidingSync {
                 debug!(?self.extensions, "Sync loop running");
 
                 let mut requests = Vec::new();
+                let mut current_ranges = vec![];
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
 
                 for (mut generator, view) in std::iter::zip(remaining_generators, remaining_views) {
-                    if let Some(request) = generator.next() {
+                    if let Some((request, range)) = generator.next() {
                         requests.push(request);
+                        current_ranges.push(range);
                         new_remaining_generators.push(generator);
                         new_remaining_views.push(view);
                     }
@@ -898,7 +903,7 @@ impl SlidingSync {
 
                 debug!("received");
 
-                let updates =  match self.handle_response(resp, extensions, &remaining_views).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views, &current_ranges).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
@@ -1141,7 +1146,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         start: u32,
         batch_size: u32,
         limit: Option<u32>,
-    ) -> (u32, v4::SyncRequestList) {
+    ) -> (u32, (v4::SyncRequestList, Vec<(usize, usize)>)) {
         let calc_end = start + batch_size;
         let end = match limit {
             Some(l) => std::cmp::min(l, calc_end),
@@ -1151,30 +1156,44 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         (end, self.make_request_for_ranges(ranges))
     }
 
-    fn make_request_for_ranges(&self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
+    fn make_request_for_ranges(
+        &self,
+        ranges: Vec<(UInt, UInt)>,
+    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
         let timeline_limit = self.view.timeline_limit;
         let filters = self.view.filters.clone();
 
-        assign!(v4::SyncRequestList::default(), {
-            ranges,
-            required_state,
-            sort,
-            timeline_limit,
-            filters,
-        })
+        (
+            assign!(v4::SyncRequestList::default(), {
+                ranges: ranges.clone(),
+                required_state,
+                sort,
+                timeline_limit,
+                filters,
+            }),
+            ranges
+                .into_iter()
+                .map(|(a, b)| {
+                    (
+                        usize::try_from(a).expect("range is a valid u32"),
+                        usize::try_from(b).expect("range is a valid u32"),
+                    )
+                })
+                .collect(),
+        )
     }
 
     // generate the next live request
-    fn live_request(&self) -> v4::SyncRequestList {
+    fn live_request(&self) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
 }
 
 impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = v4::SyncRequestList;
+    type Item = (v4::SyncRequestList, Vec<(usize, usize)>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, limit, .. }
@@ -1322,9 +1341,22 @@ impl SlidingSyncView {
     }
 
     #[instrument(skip(self, ops))]
-    fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> Result<(), Error> {
+    fn room_ops(
+        &self,
+        ops: &Vec<v4::SyncOp>,
+        room_ranges: &Vec<(usize, usize)>,
+    ) -> Result<(), Error> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
+
+        let index_in_range = |idx| {
+            for (start, end) in room_ranges.iter() {
+                if idx >= *start && idx <= *end {
+                    return true;
+                }
+            }
+            false
+        };
         for op in ops {
             match &op.op {
                 v4::SlidingOp::Sync => {
@@ -1386,9 +1418,10 @@ impl SlidingSyncView {
                     loop {
                         // find the next empty slot and drop it
                         let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
-                        let check_prev = !prev_overflow;
+                        let check_prev = !prev_overflow && index_in_range(prev_p);
                         let (next_p, overflown) = pos.overflowing_add(dif);
-                        let check_after = !overflown && next_p < sliced.len();
+                        let check_after =
+                            !overflown && next_p < sliced.len() && index_in_range(next_p);
                         if !check_prev && !check_after {
                             return Err(Error::BadResponse("We were asked to insert but could not find any direction to shift to".to_owned()));
                         }
@@ -1461,7 +1494,12 @@ impl SlidingSyncView {
     }
 
     #[instrument(skip(self, ops))]
-    fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> Result<bool, Error> {
+    fn handle_response(
+        &self,
+        rooms_count: u32,
+        ops: &Vec<v4::SyncOp>,
+        ranges: &Vec<(usize, usize)>,
+    ) -> Result<bool, Error> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1476,7 +1514,7 @@ impl SlidingSyncView {
         }
 
         if !ops.is_empty() {
-            self.room_ops(ops)?;
+            self.room_ops(ops, ranges)?;
             changed = true;
         }
 
