@@ -136,7 +136,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -181,7 +181,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -228,7 +228,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -332,7 +332,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -379,7 +379,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -441,7 +441,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
@@ -493,7 +493,7 @@ mod tests {
 
         for _n in 0..2 {
             let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexepectedly");
+                anyhow::bail!("sync has closed unexpectedly");
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
