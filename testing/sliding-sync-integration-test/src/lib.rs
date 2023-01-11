@@ -1,6 +1,6 @@
 use matrix_sdk::{
-    ruma::api::client::room::{create_room::v3::Request as CreateRoomRequest, Visibility},
-    Client, RoomListEntry, SlidingSyncBuilder,
+    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest, Client, RoomListEntry,
+    SlidingSyncBuilder,
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
@@ -54,7 +54,7 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 mod tests {
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
-        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode, SlidingSyncView,
+        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode,
         SlidingSyncViewBuilder,
     };
 
@@ -71,6 +71,203 @@ mod tests {
         };
         let summary = room_summary?;
         assert_eq!(summary.rooms.len(), 0);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn resizing_sliding_window() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
+        let sliding_window_view = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::Selective)
+            .set_range(0u32, 10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("sliding")
+            .build()?;
+        let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
+        let Some(view )= sync_proxy.view("sliding") else {
+            anyhow::bail!("but we just added that view!");
+        };
+        let stream = sync_proxy.stream().await?;
+        pin_mut!(stream);
+        let Some(room_summary ) = stream.next().await else {
+            anyhow::bail!("No room summary found, loop ended unsuccessfully");
+        };
+        let summary = room_summary?;
+        // we only heard about the ones we had asked for
+        assert_eq!(summary.rooms.len(), 11);
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+            ]
+        );
+
+        let _signal = view.rooms_list.signal_vec_cloned();
+
+        // let's move the window
+
+        view.set_range(1, 10);
+        // Ensure 0-0 invalidation ranges work.
+
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                anyhow::bail!("sync has closed unexepectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "sliding") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+            ]
+        );
+
+        view.set_range(5, 10);
+
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                anyhow::bail!("sync has closed unexepectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "sliding") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+            ]
+        );
+
+        // let's move the window
+
+        view.set_range(5, 15);
+
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                anyhow::bail!("sync has closed unexepectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "sliding") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Invalid,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+            ]
+        );
         Ok(())
     }
 
@@ -127,7 +324,7 @@ mod tests {
             ]
         );
 
-        let signal = view.rooms_list.signal_vec_cloned();
+        let _signal = view.rooms_list.signal_vec_cloned();
 
         // let's move the window
 

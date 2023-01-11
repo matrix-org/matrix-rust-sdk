@@ -1066,7 +1066,7 @@ impl SlidingSyncViewBuilder {
 
     /// Set a single range fetch
     pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        let r = self.ranges = Some(RangeState::new(vec![(from.into(), to.into())]));
+        self.ranges = Some(RangeState::new(vec![(from.into(), to.into())]));
         self
     }
 
