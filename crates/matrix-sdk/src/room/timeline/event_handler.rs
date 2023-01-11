@@ -31,7 +31,7 @@ use ruma::{
         },
         sticker::StickerEventContent,
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, BundledRelations, MessageLikeEventType, StateEventType,
+        AnySyncTimelineEvent, BundledRelations, EventContent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -267,16 +267,22 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     self.add(NewEventTimelineItem::sticker(c));
                 }
                 // TODO
-                _ => {}
+                _ => {
+                    debug!(
+                        "Ignoring message-like event of type `{}`, not supported (yet)",
+                        content.event_type()
+                    );
+                }
             },
             TimelineEventKind::RedactedMessage => {
                 self.add(NewEventTimelineItem::redacted_message());
             }
             TimelineEventKind::Redaction { redacts, content } => {
-                self.handle_redaction(redacts, content)
+                self.handle_redaction(redacts, content);
             }
             TimelineEventKind::State { .. } | TimelineEventKind::RedactedState => {
                 // TODO
+                debug!("Ignoring state event, not supported yet");
             }
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
                 self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
