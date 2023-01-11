@@ -90,6 +90,7 @@ pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
     timeline: TimelineLock,
     client: Client,
+    latest_room_message: Option<Arc<EventTimelineItem>>,
 }
 
 #[uniffi::export]
@@ -129,8 +130,7 @@ impl SlidingSyncRoom {
 
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        let item = RUNTIME.block_on(self.inner.latest_event())?;
-        Some(Arc::new(EventTimelineItem(item)))
+        self.latest_room_message.clone()
     }
 }
 
@@ -565,10 +565,13 @@ impl SlidingSync {
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
         Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|inner| {
+            let latest_room_message = RUNTIME
+                .block_on(async { Some(Arc::new(EventTimelineItem(inner.latest_event().await?))) });
             Arc::new(SlidingSyncRoom {
                 inner,
                 client: self.client.clone(),
                 timeline: Default::default(),
+                latest_room_message,
             })
         }))
     }
@@ -587,10 +590,14 @@ impl SlidingSync {
             .into_iter()
             .map(|o| {
                 o.map(|inner| {
+                    let latest_room_message = RUNTIME.block_on(async {
+                        Some(Arc::new(EventTimelineItem(inner.latest_event().await?)))
+                    });
                     Arc::new(SlidingSyncRoom {
                         inner,
                         client: self.client.clone(),
                         timeline: Default::default(),
+                        latest_room_message,
                     })
                 })
             })
