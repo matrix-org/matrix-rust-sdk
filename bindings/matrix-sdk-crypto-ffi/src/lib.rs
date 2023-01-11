@@ -47,6 +47,7 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
+use uniffi_api::*;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,

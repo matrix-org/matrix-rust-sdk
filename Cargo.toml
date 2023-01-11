@@ -38,8 +38,8 @@ serde_html_form = "0.2.0"
 serde_json = "1.0.91"
 thiserror = "1.0.38"
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
-uniffi = "0.23.0"
-uniffi_bindgen = "0.23.0"
+uniffi = { git = "https://github.com/matrix-org/uniffi-rs", rev = "cacb8b0b87a8fac111f96129e01bc20ae6118b89" }
+uniffi_bindgen = { git = "https://github.com/matrix-org/uniffi-rs", rev = "cacb8b0b87a8fac111f96129e01bc20ae6118b89" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 

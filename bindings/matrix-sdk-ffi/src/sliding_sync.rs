@@ -251,7 +251,6 @@ pub struct UpdateSummary {
     pub rooms: Vec<String>,
 }
 
-#[derive(uniffi::Record)]
 pub struct RequiredState {
     pub key: String,
     pub value: String,
@@ -329,7 +328,7 @@ impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
     }
 }
 
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, Debug)]
 pub enum RoomListEntry {
     Empty,
     Invalidated { room_id: String },
