@@ -738,7 +738,7 @@ impl OlmMachine {
         self.verification_machine.receive_any_event(event).await
     }
 
-    /// Receive an verification event.
+    /// Receive a verification event.
     ///
     /// This method can be used to pass verification events that are happening
     /// in rooms to the `OlmMachine`.
