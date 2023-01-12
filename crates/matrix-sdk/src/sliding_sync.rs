@@ -1385,12 +1385,9 @@ impl SlidingSyncView {
         let _rooms_map = self.rooms.lock_mut();
 
         let index_in_range = |idx| {
-            for (start, end) in room_ranges.iter() {
-                if idx >= *start && idx <= *end {
-                    return true;
-                }
-            }
-            false
+            room_ranges.iter().any(|(start, end)| {
+                idx >= *start && idx <= *end
+            })
         };
         for op in ops {
             match &op.op {
