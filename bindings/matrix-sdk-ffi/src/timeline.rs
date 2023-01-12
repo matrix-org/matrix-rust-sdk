@@ -4,6 +4,8 @@ use extension_trait::extension_trait;
 use futures_signals::signal_vec::VecDiff;
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
+use crate::MembershipState;
+
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
@@ -263,6 +265,13 @@ impl TimelineItemContent {
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
+            Content::RoomMember(room_member) => {
+                TimelineItemContentKind::RoomMembership { change: room_member.into() }
+            }
+            Content::OtherState(state) => TimelineItemContentKind::State {
+                state_key: state.state_key().to_owned(),
+                content: state.content().into(),
+            },
             Content::FailedToParseMessageLike { event_type, error } => {
                 TimelineItemContentKind::FailedToParseMessageLike {
                     event_type: event_type.to_string(),
@@ -291,6 +300,8 @@ pub enum TimelineItemContentKind {
     RedactedMessage,
     Sticker { body: String, info: ImageInfo, url: String },
     UnableToDecrypt { msg: EncryptedMessage },
+    RoomMembership { change: MembershipChange },
+    State { state_key: String, content: OtherState },
     FailedToParseMessageLike { event_type: String, error: String },
     FailedToParseState { event_type: String, state_key: String, error: String },
 }
@@ -632,6 +643,172 @@ pub impl MediaSourceExt for MediaSource {
         match self {
             MediaSource::Plain(url) => url.to_string(),
             MediaSource::Encrypted(file) => file.url.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum MembershipChange {
+    None,
+    Error,
+    Joined,
+    Left,
+    Banned,
+    Unbanned,
+    Kicked,
+    Invited,
+    KickedAndBanned,
+    InvitationAccepted,
+    InvitationRejected,
+    InvitationRevoked,
+    Knocked,
+    KnockAccepted,
+    KnockRetracted,
+    KnockDenied,
+    ProfileChanged {
+        display_name: Option<String>,
+        prev_display_name: Option<String>,
+        avatar_url: Option<String>,
+        prev_avatar_url: Option<String>,
+    },
+    NotImplemented,
+    Unknown {
+        membership: MembershipState,
+        display_name: Option<String>,
+        avatar_url: Option<String>,
+    },
+}
+
+impl From<&matrix_sdk::room::timeline::RoomMember> for MembershipChange {
+    fn from(member: &matrix_sdk::room::timeline::RoomMember) -> Self {
+        use matrix_sdk::ruma::events::{
+            room::member::MembershipChange as Change, FullStateEventContent as FullContent,
+        };
+        if let Some(change) = member.membership_change() {
+            match change {
+                Change::None => Self::None,
+                Change::Error => Self::Error,
+                Change::Joined => Self::Joined,
+                Change::Left => Self::Left,
+                Change::Banned => Self::Banned,
+                Change::Unbanned => Self::Unbanned,
+                Change::Kicked => Self::Kicked,
+                Change::Invited => Self::Invited,
+                Change::KickedAndBanned => Self::KickedAndBanned,
+                Change::InvitationAccepted => Self::InvitationAccepted,
+                Change::InvitationRejected => Self::InvitationRejected,
+                Change::InvitationRevoked => Self::InvitationRevoked,
+                Change::Knocked => Self::Knocked,
+                Change::KnockAccepted => Self::KnockAccepted,
+                Change::KnockRetracted => Self::KnockRetracted,
+                Change::KnockDenied => Self::KnockDenied,
+                Change::ProfileChanged { displayname_change, avatar_url_change } => {
+                    let (display_name, prev_display_name) =
+                        displayname_change.map(|change| (change.new, change.old)).unzip();
+                    let (avatar_url, prev_avatar_url) =
+                        avatar_url_change.map(|change| (change.new, change.old)).unzip();
+                    Self::ProfileChanged {
+                        display_name: display_name.flatten().map(ToOwned::to_owned),
+                        prev_display_name: prev_display_name.flatten().map(ToOwned::to_owned),
+                        avatar_url: avatar_url.flatten().map(ToString::to_string),
+                        prev_avatar_url: prev_avatar_url.flatten().map(ToString::to_string),
+                    }
+                }
+                _ => Self::NotImplemented,
+            }
+        } else {
+            let (membership, display_name, avatar_url) = match member.content() {
+                FullContent::Original { content, .. } => (
+                    content.membership.clone().into(),
+                    content.displayname.clone(),
+                    content.avatar_url.as_ref().map(ToString::to_string),
+                ),
+                FullContent::Redacted(content) => (content.membership.clone().into(), None, None),
+            };
+            Self::Unknown { membership, display_name, avatar_url }
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum OtherState {
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAliases,
+    RoomAvatar { url: Option<String> },
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomName { name: Option<String> },
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite { display_name: Option<String> },
+    RoomTombstone,
+    RoomTopic { topic: Option<String> },
+    SpaceChild,
+    SpaceParent,
+    Custom { event_type: String },
+}
+
+impl From<&matrix_sdk::room::timeline::AnyOtherFullStateEventContent> for OtherState {
+    fn from(content: &matrix_sdk::room::timeline::AnyOtherFullStateEventContent) -> Self {
+        use matrix_sdk::{
+            room::timeline::AnyOtherFullStateEventContent as Content,
+            ruma::events::FullStateEventContent as FullContent,
+        };
+        match content {
+            Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
+            Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
+            Content::PolicyRuleUser(_) => Self::PolicyRuleUser,
+            Content::RoomAliases(_) => Self::RoomAliases,
+            Content::RoomAvatar(c) => {
+                let url = match c {
+                    FullContent::Original { content, .. } => {
+                        content.url.as_ref().map(ToString::to_string)
+                    }
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomAvatar { url }
+            }
+            Content::RoomCanonicalAlias(_) => Self::RoomCanonicalAlias,
+            Content::RoomCreate(_) => Self::RoomCreate,
+            Content::RoomEncryption(_) => Self::RoomEncryption,
+            Content::RoomGuestAccess(_) => Self::RoomGuestAccess,
+            Content::RoomHistoryVisibility(_) => Self::RoomHistoryVisibility,
+            Content::RoomJoinRules(_) => Self::RoomJoinRules,
+            Content::RoomName(c) => {
+                let name = match c {
+                    FullContent::Original { content, .. } => content.name.clone(),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomName { name }
+            }
+            Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
+            Content::RoomPowerLevels(_) => Self::RoomPowerLevels,
+            Content::RoomServerAcl(_) => Self::RoomServerAcl,
+            Content::RoomThirdPartyInvite(c) => {
+                let display_name = match c {
+                    FullContent::Original { content, .. } => Some(content.display_name.clone()),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomThirdPartyInvite { display_name }
+            }
+            Content::RoomTombstone(_) => Self::RoomTombstone,
+            Content::RoomTopic(c) => {
+                let topic = match c {
+                    FullContent::Original { content, .. } => Some(content.topic.clone()),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomTopic { topic }
+            }
+            Content::SpaceChild(_) => Self::SpaceChild,
+            Content::SpaceParent(_) => Self::SpaceParent,
+            Content::_Custom { event_type, .. } => Self::Custom { event_type: event_type.clone() },
         }
     }
 }

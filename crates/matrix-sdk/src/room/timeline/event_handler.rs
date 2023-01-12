@@ -24,14 +24,16 @@ use ruma::{
         relation::{Annotation, Replacement},
         room::{
             encrypted::{self, RoomEncryptedEventContent},
+            member::RoomMemberEventContent,
             message::{self, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
         },
         sticker::StickerEventContent,
-        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, BundledRelations, EventContent, MessageLikeEventType, StateEventType,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, BundledRelations, EventContent, FullStateEventContent,
+        MessageLikeEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -39,7 +41,10 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    event_item::{BundledReactions, Profile, Sticker, TimelineDetails},
+    event_item::{
+        AnyOtherFullStateEventContent, BundledReactions, OtherState, Profile, RoomMember, Sticker,
+        TimelineDetails,
+    },
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
@@ -100,11 +105,15 @@ pub(super) enum TimelineEventKind {
         redacts: OwnedEventId,
         content: RoomRedactionEventContent,
     },
-    // FIXME: Split further for state keys of different type
-    State {
-        _content: AnyStateEventContent,
+    RoomMember {
+        user_id: OwnedUserId,
+        content: FullStateEventContent<RoomMemberEventContent>,
+        sender: OwnedUserId,
     },
-    RedactedState, // AnyRedactedStateEventContent
+    OtherState {
+        state_key: String,
+        content: AnyOtherFullStateEventContent,
+    },
     FailedToParseMessageLike {
         event_type: MessageLikeEventType,
         error: Arc<serde_json::Error>,
@@ -157,9 +166,26 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
                 Some(content) => Self::Message { content },
                 None => Self::RedactedMessage,
             },
-            AnySyncTimelineEvent::State(ev) => match ev.original_content() {
-                Some(_content) => Self::State { _content },
-                None => Self::RedactedState,
+            AnySyncTimelineEvent::State(ev) => match ev {
+                AnySyncStateEvent::RoomMember(ev) => match ev {
+                    SyncStateEvent::Original(ev) => Self::RoomMember {
+                        user_id: ev.state_key,
+                        content: FullStateEventContent::Original {
+                            content: ev.content,
+                            prev_content: ev.unsigned.prev_content,
+                        },
+                        sender: ev.sender,
+                    },
+                    SyncStateEvent::Redacted(ev) => Self::RoomMember {
+                        user_id: ev.state_key,
+                        content: FullStateEventContent::Redacted(ev.content),
+                        sender: ev.sender,
+                    },
+                },
+                ev => Self::OtherState {
+                    state_key: ev.state_key().to_owned(),
+                    content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                },
             },
         }
     }
@@ -277,9 +303,11 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content);
             }
-            TimelineEventKind::State { .. } | TimelineEventKind::RedactedState => {
-                // TODO
-                debug!("Ignoring state event, not supported yet");
+            TimelineEventKind::RoomMember { user_id, content, sender } => {
+                self.add(NewEventTimelineItem::room_member(user_id, content, sender));
+            }
+            TimelineEventKind::OtherState { state_key, content } => {
+                self.add(NewEventTimelineItem::other_state(state_key, content));
             }
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
                 self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
@@ -319,6 +347,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
                     info!("Edit event applies to event that couldn't be decrypted, discarding");
+                    return None;
+                }
+                TimelineItemContent::RoomMember { .. } | TimelineItemContent::OtherState { .. } => {
+                    info!("Edit event applies to a state event, discarding");
                     return None;
                 }
                 TimelineItemContent::FailedToParseMessageLike { .. }
@@ -718,6 +750,18 @@ impl NewEventTimelineItem {
 
     fn sticker(content: StickerEventContent) -> Self {
         Self::from_content(TimelineItemContent::Sticker(Sticker { content }))
+    }
+
+    fn room_member(
+        user_id: OwnedUserId,
+        content: FullStateEventContent<RoomMemberEventContent>,
+        sender: OwnedUserId,
+    ) -> Self {
+        Self::from_content(TimelineItemContent::RoomMember(RoomMember { user_id, content, sender }))
+    }
+
+    fn other_state(state_key: String, content: AnyOtherFullStateEventContent) -> Self {
+        Self::from_content(TimelineItemContent::OtherState(OtherState { state_key, content }))
     }
 
     fn failed_to_parse_message_like(

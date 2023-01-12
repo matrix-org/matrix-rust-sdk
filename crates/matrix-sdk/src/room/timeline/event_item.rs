@@ -18,13 +18,35 @@ use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        policy::rule::{
+            room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
+            user::PolicyRuleUserEventContent,
+        },
         relation::{AnnotationChunk, AnnotationType},
         room::{
+            aliases::RoomAliasesEventContent,
+            avatar::RoomAvatarEventContent,
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent,
             encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+            encryption::RoomEncryptionEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent,
+            member::{MembershipChange, RoomMemberEventContent},
             message::MessageType,
+            name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
+            power_levels::RoomPowerLevelsEventContent,
+            server_acl::RoomServerAclEventContent,
+            third_party_invite::RoomThirdPartyInviteEventContent,
+            tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
+        MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
@@ -247,6 +269,12 @@ pub enum TimelineItemContent {
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
 
+    /// An `m.room.member` event.
+    RoomMember(RoomMember),
+
+    /// Another state event.
+    OtherState(OtherState),
+
     /// A message-like event that failed to deserialize.
     FailedToParseMessageLike {
         /// The event `type`.
@@ -440,6 +468,196 @@ pub struct Sticker {
 impl Sticker {
     /// Get the data of this sticker.
     pub fn content(&self) -> &StickerEventContent {
+        &self.content
+    }
+}
+
+/// An `m.room.member` event.
+#[derive(Clone, Debug)]
+pub struct RoomMember {
+    pub(super) user_id: OwnedUserId,
+    pub(super) content: FullStateEventContent<RoomMemberEventContent>,
+    pub(super) sender: OwnedUserId,
+}
+
+impl RoomMember {
+    /// The ID of the user whose membership changed.
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// The full content of the event.
+    pub fn content(&self) -> &FullStateEventContent<RoomMemberEventContent> {
+        &self.content
+    }
+
+    /// The membership change induced by this event.
+    ///
+    /// If this returns `None`, it doesn't mean that there was no change, but
+    /// that the change could not be computed. This is currently always the case
+    /// with redacted events.
+    // FIXME: Fetch the prev_content when missing so we can compute this with
+    // redacted events?
+    pub fn membership_change(&self) -> Option<MembershipChange<'_>> {
+        match &self.content {
+            FullStateEventContent::Original { content, prev_content } => {
+                Some(content.membership_change(
+                    prev_content.as_ref().map(|c| c.details()),
+                    &self.sender,
+                    &self.user_id,
+                ))
+            }
+            FullStateEventContent::Redacted(_) => None,
+        }
+    }
+}
+
+/// An enum over all the full state event contents that don't have their own
+/// `TimelineItemContent` variant.
+#[derive(Clone, Debug)]
+pub enum AnyOtherFullStateEventContent {
+    /// m.policy.rule.room
+    PolicyRuleRoom(FullStateEventContent<PolicyRuleRoomEventContent>),
+
+    /// m.policy.rule.server
+    PolicyRuleServer(FullStateEventContent<PolicyRuleServerEventContent>),
+
+    /// m.policy.rule.user
+    PolicyRuleUser(FullStateEventContent<PolicyRuleUserEventContent>),
+
+    /// m.room.aliases
+    RoomAliases(FullStateEventContent<RoomAliasesEventContent>),
+
+    /// m.room.avatar
+    RoomAvatar(FullStateEventContent<RoomAvatarEventContent>),
+
+    /// m.room.canonical_alias
+    RoomCanonicalAlias(FullStateEventContent<RoomCanonicalAliasEventContent>),
+
+    /// m.room.create
+    RoomCreate(FullStateEventContent<RoomCreateEventContent>),
+
+    /// m.room.encryption
+    RoomEncryption(FullStateEventContent<RoomEncryptionEventContent>),
+
+    /// m.room.guest_access
+    RoomGuestAccess(FullStateEventContent<RoomGuestAccessEventContent>),
+
+    /// m.room.history_visibility
+    RoomHistoryVisibility(FullStateEventContent<RoomHistoryVisibilityEventContent>),
+
+    /// m.room.join_rules
+    RoomJoinRules(FullStateEventContent<RoomJoinRulesEventContent>),
+
+    /// m.room.name
+    RoomName(FullStateEventContent<RoomNameEventContent>),
+
+    /// m.room.pinned_events
+    RoomPinnedEvents(FullStateEventContent<RoomPinnedEventsEventContent>),
+
+    /// m.room.power_levels
+    RoomPowerLevels(FullStateEventContent<RoomPowerLevelsEventContent>),
+
+    /// m.room.server_acl
+    RoomServerAcl(FullStateEventContent<RoomServerAclEventContent>),
+
+    /// m.room.third_party_invite
+    RoomThirdPartyInvite(FullStateEventContent<RoomThirdPartyInviteEventContent>),
+
+    /// m.room.tombstone
+    RoomTombstone(FullStateEventContent<RoomTombstoneEventContent>),
+
+    /// m.room.topic
+    RoomTopic(FullStateEventContent<RoomTopicEventContent>),
+
+    /// m.space.child
+    SpaceChild(FullStateEventContent<SpaceChildEventContent>),
+
+    /// m.space.parent
+    SpaceParent(FullStateEventContent<SpaceParentEventContent>),
+
+    #[doc(hidden)]
+    _Custom { event_type: String },
+}
+
+impl AnyOtherFullStateEventContent {
+    /// Create an `AnyOtherFullStateEventContent` from an
+    /// `AnyFullStateEventContent`.
+    ///
+    /// Panics if the event content does not match one of the variants.
+    // This could be a `From` implementation but we don't want it in the public API.
+    pub(crate) fn with_event_content(content: AnyFullStateEventContent) -> Self {
+        let event_type = content.event_type();
+
+        match content {
+            AnyFullStateEventContent::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
+            AnyFullStateEventContent::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
+            AnyFullStateEventContent::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
+            AnyFullStateEventContent::RoomAliases(c) => Self::RoomAliases(c),
+            AnyFullStateEventContent::RoomAvatar(c) => Self::RoomAvatar(c),
+            AnyFullStateEventContent::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
+            AnyFullStateEventContent::RoomCreate(c) => Self::RoomCreate(c),
+            AnyFullStateEventContent::RoomEncryption(c) => Self::RoomEncryption(c),
+            AnyFullStateEventContent::RoomGuestAccess(c) => Self::RoomGuestAccess(c),
+            AnyFullStateEventContent::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(c),
+            AnyFullStateEventContent::RoomJoinRules(c) => Self::RoomJoinRules(c),
+            AnyFullStateEventContent::RoomName(c) => Self::RoomName(c),
+            AnyFullStateEventContent::RoomPinnedEvents(c) => Self::RoomPinnedEvents(c),
+            AnyFullStateEventContent::RoomPowerLevels(c) => Self::RoomPowerLevels(c),
+            AnyFullStateEventContent::RoomServerAcl(c) => Self::RoomServerAcl(c),
+            AnyFullStateEventContent::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(c),
+            AnyFullStateEventContent::RoomTombstone(c) => Self::RoomTombstone(c),
+            AnyFullStateEventContent::RoomTopic(c) => Self::RoomTopic(c),
+            AnyFullStateEventContent::SpaceChild(c) => Self::SpaceChild(c),
+            AnyFullStateEventContent::SpaceParent(c) => Self::SpaceParent(c),
+            AnyFullStateEventContent::RoomMember(_) => unreachable!(),
+            _ => Self::_Custom { event_type: event_type.to_string() },
+        }
+    }
+
+    /// Get the event's type, like `m.room.create`.
+    pub fn event_type(&self) -> StateEventType {
+        match self {
+            Self::PolicyRuleRoom(c) => c.event_type(),
+            Self::PolicyRuleServer(c) => c.event_type(),
+            Self::PolicyRuleUser(c) => c.event_type(),
+            Self::RoomAliases(c) => c.event_type(),
+            Self::RoomAvatar(c) => c.event_type(),
+            Self::RoomCanonicalAlias(c) => c.event_type(),
+            Self::RoomCreate(c) => c.event_type(),
+            Self::RoomEncryption(c) => c.event_type(),
+            Self::RoomGuestAccess(c) => c.event_type(),
+            Self::RoomHistoryVisibility(c) => c.event_type(),
+            Self::RoomJoinRules(c) => c.event_type(),
+            Self::RoomName(c) => c.event_type(),
+            Self::RoomPinnedEvents(c) => c.event_type(),
+            Self::RoomPowerLevels(c) => c.event_type(),
+            Self::RoomServerAcl(c) => c.event_type(),
+            Self::RoomThirdPartyInvite(c) => c.event_type(),
+            Self::RoomTombstone(c) => c.event_type(),
+            Self::RoomTopic(c) => c.event_type(),
+            Self::SpaceChild(c) => c.event_type(),
+            Self::SpaceParent(c) => c.event_type(),
+            Self::_Custom { event_type } => event_type.as_str().into(),
+        }
+    }
+}
+
+/// A state event that doesn't have its own variant.
+#[derive(Clone, Debug)]
+pub struct OtherState {
+    pub(super) state_key: String,
+    pub(super) content: AnyOtherFullStateEventContent,
+}
+
+impl OtherState {
+    /// The state key of the event.
+    pub fn state_key(&self) -> &str {
+        &self.state_key
+    }
+
+    /// The content of the event.
+    pub fn content(&self) -> &AnyOtherFullStateEventContent {
         &self.content
     }
 }
