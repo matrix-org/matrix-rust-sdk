@@ -1,4 +1,3 @@
-
 version: '3'
 
 services:
@@ -34,7 +33,7 @@ services:
     environment:
       SYNCV3_SERVER: http://synapse:8008
       SYNCV3_SECRET: SUPER_SECRET
-      SYNCV3_BINDADDR: ":8338" 
+      SYNCV3_BINDADDR: ":8338"
       SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
     ports:
       - 8338:8338

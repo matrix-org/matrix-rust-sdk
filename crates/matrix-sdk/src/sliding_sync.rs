@@ -709,7 +709,7 @@ impl SlidingSync {
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
     pub fn pop_view(&self, _view_name: &str) -> Option<SlidingSyncView> {
-        unimplemented!("Index based sliding sync doesn't have support removing views");
+        unimplemented!("Index based sliding sync doesn't support removing views");
     }
 
     /// Add the view to the list of views
@@ -1384,11 +1384,8 @@ impl SlidingSyncView {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
 
-        let index_in_range = |idx| {
-            room_ranges.iter().any(|(start, end)| {
-                idx >= *start && idx <= *end
-            })
-        };
+        let index_in_range =
+            |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
         for op in ops {
             match &op.op {
                 v4::SlidingOp::Sync => {

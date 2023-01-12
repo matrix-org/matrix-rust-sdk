@@ -15,11 +15,6 @@ static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex:
 
 #[ctor::ctor]
 fn startup() {
-    init_logging();
-}
-
-/// initialize logging
-pub fn init_logging() {
     use tracing::Level;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
     tracing_subscriber::registry()
