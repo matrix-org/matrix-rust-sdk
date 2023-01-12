@@ -174,10 +174,10 @@ impl IdentityManager {
             .filter(|s| s != self.user_id().server_name());
         let successful_servers = response.device_keys.keys().map(|u| u.server_name());
 
-        // Append the new failed servers and remove any successful servers. We remove
-        // the successful servers explicitly so we keep incrementing the delay
-        // on the failed servers instead of removing them when the entry times
-        // out.
+        // Append the new failed servers and remove any successful servers. We
+        // need to explicitly remove the successful servers because the cache
+        // doesn't automatically remove entries that elapse. Instead, the effect
+        // is that elapsed servers will be retried and their delays incremented.
         self.failures.extend(failed_servers);
         self.failures.remove(successful_servers);
 

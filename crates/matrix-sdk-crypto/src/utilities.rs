@@ -53,7 +53,7 @@ where
 /// A TTL cache where items get inactive instead of discarded.
 ///
 /// The items need to be explicitly removed from the cache. This allows us to
-/// implement a exponential backoff based TTL.
+/// implement exponential backoff based TTL.
 #[derive(Clone, Debug)]
 pub struct FailuresCache<T: Eq + Hash> {
     inner: Arc<RwLock<HashMap<T, FailuresItem>>>,
@@ -112,7 +112,7 @@ where
     /// Extend the cache with the given iterator of items.
     ///
     /// Items that are already part of the cache, whether they are expired or
-    /// not, will have their TTL extended using a exponential backoff
+    /// not, will have their TTL extended using an exponential backoff
     /// algorithm.
     pub fn extend(&self, iterator: impl Iterator<Item = T>) {
         let mut lock = self.inner.write().unwrap();
