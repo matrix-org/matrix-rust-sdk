@@ -38,8 +38,10 @@ pub static ROOM_MESSAGES: Lazy<JsonValue> = Lazy::new(|| {
             },
             "event_id": "$1444812213350496Ccccc:example.com",
             "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
+            "unsigned": {
+              "prev_content": {
+                "name": "Old room name",
+              },
             },
             "room_id": "!Xq3620DUiqCaoxq:example.com",
             "sender": "@bob:example.com",
@@ -86,8 +88,10 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
             },
             "event_id": "$1444812213350496Ccccf:example.com",
             "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
+            "unsigned": {
+              "prev_content": {
+                "name": "Old room name",
+              },
             },
             "room_id": "!Xq3620DUiqCaoxq:example.com",
             "sender": "@bob:example.com",
@@ -134,8 +138,10 @@ pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
             },
             "event_id": "$1444812213350496Cccck:example.com",
             "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
+            "unsigned": {
+              "prev_content": {
+                "name": "Old room name",
+              },
             },
             "room_id": "!Xq3620DUiqCaoxq:example.com",
             "sender": "@bob:example.com",
