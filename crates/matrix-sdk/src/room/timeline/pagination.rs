@@ -37,7 +37,7 @@ impl<'a> PaginationOptions<'a> {
     /// `Some(next_event_limit)`) or not (by returning `None`).
     pub fn custom(
         initial_event_limit: u16,
-        pagination_strategy: impl FnMut(PaginationOutcome) -> Option<u16> + 'a,
+        pagination_strategy: impl FnMut(PaginationOutcome) -> Option<u16> + Send + 'a,
     ) -> Self {
         Self::new(PaginationOptionsInner::Custom {
             event_limit_if_first: Some(initial_event_limit),
@@ -77,7 +77,7 @@ pub enum PaginationOptionsInner<'a> {
     },
     Custom {
         event_limit_if_first: Option<u16>,
-        strategy: Box<dyn FnMut(PaginationOutcome) -> Option<u16> + 'a>,
+        strategy: Box<dyn FnMut(PaginationOutcome) -> Option<u16> + Send + 'a>,
     },
 }
 
