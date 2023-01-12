@@ -52,6 +52,7 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Context;
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
         ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode,
@@ -66,9 +67,8 @@ mod tests {
         let sync_proxy = sync_proxy_builder.add_fullsync_view().build().await?;
         let stream = sync_proxy.stream().await?;
         pin_mut!(stream);
-        let Some(room_summary ) = stream.next().await else {
-            anyhow::bail!("No room summary found, loop ended unsuccessfully");
-        };
+        let room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         assert_eq!(summary.rooms.len(), 0);
         Ok(())
@@ -94,20 +94,15 @@ mod tests {
             .add_view(build_view(view_name_2)?)
             .build()
             .await?;
-        let Some(view1 )= sync_proxy.view(view_name_1) else {
-            anyhow::bail!("but we just added that view!");
-        };
-        let Some(_view2 )= sync_proxy.view(view_name_2) else {
-            anyhow::bail!("but we just added that view!");
-        };
+        let view1 = sync_proxy.view(view_name_1).context("but we just added that view!")?;
+        let _view2 = sync_proxy.view(view_name_2).context("but we just added that view!")?;
 
         assert!(sync_proxy.view(view_name_3).is_none());
 
         let stream = sync_proxy.stream().await?;
         pin_mut!(stream);
-        let Some(room_summary ) = stream.next().await else {
-            anyhow::bail!("No room summary found, loop ended unsuccessfully");
-        };
+        let room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         // we only heard about the ones we had asked for
         assert_eq!(summary.views, [view_name_1, view_name_2]);
@@ -120,9 +115,7 @@ mod tests {
 
         let mut saw_update = false;
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if !summary.views.is_empty() {
@@ -140,14 +133,13 @@ mod tests {
         let Some(RoomListEntry::Filled(room_id)) = view1
             .rooms_list
             .lock_ref()
-            .iter().nth(4).map(Clone::clone) else
-        {
-            anyhow::bail!("4th room has moved? how?");
-        };
+            .iter()
+            .nth(4)
+            .map(Clone::clone) else {
+                panic!("4th room has moved? how?")
+            };
 
-        let Some(room) = client.get_joined_room(&room_id) else {
-            anyhow::bail!("No joined room {room_id}");
-        };
+        let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
         let content = RoomMessageEventContent::text_plain("Hello world");
 
@@ -155,9 +147,7 @@ mod tests {
 
         let mut saw_update = false;
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if !summary.views.is_empty() {
@@ -199,27 +189,27 @@ mod tests {
     //         .build()
     //         .await?;
     //     let Some(view1 )= sync_proxy.view(view_name_1) else {
-    //         anyhow::bail!("but we just added that view!");
+    //         bail!("but we just added that view!");
     //     };
     //     let Some(_view2 )= sync_proxy.view(view_name_2) else {
-    //         anyhow::bail!("but we just added that view!");
+    //         bail!("but we just added that view!");
     //     };
 
     //     let Some(_view3 )= sync_proxy.view(view_name_3) else {
-    //         anyhow::bail!("but we just added that view!");
+    //         bail!("but we just added that view!");
     //     };
 
     //     let stream = sync_proxy.stream().await?;
     //     pin_mut!(stream);
     //     let Some(room_summary ) = stream.next().await else {
-    //         anyhow::bail!("No room summary found, loop ended unsuccessfully");
+    //         bail!("No room summary found, loop ended unsuccessfully");
     //     };
     //     let summary = room_summary?;
     //     // we only heard about the ones we had asked for
     //     assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
 
     //     let Some(view_2) = sync_proxy.pop_view(view_name_2) else {
-    //         anyhow::bail!("Room exists");
+    //         bail!("Room exists");
     //     };
 
     //     // we need to restart the stream after every view listing update
@@ -234,11 +224,11 @@ mod tests {
     //         .lock_ref()
     //         .iter().nth(3).map(Clone::clone) else
     //     {
-    //         anyhow::bail!("2nd room has moved? how?");
+    //         bail!("2nd room has moved? how?");
     //     };
 
     //     let Some(room) = client.get_joined_room(&room_id) else {
-    //         anyhow::bail!("No joined room {room_id}");
+    //         bail!("No joined room {room_id}");
     //     };
 
     //     let content = RoomMessageEventContent::text_plain("Hello world");
@@ -249,7 +239,7 @@ mod tests {
     //     let mut saw_update = false;
     //     for _n in 0..2 {
     //         let Some(room_summary ) = stream.next().await else {
-    //             anyhow::bail!("sync has closed unexpectedly");
+    //             bail!("sync has closed unexpectedly");
     //         };
     //         let summary = room_summary?;
     //         // we only heard about the ones we had asked for
@@ -272,7 +262,7 @@ mod tests {
     //     let mut saw_update = false;
     //     for _n in 0..2 {
     //         let Some(room_summary ) = stream.next().await else {
-    //             anyhow::bail!("sync has closed unexpectedly");
+    //             bail!("sync has closed unexpectedly");
     //         };
     //         let summary = room_summary?;
     //         // we only heard about the ones we had asked for
@@ -293,11 +283,11 @@ mod tests {
     //         .lock_ref()
     //         .iter().nth(4).map(Clone::clone) else
     //     {
-    //         anyhow::bail!("4th room has moved? how?");
+    //         bail!("4th room has moved? how?");
     //     };
 
     //     let Some(room) = client.get_joined_room(&room_id) else {
-    //         anyhow::bail!("No joined room {room_id}");
+    //         bail!("No joined room {room_id}");
     //     };
 
     //     let content = RoomMessageEventContent::text_plain("Hello world");
@@ -308,7 +298,7 @@ mod tests {
     //     let mut saw_update = false;
     //     for _n in 0..2 {
     //         let Some(room_summary ) = stream.next().await else {
-    //             anyhow::bail!("sync has closed unexpectedly");
+    //             bail!("sync has closed unexpectedly");
     //         };
     //         let summary = room_summary?;
     //         // we only heard about the ones we had asked for
@@ -336,14 +326,11 @@ mod tests {
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let Some(view )= sync_proxy.view("sliding") else {
-            anyhow::bail!("but we just added that view!");
-        };
+        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
         let stream = sync_proxy.stream().await?;
         pin_mut!(stream);
-        let Some(room_summary ) = stream.next().await else {
-            anyhow::bail!("No room summary found, loop ended unsuccessfully");
-        };
+        let room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         // we only heard about the ones we had asked for
         assert_eq!(summary.rooms.len(), 11);
@@ -387,9 +374,7 @@ mod tests {
         // Ensure 0-0 invalidation ranges work.
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -432,9 +417,7 @@ mod tests {
         view.set_range(5, 10);
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -479,9 +462,7 @@ mod tests {
         view.set_range(5, 15);
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -533,14 +514,11 @@ mod tests {
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let Some(view )= sync_proxy.view("sliding") else {
-            anyhow::bail!("but we just added that view!");
-        };
+        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
         let stream = sync_proxy.stream().await?;
         pin_mut!(stream);
-        let Some(room_summary ) = stream.next().await else {
-            anyhow::bail!("No room summary found, loop ended unsuccessfully");
-        };
+        let room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         // we only heard about the ones we had asked for
         assert_eq!(summary.rooms.len(), 10);
@@ -583,9 +561,7 @@ mod tests {
         view.set_range(0, 10);
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -630,9 +606,7 @@ mod tests {
         view.set_range(2, 12);
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -678,23 +652,21 @@ mod tests {
         let Some(RoomListEntry::Filled(room_id)) = view
             .rooms_list
             .lock_ref()
-            .iter().nth(3).map(Clone::clone) else
+            .iter()
+            .nth(3)
+            .map(Clone::clone) else
         {
-            anyhow::bail!("2nd room has moved? how?");
+            panic!("2nd room has moved? how?");
         };
 
-        let Some(room) = client.get_joined_room(&room_id) else {
-            anyhow::bail!("No joined room {room_id}");
-        };
+        let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
         let content = RoomMessageEventContent::text_plain("Hello world");
 
         room.send(content, None).await?; // this should put our room up to the most recent
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
@@ -735,18 +707,14 @@ mod tests {
         );
 
         // items has moved, thus we shouldn't find it where it was
-        assert!(
-            view.rooms_list.lock_ref().iter().nth(3).unwrap().as_room_id().unwrap() != &room_id
-        );
+        assert!(view.rooms_list.lock_ref().iter().nth(3).unwrap().as_room_id().unwrap() != room_id);
 
         // let's move the window again
 
         view.set_range(0, 10);
 
         for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                anyhow::bail!("sync has closed unexpectedly");
-            };
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "sliding") {
