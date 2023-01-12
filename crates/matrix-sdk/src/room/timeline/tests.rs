@@ -36,9 +36,17 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
+            member::{
+                MembershipChange, MembershipState, RedactedRoomMemberEventContent,
+                RoomMemberEventContent,
+            },
             message::{self, MessageType, RoomMessageEventContent},
+            name::RoomNameEventContent,
+            topic::RedactedRoomTopicEventContent,
         },
-        AnyMessageLikeEventContent, MessageLikeEventContent, MessageLikeEventType, StateEventType,
+        AnyMessageLikeEventContent, EmptyStateKey, FullStateEventContent, MessageLikeEventContent,
+        MessageLikeEventType, OriginalStateEventContent, RedactedStateEventContent,
+        StateEventContent, StateEventType,
     },
     room_id,
     serde::Raw,
@@ -48,8 +56,8 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    inner::ProfileProvider, EncryptedMessage, Profile, TimelineInner, TimelineItem,
-    TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage, Profile,
+    TimelineInner, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -540,6 +548,115 @@ async fn initial_events() {
     assert_eq!(items[2].as_event().unwrap().sender(), *BOB);
 }
 
+#[async_test]
+async fn other_state() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.stream();
+
+    timeline
+        .handle_live_original_state_event(
+            &ALICE,
+            RoomNameEventContent::new(Some("Alice's room".to_owned())),
+            None,
+        )
+        .await;
+
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
+    let full_content =
+        assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomName(c) => c);
+    let (content, prev_content) = assert_matches!(full_content, FullStateEventContent::Original { content, prev_content } => (content, prev_content));
+    assert_eq!(content.name.as_ref().unwrap(), "Alice's room");
+    assert_matches!(prev_content, None);
+
+    timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
+    let full_content =
+        assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomTopic(c) => c);
+    assert_matches!(full_content, FullStateEventContent::Redacted(_));
+}
+
+#[async_test]
+async fn room_member() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.stream();
+
+    let mut first_room_member_content = RoomMemberEventContent::new(MembershipState::Invite);
+    first_room_member_content.displayname = Some("Alice".to_owned());
+    timeline
+        .handle_live_original_state_event_with_state_key(
+            &BOB,
+            ALICE.to_owned(),
+            first_room_member_content.clone(),
+            None,
+        )
+        .await;
+
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
+    assert_matches!(member.content(), FullStateEventContent::Original { .. });
+    assert_matches!(member.membership_change(), Some(MembershipChange::Invited));
+
+    let mut second_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
+    second_room_member_content.displayname = Some("Alice".to_owned());
+    timeline
+        .handle_live_original_state_event_with_state_key(
+            &ALICE,
+            ALICE.to_owned(),
+            second_room_member_content.clone(),
+            Some(first_room_member_content),
+        )
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
+    assert_matches!(member.content(), FullStateEventContent::Original { .. });
+    assert_matches!(member.membership_change(), Some(MembershipChange::InvitationAccepted));
+
+    let mut third_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
+    third_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
+    timeline
+        .handle_live_original_state_event_with_state_key(
+            &ALICE,
+            ALICE.to_owned(),
+            third_room_member_content,
+            Some(second_room_member_content),
+        )
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
+    assert_matches!(member.content(), FullStateEventContent::Original { .. });
+    let (display_name_change, avatar_url_change) = assert_matches!(
+        member.membership_change(),
+        Some(MembershipChange::ProfileChanged {
+            displayname_change,
+            avatar_url_change
+        }) => (displayname_change, avatar_url_change)
+    );
+    assert_matches!(display_name_change, Some(_));
+    assert_matches!(avatar_url_change, None);
+
+    timeline
+        .handle_live_redacted_state_event_with_state_key(
+            &ALICE,
+            ALICE.to_owned(),
+            RedactedRoomMemberEventContent::new(MembershipState::Join),
+        )
+        .await;
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
+    assert_matches!(member.content(), FullStateEventContent::Redacted(_));
+    assert_matches!(member.membership_change(), None);
+}
+
 struct TestTimeline {
     inner: TimelineInner<TestProfileProvider>,
 }
@@ -578,6 +695,55 @@ impl TestTimeline {
         C: MessageLikeEventContent,
     {
         let ev = make_message_event(sender, content);
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None).await;
+    }
+
+    async fn handle_live_original_state_event<C>(
+        &self,
+        sender: &UserId,
+        content: C,
+        prev_content: Option<C>,
+    ) where
+        C: OriginalStateEventContent<StateKey = EmptyStateKey>,
+    {
+        let ev = make_state_event(sender, "", content, prev_content);
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None).await;
+    }
+
+    async fn handle_live_original_state_event_with_state_key<C>(
+        &self,
+        sender: &UserId,
+        state_key: C::StateKey,
+        content: C,
+        prev_content: Option<C>,
+    ) where
+        C: OriginalStateEventContent,
+    {
+        let ev = make_state_event(sender, state_key.as_ref(), content, prev_content);
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None).await;
+    }
+
+    async fn handle_live_redacted_state_event<C>(&self, sender: &UserId, content: C)
+    where
+        C: RedactedStateEventContent<StateKey = EmptyStateKey>,
+    {
+        let ev = make_redacted_state_event(sender, "", content);
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None).await;
+    }
+
+    async fn handle_live_redacted_state_event_with_state_key<C>(
+        &self,
+        sender: &UserId,
+        state_key: C::StateKey,
+        content: C,
+    ) where
+        C: RedactedStateEventContent,
+    {
+        let ev = make_redacted_state_event(sender, state_key.as_ref(), content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -627,6 +793,57 @@ fn make_message_event<C: MessageLikeEventContent>(sender: &UserId, content: C) -
         "event_id": EventId::new(server_name!("dummy.server")),
         "sender": sender,
         "origin_server_ts": next_server_ts(),
+    })
+}
+
+fn make_state_event<C: StateEventContent>(
+    sender: &UserId,
+    state_key: &str,
+    content: C,
+    prev_content: Option<C>,
+) -> JsonValue {
+    let unsigned = if let Some(prev_content) = prev_content {
+        json!({ "prev_content": prev_content })
+    } else {
+        json!({})
+    };
+
+    json!({
+        "type": content.event_type(),
+        "state_key": state_key,
+        "content": content,
+        "event_id": EventId::new(server_name!("dummy.server")),
+        "sender": sender,
+        "origin_server_ts": next_server_ts(),
+        "unsigned": unsigned,
+    })
+}
+
+fn make_redacted_state_event<C: RedactedStateEventContent>(
+    sender: &UserId,
+    state_key: &str,
+    content: C,
+) -> JsonValue {
+    json!({
+        "type": content.event_type(),
+        "state_key": state_key,
+        "content": content,
+        "event_id": EventId::new(server_name!("dummy.server")),
+        "sender": sender,
+        "origin_server_ts": next_server_ts(),
+        "unsigned": make_redacted_unsigned(sender),
+    })
+}
+
+fn make_redacted_unsigned(sender: &UserId) -> JsonValue {
+    json!({
+        "redacted_because": {
+            "content": {},
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": next_server_ts(),
+            "type": "m.room.redaction",
+        },
     })
 }
 

@@ -8,7 +8,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
-        PaginationOptions, TimelineDetails, TimelineItemContent, TimelineKey, VirtualTimelineItem,
+        AnyOtherFullStateEventContent, PaginationOptions, TimelineDetails, TimelineItemContent,
+        TimelineKey, VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
 };
@@ -19,7 +20,10 @@ use matrix_sdk_test::{
 };
 use ruma::{
     event_id,
-    events::room::message::{MessageType, RoomMessageEventContent},
+    events::{
+        room::message::{MessageType, RoomMessageEventContent},
+        FullStateEventContent,
+    },
     room_id, uint, user_id, TransactionId,
 };
 use serde_json::json;
@@ -297,6 +301,24 @@ async fn back_pagination() {
     );
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "the world is big");
+
+    let message = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::InsertAt { index: 2, value }) => value
+    );
+    let state = assert_matches!(
+        message.as_event().unwrap().content(),
+        TimelineItemContent::OtherState(state) => state
+    );
+    assert_eq!(state.state_key(), "");
+    let (content, prev_content) = assert_matches!(
+        state.content(),
+        AnyOtherFullStateEventContent::RoomName(
+            FullStateEventContent::Original { content, prev_content }
+        ) => (content, prev_content)
+    );
+    assert_eq!(content.name.as_ref().unwrap(), "New room name");
+    assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
     // Removal of the loading indicator
     assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));

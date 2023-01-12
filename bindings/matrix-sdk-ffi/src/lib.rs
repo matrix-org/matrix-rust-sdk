@@ -91,11 +91,11 @@ mod uniffi_types {
         },
         timeline::{
             EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,
-            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, Message, MessageFormat,
-            MessageType, NoticeMessageContent, Profile, Reaction, TextMessageContent,
-            ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent,
-            TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo, VideoMessageContent,
-            VirtualTimelineItem,
+            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, MembershipChange, Message,
+            MessageFormat, MessageType, NoticeMessageContent, OtherState, Profile, Reaction,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            TimelineItemContent, TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo,
+            VideoMessageContent, VirtualTimelineItem,
         },
     };
 }

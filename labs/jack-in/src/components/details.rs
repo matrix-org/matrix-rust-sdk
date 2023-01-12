@@ -102,6 +102,24 @@ impl Details {
                     e.sender(),
                     s.content().body,
                 ),
+                TimelineItemContent::RoomMember(m) => format!(
+                    "[{}] {}: '{}' state event",
+                    e.timestamp()
+                        .to_system_time()
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                    m.content().event_type(),
+                ),
+                TimelineItemContent::OtherState(s) => format!(
+                    "[{}] {}: '{}' state event",
+                    e.timestamp()
+                        .to_system_time()
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
+                    s.content().event_type(),
+                ),
                 TimelineItemContent::UnableToDecrypt(_) => format!(
                     "[{}] {} - unable to decrypt -",
                     e.timestamp()
