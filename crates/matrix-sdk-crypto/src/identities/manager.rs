@@ -533,6 +533,12 @@ impl IdentityManager {
                                     changed_identity = Some((*private_identity).clone());
                                     info!(cleared = ?result, "Removed some or all of our private cross signing keys");
                                 } else if new && private_identity.has_master_key().await {
+                                    // If the master key didn't rotate above (`clear_if_differs`),
+                                    // then this means that the public part and the private parts of
+                                    // the master key match. We previously did a signature check, so
+                                    // this means that the private part of the master key has signed
+                                    // the identity. We can safely mark the public part of the
+                                    // identity as verified.
                                     identity.mark_as_verified();
                                     trace!("Marked our own identity as verified");
                                 }

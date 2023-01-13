@@ -643,7 +643,7 @@ impl PrivateCrossSigningIdentity {
 
     /// Get the upload request that is needed to share the public keys of this
     /// identity.
-    pub async fn as_upload_request(&self) -> UploadSigningKeysRequest {
+    pub(crate) async fn as_upload_request(&self) -> UploadSigningKeysRequest {
         let master_key =
             self.master_key.lock().await.as_ref().map(|k| k.public_key.as_ref().clone());
 
