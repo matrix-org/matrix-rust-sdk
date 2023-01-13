@@ -796,7 +796,6 @@ impl GossipMachine {
         secret_name: &SecretName,
     ) -> Result<(), CryptoStoreError> {
         debug!(
-            sender = event.sender.as_str(),
             request_id = event.content.request_id.as_str(),
             secret_name = secret_name.as_ref(),
             "Received a m.secret.send event with a matching request"
@@ -810,7 +809,6 @@ impl GossipMachine {
                 self.accept_secret(event, request, secret_name).await?;
             } else {
                 warn!(
-                    sender = event.sender.as_str(),
                     request_id = event.content.request_id.as_str(),
                     secret_name = secret_name.as_ref(),
                     "Received a m.secret.send event from another user or from \
@@ -819,7 +817,6 @@ impl GossipMachine {
             }
         } else {
             warn!(
-                sender = event.sender.as_str(),
                 request_id = event.content.request_id.as_str(),
                 secret_name = secret_name.as_ref(),
                 "Received a m.secret.send event from an unknown device"
@@ -835,11 +832,7 @@ impl GossipMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedSecretSendEvent,
     ) -> Result<Option<SecretName>, CryptoStoreError> {
-        debug!(
-            sender = event.sender.as_str(),
-            request_id = event.content.request_id.as_str(),
-            "Received a m.secret.send event"
-        );
+        debug!(request_id = event.content.request_id.as_str(), "Received a m.secret.send event");
 
         let request_id = <&TransactionId>::from(event.content.request_id.as_str());
 
@@ -847,7 +840,6 @@ impl GossipMachine {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
                     warn!(
-                        sender = event.sender.as_str(),
                         request_id = event.content.request_id.as_str(),
                         "Received a m.secret.send event but the request was for a room key"
                     );
@@ -877,7 +869,6 @@ impl GossipMachine {
                     self.mark_as_done(info).await?;
 
                     info!(
-                        sender = %event.sender,
                         %sender_key,
                         claimed_sender_key = %session.sender_key(),
                         room_id = session.room_id().as_str(),
@@ -889,7 +880,6 @@ impl GossipMachine {
                     Ok(Some(session))
                 } else {
                     info!(
-                        sender = %event.sender,
                         %sender_key,
                         claimed_sender_key = %session.sender_key(),
                         room_id = %session.room_id,
@@ -903,7 +893,6 @@ impl GossipMachine {
             }
             Err(e) => {
                 warn!(
-                    sender = %event.sender,
                     %sender_key,
                     "Couldn't create a group session from a received room key"
                 );
@@ -936,7 +925,6 @@ impl GossipMachine {
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         let Some(info) = event.room_key_info() else {
             warn!(
-                sender = event.sender.as_str(),
                 sender_key = sender_key.to_base64(),
                 algorithm = %event.content.algorithm(),
                 "Received a forwarded room key with an unsupported algorithm",
@@ -947,7 +935,6 @@ impl GossipMachine {
         let Some(request) =
             self.store.get_secret_request_by_info(&info.clone().into()).await? else {
                 warn!(
-                    sender = %event.sender,
                     sender_key = %sender_key,
                     room_id = %info.room_id(),
                     session_id = info.session_id(),
@@ -962,7 +949,6 @@ impl GossipMachine {
             self.accept_forwarded_room_key(&request, sender_key, event).await
         } else {
             warn!(
-                 sender = %event.sender,
                  %sender_key,
                  room_id = %info.room_id(),
                  session_id = info.session_id(),

@@ -105,7 +105,6 @@ impl SessionType {
 /// such as the identity (Curve25519) key of the to-device event sender.
 #[derive(Debug)]
 pub(crate) struct OlmDecryptionInfo {
-    pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
     pub inbound_group_session: Option<InboundGroupSession>,
@@ -167,17 +166,12 @@ impl Account {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
         match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
-            Ok((session, result)) => Ok(OlmDecryptionInfo {
-                sender: sender.to_owned(),
-                session,
-                message_hash,
-                result,
-                inbound_group_session: None,
-            }),
+            Ok((session, result)) => {
+                Ok(OlmDecryptionInfo { session, message_hash, result, inbound_group_session: None })
+            }
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
                 if self.store.is_message_known(&message_hash).await? {
                     info!(
-                        sender = sender.as_str(),
                         %sender_key, "An Olm message got replayed, decryption failed"
                     );
 
@@ -206,7 +200,6 @@ impl Account {
     ) -> OlmResult<OlmDecryptionInfo> {
         if content.recipient_key != self.identity_keys().curve25519 {
             warn!(
-                sender = sender.as_str(),
                 sender_key = content.sender_key.to_base64(),
                 "Olm event doesn't contain a ciphertext for our key"
             );
@@ -222,7 +215,6 @@ impl Account {
         event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         trace!(
-            sender = event.sender.as_str(),
             algorithm = %event.content.algorithm(),
             "Decrypting a to-device event"
         );
@@ -237,7 +229,6 @@ impl Account {
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
-                    sender = event.sender.as_str(),
                     algorithm = %event.content.algorithm(),
                     "Error decrypting an to-device event, unsupported \
                     encryption algorithm"
@@ -321,7 +312,6 @@ impl Account {
                     // return with an error if it isn't one.
                     OlmMessage::Normal(_) => {
                         warn!(
-                            %sender,
                             %sender_key,
                             "Failed to decrypt a non-pre-key message with all \
                             available sessions",
@@ -336,7 +326,6 @@ impl Account {
                             Ok(r) => r,
                             Err(e) => {
                                 warn!(
-                                    %sender,
                                     %sender_key,
                                     session_keys = ?m.session_keys(),
                                     "Failed to create a new Olm session from a \
@@ -363,7 +352,6 @@ impl Account {
             };
 
         trace!(
-            %sender,
             %sender_key,
             "Successfully decrypted an Olm message"
         );
@@ -389,7 +377,6 @@ impl Account {
                 }
 
                 warn!(
-                    sender = sender.as_str(),
                     sender_key = sender_key.to_base64(),
                     error = ?e,
                     "A to-device message was successfully decrypted but \
