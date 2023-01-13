@@ -668,7 +668,9 @@ pub(crate) mod testing {
         machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
+        types::DeviceKeys,
         verification::VerificationMachine,
+        UploadSigningKeysRequest,
     };
 
     pub fn user_id() -> &'static UserId {
@@ -683,8 +685,9 @@ pub(crate) mod testing {
         device_id!("WSKKLTJZCL")
     }
 
-    pub(crate) fn manager() -> IdentityManager {
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
+    pub(crate) async fn manager() -> IdentityManager {
+        let identity = PrivateCrossSigningIdentity::new(user_id().into()).await;
+        let identity = Arc::new(Mutex::new(identity));
         let user_id = Arc::from(user_id());
         let account = ReadOnlyAccount::new(&user_id, device_id());
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
@@ -853,6 +856,33 @@ pub(crate) mod testing {
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
+
+    pub fn key_query(
+        identity: UploadSigningKeysRequest,
+        device_keys: DeviceKeys,
+    ) -> KeyQueryResponse {
+        let json = json!({
+            "device_keys": {
+                "@example:localhost": {
+                    device_keys.device_id.to_string(): device_keys
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@example:localhost": identity.master_key
+            },
+            "self_signing_keys": {
+                "@example:localhost": identity.self_signing_key
+            },
+            "user_signing_keys": {
+                "@example:localhost": identity.user_signing_key
+            },
+          }
+        );
+
+        KeyQueryResponse::try_from_http_response(response_from_file(&json))
+            .expect("Can't parse the keys upload response")
+    }
 }
 
 #[cfg(test)]
@@ -866,7 +896,7 @@ pub(crate) mod tests {
     };
     use serde_json::json;
 
-    use super::testing::{manager, other_key_query, other_user_id};
+    use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
 
     fn key_query_without_failures() -> KeysQueryResponse {
         let response = json!({
@@ -899,13 +929,13 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_creation() {
-        let manager = manager();
+        let manager = manager().await;
         assert!(manager.store.tracked_users().is_empty())
     }
 
     #[async_test]
     async fn test_manager_key_query_response() {
-        let manager = manager();
+        let manager = manager().await;
         let other_user = other_user_id();
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
@@ -935,31 +965,38 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_own_key_query_response() {
-        let manager = manager();
-        let other_user = other_user_id();
-        let devices = manager.store.get_user_devices(other_user).await.unwrap();
+        let manager = manager().await;
+        let our_user = user_id();
+        let devices = manager.store.get_user_devices(our_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
-        manager.receive_keys_query_response(&other_key_query()).await.unwrap();
+        let private_identity = manager.store.private_identity();
+        let private_identity = private_identity.lock().await;
+        let identity_request = private_identity.as_upload_request().await;
+        drop(private_identity);
 
-        let devices = manager.store.get_user_devices(other_user).await.unwrap();
+        let device_keys = manager.store.account().device_keys().await;
+        manager
+            .receive_keys_query_response(&key_query(identity_request, device_keys))
+            .await
+            .unwrap();
+
+        let identity = manager.store.get_user_identity(our_user).await.unwrap().unwrap();
+        let identity = identity.own().unwrap();
+        assert!(identity.is_verified());
+
+        let devices = manager.store.get_user_devices(our_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        let device = manager
-            .store
-            .get_readonly_device(other_user, device_id!("SKISMLNIMH"))
-            .await
-            .unwrap()
-            .unwrap();
-        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
-        let identity = identity.other().unwrap();
+        let device =
+            manager.store.get_readonly_device(our_user, device_id!(device_id())).await.unwrap();
 
-        identity.is_device_signed(&device).unwrap();
+        assert!(device.is_some());
     }
 
     #[async_test]
     async fn no_tracked_users_key_query_request() {
-        let manager = manager();
+        let manager = manager().await;
 
         assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
 
@@ -974,7 +1011,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn failure_handling() {
-        let manager = manager();
+        let manager = manager().await;
         let alice = user_id!("@alice:example.org");
 
         assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
