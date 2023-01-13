@@ -204,7 +204,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: nextest
-          args: run --workspace --exclude matrix-sdk-integration-testing
+          args: run --workspace --exclude matrix-sdk-integration-testing --exclude sliding-sync-integration-test
 
       - name: Test documentation
         uses: actions-rs/cargo@v1
@@ -443,3 +443,75 @@ jobs:
         with:
           command: nextest
           args: run -p matrix-sdk-integration-testing
+
+
+  sliding-sync-integration-tests:
+    name: Sliding Sync Integration test
+    # disabled until we can figure out the weird docker-not-starting-situation
+    if: false
+    # if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+    # Service containers to run with `runner-job`
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: syncv3
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+
+      # local synapse
+      - uses: michaelkaye/setup-matrix-synapse@main
+        with:
+          uploadLogs: true
+          httpPort: 8228
+          disableRateLimiting: true
+
+      # latest sliding sync proxy
+
+      - uses: addnab/docker-run-action@v3
+        with:
+          registry: gcr.io
+          image: "matrix-org/sliding-sync:v0.98.0"
+          docker_network: "host"
+          options: '-e "SYNCV3_SERVER=http://locahost:8228" -e "SYNCV3_SECRET=SUPER_CI_SECRET" -e "SYNCV3_BINDADDR=:8118" -e "SYNCV3_DB=user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres" -p 8118:8118'
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: nextest
+          args: run -p sliding-sync-integration-tests

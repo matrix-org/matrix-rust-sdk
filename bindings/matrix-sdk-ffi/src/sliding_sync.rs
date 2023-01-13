@@ -250,6 +250,8 @@ pub enum SlidingSyncViewRoomsListDiff {
     RemoveAt { index: u32 },
     Move { old_index: u32, new_index: u32 },
     Push { value: RoomListEntry },
+    Pop,   // removes the last item
+    Clear, // clears the list
 }
 
 impl From<VecDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
@@ -276,7 +278,8 @@ impl From<VecDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
             VecDiff::Push { value } => {
                 SlidingSyncViewRoomsListDiff::Push { value: (&value).into() }
             }
-            _ => unimplemented!("Clear and Pop aren't provided within sliding sync"),
+            VecDiff::Pop {} => SlidingSyncViewRoomsListDiff::Pop,
+            VecDiff::Clear {} => SlidingSyncViewRoomsListDiff::Clear,
         }
     }
 }
@@ -634,13 +637,15 @@ impl SlidingSync {
 impl SlidingSync {
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
-        let views = self.inner.views.lock_ref();
-        for s in views.iter() {
-            if s.name == name {
-                return Some(Arc::new(SlidingSyncView { inner: s.clone() }));
-            }
-        }
-        None
+        self.inner.view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
+    }
+
+    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<u32> {
+        self.inner.add_view(view.inner.clone()).map(|u| u as u32)
+    }
+
+    pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
+        self.inner.pop_view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
     pub fn sync(&self) -> Arc<StoppableSpawn> {
