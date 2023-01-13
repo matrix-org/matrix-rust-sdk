@@ -250,6 +250,43 @@ impl Room {
         }
     }
 
+    pub fn send_read_receipt(&self, event_id: String) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send read receipts to room that isn't in joined state"),
+        };
+
+        let event_id = EventId::parse(event_id)?;
+
+        RUNTIME.block_on(async move {
+            room.read_receipt(&event_id).await?;
+            Ok(())
+        })
+    }
+
+    pub fn send_read_marker(
+        &self,
+        fully_read_event_id: String,
+        read_receipt_event_id: Option<String>,
+    ) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send read markers to room that isn't in joined state"),
+        };
+
+        let fully_read =
+            EventId::parse(fully_read_event_id).context("parsing fully read event ID")?;
+        let read_receipt = read_receipt_event_id
+            .map(EventId::parse)
+            .transpose()
+            .context("parsing read receipt event ID")?;
+
+        RUNTIME.block_on(async move {
+            room.read_marker(&fully_read, read_receipt.as_deref()).await?;
+            Ok(())
+        })
+    }
+
     pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {
         let timeline = match &*self.timeline.read().unwrap() {
             Some(t) => Arc::clone(t),
