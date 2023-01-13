@@ -171,10 +171,7 @@ impl Account {
             }
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
                 if self.store.is_message_known(&message_hash).await? {
-                    info!(
-                        %sender_key, "An Olm message got replayed, decryption failed"
-                    );
-
+                    info!(?sender_key, "An Olm message got replayed, decryption failed");
                     Err(OlmError::ReplayedMessage(user_id, sender_key))
                 } else {
                     Err(OlmError::SessionWedged(user_id, sender_key))
@@ -214,10 +211,7 @@ impl Account {
         &self,
         event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
-        trace!(
-            algorithm = %event.content.algorithm(),
-            "Decrypting a to-device event"
-        );
+        trace!(algorithm = ?event.content.algorithm(), "Decrypting a to-device event");
 
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
@@ -229,7 +223,7 @@ impl Account {
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
-                    algorithm = %event.content.algorithm(),
+                    algorithm = ?event.content.algorithm(),
                     "Error decrypting an to-device event, unsupported \
                     encryption algorithm"
                 );
@@ -312,7 +306,7 @@ impl Account {
                     // return with an error if it isn't one.
                     OlmMessage::Normal(_) => {
                         warn!(
-                            %sender_key,
+                            ?sender_key,
                             "Failed to decrypt a non-pre-key message with all \
                             available sessions",
                         );
@@ -326,7 +320,7 @@ impl Account {
                             Ok(r) => r,
                             Err(e) => {
                                 warn!(
-                                    %sender_key,
+                                    ?sender_key,
                                     session_keys = ?m.session_keys(),
                                     "Failed to create a new Olm session from a \
                                     pre-key message: {e:?}",
@@ -351,10 +345,7 @@ impl Account {
                 }
             };
 
-        trace!(
-            %sender_key,
-            "Successfully decrypted an Olm message"
-        );
+        trace!(?sender_key, "Successfully decrypted an Olm message");
 
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
@@ -1060,7 +1051,7 @@ impl ReadOnlyAccount {
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         debug!(
-            sender_key = %their_identity_key,
+            sender_key = ?their_identity_key,
             session_keys = ?message.session_keys(),
             "Creating a new Olm session from a pre-key message"
         );

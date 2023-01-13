@@ -559,8 +559,8 @@ impl ReadOnlyDevice {
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let Some(sender_key) = self.curve25519_key() else {
             warn!(
-                user_id = %self.user_id(),
-                device_id = %self.device_id(),
+                user_id = ?self.user_id(),
+                device_id = ?self.device_id(),
                 "Trying to encrypt a Megolm session, but the device doesn't \
                 have a curve25519 key",
             );

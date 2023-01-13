@@ -747,7 +747,7 @@ impl SledStateStore {
                     .flatten()
                     .and_then(|info| info.room_version().cloned())
                     .unwrap_or_else(|| {
-                        warn!(%room_id, "Unable to find the room version, assume version 9");
+                        warn!(?room_id, "Unable to find the room version, assume version 9");
                         RoomVersionId::V9
                     })
             };

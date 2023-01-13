@@ -212,7 +212,7 @@ impl BaseClient {
     ///
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
-        debug!(user_id = %session_meta.user_id, device_id = %session_meta.device_id, "Restoring login");
+        debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
         self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -432,7 +432,7 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        room_id = %room_info.room_id,
+                        room_id = ?room_info.room_id,
                         "Couldn't deserialize stripped state event: {err:?}",
                     );
                 }
@@ -461,7 +461,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(%room_id, "Couldn't deserialize state event: {e:?}");
+                    warn!(?room_id, "Couldn't deserialize state event: {e:?}");
                     continue;
                 }
             };

@@ -103,10 +103,7 @@ impl SessionManager {
                 let session = sessions.get(0);
 
                 if let Some(session) = session {
-                    info!(
-                        sender_key = %curve_key,
-                        "Marking session to be unwedged"
-                    );
+                    info!(sender_key = ?curve_key, "Marking session to be unwedged");
 
                     let creation_time = Duration::from_secs(session.creation_time.get().into());
                     let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
@@ -367,7 +364,7 @@ impl SessionManager {
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
                 if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                    error!(%user_id, %device_id, "Error while treating an unwedged device: {e:?}");
+                    error!(?user_id, ?device_id, "Error while treating an unwedged device: {e:?}");
                 }
 
                 let session_info = SessionInfo {

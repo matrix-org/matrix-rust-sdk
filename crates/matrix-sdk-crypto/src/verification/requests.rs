@@ -409,14 +409,14 @@ impl VerificationRequest {
             .is_some()
         {
             debug!(
-                user_id = %self.other_user(),
+                user_id = ?self.other_user(),
                 flow_id = self.flow_id().as_str(),
                 "Replacing existing QR verification"
             );
             self.verification_cache.replace_qr(qr_verification.clone());
         } else {
             debug!(
-                user_id = %self.other_user(),
+                user_id = ?self.other_user(),
                 flow_id = self.flow_id().as_str(),
                 "Inserting new QR verification"
             );
@@ -730,7 +730,7 @@ impl VerificationRequest {
                         if #[cfg(feature = "qrcode")] {
                             if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
                                 debug!(
-                                    user_id = %self.other_user(),
+                                    user_id = ?self.other_user(),
                                     flow_id = self.flow_id().as_str(),
                                     "We have an ongoing QR verification, replacing with SAS"
                                 );
@@ -1244,8 +1244,8 @@ impl RequestState<Ready> {
                     }
                     Err(c) => {
                         warn!(
-                            user_id = %device.user_id(),
-                            device_id = %device.device_id(),
+                            user_id = ?device.user_id(),
+                            device_id = ?device.device_id(),
                             content = ?c,
                             "Can't start key verification, canceling.",
                         );
@@ -1267,8 +1267,8 @@ impl RequestState<Ready> {
                         self.verification_cache.add_request(request.into())
                     }
                     trace!(
-                        sender = %identities.device_being_verified.user_id(),
-                        device_id = %identities.device_being_verified.device_id(),
+                        sender = ?identities.device_being_verified.user_id(),
+                        device_id = ?identities.device_being_verified.device_id(),
                         verification = ?qr_verification,
                         "Received a QR code reciprocation"
                     )

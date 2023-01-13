@@ -53,7 +53,7 @@ use matrix_sdk_base::{
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
 use crate::{room, Client};
@@ -413,7 +413,7 @@ impl Client {
         Ok(())
     }
 
-    #[instrument(level = "debug", skip_all, fields(?event_kind, %event_type, room_id))]
+    #[instrument(level = "debug", skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
         room: &Option<room::Room>,
@@ -424,7 +424,7 @@ impl Client {
     ) {
         let room_id = room.as_ref().map(|r| r.room_id());
         if let Some(room_id) = room_id {
-            tracing::Span::current().record("room_id", room_id.to_string());
+            tracing::Span::current().record("room_id", debug(room_id));
         }
 
         // Construct event handler futures

@@ -90,7 +90,7 @@ impl KeysQueryListener {
         if users_for_key_query.contains(user) {
             if let Err(e) = self.wait(timeout).await {
                 warn!(
-                    user_id =% user,
+                    user_id = ?user,
                     "The user has a pending `/key/query` request which did \
                     not finish yet, some devices might be missing."
                 );
@@ -366,8 +366,8 @@ impl IdentityManager {
                 warn!(
                     user_id = own_user_id.as_str(),
                     device_id = own_device_id.as_str(),
-                    curve25519_key = %identity_keys.curve25519,
-                    ed25519_key = %identity_keys.ed25519,
+                    curve25519_key = ?identity_keys.curve25519,
+                    ed25519_key = ?identity_keys.ed25519,
                     "Our own device might have been deleted"
                 );
             } else if let Some(device) = stored_devices.get(*device_id) {

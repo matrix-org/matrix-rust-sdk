@@ -280,12 +280,12 @@ impl BackupMachine {
         // case there's no corresponding device and we get `Ok(None)` here, so
         // things still work out.
         let device = self.store.get_device(self.store.user_id(), device_id).await?;
-        trace!(%device_id, "Checking backup auth data for device");
+        trace!(?device_id, "Checking backup auth data for device");
 
         if let Some(device) = device {
             Ok(self.backup_signed_by_device(device, signatures, auth_data))
         } else {
-            trace!(%device_id, "Device not found, can't check signature");
+            trace!(?device_id, "Device not found, can't check signature");
             Ok(SignatureState::Missing)
         }
     }
