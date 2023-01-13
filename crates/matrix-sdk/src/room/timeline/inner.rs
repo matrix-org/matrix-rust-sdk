@@ -141,7 +141,7 @@ impl TimelineInner {
 
             lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))));
         } else {
-            warn!(%txn_id, "Timeline item not found, can't add event ID");
+            warn!(?txn_id, "Timeline item not found, can't add event ID");
         }
     }
 
@@ -254,7 +254,8 @@ impl TimelineInner {
                 Ok(ev) => ev,
                 Err(e) => {
                     info!(
-                        %event_id, %session_id,
+                        ?event_id,
+                        ?session_id,
                         "Failed to decrypt event after receiving room key: {e}"
                     );
                     continue;
@@ -262,7 +263,8 @@ impl TimelineInner {
             };
 
             trace!(
-                %event_id, %session_id,
+                ?event_id,
+                ?session_id,
                 "Successfully decrypted event that previously failed to decrypt"
             );
 

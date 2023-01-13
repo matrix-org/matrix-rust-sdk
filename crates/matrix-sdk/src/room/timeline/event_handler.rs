@@ -36,11 +36,7 @@ use ruma::{
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
-use tracing::{
-    debug, error,
-    field::{debug, display},
-    info, instrument, trace, warn,
-};
+use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     event_item::{BundledReactions, Sticker, TimelineDetails},
@@ -237,13 +233,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         let span = tracing::Span::current();
         match &self.flow {
             Flow::Local { txn_id, .. } => {
-                span.record("txn_id", display(txn_id));
+                span.record("txn_id", debug(txn_id));
             }
             Flow::Remote { event_id, txn_id, position, .. } => {
-                span.record("event_id", display(event_id));
+                span.record("event_id", debug(event_id));
                 span.record("position", debug(position));
                 if let Some(txn_id) = txn_id {
-                    span.record("txn_id", display(txn_id));
+                    span.record("txn_id", debug(txn_id));
                 }
             }
         }
@@ -299,12 +295,12 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         self.result
     }
 
-    #[instrument(skip_all, fields(replacement_event_id = %replacement.event_id))]
+    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
     fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
         update_timeline_item!(self, &replacement.event_id, "edit", |item| {
             if self.meta.sender != item.sender() {
                 info!(
-                    original_sender = %item.sender(), edit_sender = %self.meta.sender,
+                    original_sender = ?item.sender(), edit_sender = ?self.meta.sender,
                     "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
@@ -343,7 +339,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
-    #[instrument(skip_all, fields(relates_to_event_id = %c.relates_to.event_id))]
+    #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
 
@@ -388,7 +384,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
-    #[instrument(skip_all, fields(redacts_event_id = %redacts))]
+    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
         if let Some((sender, rel)) =
             self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))

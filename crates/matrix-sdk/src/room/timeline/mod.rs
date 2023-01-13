@@ -174,7 +174,7 @@ impl Timeline {
     ///   fewer events, for example because the supplied number is too big or
     ///   the beginning of the visible timeline was reached.
     /// * `
-    #[instrument(skip_all, fields(initial_pagination_size, room_id = %self.room.room_id()))]
+    #[instrument(skip_all, fields(initial_pagination_size, room_id = ?self.room.room_id()))]
     pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
@@ -329,7 +329,7 @@ impl Timeline {
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    #[instrument(skip(self, content), fields(room_id = %self.room.room_id()))]
+    #[instrument(skip(self, content), fields(room_id = ?self.room.room_id()))]
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,

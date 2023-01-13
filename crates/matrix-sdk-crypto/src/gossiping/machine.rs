@@ -320,10 +320,10 @@ impl GossipMachine {
         message_index: Option<u32>,
     ) -> OlmResult<Option<Session>> {
         info!(
-            user_id = %device.user_id(),
-            device_id = %device.device_id(),
+            user_id = ?device.user_id(),
+            device_id = ?device.device_id(),
             session_id = session.session_id(),
-            room_id = %session.room_id,
+            room_id = ?session.room_id,
             ?message_index,
             "Serving a room key request",
         );
@@ -332,8 +332,8 @@ impl GossipMachine {
             Ok(s) => Ok(Some(s)),
             Err(OlmError::MissingSession) => {
                 info!(
-                    user_id = %device.user_id(),
-                    device_id = %device.device_id(),
+                    user_id = ?device.user_id(),
+                    device_id = ?device.device_id(),
                     session_id = session.session_id(),
                     "Key request is missing an Olm session, \
                      putting the request in the wait queue",
@@ -344,8 +344,8 @@ impl GossipMachine {
             }
             Err(OlmError::SessionExport(e)) => {
                 warn!(
-                    user_id = %device.user_id(),
-                    device_id = %device.device_id(),
+                    user_id = ?device.user_id(),
+                    device_id = ?device.device_id(),
                     session_id = session.session_id(),
                     "Can't serve a room key request, the session \
                      can't be exported into a forwarded room key: {e:?}",
@@ -368,8 +368,8 @@ impl GossipMachine {
 
         let Some(device) = device else {
             warn!(
-                user_id = %event.sender,
-                device_id = %event.content.requesting_device_id,
+                user_id = ?event.sender,
+                device_id = ?event.content.requesting_device_id,
                 "Received a key request from an unknown device",
             );
             self.store.update_tracked_user(&event.sender, true).await?;
@@ -415,10 +415,10 @@ impl GossipMachine {
             self.answer_room_key_request(event, s).await
         } else {
             debug!(
-                user_id = %event.sender,
-                device_id = %event.content.requesting_device_id,
+                user_id = ?event.sender,
+                device_id = ?event.content.requesting_device_id,
                 session_id,
-                %room_id,
+                ?room_id,
                 "Received a room key request for an unknown inbound group session",
             );
 
@@ -439,8 +439,8 @@ impl GossipMachine {
                 }
                 RequestedKeyInfo::Unknown(i) => {
                     debug!(
-                        sender = %event.sender,
-                        algorithm = %i.algorithm,
+                        sender = ?event.sender,
+                        algorithm = ?i.algorithm,
                         "Received a room key request for a unsupported algorithm"
                     );
                     Ok(None)
@@ -869,22 +869,22 @@ impl GossipMachine {
                     self.mark_as_done(info).await?;
 
                     info!(
-                        %sender_key,
-                        claimed_sender_key = %session.sender_key(),
+                        ?sender_key,
+                        claimed_sender_key = ?session.sender_key(),
                         room_id = session.room_id().as_str(),
                         session_id = session.session_id(),
-                        algorithm = %session.algorithm(),
+                        algorithm = ?session.algorithm(),
                         "Received a forwarded room key",
                     );
 
                     Ok(Some(session))
                 } else {
                     info!(
-                        %sender_key,
-                        claimed_sender_key = %session.sender_key(),
-                        room_id = %session.room_id,
+                        ?sender_key,
+                        claimed_sender_key = ?session.sender_key(),
+                        room_id = ?session.room_id,
                         session_id = session.session_id(),
-                        algorithm = %session.algorithm(),
+                        algorithm = ?session.algorithm(),
                         "Received a forwarded room key but we already have a better version of it",
                     );
 
@@ -892,10 +892,7 @@ impl GossipMachine {
                 }
             }
             Err(e) => {
-                warn!(
-                    %sender_key,
-                    "Couldn't create a group session from a received room key"
-                );
+                warn!(?sender_key, "Couldn't create a group session from a received room key");
                 Err(e.into())
             }
         }
@@ -926,7 +923,7 @@ impl GossipMachine {
         let Some(info) = event.room_key_info() else {
             warn!(
                 sender_key = sender_key.to_base64(),
-                algorithm = %event.content.algorithm(),
+                algorithm = ?event.content.algorithm(),
                 "Received a forwarded room key with an unsupported algorithm",
             );
             return Ok(None);
@@ -935,11 +932,11 @@ impl GossipMachine {
         let Some(request) =
             self.store.get_secret_request_by_info(&info.clone().into()).await? else {
                 warn!(
-                    sender_key = %sender_key,
-                    room_id = %info.room_id(),
+                    sender_key = ?sender_key,
+                    room_id = ?info.room_id(),
                     session_id = info.session_id(),
-                    sender_key = %sender_key,
-                    algorithm = %info.algorithm(),
+                    sender_key = ?sender_key,
+                    algorithm = ?info.algorithm(),
                     "Received a forwarded room key that we didn't request",
                 );
                 return Ok(None);
@@ -949,11 +946,11 @@ impl GossipMachine {
             self.accept_forwarded_room_key(&request, sender_key, event).await
         } else {
             warn!(
-                 %sender_key,
-                 room_id = %info.room_id(),
-                 session_id = info.session_id(),
-                 "Received a forwarded room key from an unknown device, or \
-                  from a device that the key request recipient doesn't own",
+                ?sender_key,
+                room_id = ?info.room_id(),
+                session_id = info.session_id(),
+                "Received a forwarded room key from an unknown device, or \
+                 from a device that the key request recipient doesn't own",
             );
 
             Ok(None)
@@ -978,7 +975,7 @@ impl GossipMachine {
                 warn!(
                     sender = event.sender.as_str(),
                     sender_key = sender_key.to_base64(),
-                    algorithm = %event.content.algorithm(),
+                    algorithm = ?event.content.algorithm(),
                     "Received a forwarded room key with an unsupported algorithm",
                 );
 

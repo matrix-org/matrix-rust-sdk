@@ -696,7 +696,7 @@ impl SasState<Started> {
 
                 info!(
                     public_key = our_public_key.to_base64(),
-                    %commitment,
+                    ?commitment,
                     ?content,
                     "Calculated SAS commitment",
                 );

@@ -50,7 +50,7 @@ async fn retry_decryption(
 ) {
     if event_room_id != room_id {
         trace!(
-            %event_room_id, timeline_room_id = %room_id, %session_id,
+            ?event_room_id, timeline_room_id = ?room_id, ?session_id,
             "Received to-device room key event for a different room, ignoring"
         );
         return;

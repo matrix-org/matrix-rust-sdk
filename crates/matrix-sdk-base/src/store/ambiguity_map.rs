@@ -125,7 +125,7 @@ impl AmbiguityCache {
             member_ambiguous: ambiguous,
         };
 
-        trace!(user_id = %member_event.state_key(), "Handling display name ambiguity: {change:#?}");
+        trace!(user_id = ?member_event.state_key(), "Handling display name ambiguity: {change:#?}");
 
         self.add_change(room_id, member_event.event_id().to_owned(), change);
 

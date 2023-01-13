@@ -785,7 +785,7 @@ impl Sas {
             } else {
                 error!(
                     flow_id = self.flow_id().as_str(),
-                    %request_id,
+                    ?request_id,
                     "Tried to mark a request as sent, but the request ID didn't match"
                 );
             }
@@ -797,7 +797,7 @@ impl Sas {
             flow_id = self.flow_id().as_str(),
             ?old_state,
             ?new_state,
-            %request_id,
+            ?request_id,
             "Marked a SAS verification HTTP request as sent"
         );
     }

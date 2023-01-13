@@ -43,7 +43,7 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tracing::{debug, error, field::display, info, instrument, trace, warn};
+use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
@@ -557,7 +557,7 @@ impl OlmMachine {
         // This function is only ever called by add_room_key via
         // handle_decrypted_to_device_event, so sender and sender_key are
         // already recorded.
-        fields(room_id = %content.room_id, algorithm = %event.content.algorithm())
+        fields(room_id = ?content.room_id, algorithm = ?event.content.algorithm())
     )]
     async fn handle_key(
         &self,
@@ -594,7 +594,7 @@ impl OlmMachine {
     }
 
     /// Create a group session from a room key and add it to our crypto store.
-    #[instrument(skip_all, fields(algorithm = %event.content.algorithm()))]
+    #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
     async fn add_room_key(
         &self,
         sender_key: Curve25519PublicKey,
@@ -746,7 +746,7 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         fields(
-            sender_key = %decrypted.result.sender_key,
+            sender_key = ?decrypted.result.sender_key,
             event_type = decrypted.result.event.event_type(),
         ),
     )]
@@ -1158,7 +1158,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(%room_id, sender, algorithm, session_id))]
+    #[instrument(skip_all, fields(?room_id, sender, algorithm, session_id))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1167,8 +1167,8 @@ impl OlmMachine {
         let event = event.deserialize()?;
 
         let span = tracing::Span::current();
-        span.record("sender", display(&event.sender));
-        span.record("algorithm", display(event.content.algorithm()));
+        span.record("sender", debug(&event.sender));
+        span.record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
@@ -1405,7 +1405,7 @@ impl OlmMachine {
                 Err(e) => {
                     warn!(
                         sender_key= key.sender_key.to_base64(),
-                        room_id = %key.room_id,
+                        room_id = ?key.room_id,
                         session_id = key.session_id,
                         error = ?e,
                         "Couldn't import a room key from a file export."

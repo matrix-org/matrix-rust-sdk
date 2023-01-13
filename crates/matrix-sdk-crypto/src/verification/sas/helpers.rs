@@ -198,8 +198,8 @@ pub fn receive_mac_event(
     let info = extra_mac_info_receive(ids, flow_id);
 
     trace!(
-        %sender,
-        device_id = %ids.other_device.device_id(),
+        ?sender,
+        device_id = ?ids.other_device.device_id(),
         "Received a key.verification.mac event"
     );
 
@@ -209,8 +209,8 @@ pub fn receive_mac_event(
 
     for (key_id, key_mac) in content.mac() {
         trace!(
-            %sender,
-            device_id = %ids.other_device.device_id(),
+            ?sender,
+            device_id = ?ids.other_device.device_id(),
             key_id,
             "Checking a SAS MAC",
         );
@@ -222,7 +222,7 @@ pub fn receive_mac_event(
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
             mac_method.verify_mac(sas, &key.to_base64(), &format!("{info}{key_id}"), key_mac)?;
-            trace!(%sender, %key_id, "Successfully verified a device key");
+            trace!(?sender, ?key_id, "Successfully verified a device key");
             verified_devices.push(ids.other_device.clone());
         } else if let Some(identity) = &ids.other_identity {
             if let Some(key) = identity.master_key().get_key(&key_id) {
@@ -234,7 +234,7 @@ pub fn receive_mac_event(
                     &format!("{info}{key_id}"),
                     key_mac,
                 )?;
-                trace!(%sender, %key_id, "Successfully verified a master key");
+                trace!(?sender, ?key_id, "Successfully verified a master key");
                 verified_identities.push(identity.clone())
             }
         } else {
