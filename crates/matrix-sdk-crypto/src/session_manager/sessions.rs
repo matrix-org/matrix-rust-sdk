@@ -104,7 +104,6 @@ impl SessionManager {
 
                 if let Some(session) = session {
                     info!(
-                        sender = sender.as_str(),
                         sender_key = %curve_key,
                         "Marking session to be unwedged"
                     );

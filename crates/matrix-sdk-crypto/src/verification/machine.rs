@@ -28,7 +28,7 @@ use ruma::{
     uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
-use tracing::{debug, field::display, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use super::{
     cache::{RequestInfo, VerificationCache},
@@ -311,16 +311,12 @@ impl VerificationMachine {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(event_type, sender))]
+    #[instrument(skip_all)]
     pub async fn receive_any_event(
         &self,
         event: impl Into<AnyEvent<'_>>,
     ) -> Result<(), CryptoStoreError> {
         let event = event.into();
-
-        let span = tracing::Span::current();
-        span.record("event_type", display(event.event_type()));
-        span.record("sender", display(event.sender()));
 
         let Ok(flow_id) = FlowId::try_from(&event) else {
             // This isn't a verification event, return early.

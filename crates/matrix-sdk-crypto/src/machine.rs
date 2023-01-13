@@ -746,7 +746,6 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         fields(
-            sender = %decrypted.sender,
             sender_key = %decrypted.result.sender_key,
             event_type = decrypted.result.event.event_type(),
         ),
@@ -867,17 +866,21 @@ impl OlmMachine {
 
         #[derive(Deserialize)]
         struct ToDeviceStub<'a> {
+            sender: &'a str,
+            #[serde(rename = "type")]
+            event_type: &'a str,
             #[serde(borrow)]
             content: ContentStub<'a>,
         }
 
-        let message_id =
-            event.deserialize_as::<ToDeviceStub<'_>>().ok().and_then(|t| t.content.message_id);
-
-        tracing::Span::current().record("message_id", message_id);
+        if let Ok(event) = event.deserialize_as::<ToDeviceStub<'_>>() {
+            tracing::Span::current().record("sender", event.sender);
+            tracing::Span::current().record("event_type", event.event_type);
+            tracing::Span::current().record("message_id", event.content.message_id);
+        }
     }
 
-    #[instrument(skip_all, fields(message_id))]
+    #[instrument(skip_all, fields(sender, event_type, message_id))]
     async fn receive_to_device_event(
         &self,
         changes: &mut Changes,
@@ -895,11 +898,7 @@ impl OlmMachine {
             }
         };
 
-        trace!(
-            sender = event.sender().as_str(),
-            event_type = %event.event_type(),
-            "Received a to-device event"
-        );
+        trace!("Received a to-device event");
 
         match event {
             ToDeviceEvents::RoomEncrypted(e) => {
@@ -911,7 +910,6 @@ impl OlmMachine {
                                 self.session_manager.mark_device_as_wedged(&sender, curve_key).await
                             {
                                 error!(
-                                    sender = sender.as_str(),
                                     error = ?e,
                                     "Couldn't mark device from to be unwedged",
                                 );
