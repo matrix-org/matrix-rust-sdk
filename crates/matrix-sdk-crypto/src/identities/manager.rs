@@ -532,6 +532,9 @@ impl IdentityManager {
                                 if result.any_cleared() {
                                     changed_identity = Some((*private_identity).clone());
                                     info!(cleared = ?result, "Removed some or all of our private cross signing keys");
+                                } else if new && private_identity.has_master_key().await {
+                                    identity.mark_as_verified();
+                                    trace!("Marked our own identity as verified");
                                 }
                             }
 
