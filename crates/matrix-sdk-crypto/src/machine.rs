@@ -39,8 +39,8 @@ use ruma::{
         MessageLikeEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
-    RoomId, TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, JsOption, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, field::display, info, instrument, trace, warn};
@@ -856,11 +856,37 @@ impl OlmMachine {
         }
     }
 
+    fn record_message_id(event: &Raw<AnyToDeviceEvent>) {
+        use serde::Deserialize;
+
+        #[derive(Deserialize)]
+        struct ContentStub<'a> {
+            #[serde(borrow, rename = "org.matrix.msgid")]
+            message_id: JsOption<&'a str>,
+        }
+
+        #[derive(Deserialize)]
+        struct ToDeviceStub<'a> {
+            #[serde(borrow)]
+            content: ContentStub<'a>,
+        }
+
+        let message_id = event
+            .deserialize_as::<ToDeviceStub<'_>>()
+            .ok()
+            .and_then(|t| t.content.message_id.into_option());
+
+        tracing::Span::current().record("message_id", message_id);
+    }
+
+    #[instrument(skip_all, fields(message_id))]
     async fn receive_to_device_event(
         &self,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
     ) -> OlmResult<Raw<AnyToDeviceEvent>> {
+        Self::record_message_id(&raw_event);
+
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
             Ok(e) => e,
             Err(e) => {
