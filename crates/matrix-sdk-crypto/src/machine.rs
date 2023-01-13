@@ -856,6 +856,88 @@ impl OlmMachine {
         }
     }
 
+    async fn receive_to_device_event(
+        &self,
+        changes: &mut Changes,
+        mut raw_event: Raw<AnyToDeviceEvent>,
+    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
+        let event: ToDeviceEvents = match raw_event.deserialize_as() {
+            Ok(e) => e,
+            Err(e) => {
+                // Skip invalid events.
+                warn!("Received an invalid to-device event: {e}");
+
+                return Ok(raw_event);
+            }
+        };
+
+        trace!(
+            sender = event.sender().as_str(),
+            event_type = %event.event_type(),
+            "Received a to-device event"
+        );
+
+        match event {
+            ToDeviceEvents::RoomEncrypted(e) => {
+                let decrypted = match self.decrypt_to_device_event(&e).await {
+                    Ok(e) => e,
+                    Err(err) => {
+                        if let OlmError::SessionWedged(sender, curve_key) = err {
+                            if let Err(e) =
+                                self.session_manager.mark_device_as_wedged(&sender, curve_key).await
+                            {
+                                error!(
+                                    sender = sender.as_str(),
+                                    error = ?e,
+                                    "Couldn't mark device from to be unwedged",
+                                );
+                            }
+                        }
+
+                        return Ok(raw_event);
+                    }
+                };
+
+                // New sessions modify the account so we need to save that
+                // one as well.
+                match decrypted.session {
+                    SessionType::New(s) => {
+                        changes.sessions.push(s);
+                        changes.account = Some(self.account.inner.clone());
+                    }
+                    SessionType::Existing(s) => {
+                        changes.sessions.push(s);
+                    }
+                }
+
+                changes.message_hashes.push(decrypted.message_hash);
+
+                if let Some(group_session) = decrypted.inbound_group_session {
+                    changes.inbound_group_sessions.push(group_session);
+                }
+
+                match decrypted.result.raw_event.deserialize_as() {
+                    Ok(event) => {
+                        self.handle_to_device_event(&event).await;
+
+                        raw_event = event
+                            .serialize_zeroized()
+                            .expect("Zeroizing and reserializing our events should always work")
+                            .cast();
+                    }
+                    Err(e) => {
+                        warn!("Received an invalid encrypted to-device event: {e}");
+                        raw_event = decrypted.result.raw_event;
+                    }
+                }
+            }
+
+            e => self.handle_to_device_event(&e).await,
+        }
+
+        Ok(raw_event)
+    }
+
     /// Handle a to-device and one-time key counts from a sync response.
     ///
     /// This will decrypt and handle to-device events returning the decrypted
@@ -899,81 +981,8 @@ impl OlmMachine {
             }
         }
 
-        for mut raw_event in to_device_events {
-            let event: ToDeviceEvents = match raw_event.deserialize_as() {
-                Ok(e) => e,
-                Err(e) => {
-                    // Skip invalid events.
-                    warn!("Received an invalid to-device event: {e}");
-                    events.push(raw_event);
-                    continue;
-                }
-            };
-
-            trace!(
-                sender = event.sender().as_str(),
-                event_type = %event.event_type(),
-                "Received a to-device event"
-            );
-
-            match event {
-                ToDeviceEvents::RoomEncrypted(e) => {
-                    let decrypted = match self.decrypt_to_device_event(&e).await {
-                        Ok(e) => e,
-                        Err(err) => {
-                            if let OlmError::SessionWedged(sender, curve_key) = err {
-                                if let Err(e) = self
-                                    .session_manager
-                                    .mark_device_as_wedged(&sender, curve_key)
-                                    .await
-                                {
-                                    error!(
-                                        sender = sender.as_str(),
-                                        error = ?e,
-                                        "Couldn't mark device from to be unwedged",
-                                    );
-                                }
-                            }
-                            continue;
-                        }
-                    };
-
-                    // New sessions modify the account so we need to save that
-                    // one as well.
-                    match decrypted.session {
-                        SessionType::New(s) => {
-                            changes.sessions.push(s);
-                            changes.account = Some(self.account.inner.clone());
-                        }
-                        SessionType::Existing(s) => {
-                            changes.sessions.push(s);
-                        }
-                    }
-
-                    changes.message_hashes.push(decrypted.message_hash);
-
-                    if let Some(group_session) = decrypted.inbound_group_session {
-                        changes.inbound_group_sessions.push(group_session);
-                    }
-
-                    match decrypted.result.raw_event.deserialize_as() {
-                        Ok(event) => {
-                            self.handle_to_device_event(&event).await;
-
-                            raw_event = event
-                                .serialize_zeroized()
-                                .expect("Zeroizing and reserializing our events should always work")
-                                .cast();
-                        }
-                        Err(e) => {
-                            warn!("Received an invalid encrypted to-device event: {e}");
-                            raw_event = decrypted.result.raw_event;
-                        }
-                    }
-                }
-                e => self.handle_to_device_event(&e).await,
-            }
-
+        for raw_event in to_device_events {
+            let raw_event = self.receive_to_device_event(&mut changes, raw_event).await?;
             events.push(raw_event);
         }
 
