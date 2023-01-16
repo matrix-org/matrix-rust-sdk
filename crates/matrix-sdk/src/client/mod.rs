@@ -1748,7 +1748,6 @@ impl Client {
         res
     }
 
-    #[tracing::instrument(skip(self))]
     async fn send_inner<Request>(
         &self,
         request: Request,
