@@ -41,7 +41,7 @@ pub struct AmbiguityChange {
     pub ambiguated_member: Option<OwnedUserId>,
 }
 
-/// Collection of ambiguioty changes that room member events trigger.
+/// Collection of ambiguity changes that room member events trigger.
 #[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub struct AmbiguityChanges {
