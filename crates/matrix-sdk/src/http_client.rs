@@ -253,7 +253,7 @@ impl HttpClient {
 
     #[instrument(
         skip(self, access_token, config, request, user_id),
-        fields(config, path, user_id, request_id, status)
+        fields(config, path, user_id, request_body, request_id, status)
     )]
     pub async fn send<R>(
         &self,
@@ -301,6 +301,15 @@ impl HttpClient {
         )?;
 
         span.record("path", request.uri().path());
+
+        // Since sliding sync is experimental, and the proxy might not do what we expect
+        // it to do given a specific request body, it's useful to log the
+        // request body here. This doesn't contain any personal information.
+        // TODO: Remove this once sliding sync isn't experimental anymore.
+        #[cfg(feature = "experimental-sliding-sync")]
+        if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
+            span.record("request_body", debug(request.body()));
+        }
 
         debug!("Sending request");
         match self.send_request::<R>(request, config).await {
