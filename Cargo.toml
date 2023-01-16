@@ -27,8 +27,8 @@ byteorder = "1.4.3"
 ctor = "0.1.26"
 dashmap = "5.2.0"
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "3a722965f52f8f283623db6a5d96b94599e50a2d", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "3a722965f52f8f283623db6a5d96b94599e50a2d" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "b859d9c8b09ca6c2bb6d1c2788d133295579c090", features = ["client-api-c"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "b859d9c8b09ca6c2bb6d1c2788d133295579c090" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
@@ -39,7 +39,7 @@ uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "249a78b6f3f35661
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "249a78b6f3f35661f1530e53811134e1bf012608" }
 uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "249a78b6f3f35661f1530e53811134e1bf012608" }
 uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "249a78b6f3f35661f1530e53811134e1bf012608", features = ["builtin-bindgen"] }
-vodozemac = "0.3.0"
+vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "12b24e909107c1fac23245376f294eaf48ba186a" }
 zeroize = "1.3.0"
 
 # Default release profile, select with `--release`
