@@ -898,7 +898,7 @@ impl OlmMachine {
             }
         };
 
-        trace!("Received a to-device event");
+        debug!("Received a to-device event");
 
         match event {
             ToDeviceEvents::RoomEncrypted(e) => {
