@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct AmbiguityChange {
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
@@ -41,7 +41,7 @@ pub struct AmbiguityChange {
 }
 
 /// Collection of ambiguioty changes that room member events trigger.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
@@ -51,7 +51,7 @@ pub struct AmbiguityChanges {
 /// A deserialized response for the rooms members API call.
 ///
 /// [`GET /_matrix/client/r0/rooms/{roomId}/members`](https://spec.matrix.org/v1.5/client-server-api/#get_matrixclientv3roomsroomidmembers)
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default)]
 pub struct MembersResponse {
     /// The list of members events.
     pub chunk: Vec<RoomMemberEvent>,

@@ -37,7 +37,7 @@ use crate::deserialized_responses::AmbiguityChanges;
 ///
 /// This type is intended to be applicable regardless of the endpoint used for
 /// syncing.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncResponse {
     /// Updates to rooms.
     pub rooms: Rooms,

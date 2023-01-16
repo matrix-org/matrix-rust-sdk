@@ -16,13 +16,12 @@ use ruma::{
     serde::Raw,
     DeviceKeyAlgorithm, OwnedRoomId,
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::{event_handler::HandlerKind, Client, Result};
 
 /// The processed response of a `/sync` request.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync`
     /// request.
