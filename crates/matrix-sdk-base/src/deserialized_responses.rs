@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct AmbiguityChange {
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
@@ -42,6 +43,7 @@ pub struct AmbiguityChange {
 
 /// Collection of ambiguioty changes that room member events trigger.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
