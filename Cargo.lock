@@ -2542,6 +2542,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b87248edafb776e59e6ee64a79086f65890d3510f2c656c000bf2a7e8a0aea40"
 
 [[package]]
+name = "matrix-pickle"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b18185b3f64cc8d44840dbf92d92aeb05c1ef97094f51a32c1afd36a4415d225"
+dependencies = [
+ "matrix-pickle-derive",
+ "thiserror",
+]
+
+[[package]]
+name = "matrix-pickle-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cef08fbb48d0d5125d3885e422c426b5be84067c63ceb5d8b32f9130143f5b81"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "matrix-sdk"
 version = "0.6.2"
 dependencies = [
@@ -3927,7 +3950,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.7.4"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "assign",
  "js_int",
@@ -3941,7 +3964,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.7.0"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -3952,7 +3975,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.15.3"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "assign",
  "bytes",
@@ -3969,7 +3992,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "base64 0.20.0",
  "bytes",
@@ -4000,7 +4023,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4011,7 +4034,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.0"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4020,7 +4043,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.10.5"
-source = "git+https://github.com/ruma/ruma?rev=3a722965f52f8f283623db6a5d96b94599e50a2d#3a722965f52f8f283623db6a5d96b94599e50a2d"
+source = "git+https://github.com/ruma/ruma?rev=b859d9c8b09ca6c2bb6d1c2788d133295579c090#b859d9c8b09ca6c2bb6d1c2788d133295579c090"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -5283,8 +5306,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f20153a1c82ac5f1243b62e80f067ae608facc415c6ef82f88426a61c79886"
+source = "git+https://github.com/matrix-org/vodozemac?rev=12b24e909107c1fac23245376f294eaf48ba186a#12b24e909107c1fac23245376f294eaf48ba186a"
 dependencies = [
  "aes",
  "arrayvec",
@@ -5293,6 +5315,7 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "hmac",
+ "matrix-pickle",
  "pkcs7",
  "prost",
  "rand 0.7.3",
