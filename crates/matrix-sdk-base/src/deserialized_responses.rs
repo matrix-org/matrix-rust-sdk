@@ -50,7 +50,7 @@ pub struct AmbiguityChanges {
 
 /// A deserialized response for the rooms members API call.
 ///
-/// [GET /_matrix/client/r0/rooms/{roomId}/members](https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-rooms-roomid-members)
+/// [`GET /_matrix/client/r0/rooms/{roomId}/members`](https://spec.matrix.org/v1.5/client-server-api/#get_matrixclientv3roomsroomidmembers)
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct MembersResponse {
     /// The list of members events.
