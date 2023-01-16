@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{any::type_name, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    any::type_name,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
@@ -96,11 +104,12 @@ pub trait HttpSend: AsyncTraitDeps {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) request_config: RequestConfig,
+    next_request_id: Arc<AtomicU64>,
 }
 
 impl HttpClient {
     pub(crate) fn new(inner: Arc<dyn HttpSend>, request_config: RequestConfig) -> Self {
-        HttpClient { inner, request_config }
+        HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
     fn serialize_request<R>(
@@ -162,8 +171,6 @@ impl HttpClient {
     {
         #[cfg(not(target_arch = "wasm32"))]
         let ret = {
-            use std::sync::atomic::{AtomicU64, Ordering};
-
             use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
             use ruma::api::client::error::{
                 ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
@@ -246,7 +253,7 @@ impl HttpClient {
 
     #[instrument(
         skip(self, access_token, config, request, user_id),
-        fields(config, path, user_id, status)
+        fields(config, path, user_id, request_id, status)
     )]
     pub async fn send<R>(
         &self,
@@ -261,6 +268,7 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
+        let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
         let span = tracing::Span::current();
 
         let config = match config {
@@ -270,7 +278,7 @@ impl HttpClient {
 
         // At this point in the code, the config isn't behind an Option anymore, that's
         // why we record it here, instead of in the #[instrument] macro.
-        span.record("config", debug(config));
+        span.record("config", debug(config)).record("request_id", request_id);
 
         // The user ID is only used if we're an app-service. Only log the user_id if
         // it's `Some` and if assert_identity is set.
