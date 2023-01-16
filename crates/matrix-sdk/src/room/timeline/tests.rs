@@ -616,7 +616,7 @@ impl ProfileProvider for TestProfileProvider {
     }
 
     async fn profile(&self, _user_id: &UserId) -> Profile {
-        Profile { display_name: None, avatar_url: None }
+        Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
     }
 }
 

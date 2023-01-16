@@ -206,6 +206,12 @@ impl PartialEq<TransactionId> for TimelineKey {
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
+    /// Whether the display name is ambiguous.
+    ///
+    /// Note that in rooms with lazy-loading enabled, this could be `false` even
+    /// though the display name is actually ambiguous if not all member events
+    /// have been seen yet.
+    pub display_name_ambiguous: bool,
     /// The avatar URL, if set.
     pub avatar_url: Option<OwnedMxcUri>,
 }
