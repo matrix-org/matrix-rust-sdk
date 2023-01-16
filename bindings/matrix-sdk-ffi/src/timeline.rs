@@ -227,6 +227,7 @@ impl EventTimelineItem {
 #[derive(uniffi::Record)]
 pub struct Profile {
     display_name: Option<String>,
+    display_name_ambiguous: bool,
     avatar_url: Option<String>,
 }
 
@@ -234,6 +235,7 @@ impl From<&matrix_sdk::room::timeline::Profile> for Profile {
     fn from(p: &matrix_sdk::room::timeline::Profile) -> Self {
         Self {
             display_name: p.display_name.clone(),
+            display_name_ambiguous: p.display_name_ambiguous,
             avatar_url: p.avatar_url.as_ref().map(ToString::to_string),
         }
     }

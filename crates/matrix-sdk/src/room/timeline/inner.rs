@@ -314,12 +314,15 @@ impl ProfileProvider for room::Common {
         match self.get_member_no_sync(user_id).await {
             Ok(Some(member)) => Profile {
                 display_name: member.display_name().map(ToOwned::to_owned),
+                display_name_ambiguous: member.name_ambiguous(),
                 avatar_url: member.avatar_url().map(ToOwned::to_owned),
             },
-            Ok(None) => Profile { display_name: None, avatar_url: None },
+            Ok(None) => {
+                Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
+            }
             Err(e) => {
                 error!(%user_id, "Failed to getch room member information: {e}");
-                Profile { display_name: None, avatar_url: None }
+                Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
             }
         }
     }
