@@ -10,8 +10,8 @@ macro_rules! cryptostore_integration_tests {
             };
             use $crate::{
                 olm::{
-                    Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+                    ClaimedInboundGroupSession, Curve25519PublicKey, InboundGroupSession,
+                    OlmMessageHash, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{
                     Changes, CryptoStore, DeviceChanges, GossipRequest, IdentityChanges,
@@ -299,7 +299,9 @@ macro_rules! cryptostore_integration_tests {
 
                 let mut export = session.export().await;
 
-                let session = InboundGroupSession::from_export(&export).unwrap();
+                let session = ClaimedInboundGroupSession::from_export(&export)
+                    .unwrap()
+                    .to_group_session(true);
 
                 let changes =
                     Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
