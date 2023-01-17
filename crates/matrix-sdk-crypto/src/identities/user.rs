@@ -431,7 +431,7 @@ impl MasterPubkey {
     /// **Note**: Use this method with caution, the `canonical_json` needs to be
     /// correctly canonicalized and make sure that the object you are checking
     /// the signature for is allowed to be signed by a master key.
-    #[cfg(feature = "backups_v1")]
+    #[cfg(any(feature = "backups_v1", test))]
     pub(crate) fn has_signed_raw(
         &self,
         signatures: &Signatures,
