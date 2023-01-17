@@ -95,6 +95,18 @@ pub struct PickledSelfSigning {
 }
 
 impl MasterSigning {
+    pub fn new(user_id: OwnedUserId) -> Self {
+        let inner = Signing::new();
+        let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
+        let mut key = Self { inner, public_key };
+        let mut cross_signing_key = key.public_key.as_ref().to_owned();
+
+        key.sign_subkey(&mut cross_signing_key);
+        key.public_key = cross_signing_key.into();
+
+        key
+    }
+
     pub fn pickle(&self) -> PickledMasterSigning {
         let pickle = self.inner.pickle();
         let public_key = self.public_key.as_ref().clone();
