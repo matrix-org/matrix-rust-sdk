@@ -24,7 +24,11 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
+use futures_signals::{
+    signal::Mutable,
+    signal_map::MutableBTreeMap,
+    signal_vec::{MutableVec, MutableVecLockMut},
+};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
     api::client::{
@@ -1030,6 +1034,9 @@ pub struct SlidingSyncView {
     #[builder(private)]
     rooms_updated_signal: futures_signals::signal::Sender<()>,
 
+    #[builder(private)]
+    is_cold: Arc<AtomicBool>,
+
     /// Get informed if anything in the room changed
     ///
     /// If you only care to know about changes once all of them have applied
@@ -1058,6 +1065,7 @@ impl SlidingSyncView {
     fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
         let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
         self.state.set(SlidingSyncState::Preload);
+        self.is_cold.store(true, Ordering::Relaxed);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
@@ -1075,6 +1083,7 @@ impl SlidingSyncViewBuilder {
     /// Build the view
     pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
         let (sender, receiver) = futures_signals::signal::channel(());
+        self.is_cold = Some(Arc::new(AtomicBool::new(false)));
         self.rooms_updated_signal = Some(sender);
         self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
         self.finish_build()
@@ -1302,6 +1311,147 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
     }
 }
 
+#[instrument(skip(ops))]
+fn room_ops(
+    rooms_list: &mut MutableVecLockMut<RoomListEntry>,
+    ops: &Vec<v4::SyncOp>,
+    room_ranges: &Vec<(usize, usize)>,
+) -> Result<(), Error> {
+    let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
+    for op in ops {
+        match &op.op {
+            v4::SlidingOp::Sync => {
+                let start: u32 = op
+                    .range
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`range` must be present for Sync and Update operation".to_owned(),
+                        )
+                    })?
+                    .0
+                    .try_into()
+                    .map_err(|e| Error::BadResponse(format!("`range` not a valid int: {e:}")))?;
+                let room_ids = op.room_ids.clone();
+                room_ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let idx = start as usize + i;
+                        rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
+                    })
+                    .count();
+            }
+            v4::SlidingOp::Delete => {
+                let pos: u32 = op
+                    .index
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`index` must be present for DELETE operation".to_owned(),
+                        )
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
+                    })?;
+                rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+            }
+            v4::SlidingOp::Insert => {
+                let pos: usize = op
+                    .index
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`index` must be present for INSERT operation".to_owned(),
+                        )
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
+                    })?;
+                let sliced = rooms_list.as_slice();
+                let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
+                    Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
+                })?);
+                let mut dif = 0usize;
+                loop {
+                    // find the next empty slot and drop it
+                    let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
+                    let check_prev = !prev_overflow && index_in_range(prev_p);
+                    let (next_p, overflown) = pos.overflowing_add(dif);
+                    let check_after = !overflown && next_p < sliced.len() && index_in_range(next_p);
+                    if !check_prev && !check_after {
+                        return Err(Error::BadResponse(
+                            "We were asked to insert but could not find any direction to shift to"
+                                .to_owned(),
+                        ));
+                    }
+
+                    if check_prev && sliced[prev_p].empty_or_invalidated() {
+                        // we only check for previous, if there are items left
+                        rooms_list.remove(prev_p);
+                        break;
+                    } else if check_after && sliced[next_p].empty_or_invalidated() {
+                        rooms_list.remove(next_p);
+                        break;
+                    } else {
+                        // let's check the next position;
+                        dif += 1;
+                    }
+                }
+                rooms_list.insert_cloned(pos, room);
+            }
+            v4::SlidingOp::Invalidate => {
+                let max_len = rooms_list.len();
+                let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
+                    (
+                        range.0.try_into().map_err(|e| {
+                            Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
+                        })?,
+                        range.1.try_into().map_err(|e| {
+                            Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
+                        })?,
+                    )
+                } else {
+                    return Err(Error::BadResponse(
+                        "`range` must be given on `Invalidate` operation".to_owned(),
+                    ));
+                };
+
+                if pos > end {
+                    return Err(Error::BadResponse(
+                        "Invalid invalidation, end smaller than start".to_owned(),
+                    ));
+                }
+
+                // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
+                // ensure we pick them all up
+                while pos <= end {
+                    if pos as usize >= max_len {
+                        break; // how does this happen?
+                    }
+                    let idx = pos as usize;
+                    let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
+                        Some(b.clone())
+                    } else {
+                        None
+                    };
+
+                    if let Some(b) = entry {
+                        rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b));
+                    } else {
+                        rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+                    }
+                    pos += 1;
+                }
+            }
+            s => {
+                warn!("Unknown operation occurred: {:?}", s);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 impl SlidingSyncView {
     /// Return a builder with the same settings as before
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
@@ -1382,159 +1532,28 @@ impl SlidingSyncView {
     }
 
     #[instrument(skip(self, ops))]
-    fn room_ops(
-        &self,
-        ops: &Vec<v4::SyncOp>,
-        room_ranges: &Vec<(usize, usize)>,
-    ) -> Result<(), Error> {
-        let mut rooms_list = self.rooms_list.lock_mut();
-        let _rooms_map = self.rooms.lock_mut();
-
-        let index_in_range =
-            |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
-        for op in ops {
-            match &op.op {
-                v4::SlidingOp::Sync => {
-                    let start: u32 = op
-                        .range
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`range` must be present for Sync and Update operation".to_owned(),
-                            )
-                        })?
-                        .0
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`range` not a valid int: {e:}"))
-                        })?;
-                    let room_ids = op.room_ids.clone();
-                    room_ids
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, r)| {
-                            let idx = start as usize + i;
-                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
-                        })
-                        .count();
-                }
-                v4::SlidingOp::Delete => {
-                    let pos: u32 = op
-                        .index
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`index` must be present for DELETE operation".to_owned(),
-                            )
-                        })?
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
-                        })?;
-                    rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
-                }
-                v4::SlidingOp::Insert => {
-                    let pos: usize = op
-                        .index
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`index` must be present for INSERT operation".to_owned(),
-                            )
-                        })?
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
-                        })?;
-                    let sliced = rooms_list.as_slice();
-                    let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
-                        Error::BadResponse(
-                            "`room_id` must be present for INSERT operation".to_owned(),
-                        )
-                    })?);
-                    let mut dif = 0usize;
-                    loop {
-                        // find the next empty slot and drop it
-                        let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
-                        let check_prev = !prev_overflow && index_in_range(prev_p);
-                        let (next_p, overflown) = pos.overflowing_add(dif);
-                        let check_after =
-                            !overflown && next_p < sliced.len() && index_in_range(next_p);
-                        if !check_prev && !check_after {
-                            return Err(Error::BadResponse("We were asked to insert but could not find any direction to shift to".to_owned()));
-                        }
-
-                        if check_prev && sliced[prev_p].empty_or_invalidated() {
-                            // we only check for previous, if there are items left
-                            rooms_list.remove(prev_p);
-                            break;
-                        } else if check_after && sliced[next_p].empty_or_invalidated() {
-                            rooms_list.remove(next_p);
-                            break;
-                        } else {
-                            // let's check the next position;
-                            dif += 1;
-                        }
-                    }
-                    rooms_list.insert_cloned(pos, room);
-                }
-                v4::SlidingOp::Invalidate => {
-                    let max_len = rooms_list.len();
-                    let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
-                        (
-                            range.0.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
-                            })?,
-                            range.1.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
-                            })?,
-                        )
-                    } else {
-                        return Err(Error::BadResponse(
-                            "`range` must be given on `Invalidate` operation".to_owned(),
-                        ));
-                    };
-
-                    if pos > end {
-                        return Err(Error::BadResponse(
-                            "Invalid invalidation, end smaller than start".to_owned(),
-                        ));
-                    }
-
-                    // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
-                    // ensure we pick them all up
-                    while pos <= end {
-                        if pos as usize >= max_len {
-                            break; // how does this happen?
-                        }
-                        let idx = pos as usize;
-                        let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
-                            Some(b.clone())
-                        } else {
-                            None
-                        };
-
-                        if let Some(b) = entry {
-                            rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b));
-                        } else {
-                            rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
-                        }
-                        pos += 1;
-                    }
-                }
-                s => {
-                    warn!("Unknown operation occurred: {:?}", s);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(skip(self, ops))]
     fn handle_response(
         &self,
         rooms_count: u32,
         ops: &Vec<v4::SyncOp>,
         ranges: &Vec<(usize, usize)>,
     ) -> Result<bool, Error> {
+        let current_rooms_count = self.rooms_count.get();
+        if current_rooms_count.is_none()
+            || current_rooms_count == Some(0)
+            || self.is_cold.load(Ordering::Relaxed)
+        {
+            // first response, we do that slightly differentely
+            let rooms_list =
+                MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
+            // then we apply it
+            let mut locked = rooms_list.lock_mut();
+            room_ops(&mut locked, ops, ranges)?;
+            self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
+            self.rooms_count.set(Some(rooms_count));
+            self.is_cold.store(false, Ordering::Relaxed);
+            return Ok(true);
+        }
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1548,8 +1567,11 @@ impl SlidingSyncView {
             changed = true;
         }
 
+        let mut rooms_list = self.rooms_list.lock_mut();
+        let _rooms_map = self.rooms.lock_mut();
+
         if !ops.is_empty() {
-            self.room_ops(ops, ranges)?;
+            room_ops(&mut rooms_list, ops, ranges)?;
             changed = true;
         }
 
