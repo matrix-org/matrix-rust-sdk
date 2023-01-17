@@ -1097,49 +1097,46 @@ impl OlmMachine {
     ) -> StoreResult<(KeyTrustLevel, Option<Ed25519PublicKey>, Option<MasterPubkey>)> {
         if !session.trusted() {
             Ok((KeyTrustLevel::LevelNone, None, None))
-        } else {
-            if let Some(device) = self
-                .get_user_devices(sender, None)
-                .await?
-                .devices()
-                .find(|d| d.curve25519_key() == Some(session.sender_key()))
-            {
-                if device.is_owner_of_session(session) {
-                    let is_device_signed_by_owner = device
-                        .device_owner_identity
-                        .as_ref()
-                        .map(|device_identity| match device_identity {
-                            // If it's one of our own devices, just check that
-                            // we signed the device.
-                            ReadOnlyUserIdentities::Own(i) => {
-                                i.is_device_signed(&device.inner).map_or(false, |_| true)
-                            }
+        } else if let Some(device) = self
+            .get_user_devices(sender, None)
+            .await?
+            .devices()
+            .find(|d| d.curve25519_key() == Some(session.sender_key()))
+        {
+            if device.is_owner_of_session(session) {
+                let is_device_signed_by_owner = device
+                    .device_owner_identity
+                    .as_ref()
+                    .map(|device_identity| match device_identity {
+                        // If it's one of our own devices, just check that
+                        // we signed the device.
+                        ReadOnlyUserIdentities::Own(i) => {
+                            i.is_device_signed(&device.inner).map_or(false, |_| true)
+                        }
 
-                            // If it's a device from someone else, check
-                            // if the other user has signed this device.
-                            ReadOnlyUserIdentities::Other(device_identity) => device_identity
-                                .is_device_signed(&device.inner)
-                                .map_or(false, |_| true),
-                        })
-                        .unwrap_or(false);
+                        // If it's a device from someone else, check
+                        // if the other user has signed this device.
+                        ReadOnlyUserIdentities::Other(device_identity) => {
+                            device_identity.is_device_signed(&device.inner).map_or(false, |_| true)
+                        }
+                    })
+                    .unwrap_or(false);
 
-                    let pub_msk_b64 =
-                        device.device_owner_identity.map(|i| i.master_key().to_owned());
+                let pub_msk_b64 = device.device_owner_identity.map(|i| i.master_key().to_owned());
 
-                    let device_fingerprint = device.inner.ed25519_key();
+                let device_fingerprint = device.inner.ed25519_key();
 
-                    if is_device_signed_by_owner {
-                        Ok((KeyTrustLevel::LevelIdentity, device_fingerprint, pub_msk_b64))
-                    } else {
-                        Ok((KeyTrustLevel::LevelDevice, device_fingerprint, pub_msk_b64))
-                    }
+                if is_device_signed_by_owner {
+                    Ok((KeyTrustLevel::LevelIdentity, device_fingerprint, pub_msk_b64))
                 } else {
-                    Ok((KeyTrustLevel::LevelOlm, None, None))
+                    Ok((KeyTrustLevel::LevelDevice, device_fingerprint, pub_msk_b64))
                 }
             } else {
-                // Device is unknown or deleted
-                Ok((KeyTrustLevel::LevelOlm, None, None))
+                Ok((KeyTrustLevel::LevelNone, None, None))
             }
+        } else {
+            // Device is unknown or deleted
+            Ok((KeyTrustLevel::LevelOlm, None, None))
         }
     }
 
@@ -1176,7 +1173,7 @@ impl OlmMachine {
             verification_state,
             key_trust_level,
             device_fingerprint_key: device_fingerprint.map(|ed| ed.to_base64()),
-            sender_msk: user_msk.map(|k| k.get_first_key()).flatten().map(|f| f.to_base64()),
+            sender_msk: user_msk.and_then(|k| k.get_first_key()).map(|f| f.to_base64()),
         })
     }
 
