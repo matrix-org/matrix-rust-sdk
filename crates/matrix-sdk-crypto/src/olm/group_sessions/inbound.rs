@@ -21,7 +21,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{deserialized_responses::KeySafety, locks::Mutex};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
@@ -80,7 +80,62 @@ pub struct InboundGroupSession {
     imported: bool,
     algorithm: Arc<EventEncryptionAlgorithm>,
     backed_up: Arc<AtomicBool>,
-    safety: KeySafety,
+    trusted: bool,
+}
+
+///
+/// When importing a group session from export/backup/forward, the sender trust
+/// is claimed Depending on the source we have to decide to trust or not the
+/// claimed trust. call #to_group_session to state if the source is trusted or
+/// not
+#[derive(Debug)]
+pub struct ClaimedInboundGroupSession {
+    inner: InboundGroupSession,
+}
+
+impl ClaimedInboundGroupSession {
+    /// If from a trusted source will keep the trusted flag
+    /// If not will override and set to unsafe.
+    /// Takes ownership of the ClaimedInboundGroupSession
+    pub fn to_group_session(self, source_trusted: bool) -> InboundGroupSession {
+        InboundGroupSession {
+            trusted: if source_trusted { self.inner.trusted } else { false },
+            ..self.inner
+        }
+    }
+
+    /// Create a InboundGroupSession from an exported version of the group
+    /// session.
+    ///
+    /// Most notably this can be called with an `ExportedRoomKey` from a
+    /// previous [`export()`] call.
+    ///
+    /// [`export()`]: #method.export
+    pub fn from_export(exported_session: &ExportedRoomKey) -> Result<Self, SessionCreationError> {
+        Self::try_from(exported_session)
+    }
+
+    #[allow(dead_code)]
+    fn from_backup(
+        room_id: &RoomId,
+        backup: BackedUpRoomKey,
+    ) -> Result<ClaimedInboundGroupSession, SessionCreationError> {
+        // We're using this session only to get the session id, the session
+        // config doesn't matter here.
+        let session = InnerSession::import(&backup.session_key, SessionConfig::default());
+        let session_id = session.session_id();
+
+        Self::from_export(&ExportedRoomKey {
+            algorithm: backup.algorithm,
+            room_id: room_id.to_owned(),
+            sender_key: backup.sender_key,
+            session_id,
+            forwarding_curve25519_key_chain: vec![],
+            session_key: backup.session_key,
+            sender_claimed_keys: backup.sender_claimed_keys,
+            trusted: false,
+        })
+    }
 }
 
 impl InboundGroupSession {
@@ -107,7 +162,6 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
-        safety: KeySafety,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -129,40 +183,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
-            safety,
-        })
-    }
-
-    /// Create a InboundGroupSession from an exported version of the group
-    /// session.
-    ///
-    /// Most notably this can be called with an `ExportedRoomKey` from a
-    /// previous [`export()`] call.
-    ///
-    /// [`export()`]: #method.export
-    pub fn from_export(exported_session: &ExportedRoomKey) -> Result<Self, SessionCreationError> {
-        Self::try_from(exported_session)
-    }
-
-    #[allow(dead_code)]
-    fn from_backup(
-        room_id: &RoomId,
-        backup: BackedUpRoomKey,
-    ) -> Result<Self, SessionCreationError> {
-        // We're using this session only to get the session id, the session
-        // config doesn't matter here.
-        let session = InnerSession::import(&backup.session_key, SessionConfig::default());
-        let session_id = session.session_id();
-
-        Self::from_export(&ExportedRoomKey {
-            algorithm: backup.algorithm,
-            room_id: room_id.to_owned(),
-            sender_key: backup.sender_key,
-            session_id,
-            forwarding_curve25519_key_chain: vec![],
-            session_key: backup.session_key,
-            sender_claimed_keys: backup.sender_claimed_keys,
-            trusted: false,
+            trusted: true,
         })
     }
 
@@ -208,15 +229,7 @@ impl InboundGroupSession {
 
     /// Is this session safe.
     pub fn trusted(&self) -> bool {
-        match self.safety {
-            KeySafety::Safe => true,
-            KeySafety::Unsafe => false,
-        }
-    }
-
-    /// Session safety
-    pub fn key_safety(&self) -> KeySafety {
-        self.safety
+        self.trusted
     }
 
     /// Reset the backup state of the inbound group session.
@@ -233,16 +246,6 @@ impl InboundGroupSession {
     /// Get the map of signing keys this session was received from.
     pub fn signing_keys(&self) -> &SigningKeys<DeviceKeyAlgorithm> {
         &self.signing_keys
-    }
-
-    /// If from a trusted source will keep the safe flag
-    /// If not will override and set to unsafe.
-    /// This takes ownership of the old version
-    pub fn from_trusted_source(self, trusted: bool) -> InboundGroupSession {
-        InboundGroupSession {
-            safety: if trusted { self.safety } else { KeySafety::Unsafe },
-            ..self
-        }
     }
 
     /// Export this session at the given message index.
@@ -291,7 +294,7 @@ impl InboundGroupSession {
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
             imported: pickle.imported,
-            safety: if pickle.trusted { KeySafety::Safe } else { KeySafety::Unsafe },
+            trusted: pickle.trusted,
         })
     }
 
@@ -478,7 +481,7 @@ fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
 }
 
-impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
+impl TryFrom<&ExportedRoomKey> for ClaimedInboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
@@ -486,80 +489,88 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
         let session = InnerSession::import(&key.session_key, config);
         let first_known_index = session.first_known_index();
 
-        Ok(InboundGroupSession {
-            inner: Mutex::new(session).into(),
-            session_id: key.session_id.to_owned().into(),
-            sender_key: key.sender_key,
-            history_visibility: None.into(),
-            first_known_index,
-            signing_keys: key.sender_claimed_keys.to_owned().into(),
-            room_id: key.room_id.to_owned().into(),
-            imported: true,
-            algorithm: key.algorithm.to_owned().into(),
-            backed_up: AtomicBool::from(false).into(),
-            safety: if key.trusted { KeySafety::Safe } else { KeySafety::Unsafe },
+        Ok(ClaimedInboundGroupSession {
+            inner: InboundGroupSession {
+                inner: Mutex::new(session).into(),
+                session_id: key.session_id.to_owned().into(),
+                sender_key: key.sender_key,
+                history_visibility: None.into(),
+                first_known_index,
+                signing_keys: key.sender_claimed_keys.to_owned().into(),
+                room_id: key.room_id.to_owned().into(),
+                imported: true,
+                algorithm: key.algorithm.to_owned().into(),
+                backed_up: AtomicBool::from(false).into(),
+                trusted: key.trusted,
+            },
         })
     }
 }
 
-impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
+impl From<&ForwardedMegolmV1AesSha2Content> for ClaimedInboundGroupSession {
     fn from(value: &ForwardedMegolmV1AesSha2Content) -> Self {
         let session = InnerSession::import(&value.session_key, SessionConfig::version_1());
         let session_id = session.session_id().into();
         let first_known_index = session.first_known_index();
 
-        InboundGroupSession {
-            inner: Mutex::new(session).into(),
-            session_id,
-            sender_key: value.claimed_sender_key,
-            history_visibility: None.into(),
-            first_known_index,
-            signing_keys: SigningKeys::from([(
-                DeviceKeyAlgorithm::Ed25519,
-                value.claimed_ed25519_key.into(),
-            )])
-            .into(),
-            room_id: value.room_id.to_owned().into(),
-            imported: true,
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
-            backed_up: AtomicBool::from(false).into(),
-            safety: match value.claimed_trust {
-                JsOption::Some(true) => KeySafety::Safe,
-                _ => KeySafety::Unsafe,
+        ClaimedInboundGroupSession {
+            inner: InboundGroupSession {
+                inner: Mutex::new(session).into(),
+                session_id,
+                sender_key: value.claimed_sender_key,
+                history_visibility: None.into(),
+                first_known_index,
+                signing_keys: SigningKeys::from([(
+                    DeviceKeyAlgorithm::Ed25519,
+                    value.claimed_ed25519_key.into(),
+                )])
+                .into(),
+                room_id: value.room_id.to_owned().into(),
+                imported: true,
+                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+                backed_up: AtomicBool::from(false).into(),
+                trusted: match value.claimed_trust {
+                    JsOption::Some(true) => true,
+                    _ => false,
+                },
             },
         }
     }
 }
 
-impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
+impl From<&ForwardedMegolmV2AesSha2Content> for ClaimedInboundGroupSession {
     fn from(value: &ForwardedMegolmV2AesSha2Content) -> Self {
         let session = InnerSession::import(&value.session_key, SessionConfig::version_2());
         let session_id = session.session_id().into();
         let first_known_index = session.first_known_index();
 
-        InboundGroupSession {
-            inner: Mutex::new(session).into(),
-            session_id,
-            sender_key: value.claimed_sender_key,
-            history_visibility: None.into(),
-            first_known_index,
-            signing_keys: value.claimed_signing_keys.to_owned().into(),
-            room_id: value.room_id.to_owned().into(),
-            imported: true,
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
-            backed_up: AtomicBool::from(false).into(),
-            safety: match value.claimed_trust {
-                JsOption::Some(true) => KeySafety::Safe,
-                _ => KeySafety::Unsafe,
+        ClaimedInboundGroupSession {
+            inner: InboundGroupSession {
+                inner: Mutex::new(session).into(),
+                session_id,
+                sender_key: value.claimed_sender_key,
+                history_visibility: None.into(),
+                first_known_index,
+                signing_keys: value.claimed_signing_keys.to_owned().into(),
+                room_id: value.room_id.to_owned().into(),
+                imported: true,
+                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
+                backed_up: AtomicBool::from(false).into(),
+                trusted: match value.claimed_trust {
+                    JsOption::Some(true) => true,
+                    _ => false,
+                },
             },
         }
     }
 }
 
-impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
+impl TryFrom<&DecryptedForwardedRoomKeyEvent> for ClaimedInboundGroupSession {
     type Error = SessionCreationError;
 
-    fn try_from(value: &DecryptedForwardedRoomKeyEvent) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: &DecryptedForwardedRoomKeyEvent,
+    ) -> Result<ClaimedInboundGroupSession, Self::Error> {
         match &value.content {
             ForwardedRoomKeyContent::MegolmV1AesSha2(c) => Ok(Self::from(c.deref())),
             #[cfg(feature = "experimental-algorithms")]
@@ -573,12 +584,14 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::deserialized_responses::KeySafety;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, DeviceId, UserId};
     use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+    use crate::{
+        olm::{ClaimedInboundGroupSession, InboundGroupSession},
+        ReadOnlyAccount,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -642,7 +655,10 @@ mod test {
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
 
-        let worse = InboundGroupSession::from_export(&inbound.export_at_index(10).await).unwrap();
+        let worse = ClaimedInboundGroupSession::from_export(&inbound.export_at_index(10).await)
+            .unwrap()
+            .to_group_session(true);
+
         let mut copy = InboundGroupSession::from_pickle(inbound.pickle().await).unwrap();
 
         assert_eq!(inbound.compare(&worse).await, SessionOrdering::Better);
@@ -666,7 +682,10 @@ mod test {
 
         assert!(inbound.trusted());
 
-        let from_untrusted_source = inbound.from_trusted_source(false);
+        let export = inbound.export().await;
+        let inbound = ClaimedInboundGroupSession::from_export(&export).expect("couldn't import");
+
+        let from_untrusted_source = inbound.to_group_session(false);
 
         assert!(!from_untrusted_source.trusted());
 
@@ -674,13 +693,18 @@ mod test {
 
         assert!(inbound.trusted());
 
-        let from_trusted_source = inbound.from_trusted_source(true);
+        let export = inbound.export().await;
+        let inbound = ClaimedInboundGroupSession::from_export(&export).expect("couldn't import");
+
+        let from_trusted_source = inbound.to_group_session(true);
 
         assert!(from_trusted_source.trusted());
 
-        let untrusted_copy =
-            InboundGroupSession { safety: KeySafety::Unsafe, ..from_trusted_source };
+        let untrusted_copy = InboundGroupSession { trusted: false, ..from_trusted_source };
 
-        assert!(!untrusted_copy.from_trusted_source(true).trusted());
+        let export = untrusted_copy.export().await;
+        let inbound = ClaimedInboundGroupSession::from_export(&export).expect("couldn't import");
+
+        assert!(!inbound.to_group_session(true).trusted());
     }
 }

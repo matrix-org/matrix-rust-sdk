@@ -77,9 +77,10 @@ dictionary DecryptedEvent {
     string clear_event;
     string sender_curve25519_key;
     string? claimed_ed25519_key;
+    string? claimed_sender_master_key;
     sequence<string> forwarding_curve25519_chain;
     VerificationState verification_state;
-    KeySafety key_safety;
+    KeyTrustLevel key_trust_level;
 };
 
 dictionary Device {
@@ -323,9 +324,11 @@ enum VerificationState {
     "UnknownDevice",
 };
 
-enum KeySafety {
-    "Safe",
-    "Unsafe",
+enum KeyTrustLevel {
+    "LevelNone",
+    "LevelOlm",
+    "LevelDevice",
+    "LevelIdentity",
 };
 
 enum EventEncryptionAlgorithm {

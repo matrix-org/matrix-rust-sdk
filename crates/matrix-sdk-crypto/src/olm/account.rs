@@ -22,7 +22,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{deserialized_responses::KeySafety, locks::Mutex};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -1121,8 +1121,6 @@ impl ReadOnlyAccount {
             &outbound.session_key().await,
             algorithm,
             Some(visibility),
-            // A session created on our own device (device has outbound session) is safe
-            KeySafety::Safe,
         )?;
 
         Ok((outbound, inbound))

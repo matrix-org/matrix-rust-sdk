@@ -27,9 +27,9 @@ pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
-    EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
-    PickledInboundGroupSession, PickledOutboundGroupSession, SessionCreationError,
-    SessionExportError, SessionKey, ShareInfo,
+    ClaimedInboundGroupSession, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
+    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
+    SessionCreationError, SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
@@ -38,8 +38,7 @@ pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use matches::assert_matches;
-    use matrix_sdk_common::deserialized_responses::KeySafety;
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
@@ -57,7 +56,10 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
+        olm::{
+            ClaimedInboundGroupSession, ExportedRoomKey, InboundGroupSession, ReadOnlyAccount,
+            Session,
+        },
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent, room::encrypted::EncryptedEvent,
         },
@@ -187,7 +189,6 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-            KeySafety::Safe,
         )
         .expect("We can always create an inbound group session from an outbound one");
 
@@ -231,7 +232,6 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-            KeySafety::Safe,
         )
         .unwrap();
 
@@ -347,8 +347,9 @@ pub(crate) mod tests {
         let export: ForwardedRoomKeyContent = export.try_into().unwrap();
         let export = ExportedRoomKey::try_from(export).unwrap();
 
-        let imported = InboundGroupSession::from_export(&export)
-            .expect("We can always import an inbound group session from a fresh export");
+        let imported = ClaimedInboundGroupSession::from_export(&export)
+            .expect("We can always import an inbound group session from a fresh export")
+            .to_group_session(true);
 
         assert_eq!(inbound.session_id(), imported.session_id());
     }

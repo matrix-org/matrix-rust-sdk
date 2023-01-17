@@ -28,7 +28,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::{KeySafety, VerificationState};
+use matrix_sdk_common::deserialized_responses::{KeyTrustLevel, VerificationState};
 use matrix_sdk_crypto::{
     backups::SignatureState,
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
@@ -459,6 +459,8 @@ pub struct DecryptedEvent {
     pub sender_curve25519_key: String,
     /// The claimed ed25519 key of the sender.
     pub claimed_ed25519_key: Option<String>,
+    /// The claimed master key of the user
+    pub claimed_sender_master_key: Option<String>,
     /// The curve25519 chain of the senders that forwarded the Megolm decryption
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
@@ -470,7 +472,7 @@ pub struct DecryptedEvent {
     /// Safe or Unsafe as per key safety definition.
     /// Reflects the fact that we are sure that this group key
     /// is owned by the sending device.
-    pub key_safety: KeySafety,
+    pub key_trust_level: KeyTrustLevel,
 }
 
 /// Struct representing the state of our private cross signing keys, it shows

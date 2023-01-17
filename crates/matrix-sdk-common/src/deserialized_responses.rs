@@ -18,6 +18,24 @@ pub enum VerificationState {
     UnknownDevice,
 }
 
+/// The key trust level
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum KeyTrustLevel {
+    /// We have no guarantee of the authenticity of this key.
+    /// It claimed to be owned by the sender_key
+    /// (typically a forwarded key or imported from untrusted source)
+    LevelNone,
+    /// The device that sent this key is unknown or has been deleted, and no
+    /// trust can be established. The sender_key can be trusted but no more
+    LevelOlm,
+    /// The key is guaranteed to be owned by a given device, identified by the
+    /// device fingerprint key (ed25519). But the device is not cross signed
+    /// by the user identity
+    LevelDevice,
+    /// The key is guaranteed to be owned by the given identity.
+    LevelIdentity,
+}
+
 /// The algorithm specific information of a decrypted event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum AlgorithmInfo {
@@ -31,26 +49,6 @@ pub enum AlgorithmInfo {
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
     },
-}
-
-/// Key Safety
-///
-/// A Megolm key is safe iff:
-//
-//     - It was created on the device (i.e. the device has an outbound session).
-//     - It is received via an initial key share (m.room_key).
-//     - It is received via a safe key forward. (forwarded from own trusted device that indicates it
-//       to be safe)
-//     - It is retrieved from a symmetric (v2) Megolm key backup, and it’s indicated that the key is
-//       safe in the encrypted payload
-//
-// Otherwise, the key is unsafe.
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
-pub enum KeySafety {
-    /// The authenticity of this key is guaranteed
-    Safe,
-    /// The authenticity of this key cannot be guaranteed
-    Unsafe,
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -68,9 +66,25 @@ pub struct EncryptionInfo {
     /// is the state of the device at the time of decryption. It may change in
     /// the future if a device gets verified or deleted.
     pub verification_state: VerificationState,
-    /// Whether the device that sent this message is the creator of the used
-    /// megolm session.
-    pub safety: KeySafety,
+    /// Define the trust level of the key used to decrypt the message
+    /// - if KeyTrustLevel::None: The authenticity of the message is not
+    ///   guaranteed
+    /// (sender/sender_device/sender_identity are claimed)
+    /// - if KeyTrustLevel::Olm: The device is unknown or deleted so it's
+    ///   untrusted data
+    /// if KeyTrustLevel::Device: sender_device is trusted data, but the device
+    /// is not signed by the identity, so sender is claimed
+    /// - if KeyTrustLevel::Identity, device_fingerprint_key/sender_msk are
+    /// trusted info. If you verified the user, then sender is verified info
+    pub key_trust_level: KeyTrustLevel,
+
+    /// The device fingerprint key.
+    /// It is trusted if key_trust_level is at least Device
+    pub device_fingerprint_key: Option<String>,
+
+    /// The sender_msk at time of decryption.
+    /// It is trusted info if key_trust_level is Identity.
+    pub sender_msk: Option<String>,
 }
 
 /// A customized version of a room event coming from a sync that holds optional

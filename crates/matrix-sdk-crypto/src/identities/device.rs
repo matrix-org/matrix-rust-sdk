@@ -158,7 +158,7 @@ impl Device {
     /// encrypted `m.room_key` event. This method determines if this `Device`
     /// can be confirmed as the creator and owner of the `m.room_key`.
     pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> bool {
-        if session.has_been_imported() {
+        if !session.trusted() {
             false
         } else if let Some(SigningKey::Ed25519(key)) =
             session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519)

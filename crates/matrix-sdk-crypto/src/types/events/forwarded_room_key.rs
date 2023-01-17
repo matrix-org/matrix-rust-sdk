@@ -176,8 +176,9 @@ pub struct ForwardedMegolmV2AesSha2Content {
     pub(crate) other: BTreeMap<String, Value>,
 
     /// The property is set to true if the forwarder believes the session should
-    /// be trusted. If the property is set to false or is absent, this
-    /// indicates that the session cannot be trusted.
+    /// be trusted to be owned by claimed_sender_key. If the property is set to
+    /// false or is absent, this indicates that the session cannot be
+    /// trusted.
     #[serde(
         rename = "org.matrix.msc3879.trusted",
         default = "default_forward_trusted",

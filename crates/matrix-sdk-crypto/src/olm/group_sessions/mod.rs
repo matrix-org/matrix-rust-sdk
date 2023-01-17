@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 mod inbound;
 mod outbound;
 
-pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
+pub use inbound::{ClaimedInboundGroupSession, InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
@@ -96,7 +96,7 @@ pub struct ExportedRoomKey {
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 
-    /// Is the key trusted (safely owned by sender_key)
+    /// Is the key trusted to be owned by the claimed sender_key
     #[serde(default)]
     pub trusted: bool,
 }

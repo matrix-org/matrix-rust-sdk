@@ -37,7 +37,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
-    olm::{InboundGroupSession, Session, ShareState},
+    olm::{ClaimedInboundGroupSession, InboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
@@ -864,8 +864,8 @@ impl GossipMachine {
         event: &DecryptedForwardedRoomKeyEvent,
         should_trust_safe_flag: bool,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match InboundGroupSession::try_from(event)
-            .map(|inb| inb.from_trusted_source(should_trust_safe_flag))
+        match ClaimedInboundGroupSession::try_from(event)
+            .map(|inb| inb.to_group_session(should_trust_safe_flag))
         {
             Ok(session) => {
                 if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
