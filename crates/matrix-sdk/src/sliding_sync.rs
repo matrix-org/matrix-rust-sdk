@@ -1326,7 +1326,7 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
 
 #[instrument(skip(ops))]
 fn room_ops(
-    rooms_list: &mut MutableVecLockMut<RoomListEntry>,
+    rooms_list: &mut MutableVecLockMut<'_, RoomListEntry>,
     ops: &Vec<v4::SyncOp>,
     room_ranges: &Vec<(usize, usize)>,
 ) -> Result<(), Error> {

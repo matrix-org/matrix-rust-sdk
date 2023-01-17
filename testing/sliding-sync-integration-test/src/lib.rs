@@ -5,10 +5,10 @@ use matrix_sdk::{
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
 #[allow(dead_code)]
-async fn setup(name: String) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
+async fn setup(name: String, use_sled_store: bool) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
     let sliding_sync_proxy_url =
         option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
-    let client = get_client_for_user(name, false).await?;
+    let client = get_client_for_user(name, use_sled_store).await?;
     let sliding_sync_builder = client
         .sliding_sync()
         .await
@@ -21,8 +21,16 @@ async fn setup(name: String) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
 async fn random_setup_with_rooms(
     number_of_rooms: usize,
 ) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
+    random_setup_with_rooms_opt_store(number_of_rooms, false).await
+}
+
+#[allow(dead_code)]
+async fn random_setup_with_rooms_opt_store(
+    number_of_rooms: usize,
+    use_sled_store: bool,
+) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
     let namespace = uuid::Uuid::new_v4().to_string();
-    let (client, sliding_sync_builder) = setup(namespace.clone()).await?;
+    let (client, sliding_sync_builder) = setup(namespace.clone(), use_sled_store).await?;
 
     for room_num in 0..number_of_rooms {
         let mut request = CreateRoomRequest::new();
@@ -52,7 +60,9 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Context;
+    use std::time::{Duration, Instant};
+
+    use anyhow::{bail, Context};
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
         ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode, SlidingSyncState,
@@ -63,7 +73,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn it_works_smoke_test() -> anyhow::Result<()> {
-        let (_client, sync_proxy_builder) = setup("odo".to_owned()).await?;
+        let (_client, sync_proxy_builder) = setup("odo".to_owned(), false).await?;
         let sync_proxy = sync_proxy_builder.add_fullsync_view().build().await?;
         let stream = sync_proxy.stream().await?;
         pin_mut!(stream);
@@ -167,154 +177,152 @@ mod tests {
     // index-based views don't support removing views. Leaving this test for an API
     // update later.
     //
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    // async fn live_views() -> anyhow::Result<()> {
-    //     let view_name_1 = "sliding1";
-    //     let view_name_2 = "sliding2";
-    //     let view_name_3 = "sliding3";
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "removing and re-adding views isn't supported by the protocol yet"]
+    async fn live_views() -> anyhow::Result<()> {
+        let view_name_1 = "sliding1";
+        let view_name_2 = "sliding2";
+        let view_name_3 = "sliding3";
 
-    //     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    //     let build_view = |name| {
-    //         SlidingSyncViewBuilder::default()
-    //             .sync_mode(SlidingSyncMode::Selective)
-    //             .set_range(0u32, 10u32)
-    //             .sort(vec!["by_recency".to_string(), "by_name".to_string()])
-    //             .name(name)
-    //             .build()
-    //     };
-    //     let sync_proxy = sync_proxy_builder
-    //         .add_view(build_view(view_name_1)?)
-    //         .add_view(build_view(view_name_2)?)
-    //         .add_view(build_view(view_name_3)?)
-    //         .build()
-    //         .await?;
-    //     let Some(view1 )= sync_proxy.view(view_name_1) else {
-    //         bail!("but we just added that view!");
-    //     };
-    //     let Some(_view2 )= sync_proxy.view(view_name_2) else {
-    //         bail!("but we just added that view!");
-    //     };
+        let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
+        let build_view = |name| {
+            SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::Selective)
+                .set_range(0u32, 10u32)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .name(name)
+                .build()
+        };
+        let sync_proxy = sync_proxy_builder
+            .add_view(build_view(view_name_1)?)
+            .add_view(build_view(view_name_2)?)
+            .add_view(build_view(view_name_3)?)
+            .build()
+            .await?;
+        let Some(view1 )= sync_proxy.view(view_name_1) else {
+            bail!("but we just added that view!");
+        };
+        let Some(_view2 )= sync_proxy.view(view_name_2) else {
+            bail!("but we just added that view!");
+        };
 
-    //     let Some(_view3 )= sync_proxy.view(view_name_3) else {
-    //         bail!("but we just added that view!");
-    //     };
+        let Some(_view3 )= sync_proxy.view(view_name_3) else {
+            bail!("but we just added that view!");
+        };
 
-    //     let stream = sync_proxy.stream().await?;
-    //     pin_mut!(stream);
-    //     let Some(room_summary ) = stream.next().await else {
-    //         bail!("No room summary found, loop ended unsuccessfully");
-    //     };
-    //     let summary = room_summary?;
-    //     // we only heard about the ones we had asked for
-    //     assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
+        let stream = sync_proxy.stream().await?;
+        pin_mut!(stream);
+        let Some(room_summary ) = stream.next().await else {
+            bail!("No room summary found, loop ended unsuccessfully");
+        };
+        let summary = room_summary?;
+        // we only heard about the ones we had asked for
+        assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
 
-    //     let Some(view_2) = sync_proxy.pop_view(view_name_2) else {
-    //         bail!("Room exists");
-    //     };
+        let Some(view_2) = sync_proxy.pop_view(view_name_2) else {
+            bail!("Room exists");
+        };
 
-    //     // we need to restart the stream after every view listing update
-    //     let stream = sync_proxy.stream().await?;
-    //     pin_mut!(stream);
+        // we need to restart the stream after every view listing update
+        let stream = sync_proxy.stream().await?;
+        pin_mut!(stream);
 
-    //     // Let's trigger an update by sending a message to room pos=3, making it
-    // move to     // pos 0
+        // Let's trigger an update by sending a message to room pos=3, making it move to
+        // pos 0
 
-    //     let Some(RoomListEntry::Filled(room_id)) = view1
-    //         .rooms_list
-    //         .lock_ref()
-    //         .iter().nth(3).map(Clone::clone) else
-    //     {
-    //         bail!("2nd room has moved? how?");
-    //     };
+        let Some(RoomListEntry::Filled(room_id)) = view1
+            .rooms_list
+            .lock_ref()
+            .iter().nth(3).map(Clone::clone) else
+        {
+            bail!("2nd room has moved? how?");
+        };
 
-    //     let Some(room) = client.get_joined_room(&room_id) else {
-    //         bail!("No joined room {room_id}");
-    //     };
+        let Some(room) = client.get_joined_room(&room_id) else {
+            bail!("No joined room {room_id}");
+        };
 
-    //     let content = RoomMessageEventContent::text_plain("Hello world");
+        let content = RoomMessageEventContent::text_plain("Hello world");
 
-    //     room.send(content, None).await?; // this should put our room up to the
-    // most recent
+        room.send(content, None).await?; // this should put our room up to the  most recent
 
-    //     let mut saw_update = false;
-    //     for _n in 0..2 {
-    //         let Some(room_summary ) = stream.next().await else {
-    //             bail!("sync has closed unexpectedly");
-    //         };
-    //         let summary = room_summary?;
-    //         // we only heard about the ones we had asked for
-    //         if !summary.views.is_empty() {
-    //             // only if we saw an update come through
-    //             assert_eq!(summary.views, [view_name_1, view_name_3]);
-    //             saw_update = true;
-    //             break;
-    //         }
-    //     }
+        let mut saw_update = false;
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                bail!("sync has closed unexpectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if !summary.views.is_empty() {
+                // only if we saw an update come through
+                assert_eq!(summary.views, [view_name_1, view_name_3]);
+                saw_update = true;
+                break;
+            }
+        }
 
-    //     assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the updae come through the pipe");
 
-    //     assert!(sync_proxy.add_view(view_2).is_none());
+        assert!(sync_proxy.add_view(view_2).is_none());
 
-    //     // we need to restart the stream after every view listing update
-    //     let stream = sync_proxy.stream().await?;
-    //     pin_mut!(stream);
+        // we need to restart the stream after every view listing update
+        let stream = sync_proxy.stream().await?;
+        pin_mut!(stream);
 
-    //     let mut saw_update = false;
-    //     for _n in 0..2 {
-    //         let Some(room_summary ) = stream.next().await else {
-    //             bail!("sync has closed unexpectedly");
-    //         };
-    //         let summary = room_summary?;
-    //         // we only heard about the ones we had asked for
-    //         if !summary.views.is_empty() {
-    //             // only if we saw an update come through
-    //             assert_eq!(summary.views, [view_name_2]);
-    //             // we didn't update the other views, so only no 2 should se an
-    // update             saw_update = true;
-    //             break;
-    //         }
-    //     }
+        let mut saw_update = false;
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                bail!("sync has closed unexpectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if !summary.views.is_empty() {
+                // only if we saw an update come through
+                assert_eq!(summary.views, [view_name_2]);
+                // we didn't update the other views, so only no 2 should se an update
+                saw_update = true;
+                break;
+            }
+        }
 
-    //     assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the updae come through the pipe");
 
-    //     // and let's update the order of all views again
-    //     let Some(RoomListEntry::Filled(room_id)) = view1
-    //         .rooms_list
-    //         .lock_ref()
-    //         .iter().nth(4).map(Clone::clone) else
-    //     {
-    //         bail!("4th room has moved? how?");
-    //     };
+        // and let's update the order of all views again
+        let Some(RoomListEntry::Filled(room_id)) = view1
+            .rooms_list
+            .lock_ref()
+            .iter().nth(4).map(Clone::clone) else
+        {
+            bail!("4th room has moved? how?");
+        };
 
-    //     let Some(room) = client.get_joined_room(&room_id) else {
-    //         bail!("No joined room {room_id}");
-    //     };
+        let Some(room) = client.get_joined_room(&room_id) else {
+            bail!("No joined room {room_id}");
+        };
 
-    //     let content = RoomMessageEventContent::text_plain("Hello world");
+        let content = RoomMessageEventContent::text_plain("Hello world");
 
-    //     room.send(content, None).await?; // this should put our room up to the
-    // most recent
+        room.send(content, None).await?; // this should put our room up to the most recent
 
-    //     let mut saw_update = false;
-    //     for _n in 0..2 {
-    //         let Some(room_summary ) = stream.next().await else {
-    //             bail!("sync has closed unexpectedly");
-    //         };
-    //         let summary = room_summary?;
-    //         // we only heard about the ones we had asked for
-    //         if !summary.views.is_empty() {
-    //             // only if we saw an update come through
-    //             assert_eq!(summary.views, [view_name_1, view_name_3,
-    // view_name_2]);             // notice that our view 2 is now the last
-    // view, but all have seen updates             saw_update = true;
-    //             break;
-    //         }
-    //     }
+        let mut saw_update = false;
+        for _n in 0..2 {
+            let Some(room_summary ) = stream.next().await else {
+                bail!("sync has closed unexpectedly");
+            };
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if !summary.views.is_empty() {
+                // only if we saw an update come through
+                assert_eq!(summary.views, [view_name_1, view_name_3, view_name_2]); // notice that our view 2 is now the lastview, but all have seen updates
+                saw_update = true;
+                break;
+            }
+        }
 
-    //     assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the updae come through the pipe");
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn view_goes_live() -> anyhow::Result<()> {
@@ -846,6 +854,73 @@ mod tests {
             view.rooms_list.lock_ref().iter().next().unwrap().as_room_id().unwrap(),
             &room_id
         );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "this is a slow test about cold cache recovery"]
+    async fn fast_unfreeze() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(500).await?;
+        print!("setup took its time");
+        let build_views = || {
+            let sliding_window_view = SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::Selective)
+                .set_range(1u32, 10u32)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .name("sliding")
+                .build()?;
+            let growing_sync = SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::GrowingFullSync)
+                .limit(100)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .name("growing")
+                .build()?;
+            anyhow::Ok((sliding_window_view, growing_sync))
+        };
+
+        println!("starting the sliding sync setup");
+
+        {
+            // SETUP
+            let (sliding_window_view, growing_sync) = build_views()?;
+            let sync_proxy = sync_proxy_builder
+                .clone()
+                .cold_cache("sliding_sync")
+                .add_view(sliding_window_view)
+                .add_view(growing_sync)
+                .build()
+                .await?;
+            let growing_sync =
+                sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+            let stream = sync_proxy.stream().await?;
+            pin_mut!(stream);
+            while growing_sync.state.get_cloned() != SlidingSyncState::Live {
+                // we wait until growing sync is all done, too
+                println!("awaiting");
+                let _room_summary = stream
+                    .next()
+                    .await
+                    .context("No room summary found, loop ended unsuccessfully")??;
+            }
+        }
+
+        println!("starting from cold");
+        // recover from frozen state.
+        let (sliding_window_view, growing_sync) = build_views()?;
+        // we recover only the window. this should be quick!
+
+        let start = Instant::now();
+        let _sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(sliding_window_view)
+            .add_view(growing_sync)
+            .build()
+            .await?;
+        let duration = start.elapsed();
+
+        assert!(duration < Duration::from_micros(10), "cold recovery was too slow: {duration:?}");
 
         Ok(())
     }
