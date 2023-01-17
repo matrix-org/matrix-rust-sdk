@@ -456,10 +456,10 @@ impl MasterPubkey {
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
     ) -> Result<(), SignatureError> {
-        // FIXME `KeyUsage is missing PartialEq.
-        // if self.0.usage.contains(&KeyUsage::Master) {
-        //     return Err(SignatureError::MissingSigningKey);
-        // }
+        if !self.0.usage.contains(&KeyUsage::Master) {
+            return Err(SignatureError::MissingSigningKey);
+        }
+
         let subkey: CrossSigningSubKeys<'_> = subkey.into();
 
         if self.0.user_id != subkey.user_id() {
@@ -487,6 +487,11 @@ impl UserSigningPubkey {
     /// Get the user id of the user signing key's owner.
     pub fn user_id(&self) -> &UserId {
         &self.0.user_id
+    }
+
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
     }
 
     /// Get the keys map of containing the user signing keys.
@@ -535,6 +540,11 @@ impl SelfSigningPubkey {
     /// Get the keys map of containing the self signing keys.
     pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
+    }
+
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
     }
 
     fn verify_device_keys(&self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
@@ -683,9 +693,13 @@ impl ReadOnlyUserIdentity {
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
     ) -> Result<Self, SignatureError> {
-        master_key.verify_subkey(&self_signing_key)?;
+        if !self_signing_key.usage().contains(&KeyUsage::SelfSigning) {
+            Err(SignatureError::MissingSigningKey)
+        } else {
+            master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self { user_id: (*master_key.0.user_id).into(), master_key, self_signing_key })
+            Ok(Self { user_id: (*master_key.0.user_id).into(), master_key, self_signing_key })
+        }
     }
 
     #[cfg(test)]
@@ -726,12 +740,16 @@ impl ReadOnlyUserIdentity {
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
     ) -> Result<(), SignatureError> {
-        master_key.verify_subkey(&self_signing_key)?;
+        if !self_signing_key.usage().contains(&KeyUsage::SelfSigning) {
+            Err(SignatureError::MissingSigningKey)
+        } else {
+            master_key.verify_subkey(&self_signing_key)?;
 
-        self.master_key = master_key;
-        self.self_signing_key = self_signing_key;
+            self.master_key = master_key;
+            self.self_signing_key = self_signing_key;
 
-        Ok(())
+            Ok(())
+        }
     }
 
     /// Check if the given device has been signed by this identity.
@@ -794,16 +812,22 @@ impl ReadOnlyOwnUserIdentity {
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
     ) -> Result<Self, SignatureError> {
-        master_key.verify_subkey(&self_signing_key)?;
-        master_key.verify_subkey(&user_signing_key)?;
+        if !self_signing_key.usage().contains(&KeyUsage::SelfSigning)
+            || !user_signing_key.usage().contains(&KeyUsage::UserSigning)
+        {
+            Err(SignatureError::MissingSigningKey)
+        } else {
+            master_key.verify_subkey(&self_signing_key)?;
+            master_key.verify_subkey(&user_signing_key)?;
 
-        Ok(Self {
-            user_id: (*master_key.0.user_id).into(),
-            master_key,
-            self_signing_key,
-            user_signing_key,
-            verified: Arc::new(AtomicBool::new(false)),
-        })
+            Ok(Self {
+                user_id: (*master_key.0.user_id).into(),
+                master_key,
+                self_signing_key,
+                user_signing_key,
+                verified: Arc::new(AtomicBool::new(false)),
+            })
+        }
     }
 
     #[cfg(test)]
@@ -908,19 +932,25 @@ impl ReadOnlyOwnUserIdentity {
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
     ) -> Result<(), SignatureError> {
-        master_key.verify_subkey(&self_signing_key)?;
-        master_key.verify_subkey(&user_signing_key)?;
+        if !self_signing_key.usage().contains(&KeyUsage::SelfSigning)
+            || !user_signing_key.usage().contains(&KeyUsage::UserSigning)
+        {
+            Err(SignatureError::MissingSigningKey)
+        } else {
+            master_key.verify_subkey(&self_signing_key)?;
+            master_key.verify_subkey(&user_signing_key)?;
 
-        self.self_signing_key = self_signing_key;
-        self.user_signing_key = user_signing_key;
+            self.self_signing_key = self_signing_key;
+            self.user_signing_key = user_signing_key;
 
-        if self.master_key != master_key {
-            self.verified.store(false, Ordering::SeqCst);
+            if self.master_key != master_key {
+                self.verified.store(false, Ordering::SeqCst);
+            }
+
+            self.master_key = master_key;
+
+            Ok(())
         }
-
-        self.master_key = master_key;
-
-        Ok(())
     }
 }
 
