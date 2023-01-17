@@ -833,8 +833,7 @@ impl OlmMachine {
     /// This method can be used to pass verification events that are happening
     /// in unencrypted rooms to the `OlmMachine`.
     ///
-    /// **Note**: This does not need to be called for encrypted events since
-    /// those will get passed to the `OlmMachine` during decryption.
+    /// **Note**: This has been deprecated.
     pub fn receive_unencrypted_verification_event(
         &self,
         event: &str,
@@ -846,7 +845,7 @@ impl OlmMachine {
     /// Receive a verification event.
     ///
     /// This method can be used to pass verification events that are happening
-    /// in rooms to the `OlmMachine`.
+    /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
     pub fn receive_verification_event(
         &self,
         event: &str,

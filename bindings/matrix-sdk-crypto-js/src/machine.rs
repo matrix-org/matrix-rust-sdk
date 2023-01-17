@@ -635,8 +635,8 @@ impl OlmMachine {
 
     /// Receive a verification event.
     ///
-    /// This method can be used to pass verification events that are
-    /// happening in rooms to the `OlmMachine`.
+    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
     #[wasm_bindgen(js_name = "receiveVerificationEvent")]
     pub fn receive_verification_event(&self, event: &str) -> Result<Promise, JsError> {
         let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
