@@ -344,7 +344,7 @@ async fn resolve_room_alias() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg"))
+        .and(path("/_matrix/client/r0/directory/room/%23alias:example.org"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::GET_ALIAS))
         .mount(&server)
         .await;
@@ -527,7 +527,7 @@ async fn get_media_file() {
     );
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/example%2Eorg/image"))
+        .and(path("/_matrix/media/r0/download/example.org/image"))
         .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
         .named("get_file")
         .mount(&server)
@@ -536,7 +536,7 @@ async fn get_media_file() {
     client.media().get_file(event_content.clone(), false).await.unwrap();
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
+        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
         .respond_with(
             ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
         )
