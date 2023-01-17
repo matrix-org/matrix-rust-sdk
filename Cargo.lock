@@ -4403,7 +4403,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=a399a4017a9f0b249ce848a652f2e4fe65435eaf#a399a4017a9f0b249ce848a652f2e4fe65435eaf"
+source = "git+https://github.com/ruma/ruma?rev=8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5#8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5"
 dependencies = [
  "js_int",
  "ruma-common",
