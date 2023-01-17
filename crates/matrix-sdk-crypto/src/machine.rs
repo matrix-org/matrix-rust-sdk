@@ -740,7 +740,7 @@ impl OlmMachine {
 
     /// Receive a verification event.
     ///
-    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
     /// in rooms to the `OlmMachine`.
     pub async fn receive_verification_event(&self, event: &AnyMessageLikeEvent) -> StoreResult<()> {
         self.verification_machine.receive_any_event(event).await
