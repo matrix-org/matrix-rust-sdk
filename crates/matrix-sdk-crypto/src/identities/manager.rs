@@ -540,7 +540,7 @@ impl IdentityManager {
                                     // the identity. We can safely mark the public part of the
                                     // identity as verified.
                                     identity.mark_as_verified();
-                                    trace!("Marked our own identity as verified");
+                                    trace!("Received our own user identity, for which we possess the private key. Marking as verified.");
                                 }
                             }
 
