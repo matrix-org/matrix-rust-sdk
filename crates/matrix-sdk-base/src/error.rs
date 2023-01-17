@@ -16,7 +16,7 @@
 //! Error conditions.
 
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::{CryptoStoreError, OlmError};
+use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use thiserror::Error;
 
 /// Result type of the rust-sdk.
@@ -51,4 +51,9 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     OlmError(#[from] OlmError),
+
+    /// An error occurred during a group E2EE operation.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    MegolmError(#[from] MegolmError),
 }
