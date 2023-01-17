@@ -264,7 +264,7 @@ impl BaseClient {
     ) -> Result<Option<SyncTimelineEvent>> {
         let Some(olm) = self.olm_machine() else { return Ok(None) };
 
-        let event = olm.decrypt_room_event(event.cast_ref(), room_id).await.unwrap();
+        let event = olm.decrypt_room_event(event.cast_ref(), room_id).await?;
         let event: SyncTimelineEvent = event.into();
 
         if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
