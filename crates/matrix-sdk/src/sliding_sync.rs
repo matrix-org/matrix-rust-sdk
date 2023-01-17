@@ -385,6 +385,8 @@ impl SlidingSyncConfig {
         let mut rooms = Default::default();
 
         if let Some(storage_key) = storage_key.as_ref() {
+            tracing::trace!(storage_key, "trying to load from cold");
+
             if let Some(mut f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
@@ -394,16 +396,19 @@ impl SlidingSyncConfig {
             {
                 for view in views.iter_mut() {
                     if let Some(frozen_view) = f.views.remove(&view.name) {
+                        tracing::trace!(name = view.name, "frozen for view found");
                         view.set_from_cold(frozen_view);
                     }
                 }
 
+                tracing::trace!("unfreezing rooms");
                 rooms = f
                     .rooms
                     .into_iter()
                     .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect();
+                    .collect::<BTreeMap<_, _>>();
 
+                tracing::trace!(len = rooms.len(), "rooms unfrozen");
                 if let Some(since) = f.to_device_since {
                     if let Some(to_device_ext) =
                         extensions.get_or_insert_with(Default::default).to_device.as_mut()
@@ -411,6 +416,7 @@ impl SlidingSyncConfig {
                         to_device_ext.since = Some(since);
                     }
                 }
+                tracing::trace!("unfreeze done");
             }
         };
 
