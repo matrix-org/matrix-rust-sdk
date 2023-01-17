@@ -304,7 +304,7 @@ interface MediaSource {
 };
 
 interface AuthenticationService {
-    constructor(string base_path);
+    constructor(string base_path, string? passphrase);
 };
 
 interface SessionVerificationEmoji {};
