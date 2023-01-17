@@ -6,6 +6,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use zeroize::Zeroizing;
 
 use super::{client::Client, ClientState, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
@@ -16,7 +17,7 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
-    passphrase: Option<String>,
+    passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     inner: MatrixClientBuilder,
 }
@@ -49,7 +50,7 @@ impl ClientBuilder {
 
     pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.passphrase = passphrase;
+        builder.passphrase = Zeroizing::new(passphrase);
         Arc::new(builder)
     }
 
@@ -67,7 +68,7 @@ impl ClientBuilder {
             username: None,
             server_name: None,
             homeserver_url: None,
-            passphrase: None,
+            passphrase: Zeroizing::new(None),
             user_agent: None,
             inner: MatrixClient::builder(),
         }

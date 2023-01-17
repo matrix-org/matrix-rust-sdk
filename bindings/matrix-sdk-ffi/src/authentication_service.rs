@@ -5,6 +5,7 @@ use matrix_sdk::{
     ruma::{OwnedDeviceId, UserId},
     Session,
 };
+use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 
@@ -13,6 +14,12 @@ pub struct AuthenticationService {
     passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
+}
+
+impl Drop for AuthenticationService {
+    fn drop(&mut self) {
+        self.passphrase.zeroize();
+    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
