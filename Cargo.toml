@@ -27,8 +27,8 @@ byteorder = "1.4.3"
 ctor = "0.1.26"
 dashmap = "5.2.0"
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "b859d9c8b09ca6c2bb6d1c2788d133295579c090", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "b859d9c8b09ca6c2bb6d1c2788d133295579c090" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "19f68065f1d5acf3997a4f6d2ccd74549f7cd1d8", features = ["client-api-c"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "19f68065f1d5acf3997a4f6d2ccd74549f7cd1d8" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"

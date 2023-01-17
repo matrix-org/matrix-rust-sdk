@@ -882,7 +882,7 @@ mod tests {
             .await;
 
         Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m\.reaction/.*".to_owned()))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event_id": event_id,
             })))
