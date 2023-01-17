@@ -326,6 +326,21 @@ impl OlmMachine {
         self.store.tracked_users().await
     }
 
+    /// Enable or disable room key forwarding.
+    ///
+    /// Room key forwarding allows the device to request room keys that it might
+    /// have missend in the original share using `m.room_key_request`
+    /// events.
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn toggle_room_key_forwarding(&self, enable: bool) {
+        self.key_request_machine.toggle_room_key_forwarding(enable)
+    }
+
+    /// Is room key forwarding enabled?
+    pub fn is_room_key_forwarding_enabled(&self) -> bool {
+        self.key_request_machine.is_room_key_forwarding_enabled()
+    }
+
     /// Get the outgoing requests that need to be sent out.
     ///
     /// This returns a list of [`OutgoingRequest`]. Those requests need to be

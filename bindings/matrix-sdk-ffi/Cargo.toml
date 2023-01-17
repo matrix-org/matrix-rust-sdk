@@ -42,7 +42,6 @@ uniffi = { workspace = true }
 url = "2.2.2"
 zeroize = { workspace = true }
 
-
 [target.'cfg(target_os = "android")'.dependencies]
 log-panics = { version = "2", features = ["with-backtrace"]}
 tracing-android = "0.2.0"
@@ -56,12 +55,12 @@ path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-timeline",
     "experimental-sliding-sync",
-    "markdown", 
-    "socks",
+    "experimental-timeline",
     "e2e-encryption",
+    "markdown", 
     "sled",
+    "socks",
     "rustls-tls",
 ]
 
@@ -70,11 +69,11 @@ path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-timeline",
-    "markdown",
     "experimental-sliding-sync",
-    "socks",
+    "experimental-timeline",
     "e2e-encryption",
-    "sled",
+    "markdown",
     "native-tls",
+    "sled",
+    "socks",
 ]

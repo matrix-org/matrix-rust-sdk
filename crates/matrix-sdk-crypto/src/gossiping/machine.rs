@@ -20,8 +20,12 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
+use atomic::Ordering;
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
@@ -63,6 +67,7 @@ pub(crate) struct GossipMachine {
     incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    room_key_forwarding_enabled: Arc<AtomicBool>,
 }
 
 impl GossipMachine {
@@ -73,6 +78,14 @@ impl GossipMachine {
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     ) -> Self {
+        #[cfg(feature = "automatic-room-key-forwarding")]
+        let room_key_forwarding_enabled = true;
+
+        #[cfg(not(feature = "automatic-room-key-forwarding"))]
+        let room_key_forwarding_enabled = false;
+
+        let room_key_forwarding_enabled = AtomicBool::new(room_key_forwarding_enabled).into();
+
         Self {
             user_id,
             device_id,
@@ -83,7 +96,17 @@ impl GossipMachine {
             incoming_key_requests: Default::default(),
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
+            room_key_forwarding_enabled,
         }
+    }
+
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn toggle_room_key_forwarding(&self, enabled: bool) {
+        self.room_key_forwarding_enabled.store(enabled, Ordering::SeqCst)
+    }
+
+    pub fn is_room_key_forwarding_enabled(&self) -> bool {
+        self.room_key_forwarding_enabled.load(Ordering::SeqCst)
     }
 
     /// Load stored outgoing requests that were not yet sent out.
@@ -441,26 +464,34 @@ impl GossipMachine {
     async fn handle_key_request(&self, event: &RoomKeyRequestEvent) -> OlmResult<Option<Session>> {
         use crate::types::events::room_key_request::{Action, RequestedKeyInfo};
 
-        match &event.content.action {
-            Action::Request(info) => match info {
-                RequestedKeyInfo::MegolmV1AesSha2(i) => {
-                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
-                }
-                #[cfg(feature = "experimental-algorithms")]
-                RequestedKeyInfo::MegolmV2AesSha2(i) => {
-                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
-                }
-                RequestedKeyInfo::Unknown(i) => {
-                    debug!(
-                        sender = ?event.sender,
-                        algorithm = ?i.algorithm,
-                        "Received a room key request for a unsupported algorithm"
-                    );
-                    Ok(None)
-                }
-            },
-            // We ignore cancellations here since there's nothing to serve.
-            Action::Cancellation => Ok(None),
+        if self.room_key_forwarding_enabled.load(Ordering::SeqCst) {
+            match &event.content.action {
+                Action::Request(info) => match info {
+                    RequestedKeyInfo::MegolmV1AesSha2(i) => {
+                        self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                    }
+                    #[cfg(feature = "experimental-algorithms")]
+                    RequestedKeyInfo::MegolmV2AesSha2(i) => {
+                        self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                    }
+                    RequestedKeyInfo::Unknown(i) => {
+                        debug!(
+                            sender = ?event.sender,
+                            algorithm = ?i.algorithm,
+                            "Received a room key request for a unsupported algorithm"
+                        );
+                        Ok(None)
+                    }
+                },
+                // We ignore cancellations here since there's nothing to serve.
+                Action::Cancellation => Ok(None),
+            }
+        } else {
+            debug!(
+                sender = ?event.sender,
+                "Received a room key request, but room key forwarding has been turned off"
+            );
+            Ok(None)
         }
     }
 
@@ -596,19 +627,23 @@ impl GossipMachine {
     /// the key we wish to request.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
-        let request = self.store.get_secret_request_by_info(key_info).await?;
+        if self.room_key_forwarding_enabled.load(Ordering::SeqCst) {
+            let request = self.store.get_secret_request_by_info(key_info).await?;
 
-        // Don't send out duplicate requests, users can re-request them if they
-        // think a second request might succeed.
-        if request.is_none() {
-            let devices = self.store.get_user_devices(self.user_id()).await?;
+            // Don't send out duplicate requests, users can re-request them if they
+            // think a second request might succeed.
+            if request.is_none() {
+                let devices = self.store.get_user_devices(self.user_id()).await?;
 
-            // Devices will only respond to key requests if the devices are
-            // verified, if the device isn't verified by us it's unlikely that
-            // we're verified by them either. Don't request keys if there isn't
-            // at least one verified device.
-            if devices.is_any_verified() {
-                Ok(true)
+                // Devices will only respond to key requests if the devices are
+                // verified, if the device isn't verified by us it's unlikely that
+                // we're verified by them either. Don't request keys if there isn't
+                // at least one verified device.
+                if devices.is_any_verified() {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
             } else {
                 Ok(false)
             }

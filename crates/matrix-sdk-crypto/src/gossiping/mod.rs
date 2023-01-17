@@ -219,7 +219,6 @@ impl PartialEq for GossipRequest {
 }
 
 #[derive(Debug)]
-#[non_exhaustive]
 enum RequestEvent {
     KeyShare(RoomKeyRequestEvent),
     Secret(SecretRequestEvent),
