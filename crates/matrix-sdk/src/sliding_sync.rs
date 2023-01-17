@@ -757,6 +757,7 @@ impl SlidingSync {
         resp: v4::Response,
         extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
+        generators: &mut [SlidingSyncViewRequestGenerator<'_>],
         ranges: &[Vec<(usize, usize)>],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
@@ -772,14 +773,16 @@ impl SlidingSync {
                 .into());
             }
 
-            for ((view, ranges), updates) in
-                std::iter::zip(std::iter::zip(views, ranges), &resp.lists)
-            {
+            for (((view, generator), ranges), updates) in std::iter::zip(
+                std::iter::zip(std::iter::zip(views, generators), ranges),
+                &resp.lists,
+            ) {
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
                 trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
                 if view.handle_response(count, &updates.ops, ranges)? {
                     updated_views.push(view.name.clone());
+                    generator.update_state(count, ranges);
                 }
             }
 
@@ -948,7 +951,7 @@ impl SlidingSync {
 
                 debug!("received");
 
-                let updates =  match self.handle_response(resp, extensions, &remaining_views, &current_ranges).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views, &mut remaining_generators, &current_ranges).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
@@ -1196,14 +1199,13 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         start: u32,
         batch_size: u32,
         limit: Option<u32>,
-    ) -> (u32, (v4::SyncRequestList, Vec<(usize, usize)>)) {
+    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let calc_end = start + batch_size;
         let end = match limit {
             Some(l) => std::cmp::min(l, calc_end),
             _ => calc_end,
         };
-        let ranges = vec![(start.into(), end.into())];
-        (end, self.make_request_for_ranges(ranges))
+        self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
     fn make_request_for_ranges(
@@ -1240,73 +1242,84 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
+
+    fn update_state(&mut self, total: u32, ranges: &[(usize, usize)]) {
+        let Some((_start, end)) = ranges.get(0) else {
+            error!("Why don't we have any ranges?");
+            return
+        };
+
+        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position: _, limit, .. }
+        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+            position: _, limit, ..
+        } = self.inner
+        {
+            let max = limit.unwrap_or(total);
+            if end >= &(max as usize) {
+                // we are switching to live mode
+                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
+                    !matches!(before, SlidingSyncState::Live)
+                });
+                // keep listening to the entire list to learn about position updates
+                self.view.set_range(0, max);
+                self.inner = InnerSlidingSyncViewRequestGenerator::Live
+            }
+        }
+
+        match self.inner {
+            InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                position: _,
+                batch_size,
+                limit,
+            } => {
+                self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                    position: *end as u32,
+                    batch_size,
+                    limit,
+                };
+                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                });
+            }
+            InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position: _,
+                batch_size,
+                limit,
+            } => {
+                self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                    position: *end as u32,
+                    batch_size,
+                    limit,
+                };
+                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                });
+            }
+            InnerSlidingSyncViewRequestGenerator::Live => {
+                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
+                    !matches!(before, SlidingSyncState::Live)
+                });
+            }
+        }
+    }
 }
 
 impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
     type Item = (v4::SyncRequestList, Vec<(usize, usize)>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, limit, .. }
-        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { position, limit, .. } =
-            self.inner
-        {
-            if let Some(count) = self.view.rooms_count.get_cloned() {
-                let end = limit.unwrap_or(count);
-                if count <= position || end <= position {
-                    // we are switching to live mode
-                    self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        !matches!(before, SlidingSyncState::Live)
-                    });
-                    // keep listening to the entire list to learn about position updates
-                    self.view.set_range(0, end);
-                    self.inner = InnerSlidingSyncViewRequestGenerator::Live
-                }
-            } else {
-                // upon first catch up request, we want to switch state
-                self.view.state.set_if(SlidingSyncState::Preload, |before, _now| {
-                    matches!(before, SlidingSyncState::Cold)
-                });
-            }
-        }
         match self.inner {
             InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                 position,
                 batch_size,
                 limit,
-            } => {
-                let (end, req) = self.prefetch_request(position, batch_size, limit);
-                self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                    position: end,
-                    batch_size,
-                    limit,
-                };
-                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
-                });
-                Some(req)
-            }
+            } => Some(self.prefetch_request(position, batch_size, limit)),
             InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position,
                 batch_size,
                 limit,
-            } => {
-                let (end, req) = self.prefetch_request(0, position + batch_size, limit);
-                self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                    position: end,
-                    batch_size,
-                    limit,
-                };
-                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
-                });
-                Some(req)
-            }
-            InnerSlidingSyncViewRequestGenerator::Live => {
-                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                    !matches!(before, SlidingSyncState::Live)
-                });
-                Some(self.live_request())
-            }
+            } => Some(self.prefetch_request(0, position + batch_size, limit)),
+            InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
         }
     }
 }
@@ -1337,7 +1350,11 @@ fn room_ops(
                     .enumerate()
                     .map(|(i, r)| {
                         let idx = start as usize + i;
-                        rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
+                        if idx >= rooms_list.len() {
+                            rooms_list.insert_cloned(idx, RoomListEntry::Filled(r));
+                        } else {
+                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
+                        }
                     })
                     .count();
             }

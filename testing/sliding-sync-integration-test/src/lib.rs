@@ -55,7 +55,7 @@ mod tests {
     use anyhow::Context;
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
-        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode,
+        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode, SlidingSyncState,
         SlidingSyncViewBuilder,
     };
 
@@ -315,6 +315,93 @@ mod tests {
 
     //     Ok(())
     // }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn view_goes_live() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(21).await?;
+        let sliding_window_view = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::Selective)
+            .set_range(0u32, 10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("sliding")
+            .build()?;
+
+        let full = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .batch_size(10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("full")
+            .build()?;
+        let sync_proxy =
+            sync_proxy_builder.add_view(sliding_window_view).add_view(full).build().await?;
+
+        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+        let full_view = sync_proxy.view("full").context("but we just added that view!")?;
+        assert_eq!(view.state.get_cloned(), SlidingSyncState::Cold, "view isn't cold");
+        assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Cold, "full isn't cold");
+
+        let stream = sync_proxy.stream().await?;
+        pin_mut!(stream);
+
+        // exactly one poll!
+        let room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
+
+        // we only heard about the ones we had asked for
+        assert_eq!(room_summary.rooms.len(), 11);
+        assert_eq!(view.state.get_cloned(), SlidingSyncState::Live, "view isn't live");
+        assert_eq!(
+            full_view.state.get_cloned(),
+            SlidingSyncState::CatchingUp,
+            "full isn't preloading"
+        );
+
+        // doing another two requests 0-20; 0-21 should bring full live, too
+        let _room_summary =
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
+
+        let _room_summary = stream.next().await.context(
+            "No room summary found, loop ended
+        unsuccessfully",
+        )??;
+
+        let rooms_list = full_view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            rooms_list,
+            [
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+            ]
+        );
+        assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Live, "full isn't live yet");
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn resizing_sliding_window() -> anyhow::Result<()> {
