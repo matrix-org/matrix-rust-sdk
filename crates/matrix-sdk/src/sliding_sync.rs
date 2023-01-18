@@ -276,6 +276,7 @@ impl SlidingSyncRoom {
         let v4::SlidingSyncRoom {
             name,
             initial,
+            limited,
             is_dm,
             invite_state,
             unread_notifications,
@@ -311,12 +312,18 @@ impl SlidingSyncRoom {
                 // if we come from cold storage, we hard overwrite
                 self.timeline.lock_mut().replace_cloned(timeline);
                 self.is_cold.store(false, Ordering::SeqCst);
+            } else if *limited {
+                // the server alerted us that we missed items in between
+                self.timeline.lock_mut().replace_cloned(timeline);
             } else {
                 let mut ref_timeline = self.timeline.lock_mut();
                 for e in timeline {
                     ref_timeline.push_cloned(e);
                 }
             }
+        } else if *limited {
+            // notihing but we were alerted that we are stale. clear up
+            self.timeline.lock_mut().clear();
         }
     }
 }
