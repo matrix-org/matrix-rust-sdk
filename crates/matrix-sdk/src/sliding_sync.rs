@@ -26,7 +26,7 @@ use std::{
 use futures_core::stream::Stream;
 use futures_signals::{
     signal::Mutable,
-    signal_map::MutableBTreeMap,
+    signal_map::{MutableBTreeMap, MutableBTreeMapLockRef},
     signal_vec::{MutableVec, MutableVecLockMut},
 };
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
@@ -386,33 +386,41 @@ impl SlidingSyncConfig {
             mut extensions,
             subscriptions,
         } = self;
-        let mut rooms = Default::default();
+        let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = storage_key.as_ref() {
             tracing::trace!(storage_key, "trying to load from cold");
 
-            if let Some(mut f) = client
+            for view in views.iter_mut() {
+                if let Some(frozen_view) = client
+                    .store()
+                    .get_custom_value(format!("{storage_key}::{0}", view.name).as_bytes())
+                    .await?
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .transpose()?
+                {
+                    tracing::trace!(name = view.name, "frozen for view found");
+
+                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
+                    view.set_from_cold(rooms_count, rooms_list);
+                    for (key, frozen_room) in rooms.into_iter() {
+                        rooms_found.entry(key).or_insert_with(|| {
+                            SlidingSyncRoom::from_frozen(frozen_room, client.clone())
+                        });
+                    }
+                } else {
+                    trace!(name = view.name, "no frozen state for view found");
+                }
+            }
+
+            if let Some(f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
                 .await?
                 .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
                 .transpose()?
             {
-                for view in views.iter_mut() {
-                    if let Some(frozen_view) = f.views.remove(&view.name) {
-                        tracing::trace!(name = view.name, "frozen for view found");
-                        view.set_from_cold(frozen_view);
-                    }
-                }
-
-                tracing::trace!("unfreezing rooms");
-                rooms = f
-                    .rooms
-                    .into_iter()
-                    .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect::<BTreeMap<_, _>>();
-
-                tracing::trace!(len = rooms.len(), "rooms unfrozen");
+                tracing::trace!("frozen for generic found");
                 if let Some(since) = f.to_device_since {
                     if let Some(to_device_ext) =
                         extensions.get_or_insert_with(Default::default).to_device.as_mut()
@@ -420,11 +428,12 @@ impl SlidingSyncConfig {
                         to_device_ext.since = Some(since);
                     }
                 }
-                tracing::trace!("unfreeze done");
             }
+            tracing::trace!("sync unfrozen done");
         };
 
-        let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
+        tracing::trace!(len = rooms_found.len(), "rooms unfrozen");
+        let rooms = Arc::new(MutableBTreeMap::with_values(rooms_found));
         // map the roomsmap into the views:
         for v in &mut views {
             v.rooms = rooms.clone();
@@ -613,8 +622,6 @@ pub struct SlidingSync {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
-    views: BTreeMap<String, FrozenSlidingSyncView>,
-    rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
 }
@@ -622,8 +629,6 @@ struct FrozenSlidingSync {
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(v: &SlidingSync) -> Self {
         FrozenSlidingSync {
-            views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
-            rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
             to_device_since: v
                 .extensions
                 .lock()
@@ -637,8 +642,27 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 impl SlidingSync {
     async fn cache_to_storage(&self) -> Result<()> {
         let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
+        trace!(storage_key, "saving to storage for later use");
         let v = serde_json::to_vec(&FrozenSlidingSync::from(self))?;
         self.client.store().set_custom_value(storage_key.as_bytes(), v).await?;
+        let frozen_views = {
+            let rooms_lock = self.rooms.lock_ref();
+            self.views
+                .lock_ref()
+                .iter()
+                .map(|v| (v.name.clone(), FrozenSlidingSyncView::freeze(v, &rooms_lock)))
+                .collect::<Vec<_>>()
+        };
+        for (name, frozen) in frozen_views {
+            trace!(storage_key, name, "saving to view for later use");
+            self.client
+                .store()
+                .set_custom_value(
+                    format!("{storage_key}::{name}").as_bytes(),
+                    serde_json::to_vec(&frozen)?,
+                )
+                .await?; // FIXME: parallilize?
+        }
         Ok(())
     }
 }
@@ -1051,22 +1075,41 @@ pub struct SlidingSyncView {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSyncView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     rooms_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     rooms_list: Vec<RoomListEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
 
-impl From<&SlidingSyncView> for FrozenSlidingSyncView {
-    fn from(v: &SlidingSyncView) -> Self {
+impl FrozenSlidingSyncView {
+    fn freeze(
+        source_view: &SlidingSyncView,
+        rooms_map: &MutableBTreeMapLockRef<'_, OwnedRoomId, SlidingSyncRoom>,
+    ) -> Self {
+        let mut rooms = BTreeMap::new();
+        let mut rooms_list = Vec::new();
+        for entry in source_view.rooms_list.lock_ref().iter() {
+            match entry {
+                RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
+                    rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
+                }
+                _ => {}
+            };
+
+            rooms_list.push(entry.freeze());
+        }
         FrozenSlidingSyncView {
-            rooms_count: *v.rooms_count.lock_ref(),
-            rooms_list: v.rooms_list.lock_ref().iter().map(|e| e.freeze()).collect(),
+            rooms_count: *source_view.rooms_count.lock_ref(),
+            rooms_list,
+            rooms,
         }
     }
 }
 
 impl SlidingSyncView {
-    fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
-        let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
+    fn set_from_cold(&mut self, rooms_count: Option<u32>, rooms_list: Vec<RoomListEntry>) {
         self.state.set(SlidingSyncState::Preload);
         self.is_cold.store(true, Ordering::Relaxed);
         self.rooms_count.replace(rooms_count);
@@ -1244,7 +1287,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     }
 
     fn update_state(&mut self, total: u32, ranges: &[(usize, usize)]) {
-        let Some((_start, end)) = ranges.get(0) else {
+        let Some((_start, end)) = ranges.first() else {
             error!("Why don't we have any ranges?");
             return
         };
