@@ -5,6 +5,7 @@ const {
     DeviceKeyId,
     DeviceLists,
     EncryptionSettings,
+    EventId,
     InboundGroupSession,
     KeysClaimRequest,
     KeysQueryRequest,
@@ -14,9 +15,11 @@ const {
     OwnUserIdentity,
     RequestType,
     RoomId,
+    RoomMessageRequest,
     SignatureUploadRequest,
     ToDeviceRequest,
     UserId,
+    UserIdentity,
     VerificationRequest,
     VerificationState,
 } = require('../pkg/matrix_sdk_crypto_js');
@@ -623,5 +626,183 @@ describe(OlmMachine.name, () => {
                 keys: expect.any(Object),
             });
         });
+    });
+
+    describe('can do in-room verification', () => {
+        let m;
+        const user = new UserId('@alice:example.org');
+        const device = new DeviceId('JLAFKJWSCS');
+        const room = new RoomId('!test:localhost');
+
+        beforeAll(async () => {
+            m = await machine(user, device);
+        });
+
+        test('can inject devices from someone else', async () => {
+            {
+                const hypothetical_response = JSON.stringify({
+                    "device_keys": {
+                        "@example:morpheus.localhost": {
+                            "ATRLDCRXAC": {
+                                "algorithms": [
+                                    "m.olm.v1.curve25519-aes-sha2",
+                                    "m.megolm.v1.aes-sha2"
+                                ],
+                                "device_id": "ATRLDCRXAC",
+                                "keys": {
+                                    "curve25519:ATRLDCRXAC": "cAVT5Es3Z3F5pFD+2w3HT7O9+R3PstzYVkzD51X/FWQ",
+                                    "ed25519:ATRLDCRXAC": "V2w/T/x7i7AXiCCtS6JldrpbvRliRoef3CqTUNqMRHA"
+                                },
+                                "signatures": {
+                                    "@example:morpheus.localhost": {
+                                        "ed25519:ATRLDCRXAC": "ro2BjO5J6089B/JOANHnFmGrogrC2TIdMlgJbJO00DjOOcGxXfvOezCFIORTwZNHvkHU617YIGl/4keTDIWvBQ"
+                                    }
+                                },
+                                "user_id": "@example:morpheus.localhost",
+                                "unsigned": {
+                                    "device_display_name": "Element Desktop: Linux"
+                                }
+                            },
+                            "EYYGYTCTNC": {
+                                "algorithms": [
+                                    "m.olm.v1.curve25519-aes-sha2",
+                                    "m.megolm.v1.aes-sha2"
+                                ],
+                                "device_id": "EYYGYTCTNC",
+                                "keys": {
+                                    "curve25519:EYYGYTCTNC": "Pqu50fo472wgb6NjKkaUxjuqoAIEAmhln2gw/zSQ7Ek",
+                                    "ed25519:EYYGYTCTNC": "Pf/2QPvui8lDty6TCTglVPRVM+irNHYavNNkyv5yFpU"
+                                },
+                                "signatures": {
+                                    "@example:morpheus.localhost": {
+                                        "ed25519:EYYGYTCTNC": "pnP5BYLEUUaxDgrvdzCznkjNDbvY1/MFBr1JejdnLiXlcmxRULQpIWZUCO7QTbULsCwMsYQNGn50nfmjBQX3CQ"
+                                    }
+                                },
+                                "user_id": "@example:morpheus.localhost",
+                                "unsigned": {
+                                    "device_display_name": "WeeChat-Matrix-rs"
+                                }
+                            },
+                            "SUMODVLSIU": {
+                                "algorithms": [
+                                    "m.olm.v1.curve25519-aes-sha2",
+                                    "m.megolm.v1.aes-sha2"
+                                ],
+                                "device_id": "SUMODVLSIU",
+                                "keys": {
+                                    "curve25519:SUMODVLSIU": "geQXWGWc++gcUHk0JcFmEVSjyzDOnk2mjVsUQwbNqQU",
+                                    "ed25519:SUMODVLSIU": "ccktaQ3g+B18E6FwVhTBYie26OlHbvDUzDEtxOQ4Qcs"
+                                },
+                                "signatures": {
+                                    "@example:morpheus.localhost": {
+                                        "ed25519:SUMODVLSIU": "Yn+AOxHRt1GQpY2xT2Jcqqn8jh5+Vw23ctA7NXyDiWPsLPLNTpjGWHMjZdpUqflQvpiKfhODPICoIa7Pu0iSAg",
+                                        "ed25519:rUiMNDjIu6gqsrhJPbj3phyIzuEtuQGrLOEa9mCbtTM": "Cio6k/sq289XNTOvTCWre7Q6zg+A3euzMUe7Uy1T3gPqYFzX+kt7EAxrhbPqx1HyXAEz9zD0D/uw9VEXFCvWBQ"
+                                    }
+                                },
+                                "user_id": "@example:morpheus.localhost",
+                                "unsigned": {
+                                    "device_display_name": "Element Desktop (Linux)"
+                                }
+                            }
+                        }
+                    },
+                    "failures": {},
+                    "master_keys": {
+                        "@example:morpheus.localhost": {
+                            "user_id": "@example:morpheus.localhost",
+                            "usage": [
+                                "master"
+                            ],
+                            "keys": {
+                                "ed25519:ZzU4WCyBfOFitdGmfKCq6F39iQCDk/zhNNTsi+tWH7A": "ZzU4WCyBfOFitdGmfKCq6F39iQCDk/zhNNTsi+tWH7A"
+                            },
+                            "signatures": {
+                                "@example:morpheus.localhost": {
+                                    "ed25519:SUMODVLSIU": "RL6WOuuzB/mZ+edfUFG/KeEcmKh+NaWpM6m2bUYmDnJrtTCYyoU+pgHJuL2/6nynemmONo18JEHBuqtNcMq2AQ"
+                                }
+                            }
+                        }
+                    },
+                    "self_signing_keys": {
+                        "@example:morpheus.localhost": {
+                            "user_id": "@example:morpheus.localhost",
+                            "usage": [
+                                "self_signing"
+                            ],
+                            "keys": {
+                                "ed25519:rUiMNDjIu6gqsrhJPbj3phyIzuEtuQGrLOEa9mCbtTM": "rUiMNDjIu6gqsrhJPbj3phyIzuEtuQGrLOEa9mCbtTM"
+                            },
+                            "signatures": {
+                                "@example:morpheus.localhost": {
+                                    "ed25519:ZzU4WCyBfOFitdGmfKCq6F39iQCDk/zhNNTsi+tWH7A": "uCBn9rpeg6umY8H97ejN26UMp6QDwNL98869t1DoVGL50J8adLN05OZd8lYk9QzwTr2d56ZTGYSYX8kv28SDDA"
+                                }
+                            }
+                        }
+                    },
+                    "user_signing_keys": {
+                        "@example:morpheus.localhost": {
+                            "user_id": "@example:morpheus.localhost",
+                            "usage": [
+                                "user_signing"
+                            ],
+                            "keys": {
+                                "ed25519:GLhEKLQ50jnF6IMEPsO2ucpHUNIUEnbBXs5gYbHg4Aw": "GLhEKLQ50jnF6IMEPsO2ucpHUNIUEnbBXs5gYbHg4Aw"
+                            },
+                            "signatures": {
+                                "@example:morpheus.localhost": {
+                                    "ed25519:ZzU4WCyBfOFitdGmfKCq6F39iQCDk/zhNNTsi+tWH7A": "4fIyWlVzuz1pgoegNLZASycORXqKycVS0dNq5vmmwsVEudp1yrPhndnaIJ3fjF8LDHvwzXTvohOid7DiU1j0AA"
+                                }
+                            }
+                        }
+                    }
+                });
+                const marked = await m.markRequestAsSent('foo', RequestType.KeysQuery, hypothetical_response);
+            }
+        });
+
+        test('can start an in-room SAS verification', async () => {
+            let _ = m.bootstrapCrossSigning(true);
+            const identity = await m.getIdentity(new UserId('@example:morpheus.localhost'));
+
+            expect(identity).toBeInstanceOf(UserIdentity);
+            expect(identity.isVerified()).toStrictEqual(false);
+
+            const eventId = new EventId('$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg');
+            const verificationRequest = await identity.requestVerification(room, eventId);
+            expect(verificationRequest).toBeInstanceOf(VerificationRequest);
+
+            await m.receiveVerificationEvent(
+                JSON.stringify({
+                    "sender": "@example:morpheus.localhost",
+                    "type": "m.key.verification.ready",
+                    "event_id": "$QguWmaeMt6Hao7Ea6XHDInvr8ndknev79t9a2eBxlz0",
+                    "origin_server_ts": 1674037263075,
+                    "content": {
+                        "methods": [
+                            "m.sas.v1",
+                            "m.qr_code.show.v1",
+                            "m.reciprocate.v1"
+                        ],
+                        "from_device": "SUMODVLSIU",
+                        "m.relates_to": {
+                            "rel_type": "m.reference",
+                            "event_id": eventId.toString(),
+                        }
+                    }
+                }),
+                room
+            );
+
+            expect(verificationRequest.roomId.toString()).toStrictEqual(room.toString());
+
+            const [_sas, outgoingVerificationRequest] = await verificationRequest.startSas();
+
+            expect(outgoingVerificationRequest).toBeInstanceOf(RoomMessageRequest);
+            expect(outgoingVerificationRequest.id).toBeDefined();
+            expect(outgoingVerificationRequest.room_id).toStrictEqual(room.toString());
+            expect(outgoingVerificationRequest.txn_id).toBeDefined();
+            expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.start');
+            expect(outgoingVerificationRequest.content).toBeDefined();
+        })
     });
 });
