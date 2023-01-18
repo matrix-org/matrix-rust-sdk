@@ -8,14 +8,30 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 /// The verification state of the device that sent an event to us.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum VerificationState {
-    /// The device is trusted.
-    Trusted,
-    /// The device is not trusted.
-    Untrusted,
-    /// The device is not known to us.
+    /// This the only state were the authenticity is
+    /// guaranteed. It's coming from a device belonging to a
+    /// user that we have verified.
+    /// Other states give you more details about the level of trust.
+    Verified,
+    /// A signed device of an unverified user.
+    /// Message is coming from a cross signed device of a user
+    /// identity that we haven't yet verified.
+    SignedDeviceOfUnverifiedUser,
+    /// An unsigned device of a verified user.
+    UnSignedDeviceOfVerifiedUser,
+    /// The device is not signed by the user, and
+    /// we haven't verified the user
+    UnSignedDevice,
+    /// The device is unknown or deleted.
     UnknownDevice,
+    /// The key is coming from an unsafe source, and authenticity cannot
+    /// be established.
+    UnsafeSource,
+    /// The key used to decrypt as an inconsistent set of identity keys.
+    /// Potential attack?
+    Mismatch,
 }
 
 /// The algorithm specific information of a decrypted event.
@@ -37,10 +53,10 @@ pub enum AlgorithmInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
-    /// `verification_state` is as well trusted.
+    /// `verification_state` is as well Verified.
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
-    /// untrusted data unless `verification_state` is as well trusted.
+    /// untrusted data unless `verification_state` is as well Verified.
     pub sender_device: Option<OwnedDeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,

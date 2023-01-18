@@ -259,6 +259,26 @@ impl Device {
         }
     }
 
+    /// Is this device cross signed by it's owner?
+    pub fn is_cross_signed_by_owner(&self) -> bool {
+        self.device_owner_identity
+            .as_ref()
+            .map(|device_identity| match device_identity {
+                // If it's one of our own devices, just check that
+                // we signed the device.
+                ReadOnlyUserIdentities::Own(i) => {
+                    i.is_device_signed(&self.inner).map_or(false, |_| true)
+                }
+
+                // If it's a device from someone else, check
+                // if the other user has signed this device.
+                ReadOnlyUserIdentities::Other(device_identity) => {
+                    device_identity.is_device_signed(&self.inner).map_or(false, |_| true)
+                }
+            })
+            .unwrap_or(false)
+    }
+
     /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that

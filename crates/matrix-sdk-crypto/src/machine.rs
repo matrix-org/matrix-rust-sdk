@@ -82,7 +82,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
+    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice,
+    ReadOnlyUserIdentities, RoomKeyImportResult,
     SignatureError, ToDeviceRequest,
 };
 
@@ -1108,12 +1109,51 @@ impl OlmMachine {
                 //
                 //     a) This is our own device, or
                 //     b) The device itself is considered to be trusted.
-                if device.is_owner_of_session(session)?
-                    && (device.is_our_own_device() || device.is_verified())
-                {
-                    (VerificationState::Trusted, Some(device.device_id().to_owned()))
+                if session.has_been_imported() {
+                    // the sender_key is claimed we can't check any authenticity
+                    (VerificationState::UnsafeSource, None)
+                } else if device.is_owner_of_session(session) {
+                    let device_owner_verified = device
+                        .device_owner_identity
+                        .as_ref()
+                        .map(|id| match id {
+                            ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
+                            ReadOnlyUserIdentities::Other(other_identity) => device
+                                .own_identity
+                                .as_ref()
+                                .map(|oi| {
+                                    oi.is_verified()
+                                        && oi.is_identity_signed(other_identity).is_ok()
+                                })
+                                .unwrap_or(false),
+                        })
+                        .unwrap_or(false);
+
+                    if device.is_our_own_device() || device.is_verified() {
+                        // Special case that to consider local trust
+                        (VerificationState::Verified, Some(device.device_id().to_owned()))
+                    } else if device.is_cross_signed_by_owner() {
+                        if device_owner_verified {
+                            // can this happen? in this case the device would be verified
+                            (VerificationState::Verified, Some(device.device_id().to_owned()))
+                        } else {
+                            (
+                                VerificationState::SignedDeviceOfUnverifiedUser,
+                                Some(device.device_id().to_owned()),
+                            )
+                        }
+                    } else if device_owner_verified {
+                        (
+                            VerificationState::UnSignedDeviceOfVerifiedUser,
+                            Some(device.device_id().to_owned()),
+                        )
+                    } else {
+                        (VerificationState::UnSignedDevice, Some(device.device_id().to_owned()))
+                    }
                 } else {
-                    (VerificationState::Untrusted, Some(device.device_id().to_owned()))
+                    // mismatch of identity and fingerprint
+                    // The device (curve, ed) does not matched the key (curve, claimed_ed)
+                    (VerificationState::Mismatch, Some(device.device_id().to_owned()))
                 }
             } else {
                 // We didn't find a device, no way to know if we should trust
@@ -1611,6 +1651,7 @@ pub(crate) mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
     use assert_matches::assert_matches;
+    use matrix_sdk_common::deserialized_responses::VerificationState;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
@@ -1645,7 +1686,7 @@ pub(crate) mod tests {
     use crate::{
         error::EventError,
         machine::OlmMachine,
-        olm::VerifyJson,
+        olm::{InboundGroupSession, VerifyJson},
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -1655,7 +1696,7 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
+        EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2114,6 +2155,71 @@ pub(crate) mod tests {
         } else {
             panic!("Decrypted room event has the wrong type")
         }
+    }
+
+    #[async_test]
+    async fn test_decryption_verification_state() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = room_id!("!test:example.org");
+
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(to_device_requests),
+        );
+
+        let group_session =
+            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
+
+        let export = group_session.as_ref().unwrap().clone().export().await;
+
+        bob.store.save_inbound_group_sessions(&[group_session.unwrap()]).await.unwrap();
+
+        let plaintext = "It is a secret to everybody";
+
+        let content = RoomMessageEventContent::text_plain(plaintext);
+
+        let encrypted_content = alice
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .await
+            .unwrap();
+
+        let event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": encrypted_content,
+        });
+
+        let event = json_convert(&event).unwrap();
+
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        assert_eq!(VerificationState::UnSignedDevice, encryption_info.verification_state);
+
+        // mark the alice device as verified
+        bob.get_device(alice.user_id(), alice_device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .set_trust_state(LocalTrust::Verified);
+
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        assert_eq!(VerificationState::Verified, encryption_info.verification_state);
+
+        // Simulate an imported session, to change verification state
+        let imported = InboundGroupSession::from_export(&export).unwrap();
+        bob.store.save_inbound_group_sessions(&[imported]).await.unwrap();
+
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
     }
 
     #[async_test]
