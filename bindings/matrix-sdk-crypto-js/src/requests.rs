@@ -239,11 +239,11 @@ pub struct RoomMessageRequest {
     #[wasm_bindgen(readonly)]
     pub txn_id: JsString,
 
-    /// A string representing the type of even from the message's content.
+    /// A string representing the type of event to be sent.
     #[wasm_bindgen(readonly)]
     pub event_type: JsString,
 
-    /// A JSON-encoded string containing the message's body.
+    /// A JSON-encoded string containing the message's content.
     #[wasm_bindgen(readonly, js_name = "body")]
     pub content: JsString,
 }
