@@ -2,7 +2,10 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use matrix_sdk::{
-    ruma::{ServerName, UserId},
+    ruma::{
+        api::{error::UnknownVersionError, MatrixVersion},
+        ServerName, UserId,
+    },
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
@@ -17,6 +20,7 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
+    server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     inner: MatrixClientBuilder,
@@ -33,6 +37,12 @@ impl ClientBuilder {
     pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.username = Some(username);
+        Arc::new(builder)
+    }
+
+    pub fn server_versions(self: Arc<Self>, versions: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.server_versions = Some(versions);
         Arc::new(builder)
     }
 
@@ -68,6 +78,7 @@ impl ClientBuilder {
             username: None,
             server_name: None,
             homeserver_url: None,
+            server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
             inner: MatrixClient::builder(),
@@ -103,6 +114,15 @@ impl ClientBuilder {
 
         if let Some(user_agent) = builder.user_agent {
             inner_builder = inner_builder.user_agent(user_agent);
+        }
+
+        if let Some(server_versions) = builder.server_versions {
+            inner_builder = inner_builder.server_versions(
+                server_versions
+                    .iter()
+                    .map(|s| MatrixVersion::try_from(s.as_str()))
+                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()?,
+            );
         }
 
         RUNTIME.block_on(async move {
