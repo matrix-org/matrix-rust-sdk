@@ -2830,6 +2830,7 @@ dependencies = [
  "uniffi",
  "uniffi_build",
  "uniffi_macros",
+ "zeroize",
 ]
 
 [[package]]

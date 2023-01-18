@@ -6,6 +6,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use zeroize::Zeroizing;
 
 use super::{client::Client, ClientState, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
@@ -16,6 +17,7 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
+    passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     inner: MatrixClientBuilder,
 }
@@ -46,6 +48,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.passphrase = Zeroizing::new(passphrase);
+        Arc::new(builder)
+    }
+
     pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.user_agent = Some(user_agent);
@@ -60,6 +68,7 @@ impl ClientBuilder {
             username: None,
             server_name: None,
             homeserver_url: None,
+            passphrase: Zeroizing::new(None),
             user_agent: None,
             inner: MatrixClient::builder(),
         }
@@ -74,7 +83,7 @@ impl ClientBuilder {
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
 
-            inner_builder = inner_builder.sled_store(data_path, None);
+            inner_builder = inner_builder.sled_store(data_path, builder.passphrase.as_deref());
         }
 
         // Determine server either from URL, server name or user ID.
