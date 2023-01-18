@@ -88,6 +88,23 @@ pub enum MegolmError {
     #[error("decryption failed because the room key is missing")]
     MissingRoomKey,
 
+    /// Decryption failed because of a key mismatch between the identity keys of
+    /// the device and the keys that were recorded when the room key was
+    /// received.
+    #[error(
+        "decryption failed because the keys room key don't match the identity keys for the device"
+    )]
+    MismatchedIdentityKeys {
+        /// The Ed25519 key that was bound to the room key.
+        ed25519: Box<Ed25519PublicKey>,
+        /// The Ed25519 identity key of the device.
+        device_ed25519: Option<Box<Ed25519PublicKey>>,
+        /// The Curve25519 key that was bound to the room key.
+        curve25519: Box<Curve25519PublicKey>,
+        /// The Curve25519 identity key of the device.
+        device_curve25519: Option<Box<Curve25519PublicKey>>,
+    },
+
     /// The encrypted megolm message couldn't be decoded.
     #[error(transparent)]
     Decode(#[from] vodozemac::DecodeError),
