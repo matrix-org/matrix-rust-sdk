@@ -112,14 +112,28 @@ impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgo
 #[wasm_bindgen]
 #[derive(Debug)]
 pub enum VerificationState {
-    /// The device is trusted.
-    Trusted,
-
-    /// The device is not trusted.
-    Untrusted,
-
-    /// The device is not known to us.
+    /// This the only state were the authenticity is
+    /// guaranteed. It's coming from a device belonging to a
+    /// user that we have verified.
+    /// Other states give you more details about the level of trust.
+    Verified,
+    /// A signed device of an unverified user.
+    /// Message is coming from a cross signed device of a user
+    /// identity that we haven't yet verified.
+    SignedDeviceOfUnverifiedUser,
+    /// An unsigned device of a verified user.
+    UnSignedDeviceOfVerifiedUser,
+    /// The device is not signed by the user, and
+    /// we haven't verified the user
+    UnSignedDevice,
+    /// The device is unknown or deleted.
     UnknownDevice,
+    /// The key is coming from an unsafe source, and authenticity cannot
+    /// be established.
+    UnsafeSource,
+    /// The key used to decrypt as an inconsistent set of identity keys.
+    /// Potential attack?
+    Mismatch,
 }
 
 impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
@@ -127,9 +141,13 @@ impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for Ver
         use matrix_sdk_common::deserialized_responses::VerificationState::*;
 
         match value {
-            Trusted => Self::Trusted,
-            Untrusted => Self::Untrusted,
+            Verified => Self::Verified,
+            SignedDeviceOfUnverifiedUser => Self::SignedDeviceOfUnverifiedUser,
+            UnSignedDeviceOfVerifiedUser => Self::UnSignedDeviceOfVerifiedUser,
+            UnSignedDevice => Self::UnSignedDevice,
             UnknownDevice => Self::UnknownDevice,
+            UnsafeSource => Self::UnsafeSource,
+            Mismatch => Self::Mismatch,
         }
     }
 }
