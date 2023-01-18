@@ -18,7 +18,7 @@ use matrix_sdk_crypto::{store::Result, CryptoStoreError};
 use matrix_sdk_store_encryption::StoreCipher;
 use rusqlite::OptionalExtension;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::error;
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
@@ -39,50 +39,6 @@ pub enum OpenStoreError {
     /// An error occurred with sqlite.
     #[error(transparent)]
     Sqlite(#[from] CreatePoolError),
-}
-
-const DATABASE_VERSION: u8 = 1;
-
-async fn run_migrations(conn: &SqliteConn) -> Result<()> {
-    let metadata_exists = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'metadata'",
-            (),
-            |row| row.get::<_, u32>(0),
-        )
-        .await
-        .map_err(CryptoStoreError::backend)?
-        > 0;
-
-    let version = if metadata_exists {
-        match conn.get_metadata("version").await?.as_deref() {
-            Some([v]) => *v,
-            Some(_) => {
-                error!("version database field has multiple bytes");
-                return Ok(());
-            }
-            None => {
-                error!("version database field is missing");
-                return Ok(());
-            }
-        }
-    } else {
-        0
-    };
-
-    if version == 0 {
-        debug!("Creating database");
-    } else if version < DATABASE_VERSION {
-        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
-    }
-
-    if version < 1 {
-        conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
-            .await
-            .map_err(CryptoStoreError::backend)?;
-    }
-
-    Ok(())
 }
 
 async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Result<StoreCipher> {

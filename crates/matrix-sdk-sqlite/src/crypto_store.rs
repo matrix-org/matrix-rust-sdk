@@ -19,7 +19,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Pool as SqlitePool, Runtime};
+use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
@@ -37,14 +37,13 @@ use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
+use tracing::{debug, error};
 
 use crate::{
-    get_or_create_store_cipher, run_migrations,
+    get_or_create_store_cipher,
     utils::{Key, SqliteObjectExt},
-    OpenStoreError,
+    OpenStoreError, SqliteObjectStoreExt,
 };
-
-const DATABASE_VERSION: u8 = 0;
 
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
@@ -127,7 +126,7 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let path = path.as_ref();
-        fs::create_dir_all(path).await;
+        fs::create_dir_all(path).await.map_err(CryptoStoreError::from)?;
         let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-crypto.sqlite3"));
         let pool = cfg.create_pool(Runtime::Tokio1)?;
 
@@ -147,25 +146,13 @@ impl SqliteCryptoStore {
             None => None,
         };
 
-        Ok(SqliteCryptoStore::new(pool, None, store_cipher))
-    }
-
-    /// Create a `SqliteCryptoStore` from the given parts.
-    ///
-    /// This constructor doesn't do any I/O and thus requires the database to
-    /// already be set up / migrated (via [`run_migrations`]).
-    pub(crate) fn new(
-        pool: SqlitePool,
-        path: Option<PathBuf>,
-        store_cipher: Option<Arc<StoreCipher>>,
-    ) -> Self {
-        SqliteCryptoStore {
+        Ok(SqliteCryptoStore {
             store_cipher,
-            path,
+            path: None,
             pool,
             account_info: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
-        }
+        })
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
@@ -519,6 +506,50 @@ impl SqliteCryptoStore {
     } */
 }
 
+const DATABASE_VERSION: u8 = 1;
+
+async fn run_migrations(conn: &SqliteConn) -> Result<(), CryptoStoreError> {
+    let metadata_exists = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'metadata'",
+            (),
+            |row| row.get::<_, u32>(0),
+        )
+        .await
+        .map_err(CryptoStoreError::backend)?
+        > 0;
+
+    let version = if metadata_exists {
+        match conn.get_metadata("version").await?.as_deref() {
+            Some([v]) => *v,
+            Some(_) => {
+                error!("version database field has multiple bytes");
+                return Ok(());
+            }
+            None => {
+                error!("version database field is missing");
+                return Ok(());
+            }
+        }
+    } else {
+        0
+    };
+
+    if version == 0 {
+        debug!("Creating database");
+    } else if version < DATABASE_VERSION {
+        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
+    }
+
+    if version < 1 {
+        conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
+            .await
+            .map_err(CryptoStoreError::backend)?;
+    }
+
+    Ok(())
+}
+
 trait SqliteConnectionExt {
     fn set_account_data(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
     fn set_session(
@@ -566,10 +597,10 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
     async fn set_account_data(&self, key: &str, value: Vec<u8>) -> Result<()>;
 
-    async fn get_sessions_for_sender_key(&self, encoded_sender_key: Key) -> Result<Vec<Vec<u8>>> {
+    async fn get_sessions_for_sender_key(&self, sender_key: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
             .prepare("SELECT session_data FROM sessions WHERE sender_key = ?", |mut stmt| {
-                stmt.query((encoded_sender_key,))?.mapped(|row| row.get(0)).collect()
+                stmt.query((sender_key,))?.mapped(|row| row.get(0)).collect()
             })
             .await?)
     }
@@ -659,29 +690,28 @@ impl CryptoStore for SqliteCryptoStore {
 
         let mut session_changes = Vec::new();
         for session in changes.sessions {
-            let encoded_session_id = self.encode_key("session", session.session_id());
-            let encoded_sender_key = self.encode_key("session", session.sender_key().as_bytes());
+            let session_id = self.encode_key("session", session.session_id());
+            let sender_key = self.encode_key("session", session.sender_key().as_bytes());
             let pickle = session.pickle().await;
+            session_changes.push((session_id, sender_key, pickle));
 
             self.session_cache.add(session).await;
-            session_changes.push((encoded_session_id, encoded_sender_key, pickle));
         }
 
-        /* let mut inbound_session_changes = HashMap::new();
+        let mut inbound_session_changes = Vec::new();
         for session in changes.inbound_group_sessions {
-            let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &session);
+            let room_id = self.encode_key("inbound_group_session", session.room_id().as_bytes());
+            let session_id = self.encode_key("inbound_group_session", session.session_id());
             let pickle = session.pickle().await;
-
-            inbound_session_changes.insert(key, pickle);
+            inbound_session_changes.push((room_id, session_id, pickle));
         }
 
-        let mut outbound_session_changes = HashMap::new();
+        let mut outbound_session_changes = Vec::new();
         for session in changes.outbound_group_sessions {
-            let key = self.encode_key(OUTBOUND_GROUP_TABLE_NAME, &session);
+            let room_id = self.encode_key("outbound_group_session", session.room_id().as_bytes());
             let pickle = session.pickle().await;
-
-            outbound_session_changes.insert(key, pickle);
-        } */
+            outbound_session_changes.push((room_id, pickle));
+        }
 
         let this = self.clone();
         self.acquire()
@@ -734,9 +764,9 @@ impl CryptoStore for SqliteCryptoStore {
                     )?;
                 } */
 
-                for (encoded_session_id, encoded_sender_key, pickle) in &session_changes {
+                for (session_id, sender_key, pickle) in &session_changes {
                     let serialized_session = this.serialize_value(&pickle)?;
-                    txn.set_session(encoded_session_id, encoded_sender_key, &serialized_session)?;
+                    txn.set_session(session_id, sender_key, &serialized_session)?;
                 }
 
                 /* for (key, session) in &inbound_session_changes {

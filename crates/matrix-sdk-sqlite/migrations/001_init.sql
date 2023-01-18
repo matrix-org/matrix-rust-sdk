@@ -13,6 +13,4 @@ CREATE TABLE "session" (
     "sender_key" BLOB NOT NULL,
     "session_data" BLOB NOT NULL
 );
-
-CREATE INDEX "session_sender_key_idx"
-    ON "session" ("sender_key");
+CREATE INDEX "session_sender_key_idx" ON "session" ("sender_key");
