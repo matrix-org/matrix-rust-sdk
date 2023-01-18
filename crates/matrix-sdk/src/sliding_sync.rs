@@ -389,7 +389,7 @@ impl SlidingSyncConfig {
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = storage_key.as_ref() {
-            tracing::trace!(storage_key, "trying to load from cold");
+            trace!(storage_key, "trying to load from cold");
 
             for view in views.iter_mut() {
                 if let Some(frozen_view) = client
@@ -399,7 +399,7 @@ impl SlidingSyncConfig {
                     .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
                     .transpose()?
                 {
-                    tracing::trace!(name = view.name, "frozen for view found");
+                    trace!(name = view.name, "frozen for view found");
 
                     let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
                     view.set_from_cold(rooms_count, rooms_list);
@@ -420,7 +420,7 @@ impl SlidingSyncConfig {
                 .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
                 .transpose()?
             {
-                tracing::trace!("frozen for generic found");
+                trace!("frozen for generic found");
                 if let Some(since) = f.to_device_since {
                     if let Some(to_device_ext) =
                         extensions.get_or_insert_with(Default::default).to_device.as_mut()
@@ -429,10 +429,10 @@ impl SlidingSyncConfig {
                     }
                 }
             }
-            tracing::trace!("sync unfrozen done");
+            trace!("sync unfrozen done");
         };
 
-        tracing::trace!(len = rooms_found.len(), "rooms unfrozen");
+        trace!(len = rooms_found.len(), "rooms unfrozen");
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms_found));
         // map the roomsmap into the views:
         for v in &mut views {
