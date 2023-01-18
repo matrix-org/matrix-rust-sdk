@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, RwLock,
+};
 
 use futures_signals::{
     signal::SignalExt,
@@ -29,13 +32,16 @@ use crate::{
 type StoppableSpawnCallback = Box<dyn FnOnce() + Send + Sync>;
 
 pub struct StoppableSpawn {
-    handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
     callback: RwLock<Option<StoppableSpawnCallback>>,
 }
 
 impl StoppableSpawn {
     fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
-        StoppableSpawn { handle, callback: Default::default() }
+        StoppableSpawn { handle: Some(handle), callback: Default::default() }
+    }
+    fn with_callback(callback: StoppableSpawnCallback) -> StoppableSpawn {
+        StoppableSpawn { handle: Default::default(), callback: RwLock::new(Some(callback)) }
     }
 
     fn set_callback(&mut self, f: StoppableSpawnCallback) {
@@ -53,13 +59,15 @@ impl From<JoinHandle<()>> for StoppableSpawn {
 impl StoppableSpawn {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
-        self.handle.abort();
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
         if let Some(callback) = self.callback.write().unwrap().take() {
             callback();
         }
     }
     pub fn is_finished(&self) -> bool {
-        self.handle.is_finished()
+        self.handle.as_ref().map(|h| h.is_finished()).unwrap_or_default()
     }
 }
 
@@ -652,35 +660,43 @@ impl SlidingSync {
         let inner = self.inner.clone();
         let client = self.client.clone();
         let observer = self.observer.clone();
+        let stop_loop = Arc::new(AtomicBool::new(false));
+        let remote_stopper = stop_loop.clone();
 
-        Arc::new(
-            RUNTIME
-                .spawn(async move {
-                    let stream = inner.stream().await.unwrap();
-                    pin_mut!(stream);
-                    loop {
-                        let update = match stream.next().await {
-                            Some(Ok(u)) => u,
-                            Some(Err(e)) => {
-                                if client.process_sync_error(e) == LoopCtrl::Break {
-                                    warn!("loop was stopped by client error processing");
-                                    break;
-                                } else {
-                                    continue;
-                                }
-                            }
-                            None => {
-                                warn!("Inner streaming loop ended unexpectedly");
-                                break;
-                            }
-                        };
-                        if let Some(ref observer) = *observer.read().unwrap() {
-                            observer.did_receive_sync_update(update.into());
+        let stoppable = Arc::new(StoppableSpawn::with_callback(Box::new(move || {
+            remote_stopper.store(true, Ordering::Relaxed);
+        })));
+
+        RUNTIME.spawn(async move {
+            let stream = inner.stream().await.unwrap();
+            pin_mut!(stream);
+            loop {
+                let update = match stream.next().await {
+                    Some(Ok(u)) => u,
+                    Some(Err(e)) => {
+                        if client.process_sync_error(e) == LoopCtrl::Break {
+                            warn!("loop was stopped by client error processing");
+                            break;
+                        } else {
+                            continue;
                         }
                     }
-                })
-                .into(),
-        )
+                    None => {
+                        warn!("Inner streaming loop ended unexpectedly");
+                        break;
+                    }
+                };
+                if let Some(ref observer) = *observer.read().unwrap() {
+                    observer.did_receive_sync_update(update.into());
+                }
+                if stop_loop.load(Ordering::Relaxed) {
+                    trace!("stopped sync loop after cancellation");
+                    break;
+                }
+            }
+        });
+
+        stoppable
     }
 }
 
