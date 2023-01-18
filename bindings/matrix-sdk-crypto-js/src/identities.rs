@@ -130,7 +130,7 @@ impl UserIdentity {
     }
 
     /// Create a `VerificationRequest` object after the verification
-    /// request content has been sent out.  }
+    /// request content has been sent out.
     #[wasm_bindgen(js_name = "requestVerification")]
     pub fn request_verification(
         &self,

@@ -638,8 +638,15 @@ impl OlmMachine {
     /// This method can be used to pass verification events that are happening
     /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
     #[wasm_bindgen(js_name = "receiveVerificationEvent")]
-    pub fn receive_verification_event(&self, event: &str) -> Result<Promise, JsError> {
-        let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
+    pub fn receive_verification_event(
+        &self,
+        event: &str,
+        room_id: &identifiers::RoomId,
+    ) -> Result<Promise, JsError> {
+        let room_id = room_id.inner.clone();
+        let event: ruma::events::AnySyncMessageLikeEvent = serde_json::from_str(event)?;
+        let event = event.into_full_event(room_id);
+
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {

@@ -6,7 +6,7 @@ describe(Attachment.name, () => {
     const textDecoder = new TextDecoder();
 
     let encryptedAttachment;
-    
+
     test('can encrypt data', () => {
         encryptedAttachment = Attachment.encrypt(textEncoder.encode(originalData));
 
