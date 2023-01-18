@@ -4,6 +4,7 @@ use std::ops::Deref;
 use ruma::api::client::sync::sync_events::{v3, v4};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
+use tracing::{debug, info, instrument};
 
 use super::BaseClient;
 use crate::{
@@ -21,6 +22,7 @@ impl BaseClient {
     ///
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
+    #[instrument(skip_all, level = "trace")]
     pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let v4::Response {
@@ -34,6 +36,7 @@ impl BaseClient {
             //presence,
             ..
         } = response;
+        info!(rooms = rooms.len(), lists = lists.len(), extensions = !extensions.is_empty());
 
         if rooms.is_empty() && extensions.is_empty() {
             // we received a room reshuffling event only, there won't be anything for us to
@@ -58,6 +61,13 @@ impl BaseClient {
                 )
             })
             .unwrap_or_default();
+
+        info!(
+            to_device_events = to_device_events.len(),
+            device_one_time_keys_count = device_one_time_keys_count.len(),
+            device_unused_fallback_key_types =
+                device_unused_fallback_key_types.as_ref().map(|v| v.len())
+        );
 
         // Process the to-device events and other related e2ee data. This returns a list
         // of all the to-device events that were passed in but encrypted ones
@@ -226,11 +236,11 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
-        tracing::debug!("ready to submit changes to store");
+        debug!("ready to submit changes to store");
 
         store.save_changes(&changes).await?;
         self.apply_changes(&changes).await;
-        tracing::debug!("applied changes");
+        debug!("applied changes");
 
         let device_one_time_keys_count =
             device_one_time_keys_count.into_iter().map(|(k, v)| (k, v.into())).collect();
