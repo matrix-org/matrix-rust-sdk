@@ -243,8 +243,8 @@ pub struct RoomMessageRequest {
     #[wasm_bindgen(readonly)]
     pub event_type: JsString,
 
-    /// A JSON-encoded string containing the message's content.
-    #[wasm_bindgen(readonly)]
+    /// A JSON-encoded string containing the message's body.
+    #[wasm_bindgen(readonly, js_name = "body")]
     pub content: JsString,
 }
 

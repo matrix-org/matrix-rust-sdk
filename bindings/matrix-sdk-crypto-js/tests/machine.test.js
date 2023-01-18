@@ -802,10 +802,10 @@ describe(OlmMachine.name, () => {
             expect(outgoingVerificationRequest.room_id).toStrictEqual(room.toString());
             expect(outgoingVerificationRequest.txn_id).toBeDefined();
             expect(outgoingVerificationRequest.event_type).toStrictEqual('m.key.verification.start');
-            expect(outgoingVerificationRequest.content).toBeDefined();
+            expect(outgoingVerificationRequest.body).toBeDefined();
 
-            const content = JSON.parse(outgoingVerificationRequest.content);
-            expect(content).toMatchObject({
+            const body = JSON.parse(outgoingVerificationRequest.body);
+            expect(body).toMatchObject({
                 from_device: expect.any(String),
                 method: 'm.sas.v1',
                 key_agreement_protocols: [expect.any(String)],
