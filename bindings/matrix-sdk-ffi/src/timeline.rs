@@ -265,9 +265,10 @@ impl TimelineItemContent {
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
-            Content::RoomMember(room_member) => {
-                TimelineItemContentKind::RoomMembership { change: room_member.into() }
-            }
+            Content::RoomMember(room_member) => TimelineItemContentKind::RoomMembership {
+                user_id: room_member.user_id().to_string(),
+                change: room_member.into(),
+            },
             Content::OtherState(state) => TimelineItemContentKind::State {
                 state_key: state.state_key().to_owned(),
                 content: state.content().into(),
@@ -300,7 +301,7 @@ pub enum TimelineItemContentKind {
     RedactedMessage,
     Sticker { body: String, info: ImageInfo, url: String },
     UnableToDecrypt { msg: EncryptedMessage },
-    RoomMembership { change: MembershipChange },
+    RoomMembership { user_id: String, change: MembershipChange },
     State { state_key: String, content: OtherState },
     FailedToParseMessageLike { event_type: String, error: String },
     FailedToParseState { event_type: String, state_key: String, error: String },
