@@ -18,7 +18,7 @@ pub use matrix_sdk::{
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use super::{Client, Room, RUNTIME};
 use crate::{
