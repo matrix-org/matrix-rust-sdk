@@ -307,10 +307,10 @@ impl SlidingSyncRoom {
         }
 
         if !timeline.is_empty() {
-            if self.is_cold.load(Ordering::Relaxed) {
+            if self.is_cold.load(Ordering::SeqCst) {
                 // if we come from cold storage, we hard overwrite
                 self.timeline.lock_mut().replace_cloned(timeline);
-                self.is_cold.store(false, Ordering::Relaxed);
+                self.is_cold.store(false, Ordering::SeqCst);
             } else {
                 let mut ref_timeline = self.timeline.lock_mut();
                 for e in timeline {
@@ -943,13 +943,13 @@ impl SlidingSync {
 
                 let resp = match resp_res {
                     Ok(r) => {
-                        self.failure_count.store(0, Ordering::Relaxed);
+                        self.failure_count.store(0, Ordering::SeqCst);
                         r
                     },
                     Err(e) => {
                         if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
-                            if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
+                            if self.failure_count.fetch_add(1, Ordering::SeqCst) >= 3 {
                                 error!("session expired three times in a row");
                                 yield Err(e.into());
                                 break
@@ -1111,7 +1111,7 @@ impl FrozenSlidingSyncView {
 impl SlidingSyncView {
     fn set_from_cold(&mut self, rooms_count: Option<u32>, rooms_list: Vec<RoomListEntry>) {
         self.state.set(SlidingSyncState::Preload);
-        self.is_cold.store(true, Ordering::Relaxed);
+        self.is_cold.store(true, Ordering::SeqCst);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
@@ -1601,7 +1601,7 @@ impl SlidingSyncView {
         let current_rooms_count = self.rooms_count.get();
         if current_rooms_count.is_none()
             || current_rooms_count == Some(0)
-            || self.is_cold.load(Ordering::Relaxed)
+            || self.is_cold.load(Ordering::SeqCst)
         {
             // first response, we do that slightly differentely
             let rooms_list =
@@ -1611,7 +1611,7 @@ impl SlidingSyncView {
             room_ops(&mut locked, ops, ranges)?;
             self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
             self.rooms_count.set(Some(rooms_count));
-            self.is_cold.store(false, Ordering::Relaxed);
+            self.is_cold.store(false, Ordering::SeqCst);
             return Ok(true);
         }
         let mut missing =
