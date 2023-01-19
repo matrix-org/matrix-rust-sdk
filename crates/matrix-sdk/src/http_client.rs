@@ -24,6 +24,7 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
+use bytesize::ByteSize;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::{
@@ -164,7 +165,7 @@ impl HttpClient {
         &self,
         request: http::Request<Bytes>,
         config: RequestConfig,
-    ) -> Result<(http::StatusCode, R::IncomingResponse), HttpError>
+    ) -> Result<(http::StatusCode, ByteSize, R::IncomingResponse), HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
@@ -230,11 +231,12 @@ impl HttpClient {
                     .map_err(error_type)?;
 
                 let status_code = response.status();
+                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
 
                 let response = R::IncomingResponse::try_from_http_response(response)
                     .map_err(|e| error_type(HttpError::from(e)))?;
 
-                Ok((status_code, response))
+                Ok((status_code, response_size, response))
             };
 
             retry::<_, HttpError, _, _, _>(backoff, send_request).await?
@@ -244,8 +246,9 @@ impl HttpClient {
         let ret = {
             let response = self.inner.send_request(request, config.timeout).await?;
             let status_code = response.status();
+            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
 
-            (status_code, R::IncomingResponse::try_from_http_response(response)?)
+            (status_code, response_size, R::IncomingResponse::try_from_http_response(response)?)
         };
 
         Ok(ret)
@@ -253,7 +256,16 @@ impl HttpClient {
 
     #[instrument(
         skip(self, access_token, config, request, user_id),
-        fields(config, path, user_id, request_body, request_id, status)
+        fields(
+            config,
+            path,
+            user_id,
+            request_size,
+            request_body,
+            request_id,
+            status,
+            response_size,
+        )
     )]
     pub async fn send<R>(
         &self,
@@ -300,7 +312,9 @@ impl HttpClient {
             server_versions,
         )?;
 
-        span.record("path", request.uri().path());
+        let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
+        span.record("path", request.uri().path())
+            .record("request_size", request_size.to_string_as(true));
 
         // Since sliding sync is experimental, and the proxy might not do what we expect
         // it to do given a specific request body, it's useful to log the
@@ -313,8 +327,9 @@ impl HttpClient {
 
         debug!("Sending request");
         match self.send_request::<R>(request, config).await {
-            Ok((status_code, response)) => {
-                span.record("status", status_code.as_u16());
+            Ok((status_code, response_size, response)) => {
+                span.record("status", status_code.as_u16())
+                    .record("response_size", response_size.to_string_as(true));
                 debug!("Got response");
 
                 Ok(response)
