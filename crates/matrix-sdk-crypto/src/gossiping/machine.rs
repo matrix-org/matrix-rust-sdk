@@ -639,11 +639,7 @@ impl GossipMachine {
                 // verified, if the device isn't verified by us it's unlikely that
                 // we're verified by them either. Don't request keys if there isn't
                 // at least one verified device.
-                if devices.is_any_verified() {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+                Ok(devices.is_any_verified())
             } else {
                 Ok(false)
             }
