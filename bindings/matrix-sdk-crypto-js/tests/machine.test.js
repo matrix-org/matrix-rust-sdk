@@ -158,7 +158,8 @@ describe(OlmMachine.name, () => {
     });
 
     test('can read tracked users', async () => {
-        const trackedUsers = (await machine()).trackedUsers();
+        const m = await machine();
+        const trackedUsers = await m.trackedUsers();
 
         expect(trackedUsers).toBeInstanceOf(Set);
         expect(trackedUsers.size).toStrictEqual(0);

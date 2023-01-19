@@ -201,20 +201,20 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users.contains(user_id)
+    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.tracked_users.contains(user_id))
     }
 
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query.is_empty()
+    async fn has_users_for_key_query(&self) -> Result<bool> {
+        Ok(!self.users_for_key_query.is_empty())
     }
 
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        self.users_for_key_query.iter().map(|u| u.clone()).collect()
+    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>> {
+        Ok(self.users_for_key_query.iter().map(|u| u.clone()).collect())
     }
 
-    fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.tracked_users.iter().map(|u| u.to_owned()).collect()
+    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
+        Ok(self.tracked_users.iter().map(|u| u.to_owned()).collect())
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -396,7 +396,7 @@ mod tests {
         assert!(store.update_tracked_user(device.user_id(), false).await.unwrap());
         assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap());
 
-        assert!(store.is_user_tracked(device.user_id()));
+        assert!(store.is_user_tracked(device.user_id()).await.unwrap());
     }
 
     #[async_test]

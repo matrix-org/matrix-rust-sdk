@@ -85,7 +85,7 @@ impl KeysQueryListener {
         timeout: Duration,
         user: &UserId,
     ) -> Result<UserKeyQueryResult, ElapsedError> {
-        let users_for_key_query = self.store.users_for_key_query();
+        let users_for_key_query = self.store.users_for_key_query().await.unwrap_or_default();
 
         if users_for_key_query.contains(user) {
             if let Err(e) = self.wait(timeout).await {
@@ -586,32 +586,33 @@ impl IdentityManager {
     ///
     /// [`OlmMachine`]: struct.OlmMachine.html
     /// [`receive_keys_query_response`]: #method.receive_keys_query_response
-    pub async fn users_for_key_query(&self) -> Vec<KeysQueryRequest> {
-        let users = self.store.users_for_key_query();
+    pub async fn users_for_key_query(&self) -> StoreResult<Vec<KeysQueryRequest>> {
+        let users = self.store.users_for_key_query().await?;
 
         // We always want to track our own user, but in case we aren't in an encrypted
         // room yet, we won't be tracking ourselves yet. This ensures we are always
         // tracking ourselves.
         //
         // The check for emptiness is done first for performance.
-        let users = if users.is_empty() && !self.store.tracked_users().contains(self.user_id()) {
-            self.update_tracked_users([self.user_id()]).await;
-            self.store.users_for_key_query()
-        } else {
-            users
-        };
+        let users =
+            if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
+                self.update_tracked_users([self.user_id()]).await?;
+                self.store.users_for_key_query().await?
+            } else {
+                users
+            };
 
         if users.is_empty() {
-            Vec::new()
+            Ok(Vec::new())
         } else {
             let users: Vec<OwnedUserId> =
                 users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();
 
-            users
+            Ok(users
                 .chunks(Self::MAX_KEY_QUERY_USERS)
                 .map(|u| u.iter().map(|u| (u.clone(), Vec::new())).collect())
                 .map(KeysQueryRequest::new)
-                .collect()
+                .collect())
         }
     }
 
@@ -624,7 +625,7 @@ impl IdentityManager {
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
     pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
-        if self.store.is_user_tracked(user_id) {
+        if self.store.is_user_tracked(user_id).await? {
             self.store.update_tracked_user(user_id, true).await?;
             Ok(true)
         } else {
@@ -644,16 +645,19 @@ impl IdentityManager {
     ///
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
-    pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
+    pub async fn update_tracked_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> StoreResult<()> {
         for user in users {
-            if self.store.is_user_tracked(user) {
+            if self.store.is_user_tracked(user).await? {
                 continue;
             }
 
-            if let Err(e) = self.store.update_tracked_user(user, true).await {
-                warn!("Error storing users for tracking: {e}");
-            }
+            self.store.update_tracked_user(user, true).await?;
         }
+
+        Ok(())
     }
 }
 
@@ -936,7 +940,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager().await;
-        assert!(manager.store.tracked_users().is_empty())
+        assert!(manager.store.tracked_users().await.unwrap().is_empty())
     }
 
     #[async_test]
@@ -1004,13 +1008,16 @@ pub(crate) mod tests {
     async fn no_tracked_users_key_query_request() {
         let manager = manager().await;
 
-        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
 
-        let requests = manager.users_for_key_query().await;
+        let requests = manager.users_for_key_query().await.unwrap();
 
         assert!(!requests.is_empty(), "We query the keys for our own user");
         assert!(
-            manager.store.tracked_users().contains(manager.user_id()),
+            manager.store.tracked_users().await.unwrap().contains(manager.user_id()),
             "Our own user is now tracked"
         );
     }
@@ -1020,16 +1027,20 @@ pub(crate) mod tests {
         let manager = manager().await;
         let alice = user_id!("@alice:example.org");
 
-        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
         manager.store.update_tracked_user(alice, true).await.unwrap();
 
         assert!(
-            manager.store.tracked_users().contains(alice),
+            manager.store.tracked_users().await.unwrap().contains(alice),
             "Alice is tracked after being marked as tracked"
         );
         assert!(manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
@@ -1040,6 +1051,7 @@ pub(crate) mod tests {
         assert!(!manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
@@ -1049,6 +1061,7 @@ pub(crate) mod tests {
         assert!(!manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
@@ -1056,6 +1069,7 @@ pub(crate) mod tests {
         assert!(manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
     }
