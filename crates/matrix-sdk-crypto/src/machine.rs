@@ -297,7 +297,8 @@ impl OlmMachine {
 
     /// Get the list of "tracked users".
     ///
-    /// See [`update_tracked_users`](#method.update_tracked_users) for more information.
+    /// See [`update_tracked_users`](#method.update_tracked_users) for more
+    /// information.
     pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.store.tracked_users()
     }
@@ -1199,18 +1200,19 @@ impl OlmMachine {
 
     /// Update the list of tracked users.
     ///
-    /// The OlmMachine maintains a list of users whose devices we are keeping track of: these
-    /// are known as "tracked users". These must be users that we share a room with, so
-    /// that the server sends us updates for their device lists.
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
     /// # Arguments
     ///
-    /// * `users` - An iterator over user ids that should be added to the
-    ///   list of tracked users
+    /// * `users` - An iterator over user ids that should be added to the list
+    ///   of tracked users
     ///
-    /// Any users that hadn't been seen before will be flagged for a key query immediately, and
-    /// whenever `receive_sync_changes` receives a "changed" notification for that user in the
-    /// future.
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
     ///
     /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
