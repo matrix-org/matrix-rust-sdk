@@ -258,204 +258,6 @@ impl SqliteCryptoStore {
             .transpose()
     }
 
-    async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let account_pickle = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
-            Some(account.pickle().await)
-        } else {
-            None
-        };
-
-        let private_identity_pickle =
-            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
-
-        let recovery_key_pickle = changes.recovery_key;
-
-        let device_changes = changes.devices;
-        let mut session_changes = HashMap::new();
-
-        for session in changes.sessions {
-            let pickle = session.pickle().await;
-            let key = self.encode_key(SESSIONS_TABLE_NAME, &session);
-
-            self.session_cache.add(session).await;
-            session_changes.insert(key, pickle);
-        }
-
-        let mut inbound_session_changes = HashMap::new();
-
-        for session in changes.inbound_group_sessions {
-            let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &session);
-            let pickle = session.pickle().await;
-
-            inbound_session_changes.insert(key, pickle);
-        }
-
-        let mut outbound_session_changes = HashMap::new();
-
-        for session in changes.outbound_group_sessions {
-            let key = self.encode_key(OUTBOUND_GROUP_TABLE_NAME, &session);
-            let pickle = session.pickle().await;
-
-            outbound_session_changes.insert(key, pickle);
-        }
-
-        let identity_changes = changes.identities;
-        let olm_hashes = changes.message_hashes;
-        let key_requests = changes.key_requests;
-        let backup_version = changes.backup_version;
-
-        let ret: Result<(), TransactionError<CryptoStoreError>> = (
-            &self.account,
-            &self.private_identity,
-            &self.devices,
-            &self.identities,
-            &self.sessions,
-            &self.inbound_group_sessions,
-            &self.outbound_group_sessions,
-            &self.olm_hashes,
-            &self.outgoing_secret_requests,
-            &self.unsent_secret_requests,
-            &self.secret_requests_by_info,
-        )
-            .transaction(
-                |(
-                    account,
-                    private_identity,
-                    devices,
-                    identities,
-                    sessions,
-                    inbound_sessions,
-                    outbound_sessions,
-                    hashes,
-                    outgoing_secret_requests,
-                    unsent_secret_requests,
-                    secret_requests_by_info,
-                )| {
-                    if let Some(a) = &account_pickle {
-                        account.insert(
-                            "account".encode(),
-                            self.serialize_value(a).map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    if let Some(i) = &private_identity_pickle {
-                        private_identity.insert(
-                            "identity".encode(),
-                            self.serialize_value(&i)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    if let Some(r) = &recovery_key_pickle {
-                        account.insert(
-                            "recovery_key_v1".encode(),
-                            self.serialize_value(r).map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    if let Some(b) = &backup_version {
-                        account.insert(
-                            "backup_version_v1".encode(),
-                            self.serialize_value(b).map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    for device in device_changes.new.iter().chain(&device_changes.changed) {
-                        let key = self.encode_key(DEVICE_TABLE_NAME, device);
-                        let device = self
-                            .serialize_value(&device)
-                            .map_err(ConflictableTransactionError::Abort)?;
-                        devices.insert(key, device)?;
-                    }
-
-                    for device in &device_changes.deleted {
-                        let key = self.encode_key(DEVICE_TABLE_NAME, device);
-                        devices.remove(key)?;
-                    }
-
-                    for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                        identities.insert(
-                            self.encode_key(IDENTITIES_TABLE_NAME, identity.user_id()),
-                            self.serialize_value(&identity)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    for (key, session) in &session_changes {
-                        sessions.insert(
-                            key.as_slice(),
-                            self.serialize_value(&session)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    for (key, session) in &inbound_session_changes {
-                        inbound_sessions.insert(
-                            key.as_slice(),
-                            self.serialize_value(&session)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    for (key, session) in &outbound_session_changes {
-                        outbound_sessions.insert(
-                            key.as_slice(),
-                            self.serialize_value(&session)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
-                    for hash in &olm_hashes {
-                        hashes.insert(
-                            serde_json::to_vec(hash)
-                                .map_err(CryptoStoreError::Serialization)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                            &[0],
-                        )?;
-                    }
-
-                    for key_request in &key_requests {
-                        secret_requests_by_info.insert(
-                            self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &key_request.info),
-                            key_request.request_id.encode(),
-                        )?;
-
-                        let key_request_id = key_request.request_id.encode();
-
-                        if key_request.sent_out {
-                            unsent_secret_requests.remove(key_request_id.clone())?;
-                            outgoing_secret_requests.insert(
-                                key_request_id,
-                                self.serialize_value(&key_request)
-                                    .map_err(ConflictableTransactionError::Abort)?,
-                            )?;
-                        } else {
-                            outgoing_secret_requests.remove(key_request_id.clone())?;
-                            unsent_secret_requests.insert(
-                                key_request_id,
-                                self.serialize_value(&key_request)
-                                    .map_err(ConflictableTransactionError::Abort)?,
-                            )?;
-                        }
-                    }
-
-                    Ok(())
-                },
-            );
-
-        ret.map_err(CryptoStoreError::backend)?;
-        self.inner.flush().map_err(CryptoStoreError::backend)?;
-
-        Ok(())
-    }
-
     async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
             .outgoing_secret_requests
@@ -685,7 +487,7 @@ impl CryptoStore for SqliteCryptoStore {
             None
         };
 
-        let private_identity_pickle =
+        let pickled_private_identity =
             if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
 
         let mut session_changes = Vec::new();
@@ -722,28 +524,23 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_account_data("account", &serialized_account)?;
                 }
 
-                /* if let Some(i) = &private_identity_pickle {
-                    private_identity.insert(
-                        "identity".encode(),
-                        self.serialize_value(&i).map_err(ConflictableTransactionError::Abort)?,
-                    )?;
+                if let Some(pickled_private_identity) = &pickled_private_identity {
+                    let serialized_private_identity =
+                        this.serialize_value(pickled_private_identity)?;
+                    txn.set_account_data("identity", &serialized_private_identity)?;
                 }
 
-                if let Some(r) = &recovery_key_pickle {
-                    account.insert(
-                        "recovery_key_v1".encode(),
-                        self.serialize_value(r).map_err(ConflictableTransactionError::Abort)?,
-                    )?;
+                if let Some(recovery_key) = &changes.recovery_key {
+                    let serialized_recovery_key = this.serialize_value(recovery_key)?;
+                    txn.set_account_data("recovery_key_v1", &serialized_recovery_key)?;
                 }
 
-                if let Some(b) = &backup_version {
-                    account.insert(
-                        "backup_version_v1".encode(),
-                        self.serialize_value(b).map_err(ConflictableTransactionError::Abort)?,
-                    )?;
+                if let Some(backup_version) = &changes.backup_version {
+                    let serialized_backup_version = this.serialize_value(backup_version)?;
+                    txn.set_account_data("backup_version_v1", &serialized_backup_version)?;
                 }
 
-                for device in device_changes.new.iter().chain(&device_changes.changed) {
+                /*for device in device_changes.new.iter().chain(&device_changes.changed) {
                     let key = self.encode_key(DEVICE_TABLE_NAME, device);
                     let device = self
                         .serialize_value(&device)
@@ -769,23 +566,23 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_session(session_id, sender_key, &serialized_session)?;
                 }
 
-                /* for (key, session) in &inbound_session_changes {
-                    inbound_sessions.insert(
+                for (room_id, session_id, pickle) in &inbound_session_changes {
+                    /* inbound_sessions.insert(
                         key.as_slice(),
                         self.serialize_value(&session)
                             .map_err(ConflictableTransactionError::Abort)?,
-                    )?;
+                    )?; */
                 }
 
-                for (key, session) in &outbound_session_changes {
-                    outbound_sessions.insert(
+                for (room_id, pickle) in &outbound_session_changes {
+                    /* outbound_sessions.insert(
                         key.as_slice(),
                         self.serialize_value(&session)
                             .map_err(ConflictableTransactionError::Abort)?,
-                    )?;
+                    )?; */
                 }
 
-                for hash in &olm_hashes {
+                /* for hash in &olm_hashes {
                     hashes.insert(
                         serde_json::to_vec(hash)
                             .map_err(CryptoStoreError::Serialization)
@@ -1161,7 +958,7 @@ mod tests {
     cryptostore_integration_tests!();
 }
 
-/* #[cfg(test)]
+#[cfg(test)]
 mod encrypted_tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
     use once_cell::sync::Lazy;
@@ -1179,5 +976,6 @@ mod encrypted_tests {
             .await
             .expect("Can't create a passphrase protected store")
     }
+
     cryptostore_integration_tests!();
-} */
+}
