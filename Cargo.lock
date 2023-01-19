@@ -2985,6 +2985,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "ctor",
  "dashmap",
  "deadpool-sqlite",
  "fs_extra",
@@ -3005,6 +3006,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

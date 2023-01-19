@@ -11,11 +11,7 @@ rust-version = { workspace = true }
 default = []
 
 #state-store = ["dep:matrix-sdk-base"]
-crypto-store = [
-    "dep:matrix-sdk-base",
-    "dep:matrix-sdk-crypto",
-    "matrix-sdk-base?/e2e-encryption",
-]
+crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto", "matrix-sdk-base?/e2e-encryption"]
 
 [dependencies]
 async-stream = { workspace = true }
@@ -38,6 +34,7 @@ tokio = { version = "1.23.1", default-features = false, features = ["sync", "fs"
 tracing = { workspace = true }
 
 [dev-dependencies]
+ctor = { workspace = true }
 glob = "0.3.0"
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
@@ -45,3 +42,4 @@ matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { version = "1.23.1", default-features = false, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

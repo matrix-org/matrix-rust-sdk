@@ -42,7 +42,7 @@ pub enum OpenStoreError {
 }
 
 async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Result<StoreCipher> {
-    let encrypted_cipher = conn.get_metadata("cipher").await?;
+    let encrypted_cipher = conn.get_kv("cipher").await?;
 
     let cipher = if let Some(encrypted) = encrypted_cipher {
         StoreCipher::import(passphrase, &encrypted)
@@ -53,35 +53,59 @@ async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Resu
         let export = cipher.export(passphrase);
         #[cfg(test)]
         let export = cipher._insecure_export_fast_for_testing(passphrase);
-        conn.set_metadata("cipher", export.map_err(CryptoStoreError::backend)?).await?;
+        conn.set_kv("cipher", export.map_err(CryptoStoreError::backend)?).await?;
         cipher
     };
 
     Ok(cipher)
 }
 
-#[async_trait]
-trait SqliteObjectStoreExt: SqliteObjectExt {
-    async fn get_metadata(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let key = key.to_owned();
-        self.query_row("SELECT value FROM metadata WHERE key = ?", (key,), |row| row.get(0))
-            .await
-            .optional()
-            .map_err(CryptoStoreError::backend)
-    }
+trait SqliteConnectionExt {
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
+}
 
-    async fn set_metadata(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        let key = key.to_owned();
+impl SqliteConnectionExt for rusqlite::Connection {
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
+            "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
             (key, value),
-        )
-        .await
-        .map_err(CryptoStoreError::backend)?;
-
+        )?;
         Ok(())
     }
 }
 
 #[async_trait]
-impl SqliteObjectStoreExt for deadpool_sqlite::Object {}
+trait SqliteObjectStoreExt: SqliteObjectExt {
+    async fn get_kv(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let key = key.to_owned();
+        self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0))
+            .await
+            .optional()
+            .map_err(CryptoStoreError::backend)
+    }
+
+    async fn set_kv(&self, key: &str, value: Vec<u8>) -> Result<()>;
+}
+
+#[async_trait]
+impl SqliteObjectStoreExt for deadpool_sqlite::Object {
+    async fn set_kv(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        let key = key.to_owned();
+        self.interact(move |conn| conn.set_kv(&key, &value))
+            .await
+            .unwrap()
+            .map_err(CryptoStoreError::backend)?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[ctor::ctor]
+fn init_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .init();
+}
