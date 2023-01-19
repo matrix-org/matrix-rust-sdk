@@ -113,6 +113,11 @@ impl HttpClient {
         HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
+    fn get_request_id(&self) -> String {
+        let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
+        format!("REQ-{request_id}")
+    }
+
     fn serialize_request<R>(
         &self,
         request: R,
@@ -280,7 +285,8 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
+        let request_id = self.get_request_id();
+
         let span = tracing::Span::current();
 
         let config = match config {
