@@ -279,6 +279,21 @@ impl Device {
             .unwrap_or(false)
     }
 
+    /// Is the device owner verified by us?
+    pub fn is_device_owner_verified(&self) -> bool {
+        self.device_owner_identity
+            .as_ref()
+            .map(|id| match id {
+                ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
+                ReadOnlyUserIdentities::Other(other_identity) => self
+                    .own_identity
+                    .as_ref()
+                    .map(|oi| oi.is_verified() && oi.is_identity_signed(other_identity).is_ok())
+                    .unwrap_or(false),
+            })
+            .unwrap_or(false)
+    }
+
     /// Request an interactive verification with this `Device`.
     ///
     /// Returns a `VerificationRequest` object and a to-device request that

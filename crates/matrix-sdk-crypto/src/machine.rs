@@ -82,9 +82,7 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice,
-    ReadOnlyUserIdentities, RoomKeyImportResult,
-    SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1091,76 +1089,60 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        Ok(
-            // First find the device corresponding to the Curve25519 identity
-            // key that sent us the session (recorded upon successful
-            // decryption of the `m.room_key` to-device message).
-            if let Some(device) = self
-                .get_user_devices(sender, None)
-                .await?
-                .devices()
-                .find(|d| d.curve25519_key() == Some(session.sender_key()))
-            {
-                // If the `Device` is confirmed to be the owner of the
-                // `InboundGroupSession` we will consider the session (i.e.
-                // "room key"), and by extension any events that are encrypted
-                // using this session, trusted if either:
-                //
-                //     a) This is our own device, or
-                //     b) The device itself is considered to be trusted.
-                if session.has_been_imported() {
-                    // the sender_key is claimed we can't check any authenticity
-                    (VerificationState::UnsafeSource, None)
-                } else if device.is_owner_of_session(session) {
-                    let device_owner_verified = device
-                        .device_owner_identity
-                        .as_ref()
-                        .map(|id| match id {
-                            ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
-                            ReadOnlyUserIdentities::Other(other_identity) => device
-                                .own_identity
-                                .as_ref()
-                                .map(|oi| {
-                                    oi.is_verified()
-                                        && oi.is_identity_signed(other_identity).is_ok()
-                                })
-                                .unwrap_or(false),
-                        })
-                        .unwrap_or(false);
+    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
+        Ok(if session.has_been_imported() {
+            // the sender_key is claimed we can't check any authenticity
+            // No point of trying to find the matching device
+            (VerificationState::UnsafeSource, None)
+        } else if let Some(device) = self
+            .get_user_devices(sender, None)
+            .await?
+            .devices()
+            .find(|d| d.curve25519_key() == Some(session.sender_key()))
+        {
+            // We found a matching device, let's check if it owns the session
+            if device.is_owner_of_session(session) {
+                // We want to make a distinction between an unsigned device of a verified
+                // owner and an unsigned device of an unverified user
+                let device_owner_verified = device.is_device_owner_verified();
 
-                    if device.is_our_own_device() || device.is_verified() {
-                        // Special case that to consider local trust
+                if device.is_our_own_device() || device.is_verified() {
+                    // Special case that to consider local trust
+                    (VerificationState::Verified, Some(device.device_id().to_owned()))
+                } else if device.is_cross_signed_by_owner() {
+                    // The device is cross signed by this owner
+                    // Meaning that the user did self verify it properly
+                    // Let's check if we trust the identity
+                    if device_owner_verified {
+                        // can this happen? in this case the device would be verified
                         (VerificationState::Verified, Some(device.device_id().to_owned()))
-                    } else if device.is_cross_signed_by_owner() {
-                        if device_owner_verified {
-                            // can this happen? in this case the device would be verified
-                            (VerificationState::Verified, Some(device.device_id().to_owned()))
-                        } else {
-                            (
-                                VerificationState::SignedDeviceOfUnverifiedUser,
-                                Some(device.device_id().to_owned()),
-                            )
-                        }
-                    } else if device_owner_verified {
+                    } else {
                         (
-                            VerificationState::UnSignedDeviceOfVerifiedUser,
+                            VerificationState::SignedDeviceOfUnverifiedUser,
                             Some(device.device_id().to_owned()),
                         )
-                    } else {
-                        (VerificationState::UnSignedDevice, Some(device.device_id().to_owned()))
                     }
+                } else if device_owner_verified {
+                    // The user is verified by us but he hasn't self verified his device
+                    (
+                        VerificationState::UnSignedDeviceOfVerifiedUser,
+                        Some(device.device_id().to_owned()),
+                    )
                 } else {
-                    // mismatch of identity and fingerprint
-                    // The device (curve, ed) does not matched the key (curve, claimed_ed)
-                    (VerificationState::Mismatch, Some(device.device_id().to_owned()))
+                    // The user is not verified by us,
+                    // and the device is not properly verified by him
+                    (VerificationState::UnSignedDevice, Some(device.device_id().to_owned()))
                 }
             } else {
-                // We didn't find a device, no way to know if we should trust
-                // the `InboundGroupSession` or not.
-                (VerificationState::UnknownDevice, None)
-            },
-        )
+                // mismatch of identity and fingerprint
+                // The device (curve, ed) does not matched the key (curve, claimed_ed)
+                (VerificationState::Mismatch, Some(device.device_id().to_owned()))
+            }
+        } else {
+            // We didn't find a device, no way to know if we should trust
+            // the `InboundGroupSession` or not.
+            (VerificationState::UnknownDevice, None)
+        })
     }
 
     /// Get some metadata pertaining to a given group session.
