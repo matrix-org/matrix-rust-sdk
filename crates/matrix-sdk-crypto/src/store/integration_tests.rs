@@ -339,9 +339,9 @@ macro_rules! cryptostore_integration_tests {
                     "We were still tracked"
                 );
 
-                assert!(store.is_user_tracked(device.user_id()));
+                assert!(store.is_user_tracked(device.user_id()).await.unwrap());
                 assert!(
-                    !store.users_for_key_query().contains(device.user_id()),
+                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
                     "Unexpectedly key found"
                 );
                 assert!(
@@ -349,7 +349,7 @@ macro_rules! cryptostore_integration_tests {
                     "User was there?"
                 );
                 assert!(
-                    store.users_for_key_query().contains(device.user_id()),
+                    store.users_for_key_query().await.unwrap().contains(device.user_id()),
                     "Didn't find the key despite tracking"
                 );
                 drop(store);
@@ -358,15 +358,18 @@ macro_rules! cryptostore_integration_tests {
 
                 store.load_account().await.unwrap();
 
-                assert!(store.is_user_tracked(device.user_id()), "Reopened didn't track");
                 assert!(
-                    store.users_for_key_query().contains(device.user_id()),
+                    store.is_user_tracked(device.user_id()).await.unwrap(),
+                    "Reopened didn't track"
+                );
+                assert!(
+                    store.users_for_key_query().await.unwrap().contains(device.user_id()),
                     "Reopened doesn't have the key"
                 );
 
                 store.update_tracked_user(device.user_id(), false).await.unwrap();
                 assert!(
-                    !store.users_for_key_query().contains(device.user_id()),
+                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
                     "Reopened has the key despite us not tracking"
                 );
                 drop(store);
@@ -376,7 +379,7 @@ macro_rules! cryptostore_integration_tests {
                 store.load_account().await.unwrap();
 
                 assert!(
-                    !store.users_for_key_query().contains(device.user_id()),
+                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
                     "Reloaded store has the account"
                 );
             }

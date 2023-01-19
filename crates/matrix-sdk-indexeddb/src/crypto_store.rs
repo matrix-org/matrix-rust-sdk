@@ -756,12 +756,12 @@ impl IndexeddbCryptoStore {
         Ok(())
     }
 
-    fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
+    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+        Ok(self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect())
     }
 
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
+    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect())
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -1017,20 +1017,20 @@ impl CryptoStore for IndexeddbCryptoStore {
         self.reset_backup_state().await.map_err(|e| e.into())
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users_cache.contains(user_id)
+    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool, CryptoStoreError> {
+        Ok(self.tracked_users_cache.contains(user_id))
     }
 
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query_cache.is_empty()
+    async fn has_users_for_key_query(&self) -> Result<bool, CryptoStoreError> {
+        Ok(!self.users_for_key_query_cache.is_empty())
     }
 
-    fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.tracked_users()
+    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+        self.tracked_users().await
     }
 
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        self.users_for_key_query()
+    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+        self.users_for_key_query().await
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {

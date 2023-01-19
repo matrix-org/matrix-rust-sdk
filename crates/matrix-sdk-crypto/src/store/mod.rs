@@ -727,17 +727,17 @@ pub trait CryptoStore: AsyncTraitDeps {
     ) -> Result<Option<OutboundGroupSession>>;
 
     /// Is the given user already tracked.
-    fn is_user_tracked(&self, user_id: &UserId) -> bool;
+    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool>;
 
     /// Are there any tracked users that are marked as dirty.
-    fn has_users_for_key_query(&self) -> bool;
+    async fn has_users_for_key_query(&self) -> Result<bool>;
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId>;
+    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>>;
 
     /// Get all tracked users we know about.
-    fn tracked_users(&self) -> HashSet<OwnedUserId>;
+    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>>;
 
     /// Add an user for tracking.
     ///
