@@ -2202,6 +2202,21 @@ pub(crate) mod tests {
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
         assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
+
+        // As soon as the key source is unsafe the verification state (or existence) of
+        // the device is meaningless
+
+        bob.get_device(alice.user_id(), alice_device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .set_trust_state(LocalTrust::Unset);
+
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+
+        // Should still be unsafe and not unverified
+        assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
     }
 
     #[async_test]

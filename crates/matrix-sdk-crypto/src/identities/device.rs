@@ -266,14 +266,13 @@ impl Device {
             .map(|device_identity| match device_identity {
                 // If it's one of our own devices, just check that
                 // we signed the device.
-                ReadOnlyUserIdentities::Own(i) => {
-                    i.is_device_signed(&self.inner).map_or(false, |_| true)
+                ReadOnlyUserIdentities::Own(identity) => {
+                    identity.is_device_signed(&self.inner).is_ok()
                 }
-
                 // If it's a device from someone else, check
                 // if the other user has signed this device.
                 ReadOnlyUserIdentities::Other(device_identity) => {
-                    device_identity.is_device_signed(&self.inner).map_or(false, |_| true)
+                    device_identity.is_device_signed(&self.inner).is_ok()
                 }
             })
             .unwrap_or(false)
