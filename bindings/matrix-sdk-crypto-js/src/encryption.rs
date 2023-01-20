@@ -125,7 +125,7 @@ pub enum VerificationState {
     UnSignedDeviceOfVerifiedUser,
     /// The device is not signed by the user, and
     /// we haven't verified the user
-    UnSignedDevice,
+    UnSignedDeviceOfUnverifiedUser,
     /// The device is unknown or deleted.
     UnknownDevice,
     /// The key is coming from an unsafe source, and authenticity cannot
@@ -144,7 +144,7 @@ impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for Ver
             Verified => Self::Verified,
             SignedDeviceOfUnverifiedUser => Self::SignedDeviceOfUnverifiedUser,
             UnSignedDeviceOfVerifiedUser => Self::UnSignedDeviceOfVerifiedUser,
-            UnSignedDevice => Self::UnSignedDevice,
+            UnSignedDeviceOfUnverifiedUser => Self::UnSignedDeviceOfUnverifiedUser,
             UnknownDevice => Self::UnknownDevice,
             UnsafeSource => Self::UnsafeSource,
             Mismatch => Self::Mismatch,

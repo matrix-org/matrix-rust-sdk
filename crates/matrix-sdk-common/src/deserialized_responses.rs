@@ -23,7 +23,7 @@ pub enum VerificationState {
     UnSignedDeviceOfVerifiedUser,
     /// The device is not signed by the user, and
     /// we haven't verified the user
-    UnSignedDevice,
+    UnSignedDeviceOfUnverifiedUser,
     /// The device is unknown or deleted.
     UnknownDevice,
     /// The key is coming from an unsafe source, and authenticity cannot

@@ -316,7 +316,7 @@ enum VerificationState {
     "Verified",
     "SignedDeviceOfUnverifiedUser",
     "UnSignedDeviceOfVerifiedUser",
-    "UnSignedDevice",
+    "UnSignedDeviceOfUnverifiedUser",
     "UnknownDevice",
     "UnsafeSource",
     "Mismatch",
