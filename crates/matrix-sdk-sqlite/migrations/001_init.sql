@@ -24,3 +24,18 @@ CREATE TABLE "outbound_group_session" (
     "room_id" BLOB PRIMARY KEY NOT NULL,
     "session_data" BLOB NOT NULL
 );
+
+CREATE TABLE "device" (
+    "user_id" BLOB NOT NULL,
+    "device_id" BLOB NOT NULL,
+    "data" BLOB NOT NULL,
+
+    PRIMARY KEY ("user_id", "device_id")
+);
+CREATE INDEX "device_user_id"
+    ON "device" ("user_id");
+
+CREATE TABLE "identity" (
+    "user_id" BLOB NOT NULL,
+    "data" BLOB NOT NULL
+)

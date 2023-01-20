@@ -101,11 +101,9 @@ pub struct SqliteCryptoStore {
     path: Option<PathBuf>,
     pool: SqlitePool,
 
-    // Extra caches
+    // DB values cached in memory
     session_cache: SessionStore,
     account_info: Arc<RwLock<Option<AccountInfo>>>,
-    // tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    // users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for SqliteCryptoStore {
@@ -177,8 +175,8 @@ impl SqliteCryptoStore {
         backed_up: bool,
     ) -> Result<PickledInboundGroupSession, CryptoStoreError> {
         let mut pickle: PickledInboundGroupSession = self.deserialize_value(value)?;
-        // backed_up SQL column is source of truth, pickle field needed for
-        // other stores though
+        // backed_up SQL column is source of truth, backed_up field in pickle
+        // needed for other stores though
         pickle.backed_up = backed_up;
         Ok(pickle)
     }
@@ -200,75 +198,7 @@ impl SqliteCryptoStore {
         Ok(self.pool.get().await?)
     }
 
-    /* async fn reset_backup_state(&self) -> Result<()> {
-        let mut pickles: Vec<(IVec, PickledInboundGroupSession)> = self
-            .inbound_group_sessions
-            .iter()
-            .map(|p| {
-                let item = p.map_err(CryptoStoreError::backend)?;
-                Ok((item.0, self.deserialize_value(&item.1)?))
-            })
-            .collect::<Result<_>>()?;
-
-        for (_, pickle) in &mut pickles {
-            pickle.backed_up = false;
-        }
-
-        let ret: Result<(), TransactionError<CryptoStoreError>> =
-            self.inbound_group_sessions.transaction(|inbound_sessions| {
-                for (key, pickle) in &pickles {
-                    inbound_sessions.insert(
-                        key,
-                        self.serialize_value(pickle)
-                            .map_err(ConflictableTransactionError::Abort)?,
-                    )?;
-                }
-
-                Ok(())
-            });
-
-        ret.map_err(CryptoStoreError::backend)?;
-
-        self.inner.flush_async().await.map_err(CryptoStoreError::backend)?;
-
-        Ok(())
-    }
-
-    async fn load_tracked_users(&self) -> Result<()> {
-        for value in &self.tracked_users {
-            let (_, user) = value.map_err(CryptoStoreError::backend)?;
-            let user: TrackedUser = self.deserialize_value(&user)?;
-
-            self.tracked_users_cache.insert(user.user_id.to_owned());
-
-            if user.dirty {
-                self.users_for_key_query_cache.insert(user.user_id);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn load_outbound_group_session(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
-
-        self.outbound_group_sessions
-            .get(self.encode_key(OUTBOUND_GROUP_TABLE_NAME, room_id))
-            .map_err(CryptoStoreError::backend)?
-            .map(|p| self.deserialize_value(&p))
-            .transpose()?
-            .map(|p| {
-                Ok(OutboundGroupSession::from_pickle(
-                    account_info.device_id,
-                    account_info.identity_keys,
-                    p,
-                )?)
-            })
-            .transpose()
-    }
+    /*
 
     async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
@@ -387,6 +317,11 @@ trait SqliteConnectionExt {
         room_id: &[u8],
         session_data: &[u8],
     ) -> rusqlite::Result<()>;
+
+    fn set_device(&self, user_id: &[u8], device_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+    fn delete_device(&self, user_id: &[u8], device_id: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_identity(&self, user_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -431,6 +366,34 @@ impl SqliteConnectionExt for rusqlite::Connection {
              VALUES (?1, ?2)
              ON CONFLICT (room_id) DO UPDATE SET session_data = ?3",
             (room_id, session_data),
+        )?;
+        Ok(())
+    }
+
+    fn set_device(&self, user_id: &[u8], device_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO device (user_id, device_id, data) \
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (user_id, device_id) DO UPDATE SET data = ?3",
+            (user_id, device_id, data),
+        )?;
+        Ok(())
+    }
+
+    fn delete_device(&self, user_id: &[u8], device_id: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "DELETE FROM device WHERE user_id = ? AND device_id = ?",
+            (user_id, device_id),
+        )?;
+        Ok(())
+    }
+
+    fn set_identity(&self, user_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO identity (user_id, data) \
+             VALUES (?1, ?2)
+             ON CONFLICT (user_id) DO UPDATE SET data = ?2",
+            (user_id, data),
         )?;
         Ok(())
     }
@@ -505,6 +468,32 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
                 (room_id,),
                 |row| row.get(0),
             )
+            .await
+            .optional()?)
+    }
+
+    async fn get_device(&self, user_id: Key, device_id: Key) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM device WHERE user_id = ? AND device_id = ?",
+                (user_id, device_id),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
+    }
+
+    async fn get_user_devices(&self, user_id: Key) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM device WHERE user_id = ?", |mut stmt| {
+                stmt.query((user_id,))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    async fn get_user_identity(&self, user_id: Key) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
             .await
             .optional()?)
     }
@@ -632,26 +621,24 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("backup_version_v1", &serialized_backup_version)?;
                 }
 
-                /*for device in device_changes.new.iter().chain(&device_changes.changed) {
-                    let key = self.encode_key(DEVICE_TABLE_NAME, device);
-                    let device = self
-                        .serialize_value(&device)
-                        .map_err(ConflictableTransactionError::Abort)?;
-                    devices.insert(key, device)?;
+                for device in changes.devices.new.iter().chain(&changes.devices.changed) {
+                    let user_id = this.encode_key("device", device.user_id().as_bytes());
+                    let device_id = this.encode_key("device", device.device_id().as_bytes());
+                    let data = this.serialize_value(&device)?;
+                    txn.set_device(&user_id, &device_id, &data)?;
                 }
 
-                for device in &device_changes.deleted {
-                    let key = self.encode_key(DEVICE_TABLE_NAME, device);
-                    devices.remove(key)?;
+                for device in &changes.devices.deleted {
+                    let user_id = this.encode_key("device", device.user_id().as_bytes());
+                    let device_id = this.encode_key("device", device.device_id().as_bytes());
+                    txn.delete_device(&user_id, &device_id)?;
                 }
 
-                for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                    identities.insert(
-                        self.encode_key(IDENTITIES_TABLE_NAME, identity.user_id()),
-                        self.serialize_value(&identity)
-                            .map_err(ConflictableTransactionError::Abort)?,
-                    )?;
-                } */
+                for identity in changes.identities.changed.iter().chain(&changes.identities.new) {
+                    let user_id = this.encode_key("identity", identity.user_id().as_bytes());
+                    let data = this.serialize_value(&identity)?;
+                    txn.set_identity(&user_id, &data)?;
+                }
 
                 for (session_id, sender_key, pickle) in &session_changes {
                     let serialized_session = this.serialize_value(&pickle)?;
@@ -866,46 +853,46 @@ impl CryptoStore for SqliteCryptoStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<Option<ReadOnlyDevice>> {
-        /* let key = self.encode_key(DEVICE_TABLE_NAME, (user_id, device_id));
-
+        let user_id = self.encode_key("device", user_id.as_bytes());
+        let device_id = self.encode_key("device", device_id.as_bytes());
         Ok(self
-            .devices
-            .get(key)
-            .map_err(CryptoStoreError::backend)?
-            .map(|d| self.deserialize_value(&d))
-            .transpose()?) */
-        todo!()
+            .acquire()
+            .await?
+            .get_device(user_id, device_id)
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?)
     }
 
     async fn get_user_devices(
         &self,
         user_id: &UserId,
     ) -> StoreResult<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
-        /* let key = self.encode_key(DEVICE_TABLE_NAME, user_id);
-        self.devices
-            .scan_prefix(key)
-            .map(|d| self.deserialize_value(&d.map_err(CryptoStoreError::backend)?.1))
-            .map(|d| {
-                let d: ReadOnlyDevice = d?;
-                Ok((d.device_id().to_owned(), d))
+        let user_id = self.encode_key("device", user_id.as_bytes());
+        self.acquire()
+            .await?
+            .get_user_devices(user_id)
+            .await?
+            .into_iter()
+            .map(|value| {
+                let device: ReadOnlyDevice = self.deserialize_value(&value)?;
+                Ok((device.device_id().to_owned(), device))
             })
-            .collect() */
-        todo!()
+            .collect()
     }
 
     async fn get_user_identity(
         &self,
         user_id: &UserId,
     ) -> StoreResult<Option<ReadOnlyUserIdentities>> {
-        /* let key = self.encode_key(IDENTITIES_TABLE_NAME, user_id);
-
+        let user_id = self.encode_key("identity", user_id.as_bytes());
         Ok(self
-            .identities
-            .get(key)
-            .map_err(CryptoStoreError::backend)?
-            .map(|i| self.deserialize_value(&i))
-            .transpose()?) */
-        todo!()
+            .acquire()
+            .await?
+            .get_user_identity(user_id)
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?)
     }
 
     async fn is_message_known(
@@ -999,27 +986,21 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
-        /* let key = {
-            let backup_version = self
-                .account
-                .get("backup_version_v1".encode())
-                .map_err(CryptoStoreError::backend)?
-                .map(|v| self.deserialize_value(&v))
-                .transpose()?;
+        let conn = self.acquire().await?;
 
-            let recovery_key = {
-                self.account
-                    .get("recovery_key_v1".encode())
-                    .map_err(CryptoStoreError::backend)?
-                    .map(|p| self.deserialize_value(&p))
-                    .transpose()?
-            };
+        let backup_version = conn
+            .get_kv("backup_version_v1")
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?;
 
-            BackupKeys { backup_version, recovery_key }
-        };
+        let recovery_key = conn
+            .get_kv("recovery_key_v1")
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?;
 
-        Ok(key) */
-        todo!()
+        Ok(BackupKeys { backup_version, recovery_key })
     }
 }
 
