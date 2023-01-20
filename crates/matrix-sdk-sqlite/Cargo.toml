@@ -11,7 +11,11 @@ rust-version = { workspace = true }
 default = []
 
 #state-store = ["dep:matrix-sdk-base"]
-crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto", "matrix-sdk-base?/e2e-encryption"]
+crypto-store = [
+    "dep:matrix-sdk-base",
+    "dep:matrix-sdk-crypto",
+    "matrix-sdk-base?/e2e-encryption",
+]
 
 [dependencies]
 async-stream = { workspace = true }
@@ -26,11 +30,14 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 ruma = { workspace = true }
-rusqlite = "0.28.0"
+rusqlite = { version = "0.28.0", features = ["bundled"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.23.1", default-features = false, features = ["sync", "fs"] }
+tokio = { version = "1.23.1", default-features = false, features = [
+    "sync",
+    "fs",
+] }
 tracing = { workspace = true }
 
 [dev-dependencies]
@@ -41,5 +48,8 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
-tokio = { version = "1.23.1", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.23.1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
