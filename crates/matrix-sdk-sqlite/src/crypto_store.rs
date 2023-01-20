@@ -187,6 +187,18 @@ impl SqliteCryptoStore {
         Ok(pickle)
     }
 
+    fn deserialize_key_request(
+        &self,
+        value: &[u8],
+        sent_out: bool,
+    ) -> Result<GossipRequest, CryptoStoreError> {
+        let mut request: GossipRequest = self.deserialize_value(value)?;
+        // sent_out SQL column is source of truth, sent_out field in serialized value
+        // needed for other stores though
+        request.sent_out = sent_out;
+        Ok(request)
+    }
+
     fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
         let bytes = key.as_ref();
         if let Some(store_cipher) = &self.store_cipher {
@@ -327,6 +339,13 @@ trait SqliteConnectionExt {
     fn set_identity(&self, user_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 
     fn add_olm_hash(&self, data: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_key_request(
+        &self,
+        request_id: &[u8],
+        sent_out: bool,
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -355,7 +374,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
         self.execute(
             "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up) \
              VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (session_id) DO UPDATE SET data = ?3 AND backed_up = ?4",
+             ON CONFLICT (session_id) DO UPDATE SET data = ?3, backed_up = ?4",
             (session_id, room_id, data, backed_up),
         )?;
         Ok(())
@@ -400,7 +419,22 @@ impl SqliteConnectionExt for rusqlite::Connection {
     }
 
     fn add_olm_hash(&self, data: &[u8]) -> rusqlite::Result<()> {
-        self.execute("INSERT INTO olm_hash (data) VALUES (?) ON CONFLICT IGNORE", (data,))?;
+        self.execute("INSERT INTO olm_hash (data) VALUES (?) ON CONFLICT DO NOTHING", (data,))?;
+        Ok(())
+    }
+
+    fn set_key_request(
+        &self,
+        request_id: &[u8],
+        sent_out: bool,
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO key_requests (request_id, sent_out, data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
+            (request_id, sent_out, data),
+        )?;
         Ok(())
     }
 }
@@ -536,6 +570,41 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
                 },
             )
             .await?)
+    }
+
+    async fn get_outgoing_secret_request(
+        &self,
+        request_id: Key,
+    ) -> Result<Option<(Vec<u8>, bool)>> {
+        Ok(self
+            .query_row(
+                "SELECT data, sent_out FROM key_requests WHERE request_id = ?",
+                (request_id,),
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .await
+            .optional()?)
+    }
+
+    async fn get_outgoing_secret_requests(&self) -> Result<Vec<(Vec<u8>, bool)>> {
+        Ok(self
+            .prepare("SELECT data, sent_out FROM key_requests", |mut stmt| {
+                stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
+            })
+            .await?)
+    }
+
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM key_requests WHERE sent_out = FALSE", |mut stmt| {
+                stmt.query(())?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    async fn delete_key_request(&self, request_id: Key) -> Result<()> {
+        self.execute("DELETE FROM key_requests WHERE request_id = ?", (request_id,)).await?;
+        Ok(())
     }
 }
 
@@ -705,30 +774,11 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.add_olm_hash(&hash)?;
                 }
 
-                /* for key_request in &key_requests {
-                    secret_requests_by_info.insert(
-                        self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &key_request.info),
-                        key_request.request_id.encode(),
-                    )?;
-
-                    let key_request_id = key_request.request_id.encode();
-
-                    if key_request.sent_out {
-                        unsent_secret_requests.remove(key_request_id.clone())?;
-                        outgoing_secret_requests.insert(
-                            key_request_id,
-                            self.serialize_value(&key_request)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    } else {
-                        outgoing_secret_requests.remove(key_request_id.clone())?;
-                        unsent_secret_requests.insert(
-                            key_request_id,
-                            self.serialize_value(&key_request)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-                } */
+                for request in changes.key_requests {
+                    let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
+                    let serialized_request = this.serialize_value(&request)?;
+                    txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                }
 
                 Ok::<_, Error>(())
             })
@@ -938,79 +988,46 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         request_id: &TransactionId,
     ) -> StoreResult<Option<GossipRequest>> {
-        /* let request_id = request_id.encode();
-
-        self.get_outgoing_key_request_helper(&request_id).await */
-        todo!()
+        let request_id = self.encode_key("key_requests", request_id.as_bytes());
+        Ok(self
+            .acquire()
+            .await?
+            .get_outgoing_secret_request(request_id)
+            .await?
+            .map(|(value, sent_out)| self.deserialize_key_request(&value, sent_out))
+            .transpose()?)
     }
 
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
     ) -> StoreResult<Option<GossipRequest>> {
-        /* let id = self
-            .secret_requests_by_info
-            .get(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, key_info))
-            .map_err(CryptoStoreError::backend)?;
-
-        if let Some(id) = id {
-            self.get_outgoing_key_request_helper(&id).await
-        } else {
-            Ok(None)
-        } */
-        todo!()
+        let requests = self.acquire().await?.get_outgoing_secret_requests().await?;
+        for (request, sent_out) in requests {
+            let request = self.deserialize_key_request(&request, sent_out)?;
+            if request.info == *key_info {
+                return Ok(Some(request));
+            }
+        }
+        Ok(None)
     }
 
     async fn get_unsent_secret_requests(&self) -> StoreResult<Vec<GossipRequest>> {
-        /* let requests: Result<Vec<GossipRequest>> = self
-            .unsent_secret_requests
+        self.acquire()
+            .await?
+            .get_unsent_secret_requests()
+            .await?
             .iter()
-            .map(|i| self.deserialize_value(&i.map_err(CryptoStoreError::backend)?.1))
-            .collect();
-
-        requests */
-        todo!()
+            .map(|value| {
+                let request = self.deserialize_key_request(&value, false)?;
+                Ok(request)
+            })
+            .collect()
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> StoreResult<()> {
-        /* let ret: Result<(), TransactionError<CryptoStoreError>> = (
-            &self.outgoing_secret_requests,
-            &self.unsent_secret_requests,
-            &self.secret_requests_by_info,
-        )
-            .transaction(
-                |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
-                    let sent_request: Option<GossipRequest> = outgoing_key_requests
-                        .remove(request_id.encode())?
-                        .map(|r| self.deserialize_value(&r))
-                        .transpose()
-                        .map_err(ConflictableTransactionError::Abort)?;
-
-                    let unsent_request: Option<GossipRequest> = unsent_key_requests
-                        .remove(request_id.encode())?
-                        .map(|r| self.deserialize_value(&r))
-                        .transpose()
-                        .map_err(ConflictableTransactionError::Abort)?;
-
-                    if let Some(request) = sent_request {
-                        key_requests_by_info
-                            .remove(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &request.info))?;
-                    }
-
-                    if let Some(request) = unsent_request {
-                        key_requests_by_info
-                            .remove(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &request.info))?;
-                    }
-
-                    Ok(())
-                },
-            );
-
-        ret.map_err(CryptoStoreError::backend)?;
-        self.inner.flush_async().await.map_err(CryptoStoreError::backend)?;
-
-        Ok(()) */
-        todo!()
+        let request_id = self.encode_key("key_requests", request_id.as_bytes());
+        Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }
 
     async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {

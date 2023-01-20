@@ -48,3 +48,9 @@ CREATE TABLE "tracked_user" (
 CREATE TABLE "olm_hash" (
     "data" BLOB PRIMARY KEY NOT NULL
 );
+
+CREATE TABLE "key_requests" (
+    "request_id" BLOB PRIMARY KEY NOT NULL,
+    "sent_out" INTEGER NOT NULL,
+    "data" BLOB NOT NULL
+);
