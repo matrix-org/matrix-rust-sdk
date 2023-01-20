@@ -77,7 +77,10 @@ use crate::{
 pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
-    /// The store used for encryption
+    /// The store used for encryption.
+    ///
+    /// This field is only meant to be used for `OlmMachine` initialization.
+    /// All operations on it happen inside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
     /// The olm-machine that is created once the
