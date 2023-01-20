@@ -203,6 +203,15 @@ fn build_xcframework(
     // Copy the Swift package manifest to the SDK root for local development.
     copy(apple_dir.join("Debug-Package.swift"), root_dir.join("Package.swift"))?;
 
+    // Copy an empty package to folders we want ignored
+    let ignored_package_folders = ["target"];
+    for path in ignored_package_folders {
+        copy(
+            apple_dir.join("Debug-Empty-Package.swift"),
+            root_dir.join(path).join("Package.swift"),
+        )?;
+    }
+
     // cleaning up the intermediate data
     remove_dir_all(headers_dir.as_path())?;
 
