@@ -1664,20 +1664,20 @@ pub(crate) mod tests {
     use serde_json::json;
     use vodozemac::{
         megolm::{GroupSession, SessionConfig},
-        Ed25519PublicKey,
+        Curve25519PublicKey, Ed25519PublicKey,
     };
 
     use super::testing::response_from_file;
     use crate::{
         error::EventError,
         machine::OlmMachine,
-        olm::{InboundGroupSession, VerifyJson},
+        olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
                 ToDeviceEvent,
             },
-            DeviceKeys, SignedKey, SigningKeys,
+            DeviceKeys, EventEncryptionAlgorithm, SignedKey,
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
@@ -2223,6 +2223,74 @@ pub(crate) mod tests {
 
         // Should still be unsafe and not unverified
         assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
+    }
+
+    #[async_test]
+    async fn test_verication_states_multiple_device() {
+        let (bob, _) = get_prepared_machine().await;
+
+        let other_user_id = user_id!("@web2:localhost:8482");
+
+        let data = response_from_file(&test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED);
+        let response = get_keys::v3::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response");
+
+        let (device_change, identity_change) =
+            bob.receive_keys_query_response(&response).await.unwrap();
+        assert_eq!(device_change.new.len(), 2);
+        assert_eq!(identity_change.new.len(), 1);
+        //
+        let devices = bob.store.get_user_devices(other_user_id).await.unwrap();
+        assert_eq!(devices.devices().count(), 2);
+
+        let fake_room_id = room_id!("!roomid:example.com");
+
+        // We just need a fake session to export it
+        // We will use the export to create various inbounds with other claimed
+        // ownership
+        let id_keys = bob.identity_keys().clone();
+        let fake_device_id = bob.device_id.clone();
+        let olm = OutboundGroupSession::new(
+            fake_device_id,
+            Arc::new(id_keys),
+            fake_room_id,
+            EncryptionSettings::default(),
+        )
+        .unwrap()
+        .session_key()
+        .await;
+
+        let web_unverified_inbound_session = InboundGroupSession::new(
+            Curve25519PublicKey::from_base64("LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc")
+                .unwrap(),
+            Ed25519PublicKey::from_base64("loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw").unwrap(),
+            fake_room_id,
+            &olm,
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+        )
+        .unwrap();
+
+        let (state, _) = bob
+            .get_verification_state(&web_unverified_inbound_session, other_user_id)
+            .await
+            .unwrap();
+        assert_eq!(VerificationState::UnSignedDeviceOfUnverifiedUser, state);
+
+        let web_signed_inbound_session = InboundGroupSession::new(
+            Curve25519PublicKey::from_base64("XJixbpnfIk+RqcK5T6moqVY9d9Q1veR8WjjSlNiQNT0")
+                .unwrap(),
+            Ed25519PublicKey::from_base64("48f3WQAMGwYLBg5M5qUhqnEVA8yeibjZpPsShoWMFT8").unwrap(),
+            fake_room_id,
+            &olm,
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+        )
+        .unwrap();
+
+        let (state, _) =
+            bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
+        assert_eq!(VerificationState::SignedDeviceOfUnverifiedUser, state);
     }
 
     #[async_test]
