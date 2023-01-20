@@ -356,8 +356,8 @@ impl SqliteConnectionExt for rusqlite::Connection {
         data: &[u8],
     ) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO session (session_id, sender_key, data) \
-             VALUES (?1, ?2, ?3) \
+            "INSERT INTO session (session_id, sender_key, data)
+             VALUES (?1, ?2, ?3)
              ON CONFLICT (session_id) DO UPDATE SET data = ?3",
             (session_id, sender_key, data),
         )?;
@@ -683,7 +683,7 @@ impl CryptoStore for SqliteCryptoStore {
         let mut session_changes = Vec::new();
         for session in changes.sessions {
             let session_id = self.encode_key("session", session.session_id());
-            let sender_key = self.encode_key("session", session.sender_key().as_bytes());
+            let sender_key = self.encode_key("session", session.sender_key().to_base64());
             let pickle = session.pickle().await;
             session_changes.push((session_id, sender_key, pickle));
 
@@ -797,7 +797,7 @@ impl CryptoStore for SqliteCryptoStore {
             let sessions = self
                 .acquire()
                 .await?
-                .get_sessions_for_sender_key(self.encode_key("sessions", sender_key))
+                .get_sessions_for_sender_key(self.encode_key("session", sender_key.as_bytes()))
                 .await?
                 .into_iter()
                 .map(|bytes| {
