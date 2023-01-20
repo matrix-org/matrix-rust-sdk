@@ -19,6 +19,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use dashmap::DashSet;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
@@ -102,8 +103,11 @@ pub struct SqliteCryptoStore {
     pool: SqlitePool,
 
     // DB values cached in memory
-    session_cache: SessionStore,
     account_info: Arc<RwLock<Option<AccountInfo>>>,
+    session_cache: SessionStore,
+
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for SqliteCryptoStore {
@@ -150,6 +154,8 @@ impl SqliteCryptoStore {
             pool,
             account_info: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
+            tracked_users_cache: Arc::new(DashSet::new()),
+            users_for_key_query_cache: Arc::new(DashSet::new()),
         })
     }
 
@@ -198,9 +204,7 @@ impl SqliteCryptoStore {
         Ok(self.pool.get().await?)
     }
 
-    /*
-
-    async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
+    /* async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
             .outgoing_secret_requests
             .get(id)
@@ -219,35 +223,38 @@ impl SqliteCryptoStore {
         };
 
         Ok(request)
+    } */
+
+    async fn load_tracked_users(&self) -> Result<()> {
+        for value in self.acquire().await?.get_tracked_users().await? {
+            let user: TrackedUser = self.deserialize_value(&value)?;
+
+            self.tracked_users_cache.insert(user.user_id.to_owned());
+
+            if user.dirty {
+                self.users_for_key_query_cache.insert(user.user_id);
+            }
+        }
+
+        Ok(())
     }
 
-    /// Save a batch of tracked users.
-    ///
-    /// # Arguments
-    ///
-    /// * `tracked_users` - A list of tuples. The first element of the tuple is
-    /// the user ID, the second element is if the user should be considered to
-    /// be dirty.
-    pub async fn save_tracked_users(
+    async fn save_tracked_users(
         &self,
         tracked_users: &[(&UserId, bool)],
     ) -> Result<(), CryptoStoreError> {
-        let users: Vec<TrackedUser> = tracked_users
+        let users: Vec<(Key, Vec<u8>)> = tracked_users
             .iter()
-            .map(|(u, d)| TrackedUser { user_id: (*u).into(), dirty: *d })
-            .collect();
+            .map(|(u, d)| {
+                let user_id = self.encode_key("tracked_users", u.as_bytes());
+                let data =
+                    self.serialize_value(&TrackedUser { user_id: (*u).into(), dirty: *d })?;
+                Ok((user_id, data))
+            })
+            .collect::<Result<_>>()?;
 
-        let mut batch = Batch::default();
-
-        for user in users {
-            batch.insert(
-                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
-                self.serialize_value(&user)?,
-            );
-        }
-
-        self.tracked_users.apply_batch(batch).map_err(CryptoStoreError::backend)
-    } */
+        Ok(self.acquire().await?.add_tracked_users(users).await?)
+    }
 }
 
 const DATABASE_VERSION: u8 = 1;
@@ -318,6 +325,8 @@ trait SqliteConnectionExt {
     fn delete_device(&self, user_id: &[u8], device_id: &[u8]) -> rusqlite::Result<()>;
 
     fn set_identity(&self, user_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+
+    fn add_olm_hash(&self, data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -387,6 +396,11 @@ impl SqliteConnectionExt for rusqlite::Connection {
              ON CONFLICT (user_id) DO UPDATE SET data = ?2",
             (user_id, data),
         )?;
+        Ok(())
+    }
+
+    fn add_olm_hash(&self, data: &[u8]) -> rusqlite::Result<()> {
+        self.execute("INSERT INTO olm_hash (data) VALUES (?) ON CONFLICT IGNORE", (data,))?;
         Ok(())
     }
 }
@@ -492,11 +506,36 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
     async fn has_olm_hash(&self, data: Vec<u8>) -> Result<bool> {
         Ok(self
-            .query_row("SELECT count(*) FROM olm_hashes WHERE data = ?", (data,), |row| {
+            .query_row("SELECT count(*) FROM olm_hash WHERE data = ?", (data,), |row| {
                 row.get::<_, i32>(0)
             })
             .await?
             > 0)
+    }
+
+    async fn get_tracked_users(&self) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM tracked_user", |mut stmt| {
+                stmt.query(())?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    async fn add_tracked_users(&self, users: Vec<(Key, Vec<u8>)>) -> Result<()> {
+        Ok(self
+            .prepare(
+                "INSERT INTO tracked_user (user_id, data) \
+                 VALUES (?1, ?2) \
+                 ON CONFLICT (user_id) DO UPDATE SET data = ?2",
+                |mut stmt| {
+                    for (user_id, data) in users {
+                        stmt.execute((user_id, data))?;
+                    }
+
+                    Ok(())
+                },
+            )
+            .await?)
     }
 }
 
@@ -510,7 +549,7 @@ impl CryptoStore for SqliteCryptoStore {
         if let Some(pickle) = conn.get_kv("account").await? {
             let pickle = self.deserialize_value(&pickle)?;
 
-            //self.load_tracked_users().await?;
+            self.load_tracked_users().await?;
             let account = ReadOnlyAccount::from_pickle(pickle)?;
 
             let account_info = AccountInfo {
@@ -661,16 +700,12 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_outbound_group_session(room_id, &serialized_session)?;
                 }
 
-                /* for hash in &olm_hashes {
-                    hashes.insert(
-                        serde_json::to_vec(hash)
-                            .map_err(CryptoStoreError::Serialization)
-                            .map_err(ConflictableTransactionError::Abort)?,
-                        &[0],
-                    )?;
+                for hash in &changes.message_hashes {
+                    let hash = serde_json::to_vec(hash).map_err(CryptoStoreError::from)?;
+                    txn.add_olm_hash(&hash)?;
                 }
 
-                for key_request in &key_requests {
+                /* for key_request in &key_requests {
                     secret_requests_by_info.insert(
                         self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &key_request.info),
                         key_request.request_id.encode(),
@@ -815,27 +850,23 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        /* self.tracked_users_cache.contains(user_id) */
-        todo!()
+        self.tracked_users_cache.contains(user_id)
     }
 
     fn has_users_for_key_query(&self) -> bool {
-        /* !self.users_for_key_query_cache.is_empty() */
-        todo!()
+        !self.users_for_key_query_cache.is_empty()
     }
 
     fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        /* self.users_for_key_query_cache.iter().map(|u| u.clone()).collect() */
-        todo!()
+        self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
     fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        /* self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect() */
-        todo!()
+        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> StoreResult<bool> {
-        /* let already_added = self.tracked_users_cache.insert(user.to_owned());
+        let already_added = self.tracked_users_cache.insert(user.to_owned());
 
         if dirty {
             self.users_for_key_query_cache.insert(user.to_owned());
@@ -845,8 +876,7 @@ impl CryptoStore for SqliteCryptoStore {
 
         self.save_tracked_users(&[(user, dirty)]).await?;
 
-        Ok(already_added) */
-        todo!()
+        Ok(already_added)
     }
 
     async fn get_device(

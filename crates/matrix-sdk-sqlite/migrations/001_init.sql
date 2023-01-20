@@ -36,6 +36,15 @@ CREATE INDEX "device_user_id"
     ON "device" ("user_id");
 
 CREATE TABLE "identity" (
-    "user_id" BLOB NOT NULL,
+    "user_id" BLOB PRIMARY KEY NOT NULL,
     "data" BLOB NOT NULL
-)
+);
+
+CREATE TABLE "tracked_user" (
+    "user_id" BLOB PRIMARY KEY NOT NULL,
+    "data" BLOB NOT NULL
+);
+
+CREATE TABLE "olm_hash" (
+    "data" BLOB PRIMARY KEY NOT NULL
+);
