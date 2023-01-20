@@ -18,7 +18,7 @@ project:
 | `feat` | About a new feature. |
 | `fix` | About a bug fix. |
 | `test` | About a test (suite, case, runner…). |
-| `doc` | About a documentation modification. |
+| `docs` | About a documentation modification. |
 | `refactor` | About a refactoring. |
 | `ci` | About a Continuous Integration modification. |
 | `chore` | About some cleanup, or regular tasks. |
