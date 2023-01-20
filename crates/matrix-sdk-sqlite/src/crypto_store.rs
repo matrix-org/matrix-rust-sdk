@@ -365,7 +365,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
         self.execute(
             "INSERT INTO outbound_group_session (room_id, data) \
              VALUES (?1, ?2)
-             ON CONFLICT (room_id) DO UPDATE SET data = ?3",
+             ON CONFLICT (room_id) DO UPDATE SET data = ?2",
             (room_id, data),
         )?;
         Ok(())
@@ -832,21 +832,21 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         room_id: &RoomId,
     ) -> StoreResult<Option<OutboundGroupSession>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
         let room_id = self.encode_key("outbound_group_session", room_id.as_bytes());
-        self.acquire()
-            .await?
-            .get_outbound_group_session(room_id)
-            .await?
-            .map(|value| {
-                let pickle = self.deserialize_value(&value)?;
-                Ok(OutboundGroupSession::from_pickle(
-                    account_info.device_id,
-                    account_info.identity_keys,
-                    pickle,
-                )?)
-            })
-            .transpose()
+        let Some(value) = self.acquire().await?.get_outbound_group_session(room_id).await? else {
+            return Ok(None);
+        };
+
+        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+
+        let pickle = self.deserialize_value(&value)?;
+        let session = OutboundGroupSession::from_pickle(
+            account_info.device_id,
+            account_info.identity_keys,
+            pickle,
+        )?;
+
+        return Ok(Some(session));
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
