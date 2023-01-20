@@ -305,9 +305,9 @@ impl OlmMachine {
 
     /// Get the outgoing requests that need to be sent out.
     ///
-    /// This returns a list of [`OutgoingRequest`]. Those requests need to be sent
-    /// out to the server and the responses need to be passed back to the state
-    /// machine using [`mark_request_as_sent`].
+    /// This returns a list of [`OutgoingRequest`]. Those requests need to be
+    /// sent out to the server and the responses need to be passed back to
+    /// the state machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {

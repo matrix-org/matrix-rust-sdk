@@ -187,8 +187,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `users` - An array of user ids that should be added to the list
-    ///   of tracked users
+    /// * `users` - An array of user ids that should be added to the list of
+    ///   tracked users
     ///
     /// Any users that hadn't been seen before will be flagged for a key query
     /// immediately, and whenever `receive_sync_changes` receives a
