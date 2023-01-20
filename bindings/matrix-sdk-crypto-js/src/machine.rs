@@ -187,7 +187,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `users` - An iterator over user ids that should be added to the list
+    /// * `users` - An array of user ids that should be added to the list
     ///   of tracked users
     ///
     /// Any users that hadn't been seen before will be flagged for a key query
