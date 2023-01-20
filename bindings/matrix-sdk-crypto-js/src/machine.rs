@@ -161,7 +161,10 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
-    /// Get all the tracked users of our own device.
+    /// Get the list of users whose devices we are currently tracking.
+    ///
+    /// A user can be marked for tracking using the
+    /// [`update_tracked_users`](#method.update_tracked_users) method.
     ///
     /// Returns a `Set<UserId>`.
     #[wasm_bindgen(js_name = "trackedUsers")]
@@ -175,16 +178,23 @@ impl OlmMachine {
         set
     }
 
-    /// Update the tracked users.
+    /// Update the list of tracked users.
     ///
-    /// `users` is an iterator over user IDs that should be marked for
-    /// tracking.
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
-    /// This will mark users that weren't seen before for a key query
-    /// and tracking.
+    /// # Arguments
     ///
-    /// If the user is already known to the Olm machine, it will not
-    /// be considered for a key query.
+    /// * `users` - An array of user ids that should be added to the list of
+    ///   tracked users
+    ///
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
+    ///
+    /// Users that were already in the list are unaffected.
     #[wasm_bindgen(js_name = "updateTrackedUsers")]
     pub fn update_tracked_users(&self, users: &Array) -> Result<Promise, JsError> {
         let users = users

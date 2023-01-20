@@ -489,6 +489,11 @@ impl OlmMachine {
     /// Add the given list of users to be tracked, triggering a key query
     /// request for them.
     ///
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
+    ///
     /// *Note*: Only users that aren't already tracked will be considered for an
     /// update. It's safe to call this with already tracked users, it won't
     /// result in excessive keys query requests.

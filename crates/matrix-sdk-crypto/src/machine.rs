@@ -295,16 +295,19 @@ impl OlmMachine {
         self.store.device_display_name().await
     }
 
-    /// Get all the tracked users we know about
+    /// Get the list of "tracked users".
+    ///
+    /// See [`update_tracked_users`](#method.update_tracked_users) for more
+    /// information.
     pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.store.tracked_users()
     }
 
     /// Get the outgoing requests that need to be sent out.
     ///
-    /// This returns a list of `OutGoingRequest`, those requests need to be sent
-    /// out to the server and the responses need to be passed back to the state
-    /// machine using [`mark_request_as_sent`].
+    /// This returns a list of [`OutgoingRequest`]. Those requests need to be
+    /// sent out to the server and the responses need to be passed back to
+    /// the state machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
@@ -1195,18 +1198,23 @@ impl OlmMachine {
         result
     }
 
-    /// Update the tracked users.
+    /// Update the list of tracked users.
+    ///
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
     /// # Arguments
     ///
-    /// * `users` - An iterator over user ids that should be marked for
-    /// tracking.
+    /// * `users` - An iterator over user ids that should be added to the list
+    ///   of tracked users
     ///
-    /// This will mark users that weren't seen before for a key query and
-    /// tracking.
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
     ///
-    /// If the user is already known to the Olm machine it will not be
-    /// considered for a key query.
+    /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
         self.identity_manager.update_tracked_users(users).await;
     }
