@@ -2808,7 +2808,7 @@ dependencies = [
  "js_int",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
- "matrix-sdk-sled",
+ "matrix-sdk-sqlite",
  "pbkdf2",
  "rand 0.8.5",
  "ruma",

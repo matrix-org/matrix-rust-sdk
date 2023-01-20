@@ -34,6 +34,7 @@ use matrix_sdk_crypto::{
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
+use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -173,7 +174,6 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use matrix_sdk_sled::SledCryptoStore;
     use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
@@ -197,7 +197,8 @@ pub fn migrate(
     };
 
     let runtime = Runtime::new()?;
-    let store = runtime.block_on(SledCryptoStore::open(path, passphrase.as_deref()))?;
+
+    let store = runtime.block_on(SqliteCryptoStore::open(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -315,7 +316,8 @@ pub fn migrate(
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
 
-    runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
+    // TODO:
+    // runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
