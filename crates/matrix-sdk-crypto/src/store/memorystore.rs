@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
@@ -33,6 +30,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
+    TrackedUser,
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
@@ -49,8 +47,6 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query: Arc<DashSet<OwnedUserId>>,
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
@@ -63,8 +59,6 @@ impl Default for MemoryStore {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
-            tracked_users: Default::default(),
-            users_for_key_query: Default::default(),
             olm_hashes: Default::default(),
             devices: DeviceStore::new(),
             identities: Default::default(),
@@ -201,42 +195,12 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.tracked_users.contains(user_id))
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
+        Ok(Vec::new())
     }
 
-    async fn has_users_for_key_query(&self) -> Result<bool> {
-        Ok(!self.users_for_key_query.is_empty())
-    }
-
-    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>> {
-        Ok(self.users_for_key_query.iter().map(|u| u.clone()).collect())
-    }
-
-    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
-        Ok(self.tracked_users.iter().map(|u| u.to_owned()).collect())
-    }
-
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        // TODO to prevent a race between the sync and a key query in flight we
-        // need to have an additional state to mention that the user changed.
-        //
-        // A simple counter could be used for this or enum with two states, e.g.
-        // The counter would work as follows:
-        // * 0 -> User is synced, no need for a key query.
-        // * 1 -> A sync has marked the user as dirty.
-        // * 2 -> A sync has marked the user again as dirty, before we got a
-        // successful key query response.
-        //
-        // The counter would top out at 2 since there won't be a race between 3
-        // different key queries syncs.
-        if dirty {
-            self.users_for_key_query.insert(user.to_owned());
-        } else {
-            self.users_for_key_query.remove(user);
-        }
-
-        Ok(self.tracked_users.insert(user.to_owned()))
+    async fn save_tracked_users(&self, _: &[(&UserId, bool)]) -> Result<()> {
+        Ok(())
     }
 
     async fn get_device(
@@ -386,17 +350,6 @@ mod tests {
 
         store.delete_devices(vec![device.clone()]).await;
         assert!(store.get_device(device.user_id(), device.device_id()).await.unwrap().is_none());
-    }
-
-    #[async_test]
-    async fn test_tracked_users() {
-        let device = get_device();
-        let store = MemoryStore::new();
-
-        assert!(store.update_tracked_user(device.user_id(), false).await.unwrap());
-        assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap());
-
-        assert!(store.is_user_tracked(device.user_id()).await.unwrap());
     }
 
     #[async_test]

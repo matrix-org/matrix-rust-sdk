@@ -3,6 +3,8 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
+            use std::collections::HashMap;
+
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, encryption::SignedKey, room_id, serde::Base64, user_id, DeviceId,
@@ -19,7 +21,7 @@ macro_rules! cryptostore_integration_tests {
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::events::room_key_request::MegolmV1AesSha2Content,
-                ReadOnlyDevice, SecretInfo,
+                ReadOnlyDevice, SecretInfo, TrackedUser,
             };
 
             use super::get_store;
@@ -328,60 +330,41 @@ macro_rules! cryptostore_integration_tests {
             async fn test_tracked_users() {
                 let dir = "test_tracked_users";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
-                let device = get_device();
 
-                assert!(
-                    store.update_tracked_user(device.user_id(), false).await.unwrap(),
-                    "We were not tracked"
-                );
-                assert!(
-                    !store.update_tracked_user(device.user_id(), false).await.unwrap(),
-                    "We were still tracked"
-                );
+                let alice = user_id!("@alice:example.org");
+                let bob = user_id!("@bob:example.org");
+                let candy = user_id!("@candy:example.org");
 
-                assert!(store.is_user_tracked(device.user_id()).await.unwrap());
-                assert!(
-                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
-                    "Unexpectedly key found"
-                );
-                assert!(
-                    !store.update_tracked_user(device.user_id(), true).await.unwrap(),
-                    "User was there?"
-                );
-                assert!(
-                    store.users_for_key_query().await.unwrap().contains(device.user_id()),
-                    "Didn't find the key despite tracking"
-                );
+                let loaded = store.load_tracked_users().await.unwrap();
+                assert!(loaded.is_empty(), "Initially there are no tracked users");
+
+                let users = vec![(alice, true), (bob, false)];
+                store.save_tracked_users(&users).await.unwrap();
+
+                let check_loaded_users = |loaded: Vec<TrackedUser>| {
+                    let loaded: HashMap<_, _> =
+                        loaded.into_iter().map(|u| (u.user_id.to_owned(), u)).collect();
+
+                    let loaded_alice =
+                        loaded.get(alice).expect("Alice should be in the store as a tracked user");
+                    let loaded_bob =
+                        loaded.get(alice).expect("Bob should be in the store as as tracked user");
+
+                    assert!(!loaded.contains_key(candy), "Candy shouldn't be part of the store");
+                    assert_eq!(loaded.len(), 2, "Candy shouldn't be part of the store");
+
+                    assert!(loaded_alice.dirty, "Alice should be considered to be dirty");
+                    assert!(loaded_alice.dirty, "Bob should not be considered to be dirty");
+                };
+
+                let loaded = store.load_tracked_users().await.unwrap();
+                check_loaded_users(loaded);
+
                 drop(store);
 
                 let store = get_store(dir.clone(), None).await;
-
-                store.load_account().await.unwrap();
-
-                assert!(
-                    store.is_user_tracked(device.user_id()).await.unwrap(),
-                    "Reopened didn't track"
-                );
-                assert!(
-                    store.users_for_key_query().await.unwrap().contains(device.user_id()),
-                    "Reopened doesn't have the key"
-                );
-
-                store.update_tracked_user(device.user_id(), false).await.unwrap();
-                assert!(
-                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
-                    "Reopened has the key despite us not tracking"
-                );
-                drop(store);
-
-                let store = get_store(dir, None).await;
-
-                store.load_account().await.unwrap();
-
-                assert!(
-                    !store.users_for_key_query().await.unwrap().contains(device.user_id()),
-                    "Reloaded store has the account"
-                );
+                let loaded = store.load_tracked_users().await.unwrap();
+                check_loaded_users(loaded);
             }
 
             #[async_test]

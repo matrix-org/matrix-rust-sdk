@@ -86,7 +86,9 @@ pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
-pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
+pub use store::{
+    CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo, TrackedUser,
+};
 pub use verification::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,
     SasState, Verification, VerificationRequest, VerificationRequestState,

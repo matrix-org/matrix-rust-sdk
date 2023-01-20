@@ -1015,10 +1015,12 @@ impl OlmMachine {
 
         self.update_key_counts(one_time_keys_counts, unused_fallback_keys).await;
 
-        for user_id in &changed_devices.changed {
-            if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
-                error!(error = ?e, "Error marking a tracked user as changed");
-            }
+        if let Err(e) = self
+            .identity_manager
+            .receive_device_changes(changed_devices.changed.iter().map(|u| u.as_ref()))
+            .await
+        {
+            error!(error = ?e, "Error marking a tracked user as changed");
         }
 
         for raw_event in to_device_events {
