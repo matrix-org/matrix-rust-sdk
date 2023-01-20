@@ -301,22 +301,18 @@ trait SqliteConnectionExt {
         &self,
         session_id: &[u8],
         sender_key: &[u8],
-        session_data: &[u8],
+        data: &[u8],
     ) -> rusqlite::Result<()>;
 
     fn set_inbound_group_session(
         &self,
         room_id: &[u8],
         session_id: &[u8],
-        session_data: &[u8],
+        data: &[u8],
         backed_up: bool,
     ) -> rusqlite::Result<()>;
 
-    fn set_outbound_group_session(
-        &self,
-        room_id: &[u8],
-        session_data: &[u8],
-    ) -> rusqlite::Result<()>;
+    fn set_outbound_group_session(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 
     fn set_device(&self, user_id: &[u8], device_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
     fn delete_device(&self, user_id: &[u8], device_id: &[u8]) -> rusqlite::Result<()>;
@@ -329,13 +325,13 @@ impl SqliteConnectionExt for rusqlite::Connection {
         &self,
         session_id: &[u8],
         sender_key: &[u8],
-        session_data: &[u8],
+        data: &[u8],
     ) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO session (session_id, sender_key, session_data) \
+            "INSERT INTO session (session_id, sender_key, data) \
              VALUES (?1, ?2, ?3) \
-             ON CONFLICT (session_id) DO UPDATE SET session_data = ?3",
-            (session_id, sender_key, session_data),
+             ON CONFLICT (session_id) DO UPDATE SET data = ?3",
+            (session_id, sender_key, data),
         )?;
         Ok(())
     }
@@ -344,28 +340,24 @@ impl SqliteConnectionExt for rusqlite::Connection {
         &self,
         room_id: &[u8],
         session_id: &[u8],
-        session_data: &[u8],
+        data: &[u8],
         backed_up: bool,
     ) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO inbound_group_session (session_id, room_id, session_data, backed_up) \
+            "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up) \
              VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (session_id) DO UPDATE SET session_data = ?3 AND backed_up = ?4",
-            (session_id, room_id, session_data, backed_up),
+             ON CONFLICT (session_id) DO UPDATE SET data = ?3 AND backed_up = ?4",
+            (session_id, room_id, data, backed_up),
         )?;
         Ok(())
     }
 
-    fn set_outbound_group_session(
-        &self,
-        room_id: &[u8],
-        session_data: &[u8],
-    ) -> rusqlite::Result<()> {
+    fn set_outbound_group_session(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO outbound_group_session (room_id, session_data) \
+            "INSERT INTO outbound_group_session (room_id, data) \
              VALUES (?1, ?2)
-             ON CONFLICT (room_id) DO UPDATE SET session_data = ?3",
-            (room_id, session_data),
+             ON CONFLICT (room_id) DO UPDATE SET data = ?3",
+            (room_id, data),
         )?;
         Ok(())
     }
@@ -403,7 +395,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
 trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn get_sessions_for_sender_key(&self, sender_key: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
-            .prepare("SELECT session_data FROM session WHERE sender_key = ?", |mut stmt| {
+            .prepare("SELECT data FROM session WHERE sender_key = ?", |mut stmt| {
                 stmt.query((sender_key,))?.mapped(|row| row.get(0)).collect()
             })
             .await?)
@@ -416,7 +408,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
         // TODO: Probably use prepare_cached?
         Ok(self
             .query_row(
-                "SELECT room_id, session_data FROM inbound_group_session WHERE session_id = ?",
+                "SELECT room_id, data FROM inbound_group_session WHERE session_id = ?",
                 (session_id,),
                 // TODO: return named type instead of tuple?
                 |row| Ok((row.get(0)?, row.get(1)?)),
@@ -427,7 +419,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<(Vec<u8>, bool)>> {
         Ok(self
-            .prepare("SELECT session_data, backed_up FROM inbound_group_session", |mut stmt| {
+            .prepare("SELECT data, backed_up FROM inbound_group_session", |mut stmt| {
                 stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
             })
             .await?)
@@ -450,7 +442,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn get_inbound_group_sessions_for_backup(&self, limit: usize) -> Result<Vec<Vec<u8>>> {
         Ok(self
             .prepare(
-                "SELECT session_data FROM inbound_group_session WHERE backed_up = FALSE LIMIT ?",
+                "SELECT data FROM inbound_group_session WHERE backed_up = FALSE LIMIT ?",
                 move |mut stmt| stmt.query((limit,))?.mapped(|row| row.get(0)).collect(),
             )
             .await?)
@@ -464,7 +456,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn get_outbound_group_session(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row(
-                "SELECT session_data FROM outbound_group_session WHERE room_id = ?",
+                "SELECT data FROM outbound_group_session WHERE room_id = ?",
                 (room_id,),
                 |row| row.get(0),
             )
@@ -496,6 +488,15 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .query_row("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
             .await
             .optional()?)
+    }
+
+    async fn has_olm_hash(&self, data: Vec<u8>) -> Result<bool> {
+        Ok(self
+            .query_row("SELECT count(*) FROM olm_hashes WHERE data = ?", (data,), |row| {
+                row.get::<_, i32>(0)
+            })
+            .await?
+            > 0)
     }
 }
 
@@ -899,11 +900,8 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         message_hash: &matrix_sdk_crypto::olm::OlmMessageHash,
     ) -> StoreResult<bool> {
-        /* Ok(self
-        .olm_hashes
-        .contains_key(serde_json::to_vec(message_hash)?)
-        .map_err(CryptoStoreError::backend)?) */
-        todo!()
+        let value = serde_json::to_vec(message_hash)?;
+        Ok(self.acquire().await?.has_olm_hash(value).await?)
     }
 
     async fn get_outgoing_secret_requests(
