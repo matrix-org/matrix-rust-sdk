@@ -517,10 +517,8 @@ impl OlmMachine {
     /// Get the a key claiming request for the user/device pairs that
     /// we are missing Olm sessions for.
     ///
-    /// Returns `NULL` if no key claiming request needs to be sent
-    /// out, otherwise it returns an `Array` where the first key is
-    /// the transaction ID as a string, and the second key is the keys
-    /// claim request serialized to JSON.
+    /// Returns `null` if no key claiming request needs to be sent
+    /// out, otherwise it returns a `KeysClaimRequest` object.
     ///
     /// Sessions need to be established between devices so group
     /// sessions for a room can be shared with them.
