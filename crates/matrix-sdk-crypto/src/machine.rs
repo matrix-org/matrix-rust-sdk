@@ -295,16 +295,19 @@ impl OlmMachine {
         self.store.device_display_name().await
     }
 
-    /// Get all the tracked users we know about
-    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.store.tracked_users()
+    /// Get the list of "tracked users".
+    ///
+    /// See [`update_tracked_users`](#method.update_tracked_users) for more
+    /// information.
+    pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
+        self.store.tracked_users().await
     }
 
     /// Get the outgoing requests that need to be sent out.
     ///
-    /// This returns a list of `OutGoingRequest`, those requests need to be sent
-    /// out to the server and the responses need to be passed back to the state
-    /// machine using [`mark_request_as_sent`].
+    /// This returns a list of [`OutgoingRequest`]. Those requests need to be
+    /// sent out to the server and the responses need to be passed back to
+    /// the state machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
@@ -318,7 +321,7 @@ impl OlmMachine {
             requests.push(r);
         }
 
-        for request in self.identity_manager.users_for_key_query().await.into_iter().map(|r| {
+        for request in self.identity_manager.users_for_key_query().await?.into_iter().map(|r| {
             OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
         }) {
             requests.push(request);
@@ -554,9 +557,9 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         // This function is only ever called by add_room_key via
-        // handle_decrypted_to_device_event, so sender and sender_key are
+        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ?content.room_id, algorithm = ?event.content.algorithm())
+        fields(room_id = ?content.room_id, session_id)
     )]
     async fn handle_key(
         &self,
@@ -573,22 +576,29 @@ impl OlmMachine {
             None,
         );
 
-        if let Ok(session) = session {
-            tracing::Span::current().record("session_id", session.session_id());
+        match session {
+            Ok(session) => {
+                tracing::Span::current().record("session_id", session.session_id());
 
-            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
-                info!("Received a new megolm room key");
-                Ok(Some(session))
-            } else {
-                warn!(
-                    "Received a megolm room key that we already have a better \
-                     version of, discarding",
-                );
+                if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
+                    info!("Received a new megolm room key");
+
+                    Ok(Some(session))
+                } else {
+                    warn!(
+                        "Received a megolm room key that we already have a better version of, \
+                        discarding",
+                    );
+
+                    Ok(None)
+                }
+            }
+            Err(e) => {
+                tracing::Span::current().record("session_id", &content.session_id);
+                warn!("Received a room key event which contained an invalid session key: {e}");
+
                 Ok(None)
             }
-        } else {
-            warn!("Received a room key with an unsupported algorithm");
-            Ok(None)
         }
     }
 
@@ -1150,7 +1160,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, sender, algorithm, session_id))]
+    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1160,6 +1170,7 @@ impl OlmMachine {
 
         let span = tracing::Span::current();
         span.record("sender", debug(&event.sender));
+        span.record("event_id", debug(&event.event_id));
         span.record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
@@ -1179,36 +1190,40 @@ impl OlmMachine {
             match e {
                 MegolmError::MissingRoomKey
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
-                    // TODO: log the withheld reason if we have one.
-                    debug!(
-                        "Failed to decrypt a room event, the room key is \
-                         missing or has been ratcheted"
-                    );
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
-                _ => {
-                    warn!("Failed to decrypt a room event: {e}");
-                }
+                _ => {}
             }
+
+            // TODO: log the withheld reason if we have one.
+            warn!("Failed to decrypt a room event: {e}");
         }
 
         result
     }
 
-    /// Update the tracked users.
+    /// Update the list of tracked users.
+    ///
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
     /// # Arguments
     ///
-    /// * `users` - An iterator over user ids that should be marked for
-    /// tracking.
+    /// * `users` - An iterator over user ids that should be added to the list
+    ///   of tracked users
     ///
-    /// This will mark users that weren't seen before for a key query and
-    /// tracking.
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
     ///
-    /// If the user is already known to the Olm machine it will not be
-    /// considered for a key query.
-    pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
-        self.identity_manager.update_tracked_users(users).await;
+    /// Users that were already in the list are unaffected.
+    pub async fn update_tracked_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        self.identity_manager.update_tracked_users(users).await
     }
 
     async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {

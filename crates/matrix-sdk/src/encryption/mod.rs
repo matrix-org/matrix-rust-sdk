@@ -489,8 +489,12 @@ impl Encryption {
     ///
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
-    pub async fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.client.olm_machine().map(|o| o.tracked_users()).unwrap_or_default()
+    pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+        if let Some(machine) = self.client.olm_machine() {
+            machine.tracked_users().await
+        } else {
+            Ok(HashSet::new())
+        }
     }
 
     /// Get a verification object with the given flow id.

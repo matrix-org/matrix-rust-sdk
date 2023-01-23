@@ -489,6 +489,11 @@ impl OlmMachine {
     /// Add the given list of users to be tracked, triggering a key query
     /// request for them.
     ///
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
+    ///
     /// *Note*: Only users that aren't already tracked will be considered for an
     /// update. It's safe to call this with already tracked users, it won't
     /// result in excessive keys query requests.
@@ -496,11 +501,13 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// `users` - The users that should be queued up for a key query.
-    pub fn update_tracked_users(&self, users: Vec<String>) {
+    pub fn update_tracked_users(&self, users: Vec<String>) -> Result<(), CryptoStoreError> {
         let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
-        self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)));
+        self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)))?;
+
+        Ok(())
     }
 
     /// Check if the given user is considered to be tracked.
@@ -509,7 +516,7 @@ impl OlmMachine {
     /// [`OlmMachine::update_tracked_users()`] method.
     pub fn is_user_tracked(&self, user_id: &str) -> Result<bool, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
-        Ok(self.inner.tracked_users().contains(&user_id))
+        Ok(self.runtime.block_on(self.inner.tracked_users())?.contains(&user_id))
     }
 
     /// Generate one-time key claiming requests for all the users we are missing

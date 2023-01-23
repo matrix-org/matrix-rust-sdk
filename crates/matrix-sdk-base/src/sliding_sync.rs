@@ -180,11 +180,11 @@ impl BaseClient {
 
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
-                            o.update_tracked_users(user_ids).await
+                            o.update_tracked_users(user_ids).await?
                         }
 
                         if !user_ids.is_empty() {
-                            o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                            o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
                         }
                     }
                 }

@@ -308,10 +308,12 @@ impl OlmMachine {
     ///
     /// * `users`, an array over user IDs that should be marked for tracking.
     #[napi(strict)]
-    pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
+    pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) -> napi::Result<()> {
         let users = users.into_iter().map(|user| user.inner.clone()).collect::<Vec<_>>();
 
-        self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+        self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await.map_err(into_err)?;
+
+        Ok(())
     }
 
     /// Get to-device requests to share a room key with users in a room.

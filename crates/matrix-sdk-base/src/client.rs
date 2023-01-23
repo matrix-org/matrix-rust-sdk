@@ -77,7 +77,10 @@ use crate::{
 pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
-    /// The store used for encryption
+    /// The store used for encryption.
+    ///
+    /// This field is only meant to be used for `OlmMachine` initialization.
+    /// All operations on it happen inside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
     /// The olm-machine that is created once the
@@ -769,10 +772,10 @@ impl BaseClient {
 
                         let user_ids: Vec<&UserId> =
                             joined.iter().chain(&invited).map(Deref::deref).collect();
-                        o.update_tracked_users(user_ids).await
+                        o.update_tracked_users(user_ids).await?
                     }
 
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
                 }
             }
 
@@ -980,7 +983,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine() {
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
 
