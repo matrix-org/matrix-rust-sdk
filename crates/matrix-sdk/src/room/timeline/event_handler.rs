@@ -531,21 +531,29 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     {
                         // TODO: Check whether anything is different about the
                         //       old and new item?
-                        self.timeline_items.set_cloned(idx, item);
-                        return;
+                        // Remove local echo, remote echo will be added below
+                        self.timeline_items.remove(idx);
                     } else {
                         warn!(
                             "Received event with transaction ID, but didn't \
                              find matching timeline item"
                         );
                     }
-                }
-
-                if let Some((idx, old_item)) = find_event_by_id(self.timeline_items, event_id) {
+                } else if let Some((idx, _old_item)) =
+                    find_local_echo_by_event_id(self.timeline_items, event_id)
+                {
                     // This occurs very often right now due to a sliding-sync
                     // bug: https://github.com/matrix-org/sliding-sync/issues/3
-                    // TODO: Use warn log level once that bug is fixed.
-                    trace!(
+                    // TODO: Remove this branch once the bug is fixed?
+                    trace!("Received remote echo without transaction ID");
+                    self.timeline_items.remove(idx);
+                } else if let Some((idx, old_item)) =
+                    find_event_by_id(self.timeline_items, event_id)
+                {
+                    // TODO: Remove for better performance? Doing another scan
+                    // over all the items if the event is not a remote echo is
+                    // slow.
+                    warn!(
                         ?item,
                         ?old_item,
                         "Received event with an ID we already have a timeline item for"
@@ -675,6 +683,19 @@ fn _update_timeline_item(
     } else {
         debug!("Timeline item not found, discarding {action}");
     }
+}
+
+fn find_local_echo_by_event_id<'a>(
+    lock: &'a [Arc<TimelineItem>],
+    event_id: &EventId,
+) -> Option<(usize, &'a EventTimelineItem)> {
+    lock.iter()
+        .enumerate()
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+        // Note: not using event_id() method as this is only supposed to find
+        // local echoes, where the event ID is stored in the separate field
+        // rather than the key.
+        .rfind(|(_, it)| it.event_id.as_deref() == Some(event_id))
 }
 
 /// Converts a timestamp since Unix Epoch to a local date and time.
