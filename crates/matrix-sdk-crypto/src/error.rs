@@ -85,7 +85,7 @@ pub enum MegolmError {
 
     /// Decryption failed because we're missing the room key that was to encrypt
     /// the event.
-    #[error("decryption failed because the room key is missing")]
+    #[error("Can't find the room key to decrypt the event")]
     MissingRoomKey,
 
     /// The encrypted megolm message couldn't be decoded.

@@ -1190,17 +1190,13 @@ impl OlmMachine {
             match e {
                 MegolmError::MissingRoomKey
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
-                    // TODO: log the withheld reason if we have one.
-                    debug!(
-                        "Failed to decrypt a room event, the room key is \
-                         missing or has been ratcheted"
-                    );
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
-                _ => {
-                    warn!("Failed to decrypt a room event: {e}");
-                }
+                _ => {}
             }
+
+            // TODO: log the withheld reason if we have one.
+            warn!("Failed to decrypt a room event: {e}");
         }
 
         result
