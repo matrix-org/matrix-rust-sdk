@@ -687,29 +687,22 @@ impl Joined {
             let data_slot;
             #[cfg(feature = "image-proc")]
             let (data, thumbnail) = if config.generate_thumbnail {
-                let content_type = content_type.clone();
-
-                #[cfg(not(target_arch = "wasm32"))]
-                let (data, res) = tokio::task::spawn_blocking(move || {
+                let make_thumbnail = move |data| {
                     let res = generate_image_thumbnail(
                         &content_type,
                         Cursor::new(&data),
                         config.thumbnail_size,
                     );
                     (data, res)
-                })
-                .await
-                .expect("Task join error");
+                };
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let (data, res) = tokio::task::spawn_blocking(make_thumbnail(data))
+                    .await
+                    .expect("Task join error");
 
                 #[cfg(target_arch = "wasm32")]
-                let res = Ok((
-                    res,
-                    generate_image_thumbnail(
-                        &content_type,
-                        Cursor::new(&data),
-                        config.thumbnail_size,
-                    )?,
-                ));
+                let (data, res) = make_thumbnail(data);
 
                 let thumbnail = match res {
                     Ok((thumbnail_data, thumbnail_info)) => {
