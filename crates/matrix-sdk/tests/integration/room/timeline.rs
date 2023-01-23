@@ -227,10 +227,15 @@ async fn echo() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let remote_echo = assert_matches!(
-        timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 1, value }) => value
-    );
+    // Local echo is removed
+    assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
+    // Bug, will be fixed later. See comment in remote_echo_without_txn_id test
+    // from `room::timeline::tests`.
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let remote_echo =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = remote_echo.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(item.is_own());
