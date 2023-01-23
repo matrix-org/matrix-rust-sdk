@@ -216,27 +216,6 @@ impl SqliteCryptoStore {
         Ok(self.pool.get().await?)
     }
 
-    /* async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
-        let request = self
-            .outgoing_secret_requests
-            .get(id)
-            .map_err(CryptoStoreError::backend)?
-            .map(|r| self.deserialize_value(&r))
-            .transpose()?;
-
-        let request = if request.is_none() {
-            self.unsent_secret_requests
-                .get(id)
-                .map_err(CryptoStoreError::backend)?
-                .map(|r| self.deserialize_value(&r))
-                .transpose()?
-        } else {
-            request
-        };
-
-        Ok(request)
-    } */
-
     async fn load_tracked_users(&self) -> Result<()> {
         for value in self.acquire().await?.get_tracked_users().await? {
             let user: TrackedUser = self.deserialize_value(&value)?;
