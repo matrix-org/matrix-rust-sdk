@@ -10,7 +10,7 @@ test = false
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.23.1", features = ["macros", "rt-multi-thread"] }
 clap = { version = "4.0.15", features = ["derive"] }
 futures = "0.3.24"
 tracing-subscriber = "0.3.16"

@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use js_sys::Promise;
-use wasm_bindgen::{JsValue, UnwrapThrowExt};
+use wasm_bindgen::{JsError, JsValue, UnwrapThrowExt};
 use wasm_bindgen_futures::spawn_local;
 
 pub(crate) fn future_to_promise<F, T>(future: F) -> Promise
@@ -17,9 +17,9 @@ where
         spawn_local(async move {
             match future.await {
                 Ok(value) => resolve.call1(&JsValue::UNDEFINED, &value.into()).unwrap_throw(),
-                Err(value) => {
-                    reject.call1(&JsValue::UNDEFINED, &value.to_string().into()).unwrap_throw()
-                }
+                Err(value) => reject
+                    .call1(&JsValue::UNDEFINED, &JsError::new(&value.to_string()).into())
+                    .unwrap_throw(),
             };
         });
     })

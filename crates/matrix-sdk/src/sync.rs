@@ -16,13 +16,12 @@ use ruma::{
     serde::Raw,
     DeviceKeyAlgorithm, OwnedRoomId,
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::{event_handler::HandlerKind, Client, Result};
 
 /// The processed response of a `/sync` request.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync`
     /// request.
@@ -108,7 +107,7 @@ impl Client {
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -125,7 +124,7 @@ impl Client {
         for (room_id, room_info) in &rooms.leave {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -140,7 +139,7 @@ impl Client {
         for (room_id, room_info) in &rooms.invite {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -162,7 +161,7 @@ impl Client {
         for handler in &*self.notification_handlers().await {
             for (room_id, room_notifications) in notifications {
                 let Some(room) = self.get_room(room_id) else {
-                    warn!(%room_id, "Can't call notification handler, room not found");
+                    warn!(?room_id, "Can't call notification handler, room not found");
                     continue;
                 };
 

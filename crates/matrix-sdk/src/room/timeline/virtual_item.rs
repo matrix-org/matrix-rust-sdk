@@ -16,7 +16,28 @@
 #[derive(Clone, Debug)]
 pub enum VirtualTimelineItem {
     /// A divider between messages of two days.
-    DayDivider,
+    DayDivider {
+        /// The year.
+        year: i32,
+        /// The month of the year.
+        ///
+        /// A value between 1 and 12.
+        month: u32,
+        /// The day of the month.
+        ///
+        /// A value between 1 and 31.
+        day: u32,
+    },
+
     /// The user's own read marker.
     ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
+
+    /// The beginning of the visible timeline.
+    ///
+    /// There might be earlier events the user is not allowed to see due to
+    /// history visibility.
+    TimelineStart,
 }

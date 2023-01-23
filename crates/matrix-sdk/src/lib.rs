@@ -19,8 +19,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
-    StateChanges, StoreError,
+    deserialized_responses, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember,
+    RoomType, Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -38,7 +38,7 @@ pub mod media;
 pub mod room;
 pub mod sync;
 
-#[cfg(feature = "sliding-sync")]
+#[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
@@ -55,7 +55,7 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use media::Media;
-#[cfg(feature = "sliding-sync")]
+#[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
     RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
     SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,

@@ -39,11 +39,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client
-        .login_username(username, password)
-        .initial_device_display_name("rust-sdk")
-        .send()
-        .await?;
+    client.login_username(username, password).initial_device_display_name("rust-sdk").await?;
 
     Ok(client)
 }

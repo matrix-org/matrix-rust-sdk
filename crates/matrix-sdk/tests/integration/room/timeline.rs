@@ -7,7 +7,10 @@ use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    room::timeline::{TimelineDetails, TimelineItemContent, TimelineKey, VirtualTimelineItem},
+    room::timeline::{
+        AnyOtherFullStateEventContent, PaginationOptions, TimelineDetails, TimelineItemContent,
+        TimelineKey, VirtualTimelineItem,
+    },
     ruma::MilliSecondsSinceUnixEpoch,
 };
 use matrix_sdk_common::executor::spawn;
@@ -17,7 +20,10 @@ use matrix_sdk_test::{
 };
 use ruma::{
     event_id,
-    events::room::message::{MessageType, RoomMessageEventContent},
+    events::{
+        room::message::{MessageType, RoomMessageEventContent},
+        FullStateEventContent,
+    },
     room_id, uint, user_id, TransactionId,
 };
 use serde_json::json;
@@ -62,6 +68,8 @@ async fn edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let first =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let msg = assert_matches!(
@@ -113,7 +121,7 @@ async fn edit() {
     let second =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = second.as_event().unwrap();
-    assert_eq!(item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(152038280))));
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
     assert!(item.raw().is_some());
@@ -125,7 +133,7 @@ async fn edit() {
 
     let edit = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let edited = assert_matches!(
         edit.as_event().unwrap().content(),
@@ -174,13 +182,14 @@ async fn echo() {
             .await
     });
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let local_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = local_echo.as_event().unwrap();
     assert!(item.event_id().is_none());
     assert!(item.is_own());
     assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_eq!(item.origin_server_ts(), None);
     assert_matches!(item.raw(), None);
 
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
@@ -192,13 +201,12 @@ async fn echo() {
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(item.is_own());
     assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_eq!(item.origin_server_ts(), None);
     assert_matches!(item.raw(), None);
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -221,12 +229,12 @@ async fn echo() {
 
     let remote_echo = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = remote_echo.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(item.is_own());
-    assert_eq!(item.origin_server_ts(), Some(MilliSecondsSinceUnixEpoch(uint!(152038280))));
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert_matches!(item.key(), TimelineKey::EventId(_));
     assert_matches!(item.raw(), Some(_));
 }
@@ -257,7 +265,20 @@ async fn back_pagination() {
         .mount(&server)
         .await;
 
-    timeline.paginate_backwards(uint!(10)).await.unwrap();
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+    server.reset().await;
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::Push { value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::Push { value }) => value
+    );
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
 
     let message = assert_matches!(
         timeline_stream.next().await,
@@ -272,7 +293,7 @@ async fn back_pagination() {
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 0, value }) => value
+        Some(VecDiff::InsertAt { index: 2, value }) => value
     );
     let msg = assert_matches!(
         message.as_event().unwrap().content(),
@@ -280,6 +301,55 @@ async fn back_pagination() {
     );
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "the world is big");
+
+    let message = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::InsertAt { index: 2, value }) => value
+    );
+    let state = assert_matches!(
+        message.as_event().unwrap().content(),
+        TimelineItemContent::OtherState(state) => state
+    );
+    assert_eq!(state.state_key(), "");
+    let (content, prev_content) = assert_matches!(
+        state.content(),
+        AnyOtherFullStateEventContent::RoomName(
+            FullStateEventContent::Original { content, prev_content }
+        ) => (content, prev_content)
+    );
+    assert_eq!(content.name.as_ref().unwrap(), "New room name");
+    assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
+
+    // Removal of the loading indicator
+    assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            // Usually there would be a few events here, but we just want to test
+            // that the timeline start item is added when there is no end token
+            "chunk": [],
+            "start": "t47409-4357353_219380_26003_2269"
+        })))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::InsertAt { index: 0, value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VecDiff::UpdateAt { index: 0, value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::TimelineStart);
 }
 
 #[async_test]
@@ -330,13 +400,15 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let message =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap();
     let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
@@ -366,7 +438,7 @@ async fn reaction() {
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap();
     let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
@@ -424,6 +496,8 @@ async fn redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let first =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
@@ -465,6 +539,8 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let message =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));

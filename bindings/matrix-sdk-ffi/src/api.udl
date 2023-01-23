@@ -46,8 +46,10 @@ enum SlidingSyncState {
 };
 
 enum SlidingSyncMode {
-    /// Sync up the entire room list first
-    "FullSync",
+    /// Sync up the entire room list first, page by page
+    "PagingFullSync",
+    /// Sync up the entire room list first through a growing window
+    "GrowingFullSync",
     /// Only ever sync the currently selected window
     "Selective",
 };
@@ -80,9 +82,8 @@ interface SlidingSyncViewRoomsListDiff {
         u32 new_index
     );
     Push(RoomListEntry value);
-    // The following are supported by the generic VecDiff-type but
-    // in sliding sync effectively do not happen and thus aren't exposed
-    // to not pollute the API: Pop(); Clear();
+    Pop();
+    Clear();
 };
 
 callback interface SlidingSyncViewRoomListObserver {
@@ -114,7 +115,10 @@ interface SlidingSyncView {
     StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
 };
 
-interface SlidingSyncRoom {};
+interface SlidingSyncRoom {
+    StoppableSpawn? subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
+    StoppableSpawn? add_timeline_listener(TimelineListener listener);
+};
 
 interface SlidingSync {
     void set_observer(SlidingSyncObserver? observer);
@@ -164,6 +168,9 @@ interface Client {
     string display_name();
 
     [Throws=ClientError]
+    void set_display_name(string name);
+
+    [Throws=ClientError]
     string avatar_url();
 
     [Throws=ClientError]
@@ -174,6 +181,9 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
+
+    [Throws=ClientError]
+    string upload_media(string mime_type, sequence<u8> content);
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
@@ -200,12 +210,38 @@ dictionary Session {
     boolean is_soft_logout;
 };
 
+enum MembershipState {
+    /// The user is banned.
+    "Ban",
+    /// The user has been invited.
+    "Invite",
+    /// The user has joined.
+    "Join",
+    /// The user has requested to join.
+    "Knock",
+    /// The user has left.
+    "Leave",
+};
+
+dictionary RoomMember {
+    string user_id;
+    string? display_name;
+    string? avatar_url;
+    MembershipState membership;
+    boolean is_name_ambiguous;
+    i64 power_level;
+    i64 normalized_power_level;
+};
+
 interface Room {
     [Throws=ClientError]
     string display_name();
-    
+
     [Throws=ClientError]
     boolean is_encrypted();
+
+    [Throws=ClientError]
+    sequence<RoomMember> members();
 
     [Throws=ClientError]
     string? member_avatar_url(string user_id);
@@ -219,7 +255,13 @@ interface Room {
     //
     // Raises an exception if there are no timeline listeners.
     [Throws=ClientError]
-    PaginationOutcome paginate_backwards(u16 limit);
+    void paginate_backwards(PaginationOptions opts);
+    
+    [Throws=ClientError]
+    void send_read_receipt(string event_id);
+    
+    [Throws=ClientError]
+    void send_read_marker(string fully_read_event_id, string? read_receipt_event_id);
 
     [Throws=ClientError]
     void send(RoomMessageEventContent msg, string? txn_id);
@@ -232,6 +274,9 @@ interface Room {
 
     [Throws=ClientError]
     void redact(string event_id, string? reason, string? txn_id);
+
+    [Throws=ClientError]
+    void send_reaction(string event_id, string key);
 };
 
 callback interface TimelineListener {
@@ -247,9 +292,10 @@ dictionary MoveData {
     u32 new_index;
 };
 
-dictionary PaginationOutcome {
-    // Whether there's more messages to be paginated.
-    boolean more_messages;
+[Enum]
+interface PaginationOptions {
+    SingleRequest(u16 event_limit);
+    UntilNumItems(u16 event_limit, u16 items);
 };
 
 interface RoomMessageEventContent {};
@@ -258,29 +304,15 @@ interface MediaSource {
     string url();
 };
 
-[Error]
-enum AuthenticationError {
-    "ClientMissing",
-    "SessionMissing",
-    "Generic",
-};
-
 interface AuthenticationService {
-    constructor(string base_path);
-
-    [Throws=AuthenticationError]
-    void configure_homeserver(string server_name);
-
-    [Throws=AuthenticationError]
-    Client login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=AuthenticationError]
-    Client restore_with_access_token(string token, string device_id);
+    constructor(string base_path, string? passphrase);
 };
 
 interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
+    void did_accept_verification_request();
+    void did_start_sas_verification();
     void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
     void did_fail();
     void did_cancel();
@@ -292,6 +324,9 @@ interface SessionVerificationController {
 
     [Throws=ClientError]
     void request_verification();
+
+    [Throws=ClientError]
+    void start_sas_verification();
 
     [Throws=ClientError]
     void approve_verification();

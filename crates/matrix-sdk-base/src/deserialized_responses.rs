@@ -22,13 +22,15 @@ use ruma::{
         MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
         SyncRoomMemberEvent,
     },
+    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct AmbiguityChange {
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
@@ -39,8 +41,9 @@ pub struct AmbiguityChange {
     pub ambiguated_member: Option<OwnedUserId>,
 }
 
-/// Collection of ambiguioty changes that room member events trigger.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// Collection of ambiguity changes that room member events trigger.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
@@ -49,8 +52,8 @@ pub struct AmbiguityChanges {
 
 /// A deserialized response for the rooms members API call.
 ///
-/// [GET /_matrix/client/r0/rooms/{roomId}/members](https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-rooms-roomid-members)
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// [`GET /_matrix/client/r0/rooms/{roomId}/members`](https://spec.matrix.org/v1.5/client-server-api/#get_matrixclientv3roomsroomidmembers)
+#[derive(Clone, Debug, Default)]
 pub struct MembersResponse {
     /// The list of members events.
     pub chunk: Vec<RoomMemberEvent>,
@@ -58,9 +61,29 @@ pub struct MembersResponse {
     pub ambiguity_changes: AmbiguityChanges,
 }
 
+/// Raw version of [`MemberEvent`].
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum RawMemberEvent {
+    /// A member event from a room in joined or left state.
+    Sync(Raw<SyncRoomMemberEvent>),
+    /// A member event from a room in invited state.
+    Stripped(Raw<StrippedRoomMemberEvent>),
+}
+
+impl RawMemberEvent {
+    /// Try to deserialize the inner JSON as the expected type.
+    pub fn deserialize(&self) -> serde_json::Result<MemberEvent> {
+        match self {
+            Self::Sync(e) => Ok(MemberEvent::Sync(e.deserialize()?)),
+            Self::Stripped(e) => Ok(MemberEvent::Stripped(e.deserialize()?)),
+        }
+    }
+}
+
 /// Wrapper around both MemberEvent-Types
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub enum MemberEvent {
     /// A member event from a room in joined or left state.
     Sync(SyncRoomMemberEvent),

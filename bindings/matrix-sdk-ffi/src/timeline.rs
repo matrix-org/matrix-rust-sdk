@@ -4,6 +4,8 @@ use extension_trait::extension_trait;
 use futures_signals::signal_vec::VecDiff;
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
+use crate::MembershipState;
+
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
@@ -152,11 +154,17 @@ impl TimelineItem {
         })
     }
 
-    pub fn as_virtual(self: Arc<Self>) -> Option<Arc<VirtualTimelineItem>> {
-        use matrix_sdk::room::timeline::TimelineItem as Item;
-        unwrap_or_clone_arc_into_variant!(self, .0, Item::Virtual(vt) => {
-            Arc::new(VirtualTimelineItem(vt))
-        })
+    pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
+        use matrix_sdk::room::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
+        match &self.0 {
+            Item::Virtual(VItem::DayDivider { year, month, day }) => {
+                Some(VirtualTimelineItem::DayDivider { year: *year, month: *month, day: *day })
+            }
+            Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
+            Item::Virtual(VItem::LoadingIndicator) => Some(VirtualTimelineItem::LoadingIndicator),
+            Item::Virtual(VItem::TimelineStart) => Some(VirtualTimelineItem::TimelineStart),
+            Item::Event(_) => None,
+        }
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -181,6 +189,10 @@ impl EventTimelineItem {
         self.0.sender().to_string()
     }
 
+    pub fn sender_profile(&self) -> Profile {
+        self.0.sender_profile().into()
+    }
+
     pub fn is_own(&self) -> bool {
         self.0.is_own()
     }
@@ -193,8 +205,8 @@ impl EventTimelineItem {
         Arc::new(TimelineItemContent(self.0.content().clone()))
     }
 
-    pub fn origin_server_ts(&self) -> Option<u64> {
-        self.0.origin_server_ts().map(|ts| ts.0.into())
+    pub fn timestamp(&self) -> u64 {
+        self.0.timestamp().0.into()
     }
 
     pub fn reactions(&self) -> Vec<Reaction> {
@@ -214,39 +226,85 @@ impl EventTimelineItem {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct Profile {
+    display_name: Option<String>,
+    display_name_ambiguous: bool,
+    avatar_url: Option<String>,
+}
+
+impl From<&matrix_sdk::room::timeline::Profile> for Profile {
+    fn from(p: &matrix_sdk::room::timeline::Profile) -> Self {
+        Self {
+            display_name: p.display_name.clone(),
+            display_name_ambiguous: p.display_name_ambiguous,
+            avatar_url: p.avatar_url.as_ref().map(ToString::to_string),
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct TimelineItemContent(matrix_sdk::room::timeline::TimelineItemContent);
 
 #[uniffi::export]
 impl TimelineItemContent {
-    pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
-        unwrap_or_clone_arc_into_variant!(self, .0, C::Message(msg) => Arc::new(Message(msg)))
-    }
-
-    pub fn as_unable_to_decrypt(&self) -> Option<EncryptedMessage> {
-        use matrix_sdk::room::timeline::{EncryptedMessage as E, TimelineItemContent as C};
+    pub fn kind(&self) -> TimelineItemContentKind {
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
 
         match &self.0 {
-            C::UnableToDecrypt(utd) => Some(match utd {
-                E::OlmV1Curve25519AesSha2 { sender_key } => {
-                    let sender_key = sender_key.clone();
-                    EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key }
+            Content::Message(_) => TimelineItemContentKind::Message,
+            Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
+            Content::Sticker(sticker) => {
+                let content = sticker.content();
+                TimelineItemContentKind::Sticker {
+                    body: content.body.clone(),
+                    info: (&content.info).into(),
+                    url: content.url.to_string(),
                 }
-                E::MegolmV1AesSha2 { session_id, .. } => {
-                    let session_id = session_id.clone();
-                    EncryptedMessage::MegolmV1AesSha2 { session_id }
+            }
+            Content::UnableToDecrypt(msg) => {
+                TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
+            }
+            Content::RoomMember(room_member) => TimelineItemContentKind::RoomMembership {
+                user_id: room_member.user_id().to_string(),
+                change: room_member.into(),
+            },
+            Content::OtherState(state) => TimelineItemContentKind::State {
+                state_key: state.state_key().to_owned(),
+                content: state.content().into(),
+            },
+            Content::FailedToParseMessageLike { event_type, error } => {
+                TimelineItemContentKind::FailedToParseMessageLike {
+                    event_type: event_type.to_string(),
+                    error: error.to_string(),
                 }
-                E::Unknown => EncryptedMessage::Unknown,
-            }),
-            _ => None,
+            }
+            Content::FailedToParseState { event_type, state_key, error } => {
+                TimelineItemContentKind::FailedToParseState {
+                    event_type: event_type.to_string(),
+                    state_key: state_key.to_string(),
+                    error: error.to_string(),
+                }
+            }
         }
     }
 
-    pub fn is_redacted_message(&self) -> bool {
-        use matrix_sdk::room::timeline::TimelineItemContent as C;
-        matches!(self.0, C::RedactedMessage)
+    pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
+        use matrix_sdk::room::timeline::TimelineItemContent as Content;
+        unwrap_or_clone_arc_into_variant!(self, .0, Content::Message(msg) => Arc::new(Message(msg)))
     }
+}
+
+#[derive(uniffi::Enum)]
+pub enum TimelineItemContentKind {
+    Message,
+    RedactedMessage,
+    Sticker { body: String, info: ImageInfo, url: String },
+    UnableToDecrypt { msg: EncryptedMessage },
+    RoomMembership { user_id: String, change: MembershipChange },
+    State { state_key: String, content: OtherState },
+    FailedToParseMessageLike { event_type: String, error: String },
+    FailedToParseState { event_type: String, state_key: String, error: String },
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -502,6 +560,24 @@ pub enum EncryptedMessage {
     Unknown,
 }
 
+impl EncryptedMessage {
+    fn new(msg: &matrix_sdk::room::timeline::EncryptedMessage) -> Self {
+        use matrix_sdk::room::timeline::EncryptedMessage as Message;
+
+        match msg {
+            Message::OlmV1Curve25519AesSha2 { sender_key } => {
+                let sender_key = sender_key.clone();
+                Self::OlmV1Curve25519AesSha2 { sender_key }
+            }
+            Message::MegolmV1AesSha2 { session_id, .. } => {
+                let session_id = session_id.clone();
+                Self::MegolmV1AesSha2 { session_id }
+            }
+            Message::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct Reaction {
     pub key: String,
@@ -532,8 +608,35 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
-pub struct VirtualTimelineItem(matrix_sdk::room::timeline::VirtualTimelineItem);
+/// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
+#[derive(uniffi::Enum)]
+pub enum VirtualTimelineItem {
+    /// A divider between messages of two days.
+    DayDivider {
+        /// The year.
+        year: i32,
+        /// The month of the year.
+        ///
+        /// A value between 1 and 12.
+        month: u32,
+        /// The day of the month.
+        ///
+        /// A value between 1 and 31.
+        day: u32,
+    },
+
+    /// The user's own read marker.
+    ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
+
+    /// The beginning of the visible timeline.
+    ///
+    /// There might be earlier events the user is not allowed to see due to
+    /// history visibility.
+    TimelineStart,
+}
 
 #[extension_trait]
 pub impl MediaSourceExt for MediaSource {
@@ -541,6 +644,172 @@ pub impl MediaSourceExt for MediaSource {
         match self {
             MediaSource::Plain(url) => url.to_string(),
             MediaSource::Encrypted(file) => file.url.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum MembershipChange {
+    None,
+    Error,
+    Joined,
+    Left,
+    Banned,
+    Unbanned,
+    Kicked,
+    Invited,
+    KickedAndBanned,
+    InvitationAccepted,
+    InvitationRejected,
+    InvitationRevoked,
+    Knocked,
+    KnockAccepted,
+    KnockRetracted,
+    KnockDenied,
+    ProfileChanged {
+        display_name: Option<String>,
+        prev_display_name: Option<String>,
+        avatar_url: Option<String>,
+        prev_avatar_url: Option<String>,
+    },
+    NotImplemented,
+    Unknown {
+        membership: MembershipState,
+        display_name: Option<String>,
+        avatar_url: Option<String>,
+    },
+}
+
+impl From<&matrix_sdk::room::timeline::RoomMember> for MembershipChange {
+    fn from(member: &matrix_sdk::room::timeline::RoomMember) -> Self {
+        use matrix_sdk::ruma::events::{
+            room::member::MembershipChange as Change, FullStateEventContent as FullContent,
+        };
+        if let Some(change) = member.membership_change() {
+            match change {
+                Change::None => Self::None,
+                Change::Error => Self::Error,
+                Change::Joined => Self::Joined,
+                Change::Left => Self::Left,
+                Change::Banned => Self::Banned,
+                Change::Unbanned => Self::Unbanned,
+                Change::Kicked => Self::Kicked,
+                Change::Invited => Self::Invited,
+                Change::KickedAndBanned => Self::KickedAndBanned,
+                Change::InvitationAccepted => Self::InvitationAccepted,
+                Change::InvitationRejected => Self::InvitationRejected,
+                Change::InvitationRevoked => Self::InvitationRevoked,
+                Change::Knocked => Self::Knocked,
+                Change::KnockAccepted => Self::KnockAccepted,
+                Change::KnockRetracted => Self::KnockRetracted,
+                Change::KnockDenied => Self::KnockDenied,
+                Change::ProfileChanged { displayname_change, avatar_url_change } => {
+                    let (display_name, prev_display_name) =
+                        displayname_change.map(|change| (change.new, change.old)).unzip();
+                    let (avatar_url, prev_avatar_url) =
+                        avatar_url_change.map(|change| (change.new, change.old)).unzip();
+                    Self::ProfileChanged {
+                        display_name: display_name.flatten().map(ToOwned::to_owned),
+                        prev_display_name: prev_display_name.flatten().map(ToOwned::to_owned),
+                        avatar_url: avatar_url.flatten().map(ToString::to_string),
+                        prev_avatar_url: prev_avatar_url.flatten().map(ToString::to_string),
+                    }
+                }
+                _ => Self::NotImplemented,
+            }
+        } else {
+            let (membership, display_name, avatar_url) = match member.content() {
+                FullContent::Original { content, .. } => (
+                    content.membership.clone().into(),
+                    content.displayname.clone(),
+                    content.avatar_url.as_ref().map(ToString::to_string),
+                ),
+                FullContent::Redacted(content) => (content.membership.clone().into(), None, None),
+            };
+            Self::Unknown { membership, display_name, avatar_url }
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum OtherState {
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAliases,
+    RoomAvatar { url: Option<String> },
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomName { name: Option<String> },
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite { display_name: Option<String> },
+    RoomTombstone,
+    RoomTopic { topic: Option<String> },
+    SpaceChild,
+    SpaceParent,
+    Custom { event_type: String },
+}
+
+impl From<&matrix_sdk::room::timeline::AnyOtherFullStateEventContent> for OtherState {
+    fn from(content: &matrix_sdk::room::timeline::AnyOtherFullStateEventContent) -> Self {
+        use matrix_sdk::{
+            room::timeline::AnyOtherFullStateEventContent as Content,
+            ruma::events::FullStateEventContent as FullContent,
+        };
+        match content {
+            Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
+            Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
+            Content::PolicyRuleUser(_) => Self::PolicyRuleUser,
+            Content::RoomAliases(_) => Self::RoomAliases,
+            Content::RoomAvatar(c) => {
+                let url = match c {
+                    FullContent::Original { content, .. } => {
+                        content.url.as_ref().map(ToString::to_string)
+                    }
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomAvatar { url }
+            }
+            Content::RoomCanonicalAlias(_) => Self::RoomCanonicalAlias,
+            Content::RoomCreate(_) => Self::RoomCreate,
+            Content::RoomEncryption(_) => Self::RoomEncryption,
+            Content::RoomGuestAccess(_) => Self::RoomGuestAccess,
+            Content::RoomHistoryVisibility(_) => Self::RoomHistoryVisibility,
+            Content::RoomJoinRules(_) => Self::RoomJoinRules,
+            Content::RoomName(c) => {
+                let name = match c {
+                    FullContent::Original { content, .. } => content.name.clone(),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomName { name }
+            }
+            Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
+            Content::RoomPowerLevels(_) => Self::RoomPowerLevels,
+            Content::RoomServerAcl(_) => Self::RoomServerAcl,
+            Content::RoomThirdPartyInvite(c) => {
+                let display_name = match c {
+                    FullContent::Original { content, .. } => Some(content.display_name.clone()),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomThirdPartyInvite { display_name }
+            }
+            Content::RoomTombstone(_) => Self::RoomTombstone,
+            Content::RoomTopic(c) => {
+                let topic = match c {
+                    FullContent::Original { content, .. } => Some(content.topic.clone()),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomTopic { topic }
+            }
+            Content::SpaceChild(_) => Self::SpaceChild,
+            Content::SpaceParent(_) => Self::SpaceParent,
+            Content::_Custom { event_type, .. } => Self::Custom { event_type: event_type.clone() },
         }
     }
 }

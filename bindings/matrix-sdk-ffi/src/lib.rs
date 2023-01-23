@@ -77,21 +77,25 @@ mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
     pub use crate::{
-        authentication_service::{AuthenticationService, HomeserverLoginDetails},
+        authentication_service::{
+            AuthenticationError, AuthenticationService, HomeserverLoginDetails,
+        },
         client::Client,
         client_builder::ClientBuilder,
-        room::{Membership, Room},
+        room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,
-            SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder,
+            SlidingSyncRequestListFilters, SlidingSyncRoom, SlidingSyncView,
+            SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
             EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,
-            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, Message, MessageFormat,
-            MessageType, NoticeMessageContent, Reaction, TextMessageContent, ThumbnailInfo,
-            TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent, TimelineKey,
-            UpdateAtData, VideoInfo, VideoMessageContent, VirtualTimelineItem,
+            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, MembershipChange, Message,
+            MessageFormat, MessageType, NoticeMessageContent, OtherState, Profile, Reaction,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            TimelineItemContent, TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo,
+            VideoMessageContent, VirtualTimelineItem,
         },
     };
 }

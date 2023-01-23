@@ -26,8 +26,8 @@ use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
-pub use qrcode::{QrVerification, ScanError};
-pub use requests::VerificationRequest;
+pub use qrcode::{QrVerification, QrVerificationState, ScanError};
+pub use requests::{VerificationRequest, VerificationRequestState};
 #[cfg(feature = "qrcode")]
 use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
@@ -543,8 +543,8 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            user_id = %device.user_id(),
-                            device_id = %device.device_id(),
+                            user_id = ?device.user_id(),
+                            device_id = ?device.device_id(),
                             "Error signing device keys: {e:?}",
                         );
                         None
@@ -568,7 +568,7 @@ impl IdentitiesBeingVerified {
                     Ok(r) => Some(r),
                     Err(SignatureError::MissingSigningKey) => {
                         warn!(
-                            user_id = %i.user_id(),
+                            user_id = ?i.user_id(),
                             "Can't sign the public cross signing keys, \
                              no private user signing key found",
                         );
@@ -576,7 +576,7 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            user_id = %i.user_id(),
+                            user_id = ?i.user_id(),
                             "Error signing the public cross signing keys: {e:?}",
                         );
                         None

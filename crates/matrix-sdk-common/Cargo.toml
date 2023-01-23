@@ -22,7 +22,8 @@ js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
 futures-core = "0.3.21"
 instant = "0.1.12"
 ruma = { workspace = true }
-serde = "1.0.136"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-lock = "2.5.0"
@@ -31,7 +32,7 @@ wasm-bindgen-futures = { version = "0.4.33", optional = true }
 wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.17.0", default-features = false, features = ["rt", "sync", "time"] }
+tokio = { version = "1.23.1", default-features = false, features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}

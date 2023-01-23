@@ -45,8 +45,9 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
-    CancelInfo, ConfirmVerificationResult, QrCode, RequestVerificationResult, Sas, ScanResult,
-    StartSasResult, Verification, VerificationRequest,
+    CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
+    RequestVerificationResult, Sas, SasListener, SasState, ScanResult, StartSasResult,
+    Verification, VerificationRequest, VerificationRequestListener, VerificationRequestState,
 };
 
 /// Struct collecting data that is important to migrate to the rust-sdk
@@ -196,8 +197,7 @@ pub fn migrate(
     };
 
     let runtime = Runtime::new()?;
-    let store =
-        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
+    let store = runtime.block_on(SledCryptoStore::open(path, passphrase.as_deref()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -493,6 +493,7 @@ pub struct CrossSigningKeyExport {
 }
 
 /// Struct holding the number of room keys we have.
+#[derive(uniffi::Record)]
 pub struct RoomKeyCounts {
     /// The total number of room keys.
     pub total: i64,
@@ -501,6 +502,7 @@ pub struct RoomKeyCounts {
 }
 
 /// Backup keys and information we load from the store.
+#[derive(uniffi::Object)]
 pub struct BackupKeys {
     /// The recovery key as a base64 encoded string.
     recovery_key: Arc<BackupRecoveryKey>,
@@ -508,6 +510,7 @@ pub struct BackupKeys {
     backup_version: String,
 }
 
+#[uniffi::export]
 impl BackupKeys {
     /// Get the recovery key that we're holding on to.
     pub fn recovery_key(&self) -> Arc<BackupRecoveryKey> {
@@ -576,7 +579,15 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 mod uniffi_types {
-    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
+    pub use crate::{
+        backup_recovery_key::{
+            BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
+        },
+        error::CryptoStoreError,
+        machine::OlmMachine,
+        responses::Request,
+        BackupKeys, RoomKeyCounts,
+    };
 }
 
 #[cfg(test)]

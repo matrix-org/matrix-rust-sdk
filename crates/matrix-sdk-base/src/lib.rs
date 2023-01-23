@@ -30,7 +30,7 @@ mod error;
 pub mod media;
 mod rooms;
 mod session;
-#[cfg(feature = "sliding-sync")]
+#[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 pub mod store;
 pub mod sync;

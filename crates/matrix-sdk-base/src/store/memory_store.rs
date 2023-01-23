@@ -19,7 +19,6 @@ use std::{
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
 use ruma::{
@@ -35,14 +34,10 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::{
-    deserialized_responses::MemberEvent,
-    media::{MediaRequest, UniqueKey},
-    MinimalRoomMemberEvent,
-};
+use crate::{deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -53,7 +48,7 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, SyncRoomMemberEvent>>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>>,
     profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
     joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
@@ -67,7 +62,7 @@ pub struct MemoryStore {
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, StrippedRoomMemberEvent>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>>,
     stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
@@ -76,7 +71,6 @@ pub struct MemoryStore {
     room_event_receipts: Arc<
         DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>>,
     >,
-    media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
 
@@ -110,6 +104,7 @@ impl MemoryStore {
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
+            #[cfg(feature = "memory-media-cache")]
             media: Arc::new(Mutex::new(LruCache::new(
                 100.try_into().expect("100 is a non-zero usize"),
             ))),
@@ -138,8 +133,16 @@ impl MemoryStore {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
         }
 
-        for (room, events) in &changes.members {
-            for event in events.values() {
+        for (room, raw_events) in &changes.members {
+            for raw_event in raw_events.values() {
+                let event = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        continue;
+                    }
+                };
+
                 self.stripped_joined_user_ids.remove(room);
                 self.stripped_invited_user_ids.remove(room);
 
@@ -179,7 +182,7 @@ impl MemoryStore {
                 self.members
                     .entry(room.clone())
                     .or_default()
-                    .insert(event.state_key().to_owned(), event.clone());
+                    .insert(event.state_key().to_owned(), raw_event.clone());
                 self.stripped_members.remove(room);
             }
         }
@@ -243,8 +246,16 @@ impl MemoryStore {
             self.room_info.remove(room_id);
         }
 
-        for (room, events) in &changes.stripped_members {
-            for event in events.values() {
+        for (room, raw_events) in &changes.stripped_members {
+            for raw_event in raw_events.values() {
+                let event = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        continue;
+                    }
+                };
+
                 match event.content.membership {
                     MembershipState::Join => {
                         self.stripped_joined_user_ids
@@ -281,7 +292,7 @@ impl MemoryStore {
                 self.stripped_members
                     .entry(room.clone())
                     .or_default()
-                    .insert(event.state_key.clone(), event.clone());
+                    .insert(event.state_key.clone(), raw_event.clone());
             }
         }
 
@@ -340,7 +351,7 @@ impl MemoryStore {
                 .get(room_id)
                 .and_then(|info| info.room_version().cloned())
                 .unwrap_or_else(|| {
-                    warn!(%room_id, "Unable to find the room version, assuming version 9");
+                    warn!(?room_id, "Unable to find the room version, assuming version 9");
                     RoomVersionId::V9
                 })
         };
@@ -352,10 +363,11 @@ impl MemoryStore {
                     for mut ref_evt_mu in ref_room_mu.value_mut().iter_mut() {
                         let raw_evt = ref_evt_mu.value_mut();
                         if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                            if redactions.get(&event_id).is_some() {
+                            if let Some(redaction) = redactions.get(&event_id) {
                                 let redacted = redact(
-                                    &raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                    raw_evt.deserialize_as::<CanonicalJsonObject>()?,
                                     room_version.get_or_insert_with(|| make_room_version(room_id)),
+                                    Some(redaction.try_into()?),
                                 )
                                 .map_err(StoreError::Redaction)?;
                                 *raw_evt = Raw::new(&redacted)?.cast();
@@ -413,15 +425,15 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) =
             self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(MemberEvent::Stripped(e)))
+            Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) =
             self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(MemberEvent::Sync(e)))
+            Ok(Some(RawMemberEvent::Sync(e)))
         } else {
             Ok(None)
         }
@@ -526,36 +538,17 @@ impl MemoryStore {
         Ok(self.custom.insert(key.to_vec(), value))
     }
 
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.lock().await.put(request.unique_key(), data);
-
+    // The in-memory store doesn't cache media
+    async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
         Ok(())
     }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        Ok(self.media.lock().await.get(&request.unique_key()).cloned())
+    async fn get_media_content(&self, _request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(None)
     }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.lock().await.pop(&request.unique_key());
-
+    async fn remove_media_content(&self, _request: &MediaRequest) -> Result<()> {
         Ok(())
     }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let mut media_store = self.media.lock().await;
-
-        let keys: Vec<String> = media_store
-            .iter()
-            .filter_map(
-                |(key, _)| if key.starts_with(&uri.to_string()) { Some(key.clone()) } else { None },
-            )
-            .collect();
-
-        for key in keys {
-            media_store.pop(&key);
-        }
-
+    async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
         Ok(())
     }
 
@@ -630,7 +623,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key).await
     }
 

@@ -426,9 +426,10 @@ impl Room {
     /// return a `RoomMember` that can be in a joined, invited, left, banned
     /// state.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        let Some(member_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
+        let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
             return Ok(None);
         };
+        let member_event = raw_event.deserialize()?;
 
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
@@ -788,17 +789,19 @@ mod test {
     use assign::assign;
     use matrix_sdk_test::async_test;
     use ruma::{
-        event_id,
         events::room::{
             canonical_alias::RoomCanonicalAliasEventContent,
             member::{
-                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                RoomMemberUnsigned, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+                MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
+                SyncRoomMemberEvent,
             },
             name::RoomNameEventContent,
         },
-        room_alias_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
+        room_alias_id, room_id,
+        serde::Raw,
+        user_id,
     };
+    use serde_json::json;
 
     use super::*;
     use crate::{
@@ -814,27 +817,32 @@ mod test {
         (store.clone(), Room::new(user_id, store, room_id, room_type))
     }
 
-    fn make_stripped_member_event(user_id: &UserId, name: &str) -> StrippedRoomMemberEvent {
-        StrippedRoomMemberEvent {
-            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+    fn make_stripped_member_event(user_id: &UserId, name: &str) -> Raw<StrippedRoomMemberEvent> {
+        let ev_json = json!({
+            "type": "m.room.member",
+            "content": assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_owned())
             }),
-            sender: user_id.to_owned(),
-            state_key: user_id.to_owned(),
-        }
+            "sender": user_id,
+            "state_key": user_id,
+        });
+
+        Raw::new(&ev_json).unwrap().cast()
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> SyncRoomMemberEvent {
-        SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
-            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+    fn make_member_event(user_id: &UserId, name: &str) -> Raw<SyncRoomMemberEvent> {
+        let ev_json = json!({
+            "type": "m.room.member",
+            "content": assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_owned())
             }),
-            sender: user_id.to_owned(),
-            state_key: user_id.to_owned(),
-            event_id: event_id!("$h29iv0s1:example.com").to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
-            unsigned: RoomMemberUnsigned::default(),
-        })
+            "sender": user_id,
+            "state_key": user_id,
+            "event_id": "$h29iv0s1:example.com",
+            "origin_server_ts": 208,
+        });
+
+        Raw::new(&ev_json).unwrap().cast()
     }
 
     #[async_test]
@@ -885,8 +893,12 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
-        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        changes.add_stripped_member(
+            room_id,
+            matthew,
+            make_stripped_member_event(matthew, "Matthew"),
+        );
+        changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
@@ -904,8 +916,12 @@ mod test {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
 
-        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
-        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        changes.add_stripped_member(
+            room_id,
+            matthew,
+            make_stripped_member_event(matthew, "Matthew"),
+        );
+        changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(

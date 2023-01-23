@@ -20,7 +20,9 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId};
+use ruma::{
+    serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
@@ -83,6 +85,33 @@ impl DeviceKeys {
     /// Serialize the device keys key into a Raw version.
     pub fn to_raw<T>(&self) -> Raw<T> {
         Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize device keys"))
+    }
+
+    /// Get the key of the given key algorithm belonging to this device.
+    pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&DeviceKey> {
+        self.keys.get(&DeviceKeyId::from_parts(algorithm, &self.device_id))
+    }
+
+    /// Get the Curve25519 key of the given device.
+    pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
+        self.get_key(DeviceKeyAlgorithm::Curve25519).and_then(|k| {
+            if let DeviceKey::Curve25519(k) = k {
+                Some(*k)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get the Ed25519 key of the given device.
+    pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
+        self.get_key(DeviceKeyAlgorithm::Ed25519).and_then(|k| {
+            if let DeviceKey::Ed25519(k) = k {
+                Some(*k)
+            } else {
+                None
+            }
+        })
     }
 }
 

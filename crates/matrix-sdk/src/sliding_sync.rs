@@ -18,34 +18,33 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    time::Duration,
 };
 
 use futures_core::stream::Stream;
 use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
-    api::{
-        client::{
-            error::{ErrorBody, ErrorKind},
-            sync::sync_events::v4::{
-                self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
-            },
+    api::client::{
+        error::ErrorKind,
+        sync::sync_events::v4::{
+            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
         },
-        error::FromHttpResponseError,
     },
     assign,
-    events::RoomEventType,
+    events::TimelineEventType,
     OwnedRoomId, RoomId, UInt,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
-use crate::room::timeline::Timeline;
-use crate::{Client, HttpError, Result, RumaApiError};
+use crate::room::timeline::{EventTimelineItem, Timeline};
+use crate::{config::RequestConfig, Client, Result};
 
 /// Internal representation of errors in Sliding Sync
 #[derive(Error, Debug)]
@@ -84,9 +83,13 @@ pub enum SlidingSyncState {
 /// The mode by which the the [`SlidingSyncView`] is in fetching the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
-    /// FullSync all rooms in the background, configured with batch size
+    /// fully sync all rooms in the background, page by page of `batch_size`
     #[default]
-    FullSync,
+    #[serde(alias = "FullSync")]
+    PagingFullSync,
+    /// fully sync all rooms in the background, with a growing window of
+    /// `batch_size`,
+    GrowingFullSync,
     /// Only sync the specific windows defined
     Selective,
 }
@@ -152,11 +155,23 @@ struct FrozenSlidingSyncRoom {
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
+        let locked_tl = value.timeline.lock_ref();
+        let tl_len = locked_tl.len();
+        // To not overflow the database, we only freeze the newest 10 items. on doing
+        // so, we must drop the `prev_batch` key however, as we'd otherwise
+        // create a gap between what we have loaded and where the
+        // prev_batch-key will start loading when paginating backwards.
+        let (prev_batch, timeline) = if tl_len > 10 {
+            let pos = tl_len - 10;
+            (None, locked_tl.iter().skip(pos).cloned().collect())
+        } else {
+            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
+        };
         FrozenSlidingSyncRoom {
+            prev_batch,
+            timeline,
             room_id: value.room_id.clone(),
             inner: value.inner.clone(),
-            prev_batch: value.prev_batch.lock_ref().clone(),
-            timeline: value.timeline.lock_ref().to_vec(),
         }
     }
 }
@@ -219,11 +234,33 @@ impl SlidingSyncRoom {
 
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline(&self) -> Timeline {
-        let current_timeline = self.timeline.lock_ref().to_vec();
-        let prev_batch = self.prev_batch.lock_ref().clone();
-        let room = self.client.get_room(&self.room_id).unwrap();
-        Timeline::with_events(&room, prev_batch, current_timeline).await
+    pub async fn timeline(&self) -> Option<Timeline> {
+        Some(self.timeline_no_fully_read_tracking().await?.with_fully_read_tracking().await)
+    }
+
+    async fn timeline_no_fully_read_tracking(&self) -> Option<Timeline> {
+        if let Some(room) = self.client.get_room(&self.room_id) {
+            let current_timeline = self.timeline.lock_ref().to_vec();
+            let prev_batch = self.prev_batch.lock_ref().clone();
+            Some(Timeline::with_events(&room, prev_batch, current_timeline).await)
+        } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
+            Some(Timeline::with_events(&invited_room, None, vec![]).await)
+        } else {
+            error!(
+                room_id = ?self.room_id,
+                "Room not found in client. Can't provide a timeline for it"
+            );
+            None
+        }
+    }
+
+    /// The latest timeline item of this room.
+    ///
+    /// Use `Timeline::latest_event` instead if you already have a timeline for
+    /// this `SlidingSyncRoom`.
+    #[cfg(feature = "experimental-timeline")]
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.timeline_no_fully_read_tracking().await?.latest_event()
     }
 
     /// This rooms name as calculated by the server, if any
@@ -342,10 +379,12 @@ impl SlidingSyncConfig {
             storage_key,
             client,
             mut views,
-            extensions,
+            mut extensions,
             subscriptions,
         } = self;
-        let rooms = if let Some(storage_key) = storage_key.as_ref() {
+        let mut rooms = Default::default();
+
+        if let Some(storage_key) = storage_key.as_ref() {
             if let Some(mut f) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
@@ -359,15 +398,20 @@ impl SlidingSyncConfig {
                     }
                 }
 
-                f.rooms
+                rooms = f
+                    .rooms
                     .into_iter()
                     .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect()
-            } else {
-                Default::default()
+                    .collect();
+
+                if let Some(since) = f.to_device_since {
+                    if let Some(to_device_ext) =
+                        extensions.get_or_insert_with(Default::default).to_device.as_mut()
+                    {
+                        to_device_ext.since = Some(since);
+                    }
+                }
             }
-        } else {
-            Default::default()
         };
 
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
@@ -385,7 +429,8 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
-            extensions: Mutable::new(extensions),
+            extensions: Mutex::new(extensions).into(),
+            sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
@@ -544,16 +589,24 @@ pub struct SlidingSync {
     /// The rooms details
     rooms: RoomsMap,
 
-    /// keeping track of retries and failure cunts
+    /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
 
-    extensions: Mutable<Option<ExtensionsConfig>>,
+    /// the intended state of the extensions being supplied to sliding /sync
+    /// calls. May contain the latest next_batch for to_devices, etc.
+    extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
+
+    /// the last extensions known to be successfully sent to the server.
+    /// if the current extensions match this, we can avoid sending them again.
+    sent_extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
     views: BTreeMap<String, FrozenSlidingSyncView>,
     rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_device_since: Option<String>,
 }
 
 impl From<&SlidingSync> for FrozenSlidingSync {
@@ -561,6 +614,12 @@ impl From<&SlidingSync> for FrozenSlidingSync {
         FrozenSlidingSync {
             views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
             rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
+            to_device_since: v
+                .extensions
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|ext| ext.to_device.as_ref()?.since.clone()),
         }
     }
 }
@@ -626,11 +685,52 @@ impl SlidingSync {
 
     fn update_to_device_since(&self, since: String) {
         self.extensions
-            .lock_mut()
+            .lock()
+            .unwrap()
             .get_or_insert_with(Default::default)
             .to_device
             .get_or_insert_with(Default::default)
             .since = Some(since);
+    }
+
+    /// Get access to the SlidingSyncView named `view_name`
+    ///
+    /// Note: Remember that this list might have been changed since you started
+    /// listening to the stream and is therefor not necessarily up to date
+    /// with the views used for the stream.
+    pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
+        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned()
+    }
+
+    /// Remove the SlidingSyncView named `view_name` from the views list if
+    /// found
+    ///
+    /// Note: Remember that this change will only be applicable for any new
+    /// stream created after this. The old stream will still continue to use the
+    /// previous set of views
+    pub fn pop_view(&self, _view_name: &str) -> Option<SlidingSyncView> {
+        unimplemented!("Index based sliding sync doesn't support removing views");
+    }
+
+    /// Add the view to the list of views
+    ///
+    /// As views need to have a unique `.name`, if a view with the same name
+    /// is found the new view will replace the old one and the return will give
+    /// the position it was found at. If none is found, the view will be pushed
+    /// to the end and `None` is returned.
+    ///
+    /// Note: Remember that this change will only be applicable for any new
+    /// stream created after this. The old stream will still continue to use the
+    /// previous set of views
+    pub fn add_view(&self, view: SlidingSyncView) -> Option<usize> {
+        let mut v = self.views.lock_mut();
+        if let Some(idx) = v.iter().position(|v| v.name == view.name) {
+            v.set_cloned(idx, view);
+            Some(idx)
+        } else {
+            v.push_cloned(view);
+            None
+        }
     }
 
     /// Lookup a set of rooms
@@ -645,10 +745,12 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         resp: v4::Response,
+        extensions: Option<ExtensionsConfig>,
         views: &[SlidingSyncView],
+        ranges: &[Vec<(usize, usize)>],
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
-        tracing::debug!("main client processed.");
+        debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let update = {
             let mut updated_views = Vec::new();
@@ -660,11 +762,13 @@ impl SlidingSync {
                 .into());
             }
 
-            for (view, updates) in std::iter::zip(views, &resp.lists) {
+            for ((view, ranges), updates) in
+                std::iter::zip(std::iter::zip(views, ranges), &resp.lists)
+            {
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
-                tracing::trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-                if !updates.ops.is_empty() && view.handle_response(count, &updates.ops)? {
+                trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
+                if view.handle_response(count, &updates.ops, ranges)? {
                     updated_views.push(view.name.clone());
                 }
             }
@@ -697,6 +801,13 @@ impl SlidingSync {
             if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
                 self.update_to_device_since(to_device_since)
             }
+
+            // track the most recently successfully sent extensions (needed for sticky
+            // semantics)
+            if extensions.is_some() {
+                *self.sent_extensions.lock().unwrap() = extensions;
+            }
+
             UpdateSummary { views: updated_views, rooms }
         };
 
@@ -712,24 +823,28 @@ impl SlidingSync {
         &self,
     ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
-        let extensions = self.extensions.clone();
         let client = self.client.clone();
 
+        debug!(?self.extensions, "Setting view stream going");
+
         Ok(async_stream::stream! {
-            let initial_extensions = extensions.lock_ref().clone();
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
                 .map(SlidingSyncView::request_generator)
                 .collect();
             loop {
+                debug!(?self.extensions, "Sync loop running");
+
                 let mut requests = Vec::new();
+                let mut current_ranges = vec![];
                 let mut new_remaining_generators = Vec::new();
                 let mut new_remaining_views = Vec::new();
 
                 for (mut generator, view) in std::iter::zip(remaining_generators, remaining_views) {
-                    if let Some(request) = generator.next() {
+                    if let Some((request, range)) = generator.next() {
                         requests.push(request);
+                        current_ranges.push(range);
                         new_remaining_generators.push(generator);
                         new_remaining_views.push(view);
                     }
@@ -751,22 +866,38 @@ impl SlidingSync {
                     }
                     unsubs
                 };
+                let timeout = Duration::from_secs(30);
+
+                // implement stickiness by only sending extensions if they have
+                // changed since the last time we sent them
+                let extensions = {
+                    let extensions = self.extensions.lock().unwrap();
+                    if *extensions == *self.sent_extensions.lock().unwrap() {
+                        None
+                    } else {
+                        extensions.clone()
+                    }
+                };
+
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
-                    extensions: extensions.lock_mut().take().unwrap_or_default(), // extensions are sticky, we pop them here once
+                    extensions: extensions.clone().unwrap_or_default(),
                 });
-                tracing::debug!("requesting");
+                debug!("requesting");
 
-                let req = client.send_with_homeserver(req, None, self.homeserver.as_ref().map(ToString::to_string));
+                // 30s for the long poll + 30s for network delays
+                let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
+                let req = client.send_with_homeserver(req, Some(request_config), self.homeserver.as_ref().map(ToString::to_string));
 
                 #[cfg(feature = "e2e-encryption")]
                 let resp_res = {
                     let (e2ee_uploads, resp) = futures_util::join!(client.send_outgoing_requests(), req);
                     if let Err(e) = e2ee_uploads {
-                        tracing::error!(error = ?e, "Error while sending outgoing E2EE requests");
+                        error!(error = ?e, "Error while sending outgoing E2EE requests");
                     }
                     resp
                 };
@@ -779,20 +910,25 @@ impl SlidingSync {
                         r
                     },
                     Err(e) => {
-                        if matches!(e, HttpError::Api(FromHttpResponseError::Server(RumaApiError::ClientApi(ruma::api::client::Error { body: ErrorBody::Standard { kind: ErrorKind::UnknownPos, .. }, .. })))) {
+                        if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
                             if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
-                                tracing::error!("session expired three times in a row");
+                                error!("session expired three times in a row");
                                 yield Err(e.into());
                                 break
                             }
-                            tracing::warn!("Session expired. Restarting sliding sync.");
+                            warn!("Session expired. Restarting sliding sync.");
                             remaining_generators = views
                                 .iter()
                                 .map(SlidingSyncView::request_generator)
                                 .collect();
                             *self.pos.lock_mut() = None;
-                            *self.extensions.lock_mut() = initial_extensions.clone();
+
+                            // reset our extensions to the last known good ones.
+                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
+
+                            debug!(?self.extensions, "Resetting view stream");
+
                             continue
                         }
                         yield Err(e.into());
@@ -800,16 +936,16 @@ impl SlidingSync {
                     }
                 };
 
-                tracing::debug!("received");
+                debug!("received");
 
-                let updates =  match self.handle_response(resp, &remaining_views).await {
+                let updates =  match self.handle_response(resp, extensions, &remaining_views, &current_ranges).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
                         continue
                     }
                 };
-                tracing::debug!("handled");
+                debug!("handled");
                 yield Ok(updates);
             }
         })
@@ -844,11 +980,15 @@ pub struct SlidingSyncView {
 
     /// Required states to return per room
     #[builder(default = "SlidingSyncViewBuilder::default_required_state()")]
-    required_state: Vec<(RoomEventType, String)>,
+    required_state: Vec<(TimelineEventType, String)>,
 
     /// How many rooms request at a time when doing a full-sync catch up
     #[builder(default = "20")]
     batch_size: u32,
+
+    /// How many rooms request at a time when doing a full-sync catch up
+    #[builder(setter(into), default)]
+    limit: Option<u32>,
 
     /// Any filters to apply to the query
     #[builder(default)]
@@ -911,6 +1051,7 @@ impl From<&SlidingSyncView> for FrozenSlidingSyncView {
 impl SlidingSyncView {
     fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
         let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
+        self.state.set(SlidingSyncState::Preload);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
@@ -922,7 +1063,7 @@ pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
-        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::FullSync)
+        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
     }
 
     /// Build the view
@@ -938,10 +1079,10 @@ impl SlidingSyncViewBuilder {
         vec!["by_recency".to_owned(), "by_name".to_owned()]
     }
 
-    fn default_required_state() -> Vec<(RoomEventType, String)> {
+    fn default_required_state() -> Vec<(TimelineEventType, String)> {
         vec![
-            (RoomEventType::RoomEncryption, "".to_owned()),
-            (RoomEventType::RoomTombstone, "".to_owned()),
+            (TimelineEventType::RoomEncryption, "".to_owned()),
+            (TimelineEventType::RoomTombstone, "".to_owned()),
         ]
     }
 
@@ -955,6 +1096,12 @@ impl SlidingSyncViewBuilder {
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges =
             Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
+        self
+    }
+
+    /// Set a single range fetch
+    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
+        self.ranges = Some(RangeState::new(vec![(from.into(), to.into())]));
         self
     }
 
@@ -986,7 +1133,8 @@ impl SlidingSyncViewBuilder {
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
-    FullSync { position: u32, batch_size: u32 },
+    GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32> },
+    PagingFullSync { position: u32, batch_size: u32, limit: Option<u32> },
     Live,
 }
 
@@ -996,12 +1144,31 @@ struct SlidingSyncViewRequestGenerator<'a> {
 }
 
 impl<'a> SlidingSyncViewRequestGenerator<'a> {
-    fn new_with_syncup(view: &'a SlidingSyncView) -> Self {
+    fn new_with_paging_syncup(view: &'a SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
+        let limit = view.limit;
 
         SlidingSyncViewRequestGenerator {
             view,
-            inner: InnerSlidingSyncViewRequestGenerator::FullSync { position: 0, batch_size },
+            inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                position: 0,
+                batch_size,
+                limit,
+            },
+        }
+    }
+
+    fn new_with_growing_syncup(view: &'a SlidingSyncView) -> Self {
+        let batch_size = view.batch_size;
+        let limit = view.limit;
+
+        SlidingSyncViewRequestGenerator {
+            view,
+            inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position: 0,
+                batch_size,
+                limit,
+            },
         }
     }
 
@@ -1009,67 +1176,122 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         SlidingSyncViewRequestGenerator { view, inner: InnerSlidingSyncViewRequestGenerator::Live }
     }
 
-    fn prefetch_request(&self, start: u32, batch_size: u32) -> (u32, v4::SyncRequestList) {
-        let end = start + batch_size;
+    fn prefetch_request(
+        &self,
+        start: u32,
+        batch_size: u32,
+        limit: Option<u32>,
+    ) -> (u32, (v4::SyncRequestList, Vec<(usize, usize)>)) {
+        let calc_end = start + batch_size;
+        let end = match limit {
+            Some(l) => std::cmp::min(l, calc_end),
+            _ => calc_end,
+        };
         let ranges = vec![(start.into(), end.into())];
         (end, self.make_request_for_ranges(ranges))
     }
 
-    fn make_request_for_ranges(&self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
+    fn make_request_for_ranges(
+        &self,
+        ranges: Vec<(UInt, UInt)>,
+    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
         let timeline_limit = self.view.timeline_limit;
         let filters = self.view.filters.clone();
 
-        assign!(v4::SyncRequestList::default(), {
-            ranges,
-            required_state,
-            sort,
-            timeline_limit,
-            filters,
-        })
+        (
+            assign!(v4::SyncRequestList::default(), {
+                ranges: ranges.clone(),
+                required_state,
+                sort,
+                timeline_limit,
+                filters,
+            }),
+            ranges
+                .into_iter()
+                .map(|(a, b)| {
+                    (
+                        usize::try_from(a).expect("range is a valid u32"),
+                        usize::try_from(b).expect("range is a valid u32"),
+                    )
+                })
+                .collect(),
+        )
     }
 
     // generate the next live request
-    fn live_request(&self) -> v4::SyncRequestList {
+    fn live_request(&self) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
 }
 
 impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = v4::SyncRequestList;
+    type Item = (v4::SyncRequestList, Vec<(usize, usize)>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let InnerSlidingSyncViewRequestGenerator::FullSync { position, .. } = self.inner {
+        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, limit, .. }
+        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { position, limit, .. } =
+            self.inner
+        {
             if let Some(count) = self.view.rooms_count.get_cloned() {
-                if count <= position {
+                let end = limit.unwrap_or(count);
+                if count <= position || end <= position {
                     // we are switching to live mode
                     self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        *before == SlidingSyncState::CatchingUp
+                        !matches!(before, SlidingSyncState::Live)
                     });
                     // keep listening to the entire list to learn about position updates
-                    self.view.set_range(0, count);
+                    self.view.set_range(0, end);
                     self.inner = InnerSlidingSyncViewRequestGenerator::Live
                 }
             } else {
                 // upon first catch up request, we want to switch state
                 self.view.state.set_if(SlidingSyncState::Preload, |before, _now| {
-                    *before == SlidingSyncState::Cold
+                    matches!(before, SlidingSyncState::Cold)
                 });
             }
         }
         match self.inner {
-            InnerSlidingSyncViewRequestGenerator::FullSync { position, batch_size } => {
-                let (end, req) = self.prefetch_request(position, batch_size);
-                self.inner =
-                    InnerSlidingSyncViewRequestGenerator::FullSync { position: end, batch_size };
+            InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                position,
+                batch_size,
+                limit,
+            } => {
+                let (end, req) = self.prefetch_request(position, batch_size, limit);
+                self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                    position: end,
+                    batch_size,
+                    limit,
+                };
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    *before == SlidingSyncState::Preload
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
                 });
                 Some(req)
             }
-            InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
+            InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position,
+                batch_size,
+                limit,
+            } => {
+                let (end, req) = self.prefetch_request(0, position + batch_size, limit);
+                self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                    position: end,
+                    batch_size,
+                    limit,
+                };
+                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
+                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                });
+                Some(req)
+            }
+            InnerSlidingSyncViewRequestGenerator::Live => {
+                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
+                    !matches!(before, SlidingSyncState::Live)
+                });
+                Some(self.live_request())
+            }
         }
     }
 }
@@ -1153,10 +1375,17 @@ impl SlidingSyncView {
         self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
-    #[tracing::instrument(skip(self, ops))]
-    fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> Result<(), Error> {
+    #[instrument(skip(self, ops))]
+    fn room_ops(
+        &self,
+        ops: &Vec<v4::SyncOp>,
+        room_ranges: &Vec<(usize, usize)>,
+    ) -> Result<(), Error> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
+
+        let index_in_range =
+            |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
         for op in ops {
             match &op.op {
                 v4::SlidingOp::Sync => {
@@ -1192,10 +1421,7 @@ impl SlidingSyncView {
                         })?
                         .try_into()
                         .map_err(|e| {
-                            Error::BadResponse(format!(
-                                "`index` not a valid int for DELETE: {:}",
-                                e
-                            ))
+                            Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
                         })?;
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
@@ -1209,10 +1435,7 @@ impl SlidingSyncView {
                         })?
                         .try_into()
                         .map_err(|e| {
-                            Error::BadResponse(format!(
-                                "`index` not a valid int for INSERT: {:}",
-                                e
-                            ))
+                            Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
                         })?;
                     let sliced = rooms_list.as_slice();
                     let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
@@ -1224,9 +1447,10 @@ impl SlidingSyncView {
                     loop {
                         // find the next empty slot and drop it
                         let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
-                        let check_prev = !prev_overflow;
+                        let check_prev = !prev_overflow && index_in_range(prev_p);
                         let (next_p, overflown) = pos.overflowing_add(dif);
-                        let check_after = !overflown && next_p < sliced.len();
+                        let check_after =
+                            !overflown && next_p < sliced.len() && index_in_range(next_p);
                         if !check_prev && !check_after {
                             return Err(Error::BadResponse("We were asked to insert but could not find any direction to shift to".to_owned()));
                         }
@@ -1268,7 +1492,9 @@ impl SlidingSyncView {
                         ));
                     }
 
-                    while pos < end {
+                    // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
+                    // ensure we pick them all up
+                    while pos <= end {
                         if pos as usize >= max_len {
                             break; // how does this happen?
                         }
@@ -1288,7 +1514,7 @@ impl SlidingSyncView {
                     }
                 }
                 s => {
-                    tracing::warn!("Unknown operation occurred: {:?}", s);
+                    warn!("Unknown operation occurred: {:?}", s);
                 }
             }
         }
@@ -1296,8 +1522,13 @@ impl SlidingSyncView {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, ops))]
-    fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> Result<bool, Error> {
+    #[instrument(skip(self, ops))]
+    fn handle_response(
+        &self,
+        rooms_count: u32,
+        ops: &Vec<v4::SyncOp>,
+        ranges: &Vec<(usize, usize)>,
+    ) -> Result<bool, Error> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1308,18 +1539,22 @@ impl SlidingSyncView {
                 list.push_cloned(RoomListEntry::Empty);
                 missing -= 1;
             }
-            self.rooms_count.replace(Some(rooms_count));
             changed = true;
         }
 
         if !ops.is_empty() {
-            self.room_ops(ops)?;
+            self.room_ops(ops, ranges)?;
+            changed = true;
+        }
+
+        if self.rooms_count.get() != Some(rooms_count) {
+            self.rooms_count.set(Some(rooms_count));
             changed = true;
         }
 
         if changed {
             if let Err(e) = self.rooms_updated_signal.send(()) {
-                tracing::warn!("Could not inform about rooms updated: {:?}", e);
+                warn!("Could not inform about rooms updated: {:?}", e);
             }
         }
 
@@ -1328,7 +1563,12 @@ impl SlidingSyncView {
 
     fn request_generator(&self) -> SlidingSyncViewRequestGenerator<'_> {
         match self.sync_mode.read_only().get_cloned() {
-            SlidingSyncMode::FullSync => SlidingSyncViewRequestGenerator::new_with_syncup(self),
+            SlidingSyncMode::PagingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self)
+            }
+            SlidingSyncMode::GrowingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self)
+            }
             SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self),
         }
     }
@@ -1340,13 +1580,13 @@ impl Client {
         SlidingSyncBuilder::default().client(self.clone())
     }
 
-    #[tracing::instrument(skip(self, response))]
+    #[instrument(skip(self, response))]
     pub(crate) async fn process_sliding_sync(
         &self,
         response: v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
-        tracing::debug!("done processing on base_client");
+        debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;
         Ok(response)
     }

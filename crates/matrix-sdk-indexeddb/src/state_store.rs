@@ -24,9 +24,10 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
 use gloo_utils::format::JsValueSerdeExt;
+use indexed_db_futures::prelude::*;
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo,
@@ -45,11 +46,11 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::warn;
+use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::{indexed_db_futures::prelude::*, safe_encode::SafeEncode};
+use crate::safe_encode::SafeEncode;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct StoreKeyWrapper(Vec<u8>);
@@ -83,8 +84,8 @@ pub enum MigrationConflictStrategy {
     BackupAndDrop,
 }
 
-impl From<crate::indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
-    fn from(frm: crate::indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
         IndexeddbStateStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
@@ -414,9 +415,7 @@ impl IndexeddbStateStore {
             .meta
             .transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readonly)?
             .object_store(KEYS::BACKUPS_META)?
-            .open_cursor_with_direction(
-                crate::indexed_db_futures::prelude::IdbCursorDirection::Prev,
-            )?
+            .open_cursor_with_direction(indexed_db_futures::prelude::IdbCursorDirection::Prev)?
             .await?
             .and_then(|c| c.value().as_string()))
     }
@@ -642,8 +641,16 @@ impl IndexeddbStateStore {
             let store = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
             let joined = tx.object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
             let invited = tx.object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
-            for (room, events) in &changes.stripped_members {
-                for event in events.values() {
+            for (room, raw_events) in &changes.stripped_members {
+                for raw_event in raw_events.values() {
+                    let event = match raw_event.deserialize() {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            continue;
+                        }
+                    };
+
                     let key = (room, &event.state_key);
 
                     match event.content.membership {
@@ -670,7 +677,7 @@ impl IndexeddbStateStore {
                     }
                     store.put_key_val(
                         &self.encode_key(KEYS::STRIPPED_MEMBERS, key),
-                        &self.serialize_event(&event)?,
+                        &self.serialize_event(&raw_event)?,
                     )?;
                 }
             }
@@ -698,10 +705,18 @@ impl IndexeddbStateStore {
             let stripped_joined = tx.object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
             let stripped_invited = tx.object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
 
-            for (room, events) in &changes.members {
+            for (room, raw_events) in &changes.members {
                 let profile_changes = changes.profiles.get(room);
 
-                for event in events.values() {
+                for raw_event in raw_events.values() {
+                    let event = match raw_event.deserialize() {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            continue;
+                        }
+                    };
+
                     let key = (room, event.state_key());
 
                     stripped_joined
@@ -732,7 +747,7 @@ impl IndexeddbStateStore {
 
                     members.put_key_val_owned(
                         &self.encode_key(KEYS::MEMBERS, key),
-                        &self.serialize_event(&event)?,
+                        &self.serialize_event(&raw_event)?,
                     )?;
                     stripped_members.delete(&self.encode_key(KEYS::STRIPPED_MEMBERS, key))?;
 
@@ -801,7 +816,7 @@ impl IndexeddbStateStore {
                     let raw_evt =
                         self.deserialize_event::<Raw<AnySyncStateEvent>>(cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                        if redactions.contains_key(&event_id) {
+                        if let Some(redaction) = redactions.get(&event_id) {
                             let version = {
                                 if room_version.is_none() {
                                     room_version.replace(room_info
@@ -810,7 +825,7 @@ impl IndexeddbStateStore {
                                         .and_then(|f| self.deserialize_event::<RoomInfo>(f).ok())
                                         .and_then(|info| info.room_version().cloned())
                                         .unwrap_or_else(|| {
-                                            warn!(%room_id, "Unable to find the room version, assume version 9");
+                                            warn!(?room_id, "Unable to find the room version, assume version 9");
                                             RoomVersionId::V9
                                         })
                                     );
@@ -818,9 +833,12 @@ impl IndexeddbStateStore {
                                 room_version.as_ref().unwrap()
                             };
 
-                            let redacted =
-                                redact(&raw_evt.deserialize_as::<CanonicalJsonObject>()?, version)
-                                    .map_err(StoreError::Redaction)?;
+                            let redacted = redact(
+                                raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                version,
+                                Some(redaction.try_into()?),
+                            )
+                            .map_err(StoreError::Redaction)?;
                             state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
                         }
                     }
@@ -894,7 +912,7 @@ impl IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
@@ -904,7 +922,7 @@ impl IndexeddbStateStore {
             .map(|f| self.deserialize_event(f))
             .transpose()?
         {
-            Ok(Some(MemberEvent::Stripped(e)))
+            Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) = self
             .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
@@ -914,7 +932,7 @@ impl IndexeddbStateStore {
             .map(|f| self.deserialize_event(f))
             .transpose()?
         {
-            Ok(Some(MemberEvent::Sync(e)))
+            Ok(Some(RawMemberEvent::Sync(e)))
         } else {
             Ok(None)
         }
@@ -1278,7 +1296,7 @@ impl StateStore for IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<RawMemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
     }
 
@@ -1401,7 +1419,7 @@ mod tests {
         Ok(IndexeddbStateStore::builder().name(db_name).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -1420,13 +1438,14 @@ mod encrypted_tests {
         Ok(IndexeddbStateStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
-    statestore_integration_tests!();
+    statestore_integration_tests!(with_media_tests);
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod migration_tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+    use indexed_db_futures::prelude::*;
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
@@ -1435,7 +1454,6 @@ mod migration_tests {
         IndexeddbStateStore, IndexeddbStateStoreError, MigrationConflictStrategy, Result,
         ALL_STORES,
     };
-    use crate::indexed_db_futures::prelude::*;
 
     pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, version)?;

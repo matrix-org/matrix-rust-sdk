@@ -73,7 +73,6 @@ pub async fn run() -> Result<JsValue, JsValue> {
     client
         .login_username(username, password)
         .initial_device_display_name("rust-sdk-wasm")
-        .send()
         .await
         .unwrap();
 

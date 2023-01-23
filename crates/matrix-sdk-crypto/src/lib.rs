@@ -89,10 +89,10 @@ pub use requests::{
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
 pub use verification::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,
-    SasState, Verification, VerificationRequest,
+    SasState, Verification, VerificationRequest, VerificationRequestState,
 };
 #[cfg(feature = "qrcode")]
-pub use verification::{QrVerification, ScanError};
+pub use verification::{QrVerification, QrVerificationState, ScanError};
 
 /// Re-exported Error types from the [vodozemac](https://crates.io/crates/vodozemac) crate.
 pub mod vodozemac {

@@ -161,7 +161,10 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
-    /// Get all the tracked users of our own device.
+    /// Get the list of users whose devices we are currently tracking.
+    ///
+    /// A user can be marked for tracking using the
+    /// [`update_tracked_users`](#method.update_tracked_users) method.
     ///
     /// Returns a `Set<UserId>`.
     #[wasm_bindgen(js_name = "trackedUsers")]
@@ -175,16 +178,23 @@ impl OlmMachine {
         set
     }
 
-    /// Update the tracked users.
+    /// Update the list of tracked users.
     ///
-    /// `users` is an iterator over user IDs that should be marked for
-    /// tracking.
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
-    /// This will mark users that weren't seen before for a key query
-    /// and tracking.
+    /// # Arguments
     ///
-    /// If the user is already known to the Olm machine, it will not
-    /// be considered for a key query.
+    /// * `users` - An array of user ids that should be added to the list of
+    ///   tracked users
+    ///
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
+    ///
+    /// Users that were already in the list are unaffected.
     #[wasm_bindgen(js_name = "updateTrackedUsers")]
     pub fn update_tracked_users(&self, users: &Array) -> Result<Promise, JsError> {
         let users = users
@@ -507,10 +517,8 @@ impl OlmMachine {
     /// Get the a key claiming request for the user/device pairs that
     /// we are missing Olm sessions for.
     ///
-    /// Returns `NULL` if no key claiming request needs to be sent
-    /// out, otherwise it returns an `Array` where the first key is
-    /// the transaction ID as a string, and the second key is the keys
-    /// claim request serialized to JSON.
+    /// Returns `null` if no key claiming request needs to be sent
+    /// out, otherwise it returns a `KeysClaimRequest` object.
     ///
     /// Sessions need to be established between devices so group
     /// sessions for a room can be shared with them.
@@ -633,24 +641,24 @@ impl OlmMachine {
             .collect()
     }
 
-    /// Receive an unencrypted verification event.
+    /// Receive a verification event.
     ///
-    /// This method can be used to pass verification events that are
-    /// happening in unencrypted rooms to the `OlmMachine`.
-    ///
-    /// Note: This does not need to be called for encrypted events
-    /// since those will get passed to the `OlmMachine` during
-    /// decryption.
-    #[wasm_bindgen(js_name = "receiveUnencryptedVerificationEvent")]
-    pub fn receive_unencrypted_verification_event(&self, event: &str) -> Result<Promise, JsError> {
-        let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
+    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
+    #[wasm_bindgen(js_name = "receiveVerificationEvent")]
+    pub fn receive_verification_event(
+        &self,
+        event: &str,
+        room_id: &identifiers::RoomId,
+    ) -> Result<Promise, JsError> {
+        let room_id = room_id.inner.clone();
+        let event: ruma::events::AnySyncMessageLikeEvent = serde_json::from_str(event)?;
+        let event = event.into_full_event(room_id);
+
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(me
-                .receive_unencrypted_verification_event(&event)
-                .await
-                .map(|_| JsValue::UNDEFINED)?)
+            Ok(me.receive_verification_event(&event).await.map(|_| JsValue::UNDEFINED)?)
         }))
     }
 

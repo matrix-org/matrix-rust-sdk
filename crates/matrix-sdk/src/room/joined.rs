@@ -567,7 +567,7 @@ impl Joined {
         #[cfg(not(feature = "e2e-encryption"))]
         let content = {
             debug!(
-                room_id = %self.room_id(),
+                room_id = ?self.room_id(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
             Raw::new(&content)?.cast()
@@ -579,7 +579,7 @@ impl Joined {
             // them until they are.
             if event_type == "m.reaction" {
                 debug!(
-                    room_id = %self.room_id(),
+                    room_id = ?self.room_id(),
                     "Sending plaintext event because the event type is {event_type}",
                 );
                 (Raw::new(&content)?.cast(), event_type)
@@ -605,7 +605,7 @@ impl Joined {
             }
         } else {
             debug!(
-                room_id = %self.room_id(),
+                room_id = ?self.room_id(),
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 

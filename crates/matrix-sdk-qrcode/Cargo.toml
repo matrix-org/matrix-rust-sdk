@@ -16,11 +16,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-base64 = "0.13.0"
-byteorder = "1.4.3"
+base64 = { workspace = true }
+byteorder = { workspace = true }
 qrcode = { version = "0.12.0", default-features = false }
 ruma-common = { workspace = true }
-thiserror = "1.0.30"
+thiserror = { workspace = true }
 vodozemac = { workspace = true }
 
 [dev-dependencies]

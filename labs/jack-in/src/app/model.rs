@@ -2,8 +2,9 @@
 //!
 //! app model
 
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
+use futures::executor::block_on;
 use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -211,16 +212,11 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::SendMessage(m) => {
-                    if let Some(room) = self
-                        .sliding_sync
-                        .selected_room
-                        .lock_ref()
-                        .as_ref()
-                        .and_then(|id| self.client.get_joined_room(id))
-                    {
-                        tokio::spawn(async move {
+                    if let Some(tl) = self.sliding_sync.room_timeline.lock_ref().deref() {
+                        block_on(async move {
                             // fire and forget
-                            match room.send(RoomMessageEventContent::text_plain(m), None).await {
+                            match tl.send(RoomMessageEventContent::text_plain(m).into(), None).await
+                            {
                                 Ok(_r) => tracing::info!("Message send"),
                                 Err(e) => tracing::error!("Sending message failed: {:}", e),
                             }

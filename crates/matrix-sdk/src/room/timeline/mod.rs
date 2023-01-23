@@ -16,43 +16,50 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex as StdMutex},
-};
+use std::sync::Arc;
 
 use futures_core::Stream;
-use futures_signals::signal_vec::{MutableVec, SignalVec, SignalVecExt, VecDiff};
+use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,
 };
 use ruma::{
     assign,
-    events::{fully_read::FullyReadEventContent, relation::Annotation, AnyMessageLikeEventContent},
-    OwnedEventId, OwnedUserId, TransactionId, UInt,
+    events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
+    EventId, TransactionId,
 };
 use tracing::{error, instrument, warn};
 
-use super::{Joined, Room};
+use super::Joined;
 use crate::{
-    event_handler::EventHandlerDropGuard,
+    event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
     Result,
 };
 
 mod event_handler;
 mod event_item;
+mod inner;
+mod pagination;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "e2e-encryption")]
+mod to_device;
 mod virtual_item;
 
 pub use self::{
     event_item::{
-        EncryptedMessage, EventTimelineItem, Message, PaginationOutcome, ReactionDetails,
-        TimelineDetails, TimelineItemContent, TimelineKey,
+        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, Message, OtherState,
+        Profile, ReactionDetails, RoomMember, Sticker, TimelineDetails, TimelineItemContent,
+        TimelineKey,
     },
+    pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
+};
+use self::{
+    inner::{TimelineInner, TimelineInnerMetadata},
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
 /// A high-level view into a regular¹ room's contents.
@@ -62,34 +69,23 @@ pub use self::{
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner,
-    room: room::Common,
-    start_token: StdMutex<Option<String>>,
-    _end_token: StdMutex<Option<String>>,
-    _timeline_event_handler_guard: EventHandlerDropGuard,
-    _fully_read_handler_guard: EventHandlerDropGuard,
-    #[cfg(feature = "e2e-encryption")]
-    _room_key_handler_guard: EventHandlerDropGuard,
+    inner: Arc<TimelineInner<room::Common>>,
+    start_token: Mutex<Option<String>>,
+    _end_token: Mutex<Option<String>>,
+    event_handler_handles: Vec<EventHandlerHandle>,
 }
 
-#[derive(Clone, Debug, Default)]
-struct TimelineInner {
-    items: MutableVec<Arc<TimelineItem>>,
-    metadata: Arc<Mutex<TimelineInnerMetadata>>,
-}
-
-/// Non-signalling parts of `TimelineInner`.
-#[derive(Debug, Default)]
-struct TimelineInnerMetadata {
-    // Reaction event / txn ID => sender and reaction data
-    reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
-    fully_read_event: Option<OwnedEventId>,
-    fully_read_event_in_timeline: bool,
+impl Drop for Timeline {
+    fn drop(&mut self) {
+        for handle in self.event_handler_handles.drain(..) {
+            self.inner.room().client().remove_event_handler(handle);
+        }
+    }
 }
 
 impl Timeline {
-    pub(super) async fn new(room: &room::Common) -> Self {
-        Self::with_events(room, None, Vec::new()).await
+    pub(super) fn new(room: &room::Common) -> Self {
+        Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
     }
 
     pub(crate) async fn with_events(
@@ -97,18 +93,62 @@ impl Timeline {
         prev_token: Option<String>,
         events: Vec<SyncTimelineEvent>,
     ) -> Self {
-        let inner = TimelineInner::default();
-        let own_user_id = room.own_user_id();
+        let mut inner = TimelineInner::new(room.to_owned());
+        inner.add_initial_events(events).await;
+        Self::from_inner(Arc::new(inner), prev_token)
+    }
 
-        for ev in events.into_iter().rev() {
-            inner
-                .handle_back_paginated_event(ev.event.cast(), ev.encryption_info, own_user_id)
-                .await;
+    fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
+        let room = inner.room();
+
+        let timeline_event_handle = room.add_event_handler({
+            let inner = inner.clone();
+            move |event, encryption_info: Option<EncryptionInfo>| {
+                let inner = inner.clone();
+                async move {
+                    inner.handle_live_event(event, encryption_info).await;
+                }
+            }
+        });
+
+        // Not using room.add_event_handler here because RoomKey events are
+        // to-device events that are not received in the context of a room.
+        #[cfg(feature = "e2e-encryption")]
+        let room_key_handle = room
+            .client
+            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
+        #[cfg(feature = "e2e-encryption")]
+        let forwarded_room_key_handle = room.client.add_event_handler(
+            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
+        );
+
+        let event_handler_handles = vec![
+            timeline_event_handle,
+            #[cfg(feature = "e2e-encryption")]
+            room_key_handle,
+            #[cfg(feature = "e2e-encryption")]
+            forwarded_room_key_handle,
+        ];
+
+        Timeline {
+            inner,
+            start_token: Mutex::new(prev_token),
+            _end_token: Mutex::new(None),
+            event_handler_handles,
         }
+    }
 
-        match room.account_data_static::<FullyReadEventContent>().await {
+    fn room(&self) -> &room::Common {
+        self.inner.room()
+    }
+
+    /// Enable tracking of the fully-read marker on this `Timeline`.
+    pub async fn with_fully_read_tracking(mut self) -> Self {
+        match self.room().account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => inner.set_fully_read_event(fully_read.content.event_id).await,
+                Ok(fully_read) => {
+                    self.inner.set_fully_read_event(fully_read.content.event_id).await
+                }
                 Err(error) => {
                     error!(?error, "Failed to deserialize `m.fully_read` account data")
                 }
@@ -119,114 +159,89 @@ impl Timeline {
             _ => {}
         }
 
-        let timeline_event_handle = room.add_event_handler({
+        let inner = self.inner.clone();
+        let fully_read_handle = self.room().add_event_handler(move |event| {
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>, room: Room| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_live_event(event, encryption_info, room.own_user_id()).await;
-                }
+            async move {
+                inner.handle_fully_read(event).await;
             }
         });
-        let _timeline_event_handler_guard =
-            room.client.event_handler_drop_guard(timeline_event_handle);
+        self.event_handler_handles.push(fully_read_handle);
 
-        let fully_read_handle = room.add_event_handler({
-            let inner = inner.clone();
-            move |event| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_fully_read(event).await;
-                }
-            }
-        });
-        let _fully_read_handler_guard = room.client.event_handler_drop_guard(fully_read_handle);
-
-        // Not using room.add_event_handler here because RoomKey events are
-        // to-device events that are not received in the context of a room.
-        #[cfg(feature = "e2e-encryption")]
-        let room_id = room.room_id().to_owned();
-        #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = room.client.add_event_handler({
-            use std::iter;
-
-            use ruma::events::room_key::ToDeviceRoomKeyEvent;
-
-            use crate::Client;
-
-            let inner = inner.clone();
-            move |event: ToDeviceRoomKeyEvent, client: Client| {
-                let inner = inner.clone();
-                let room_id = room_id.clone();
-                async move {
-                    if event.content.room_id != room_id {
-                        return;
-                    }
-
-                    let Some(olm_machine) = client.olm_machine() else {
-                        error!("The olm machine isn't yet available");
-                        return;
-                    };
-
-                    let session_id = event.content.session_id;
-                    let Some(own_user_id) = client.user_id() else {
-                        error!("The user's own ID isn't available");
-                        return;
-                    };
-
-                    inner
-                        .retry_event_decryption(
-                            &room_id,
-                            olm_machine,
-                            iter::once(session_id.as_str()).collect(),
-                            own_user_id,
-                        )
-                        .await;
-                }
-            }
-        });
-        #[cfg(feature = "e2e-encryption")]
-        let _room_key_handler_guard = room.client.event_handler_drop_guard(room_key_handle);
-
-        Timeline {
-            inner,
-            room: room.clone(),
-            start_token: StdMutex::new(prev_token),
-            _end_token: StdMutex::new(None),
-            _timeline_event_handler_guard,
-            _fully_read_handler_guard,
-            #[cfg(feature = "e2e-encryption")]
-            _room_key_handler_guard,
-        }
+        self
     }
 
     /// Add more events to the start of the timeline.
-    #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
-    pub async fn paginate_backwards(&self, limit: UInt) -> Result<PaginationOutcome> {
-        let start = self.start_token.lock().unwrap().clone();
-        let messages = self
-            .room
-            .messages(assign!(MessagesOptions::backward(), {
-                from: start,
-                limit,
-            }))
-            .await?;
-
-        let outcome = PaginationOutcome { more_messages: messages.end.is_some() };
-        *self.start_token.lock().unwrap() = messages.end;
-
-        let own_user_id = self.room.own_user_id();
-        for room_ev in messages.chunk {
-            self.inner
-                .handle_back_paginated_event(
-                    room_ev.event.cast(),
-                    room_ev.encryption_info,
-                    own_user_id,
-                )
-                .await;
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_pagination_size`: The number of events to fetch from the
+    ///   server in the first pagination request. The server may choose return
+    ///   fewer events, for example because the supplied number is too big or
+    ///   the beginning of the visible timeline was reached.
+    /// * `
+    #[instrument(skip_all, fields(initial_pagination_size, room_id = ?self.room().room_id()))]
+    pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
+        let mut start_lock = self.start_token.lock().await;
+        if start_lock.is_none()
+            && self.inner.items().first().map_or(false, |item| item.is_timeline_start())
+        {
+            warn!("Start of timeline reached, ignoring backwards-pagination request");
+            return Ok(());
         }
 
-        Ok(outcome)
+        self.inner.add_loading_indicator();
+
+        let mut from = start_lock.clone();
+        let mut outcome = PaginationOutcome::new();
+
+        while let Some(limit) = opts.next_event_limit(outcome) {
+            let messages = self
+                .room()
+                .messages(assign!(MessagesOptions::backward(), {
+                    from,
+                    limit: limit.into(),
+                }))
+                .await?;
+
+            let process_events_result = async {
+                outcome.events_received = messages.chunk.len().try_into().ok()?;
+                outcome.total_events_received =
+                    outcome.total_events_received.checked_add(outcome.events_received)?;
+                outcome.items_added = 0;
+                outcome.items_updated = 0;
+
+                for room_ev in messages.chunk {
+                    let res = self.inner.handle_back_paginated_event(room_ev).await;
+                    outcome.items_added = outcome.items_added.checked_add(res.item_added as u16)?;
+                    outcome.items_updated = outcome.items_updated.checked_add(res.items_updated)?;
+                }
+
+                outcome.total_items_added =
+                    outcome.total_items_added.checked_add(outcome.items_added)?;
+                outcome.total_items_updated =
+                    outcome.total_items_updated.checked_add(outcome.items_updated)?;
+
+                Some(())
+            }
+            .await;
+
+            from = messages.end;
+
+            if from.is_none() {
+                break;
+            }
+
+            if process_events_result.is_none() {
+                error!("Received an excessive number of events, ending pagination (u16 overflow)");
+                break;
+            }
+        }
+
+        self.inner.remove_loading_indicator(from.is_some());
+        *start_lock = from;
+
+        Ok(())
     }
 
     /// Retry decryption of previously un-decryptable events given a list of
@@ -262,17 +277,16 @@ impl Timeline {
     ) {
         self.inner
             .retry_event_decryption(
-                self.room.room_id(),
-                self.room.client.olm_machine().expect("Olm machine wasn't started"),
+                self.room().room_id(),
+                self.room().client.olm_machine().expect("Olm machine wasn't started"),
                 session_ids.into_iter().map(AsRef::as_ref).collect(),
-                self.room.own_user_id(),
             )
             .await;
     }
 
-    /// Get the latest of the timeline's items.
-    pub fn latest(&self) -> Option<Arc<TimelineItem>> {
-        self.inner.items.lock_ref().last().cloned()
+    /// Get the latest of the timeline's event items.
+    pub fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.items().last()?.as_event().cloned()
     }
 
     /// Get a signal of the timeline's items.
@@ -283,7 +297,7 @@ impl Timeline {
     /// See [`SignalVecExt`](futures_signals::signal_vec::SignalVecExt) for a
     /// high-level API on top of [`SignalVec`].
     pub fn signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
-        self.inner.items.signal_vec_cloned()
+        self.inner.items_signal()
     }
 
     /// Get a stream of timeline changes.
@@ -319,23 +333,21 @@ impl Timeline {
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    #[instrument(skip(self, content), fields(room_id = %self.room.room_id()))]
+    #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
         txn_id: Option<&TransactionId>,
     ) -> Result<()> {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        self.inner
-            .handle_local_event(txn_id.clone(), content.clone(), self.room.own_user_id())
-            .await;
+        self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
         // If this room isn't actually in joined state, we'll get a server error.
         // Not ideal, but works for now.
-        let room = Joined { inner: self.room.clone() };
+        let room = Joined { inner: self.room().clone() };
 
         let response = room.send(content, Some(&txn_id)).await?;
-        add_event_id(&self.inner, &txn_id, response.event_id);
+        self.inner.add_event_id(&txn_id, response.event_id);
 
         Ok(())
     }
@@ -369,46 +381,59 @@ impl TimelineItem {
             _ => None,
         }
     }
+
+    /// Creates a new day divider from the given year, month and day.
+    fn day_divider(year: i32, month: u32, day: u32) -> Self {
+        Self::Virtual(VirtualTimelineItem::DayDivider { year, month, day })
+    }
+
+    fn read_marker() -> Self {
+        Self::Virtual(VirtualTimelineItem::ReadMarker)
+    }
+
+    fn loading_indicator() -> Self {
+        Self::Virtual(VirtualTimelineItem::LoadingIndicator)
+    }
+
+    fn timeline_start() -> Self {
+        Self::Virtual(VirtualTimelineItem::TimelineStart)
+    }
+
+    fn is_read_marker(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::ReadMarker))
+    }
+
+    fn is_loading_indicator(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::LoadingIndicator))
+    }
+
+    fn is_timeline_start(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::TimelineStart))
+    }
 }
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
-fn find_event(
-    lock: &[Arc<TimelineItem>],
-    key: impl PartialEq<TimelineKey>,
-) -> Option<(usize, &EventTimelineItem)> {
+fn find_event_by_id<'a>(
+    lock: &'a [Arc<TimelineItem>],
+    event_id: &EventId,
+) -> Option<(usize, &'a EventTimelineItem)> {
     lock.iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| key == it.key)
+        .rfind(|(_, it)| it.event_id() == Some(event_id))
+}
+
+fn find_event_by_txn_id<'a>(
+    lock: &'a [Arc<TimelineItem>],
+    txn_id: &TransactionId,
+) -> Option<(usize, &'a EventTimelineItem)> {
+    lock.iter()
+        .enumerate()
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+        .rfind(|(_, it)| it.key == *txn_id)
 }
 
 fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
-    lock.iter()
-        .enumerate()
-        .rfind(|(_, item)| {
-            item.as_virtual().filter(|v| matches!(v, VirtualTimelineItem::ReadMarker)).is_some()
-        })
-        .map(|(idx, _)| idx)
-}
-
-fn add_event_id(items: &TimelineInner, txn_id: &TransactionId, event_id: OwnedEventId) {
-    let mut lock = items.items.lock_mut();
-    if let Some((idx, item)) = find_event(&lock, txn_id) {
-        match &item.key {
-            TimelineKey::TransactionId(_) => {
-                lock.set_cloned(
-                    idx,
-                    Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))),
-                );
-            }
-            TimelineKey::EventId(ev_id) => {
-                if *ev_id != event_id {
-                    error!("remote echo and send-event response disagree on the event ID");
-                }
-            }
-        }
-    } else {
-        warn!(%txn_id, "Timeline item not found, can't add event ID");
-    }
+    lock.iter().rposition(|item| item.is_read_marker())
 }

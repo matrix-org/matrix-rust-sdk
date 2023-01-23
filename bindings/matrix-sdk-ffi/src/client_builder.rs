@@ -2,10 +2,14 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use matrix_sdk::{
-    ruma::{ServerName, UserId},
+    ruma::{
+        api::{error::UnknownVersionError, MatrixVersion},
+        ServerName, UserId,
+    },
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use zeroize::Zeroizing;
 
 use super::{client::Client, ClientState, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
@@ -16,6 +20,8 @@ pub struct ClientBuilder {
     username: Option<String>,
     server_name: Option<String>,
     homeserver_url: Option<String>,
+    server_versions: Option<Vec<String>>,
+    passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     inner: MatrixClientBuilder,
 }
@@ -34,6 +40,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn server_versions(self: Arc<Self>, versions: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.server_versions = Some(versions);
+        Arc::new(builder)
+    }
+
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.server_name = Some(server_name);
@@ -43,6 +55,12 @@ impl ClientBuilder {
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_url = Some(url);
+        Arc::new(builder)
+    }
+
+    pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.passphrase = Zeroizing::new(passphrase);
         Arc::new(builder)
     }
 
@@ -60,6 +78,8 @@ impl ClientBuilder {
             username: None,
             server_name: None,
             homeserver_url: None,
+            server_versions: None,
+            passphrase: Zeroizing::new(None),
             user_agent: None,
             inner: MatrixClient::builder(),
         }
@@ -74,7 +94,7 @@ impl ClientBuilder {
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
 
-            inner_builder = inner_builder.sled_store(data_path, None);
+            inner_builder = inner_builder.sled_store(data_path, builder.passphrase.as_deref());
         }
 
         // Determine server either from URL, server name or user ID.
@@ -94,6 +114,15 @@ impl ClientBuilder {
 
         if let Some(user_agent) = builder.user_agent {
             inner_builder = inner_builder.user_agent(user_agent);
+        }
+
+        if let Some(server_versions) = builder.server_versions {
+            inner_builder = inner_builder.server_versions(
+                server_versions
+                    .iter()
+                    .map(|s| MatrixVersion::try_from(s.as_str()))
+                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()?,
+            );
         }
 
         RUNTIME.block_on(async move {

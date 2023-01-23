@@ -55,9 +55,9 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        GlobalAccountDataEventType, OriginalStateEventContent, RedactedStateEventContent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventType, StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -68,7 +68,7 @@ use serde::de::DeserializeOwned;
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::RawMemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
@@ -222,7 +222,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>>;
+    ) -> Result<Option<RawMemberEvent>>;
 
     /// Get all the user ids of members for a given room, for stripped and
     /// regular rooms alike.
@@ -385,7 +385,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent<StateKey = EmptyStateKey>,
         C::Redacted: RedactedStateEventContent + DeserializeOwned,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
@@ -402,7 +402,7 @@ pub trait StateStoreExt: StateStore {
         state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -420,7 +420,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + OriginalStateEventContent,
         C::Redacted: RedactedStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
@@ -532,25 +532,27 @@ impl Store {
         &self.sync_lock
     }
 
-    /// Restore the access to the Store from the given `Session`, overwrites any
-    /// previously existing access to the Store.
-    pub async fn restore_session(&self, session: Session) -> Result<()> {
+    /// Set the meta of the session.
+    ///
+    /// Restores the state of this `Store` from the given `SessionMeta` and the
+    /// inner `StateStore`.
+    ///
+    /// This method panics if it is called twice.
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
         for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
-        let (session_meta, session_tokens) = session.into_parts();
-        self.session_meta.set(session_meta).expect("Session IDs were already set");
-        self.session_tokens.set(Some(session_tokens));
+        self.session_meta.set(session_meta).expect("Session Meta was already set");
 
         Ok(())
     }
@@ -675,7 +677,7 @@ pub struct StateChanges {
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, SyncRoomMemberEvent>>,
+    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
@@ -694,7 +696,8 @@ pub struct StateChanges {
 
     /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
     /// `SyncRoomRedactionEvent`.
-    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OriginalSyncRoomRedactionEvent>>,
+    pub redactions:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<OriginalSyncRoomRedactionEvent>>>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -704,7 +707,8 @@ pub struct StateChanges {
     >,
     /// A mapping of `RoomId` to a map of users and their
     /// `StrippedRoomMemberEvent`.
-    pub stripped_members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, StrippedRoomMemberEvent>>,
+    pub stripped_members:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
     /// while knocking)
     pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
@@ -762,10 +766,16 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `StrippedMemberEvent`.
-    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedRoomMemberEvent) {
-        let user_id = event.state_key.clone();
-
-        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
+    pub fn add_stripped_member(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        event: Raw<StrippedRoomMemberEvent>,
+    ) {
+        self.stripped_members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(user_id.to_owned(), event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -785,11 +795,16 @@ impl StateChanges {
     }
 
     /// Redact an event in the room
-    pub fn add_redaction(&mut self, room_id: &RoomId, redaction: OriginalSyncRoomRedactionEvent) {
+    pub fn add_redaction(
+        &mut self,
+        room_id: &RoomId,
+        redacted_event_id: &EventId,
+        redaction: Raw<OriginalSyncRoomRedactionEvent>,
+    ) {
         self.redactions
             .entry(room_id.to_owned())
             .or_default()
-            .insert(redaction.redacts.clone(), redaction);
+            .insert(redacted_event_id.to_owned(), redaction);
     }
 
     /// Update the `StateChanges` struct with the given room with a new

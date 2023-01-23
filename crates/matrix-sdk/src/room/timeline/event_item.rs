@@ -18,16 +18,39 @@ use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        policy::rule::{
+            room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
+            user::PolicyRuleUserEventContent,
+        },
         relation::{AnnotationChunk, AnnotationType},
         room::{
+            aliases::RoomAliasesEventContent,
+            avatar::RoomAvatarEventContent,
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent,
             encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+            encryption::RoomEncryptionEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent,
+            member::{MembershipChange, RoomMemberEventContent},
             message::MessageType,
+            name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
+            power_levels::RoomPowerLevelsEventContent,
+            server_acl::RoomServerAclEventContent,
+            third_party_invite::RoomThirdPartyInviteEventContent,
+            tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
-        AnySyncTimelineEvent, MessageLikeEventType, StateEventType,
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+        sticker::StickerEventContent,
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
+        MessageLikeEventType, StateEventType,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -43,9 +66,10 @@ pub struct EventTimelineItem {
     // response.
     pub(super) event_id: Option<OwnedEventId>,
     pub(super) sender: OwnedUserId,
+    pub(super) sender_profile: Profile,
     pub(super) content: TimelineItemContent,
     pub(super) reactions: BundledReactions,
-    pub(super) origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
+    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) is_own: bool,
     pub(super) encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
@@ -60,25 +84,11 @@ impl fmt::Debug for EventTimelineItem {
             .field("sender", &self.sender)
             .field("content", &self.content)
             .field("reactions", &self.reactions)
-            .field("origin_server_ts", &self.origin_server_ts)
+            .field("timestamp", &self.timestamp)
             .field("is_own", &self.is_own)
             .field("encryption_info", &self.encryption_info)
             // skip raw, too noisy
             .finish_non_exhaustive()
-    }
-}
-
-macro_rules! build {
-    (
-        $ty:ident {
-            $( $field:ident $(: $value:expr)?, )*
-            ..$this:ident( $($this_field:ident),* $(,)? )
-        }
-    ) => {
-        $ty {
-            $( $field $(: $value)?, )*
-            $( $this_field: $this.$this_field.clone() ),*
-        }
     }
 }
 
@@ -109,6 +119,11 @@ impl EventTimelineItem {
         &self.sender
     }
 
+    /// Get the profile of the sender.
+    pub fn sender_profile(&self) -> &Profile {
+        &self.sender_profile
+    }
+
     /// Get the content of this item.
     pub fn content(&self) -> &TimelineItemContent {
         &self.content
@@ -121,11 +136,13 @@ impl EventTimelineItem {
         &self.reactions.bundled
     }
 
-    /// Get the origin server timestamp of this item.
+    /// Get the timestamp of this item.
     ///
-    /// Returns `None` if this event hasn't been echoed back by the server yet.
-    pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.origin_server_ts
+    /// If this event hasn't been echoed back by the server yet, returns the
+    /// time the local event was created. Otherwise, returns the origin
+    /// server timestamp.
+    pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
+        self.timestamp
     }
 
     /// Whether this timeline item was sent by the logged-in user themselves.
@@ -153,39 +170,24 @@ impl EventTimelineItem {
     }
 
     pub(super) fn to_redacted(&self) -> Self {
-        build!(Self {
+        Self {
             // FIXME: Change when we support state events
             content: TimelineItemContent::RedactedMessage,
             reactions: BundledReactions::default(),
-            ..self(key, event_id, sender, origin_server_ts, is_own, encryption_info, raw)
-        })
+            ..self.clone()
+        }
     }
 
     pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
-        build!(Self {
-            event_id,
-            ..self(key, sender, content, reactions, origin_server_ts, is_own, encryption_info, raw,)
-        })
+        Self { event_id, ..self.clone() }
     }
 
-    #[rustfmt::skip]
     pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
-        build!(Self {
-            content,
-            ..self(
-                key, event_id, sender, reactions, origin_server_ts, is_own, encryption_info, raw,
-            )
-        })
+        Self { content, ..self.clone() }
     }
 
-    #[rustfmt::skip]
     pub(super) fn with_reactions(&self, reactions: BundledReactions) -> Self {
-        build!(Self {
-            reactions,
-            ..self(
-                key, event_id, sender, content, origin_server_ts, is_own, encryption_info, raw,
-            )
-        })
+        Self { reactions, ..self.clone() }
     }
 }
 
@@ -215,28 +217,25 @@ pub enum TimelineKey {
     EventId(OwnedEventId),
 }
 
-impl PartialEq<TimelineKey> for &TransactionId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::TransactionId(txn_id) if txn_id == self)
+impl PartialEq<TransactionId> for TimelineKey {
+    fn eq(&self, id: &TransactionId) -> bool {
+        matches!(self, TimelineKey::TransactionId(txn_id) if txn_id == id)
     }
 }
 
-impl PartialEq<TimelineKey> for &OwnedTransactionId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::TransactionId(txn_id) if txn_id == *self)
-    }
-}
-
-impl PartialEq<TimelineKey> for &EventId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::EventId(event_id) if event_id == self)
-    }
-}
-
-impl PartialEq<TimelineKey> for &OwnedEventId {
-    fn eq(&self, key: &TimelineKey) -> bool {
-        matches!(key, TimelineKey::EventId(event_id) if event_id == *self)
-    }
+/// The display name and avatar URL of a room member.
+#[derive(Clone, Debug)]
+pub struct Profile {
+    /// The display name, if set.
+    pub display_name: Option<String>,
+    /// Whether the display name is ambiguous.
+    ///
+    /// Note that in rooms with lazy-loading enabled, this could be `false` even
+    /// though the display name is actually ambiguous if not all member events
+    /// have been seen yet.
+    pub display_name_ambiguous: bool,
+    /// The avatar URL, if set.
+    pub avatar_url: Option<OwnedMxcUri>,
 }
 
 /// Some details of an [`EventTimelineItem`] that may require server requests
@@ -264,8 +263,17 @@ pub enum TimelineItemContent {
     /// A redacted message.
     RedactedMessage,
 
+    /// An `m.sticker` event.
+    Sticker(Sticker),
+
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
+
+    /// An `m.room.member` event.
+    RoomMember(RoomMember),
+
+    /// Another state event.
+    OtherState(OtherState),
 
     /// A message-like event that failed to deserialize.
     FailedToParseMessageLike {
@@ -310,7 +318,7 @@ impl TimelineItemContent {
 }
 
 /// An `m.room.message` event or extensible event, including edits.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Message {
     pub(super) msgtype: MessageType,
     // TODO: Add everything required to display the replied-to event, plus a
@@ -341,6 +349,14 @@ impl Message {
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+}
+
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // since timeline items are logged, don't include all fields here so
+        // people don't leak personal data in bug reports
+        f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
     }
 }
 
@@ -402,8 +418,8 @@ pub struct BundledReactions {
     pub bundled: IndexMap<String, ReactionDetails>,
 }
 
-impl From<AnnotationChunk> for BundledReactions {
-    fn from(ann: AnnotationChunk) -> Self {
+impl From<Box<AnnotationChunk>> for BundledReactions {
+    fn from(ann: Box<AnnotationChunk>) -> Self {
         let bundled = ann
             .chunk
             .into_iter()
@@ -443,11 +459,205 @@ impl Default for ReactionDetails {
     }
 }
 
-/// The result of a successful pagination request.
-#[derive(Debug)]
-// TODO: non-exhaustive breaks UniFFI bridge
-//#[non_exhaustive]
-pub struct PaginationOutcome {
-    /// Whether there's more messages to be paginated.
-    pub more_messages: bool,
+/// An `m.sticker` event.
+#[derive(Clone, Debug)]
+pub struct Sticker {
+    pub(super) content: StickerEventContent,
+}
+
+impl Sticker {
+    /// Get the data of this sticker.
+    pub fn content(&self) -> &StickerEventContent {
+        &self.content
+    }
+}
+
+/// An `m.room.member` event.
+#[derive(Clone, Debug)]
+pub struct RoomMember {
+    pub(super) user_id: OwnedUserId,
+    pub(super) content: FullStateEventContent<RoomMemberEventContent>,
+    pub(super) sender: OwnedUserId,
+}
+
+impl RoomMember {
+    /// The ID of the user whose membership changed.
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// The full content of the event.
+    pub fn content(&self) -> &FullStateEventContent<RoomMemberEventContent> {
+        &self.content
+    }
+
+    /// The membership change induced by this event.
+    ///
+    /// If this returns `None`, it doesn't mean that there was no change, but
+    /// that the change could not be computed. This is currently always the case
+    /// with redacted events.
+    // FIXME: Fetch the prev_content when missing so we can compute this with
+    // redacted events?
+    pub fn membership_change(&self) -> Option<MembershipChange<'_>> {
+        match &self.content {
+            FullStateEventContent::Original { content, prev_content } => {
+                Some(content.membership_change(
+                    prev_content.as_ref().map(|c| c.details()),
+                    &self.sender,
+                    &self.user_id,
+                ))
+            }
+            FullStateEventContent::Redacted(_) => None,
+        }
+    }
+}
+
+/// An enum over all the full state event contents that don't have their own
+/// `TimelineItemContent` variant.
+#[derive(Clone, Debug)]
+pub enum AnyOtherFullStateEventContent {
+    /// m.policy.rule.room
+    PolicyRuleRoom(FullStateEventContent<PolicyRuleRoomEventContent>),
+
+    /// m.policy.rule.server
+    PolicyRuleServer(FullStateEventContent<PolicyRuleServerEventContent>),
+
+    /// m.policy.rule.user
+    PolicyRuleUser(FullStateEventContent<PolicyRuleUserEventContent>),
+
+    /// m.room.aliases
+    RoomAliases(FullStateEventContent<RoomAliasesEventContent>),
+
+    /// m.room.avatar
+    RoomAvatar(FullStateEventContent<RoomAvatarEventContent>),
+
+    /// m.room.canonical_alias
+    RoomCanonicalAlias(FullStateEventContent<RoomCanonicalAliasEventContent>),
+
+    /// m.room.create
+    RoomCreate(FullStateEventContent<RoomCreateEventContent>),
+
+    /// m.room.encryption
+    RoomEncryption(FullStateEventContent<RoomEncryptionEventContent>),
+
+    /// m.room.guest_access
+    RoomGuestAccess(FullStateEventContent<RoomGuestAccessEventContent>),
+
+    /// m.room.history_visibility
+    RoomHistoryVisibility(FullStateEventContent<RoomHistoryVisibilityEventContent>),
+
+    /// m.room.join_rules
+    RoomJoinRules(FullStateEventContent<RoomJoinRulesEventContent>),
+
+    /// m.room.name
+    RoomName(FullStateEventContent<RoomNameEventContent>),
+
+    /// m.room.pinned_events
+    RoomPinnedEvents(FullStateEventContent<RoomPinnedEventsEventContent>),
+
+    /// m.room.power_levels
+    RoomPowerLevels(FullStateEventContent<RoomPowerLevelsEventContent>),
+
+    /// m.room.server_acl
+    RoomServerAcl(FullStateEventContent<RoomServerAclEventContent>),
+
+    /// m.room.third_party_invite
+    RoomThirdPartyInvite(FullStateEventContent<RoomThirdPartyInviteEventContent>),
+
+    /// m.room.tombstone
+    RoomTombstone(FullStateEventContent<RoomTombstoneEventContent>),
+
+    /// m.room.topic
+    RoomTopic(FullStateEventContent<RoomTopicEventContent>),
+
+    /// m.space.child
+    SpaceChild(FullStateEventContent<SpaceChildEventContent>),
+
+    /// m.space.parent
+    SpaceParent(FullStateEventContent<SpaceParentEventContent>),
+
+    #[doc(hidden)]
+    _Custom { event_type: String },
+}
+
+impl AnyOtherFullStateEventContent {
+    /// Create an `AnyOtherFullStateEventContent` from an
+    /// `AnyFullStateEventContent`.
+    ///
+    /// Panics if the event content does not match one of the variants.
+    // This could be a `From` implementation but we don't want it in the public API.
+    pub(crate) fn with_event_content(content: AnyFullStateEventContent) -> Self {
+        let event_type = content.event_type();
+
+        match content {
+            AnyFullStateEventContent::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
+            AnyFullStateEventContent::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
+            AnyFullStateEventContent::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
+            AnyFullStateEventContent::RoomAliases(c) => Self::RoomAliases(c),
+            AnyFullStateEventContent::RoomAvatar(c) => Self::RoomAvatar(c),
+            AnyFullStateEventContent::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
+            AnyFullStateEventContent::RoomCreate(c) => Self::RoomCreate(c),
+            AnyFullStateEventContent::RoomEncryption(c) => Self::RoomEncryption(c),
+            AnyFullStateEventContent::RoomGuestAccess(c) => Self::RoomGuestAccess(c),
+            AnyFullStateEventContent::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(c),
+            AnyFullStateEventContent::RoomJoinRules(c) => Self::RoomJoinRules(c),
+            AnyFullStateEventContent::RoomName(c) => Self::RoomName(c),
+            AnyFullStateEventContent::RoomPinnedEvents(c) => Self::RoomPinnedEvents(c),
+            AnyFullStateEventContent::RoomPowerLevels(c) => Self::RoomPowerLevels(c),
+            AnyFullStateEventContent::RoomServerAcl(c) => Self::RoomServerAcl(c),
+            AnyFullStateEventContent::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(c),
+            AnyFullStateEventContent::RoomTombstone(c) => Self::RoomTombstone(c),
+            AnyFullStateEventContent::RoomTopic(c) => Self::RoomTopic(c),
+            AnyFullStateEventContent::SpaceChild(c) => Self::SpaceChild(c),
+            AnyFullStateEventContent::SpaceParent(c) => Self::SpaceParent(c),
+            AnyFullStateEventContent::RoomMember(_) => unreachable!(),
+            _ => Self::_Custom { event_type: event_type.to_string() },
+        }
+    }
+
+    /// Get the event's type, like `m.room.create`.
+    pub fn event_type(&self) -> StateEventType {
+        match self {
+            Self::PolicyRuleRoom(c) => c.event_type(),
+            Self::PolicyRuleServer(c) => c.event_type(),
+            Self::PolicyRuleUser(c) => c.event_type(),
+            Self::RoomAliases(c) => c.event_type(),
+            Self::RoomAvatar(c) => c.event_type(),
+            Self::RoomCanonicalAlias(c) => c.event_type(),
+            Self::RoomCreate(c) => c.event_type(),
+            Self::RoomEncryption(c) => c.event_type(),
+            Self::RoomGuestAccess(c) => c.event_type(),
+            Self::RoomHistoryVisibility(c) => c.event_type(),
+            Self::RoomJoinRules(c) => c.event_type(),
+            Self::RoomName(c) => c.event_type(),
+            Self::RoomPinnedEvents(c) => c.event_type(),
+            Self::RoomPowerLevels(c) => c.event_type(),
+            Self::RoomServerAcl(c) => c.event_type(),
+            Self::RoomThirdPartyInvite(c) => c.event_type(),
+            Self::RoomTombstone(c) => c.event_type(),
+            Self::RoomTopic(c) => c.event_type(),
+            Self::SpaceChild(c) => c.event_type(),
+            Self::SpaceParent(c) => c.event_type(),
+            Self::_Custom { event_type } => event_type.as_str().into(),
+        }
+    }
+}
+
+/// A state event that doesn't have its own variant.
+#[derive(Clone, Debug)]
+pub struct OtherState {
+    pub(super) state_key: String,
+    pub(super) content: AnyOtherFullStateEventContent,
+}
+
+impl OtherState {
+    /// The state key of the event.
+    pub fn state_key(&self) -> &str {
+        &self.state_key
+    }
+
+    /// The content of the event.
+    pub fn content(&self) -> &AnyOtherFullStateEventContent {
+        &self.content
+    }
 }

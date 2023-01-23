@@ -187,6 +187,17 @@ impl Client {
         })
     }
 
+    pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
+        let client = self.client.clone();
+        RUNTIME.block_on(async move {
+            client
+                .account()
+                .set_display_name(Some(name.as_str()))
+                .await
+                .context("Unable to set display name")
+        })
+    }
+
     pub fn avatar_url(&self) -> anyhow::Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
@@ -219,6 +230,16 @@ impl Client {
             let raw_content = Raw::from_json_string(content)?;
             self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
             Ok(())
+        })
+    }
+
+    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> anyhow::Result<String> {
+        let l = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let mime_type: mime::Mime = mime_type.parse()?;
+            let response = l.media().upload(&mime_type, data).await?;
+            Ok(String::from(response.content_uri))
         })
     }
 
@@ -276,7 +297,8 @@ impl Client {
                 .await?
                 .context("Failed retrieving user identity")?;
 
-            let session_verification_controller = SessionVerificationController::new(user_identity);
+            let session_verification_controller =
+                SessionVerificationController::new(self.client.encryption(), user_identity);
 
             *self.session_verification_controller.write().await =
                 Some(session_verification_controller.clone());
@@ -326,7 +348,7 @@ impl Client {
 
     /// Indication whether we are currently syncing
     pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
+        self.state.read().unwrap().is_syncing
     }
 
     /// Flag indicating whether the session is in soft logout mode

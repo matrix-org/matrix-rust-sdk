@@ -5,16 +5,25 @@ use matrix_sdk::{
     ruma::{OwnedDeviceId, UserId},
     Session,
 };
+use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 
 pub struct AuthenticationService {
     base_path: String,
+    passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+impl Drop for AuthenticationService {
+    fn drop(&mut self) {
+        self.passphrase.zeroize();
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum AuthenticationError {
     #[error("A successful call to use_server must be made first.")]
     ClientMissing,
@@ -56,21 +65,41 @@ impl HomeserverLoginDetails {
     }
 }
 
+impl AuthenticationService {
+    /// Creates a new service to authenticate a user with.
+    pub fn new(base_path: String, passphrase: Option<String>) -> Self {
+        AuthenticationService {
+            base_path,
+            passphrase,
+            client: RwLock::new(None),
+            homeserver_details: RwLock::new(None),
+        }
+    }
+
+    /// Get the homeserver login details from a client.
+    async fn details_from_client(
+        &self,
+        client: &Arc<Client>,
+    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
+        let login_details = join3(
+            client.async_homeserver(),
+            client.authentication_issuer(),
+            client.supports_password_login(),
+        )
+        .await;
+
+        let url = login_details.0;
+        let authentication_issuer = login_details.1;
+        let supports_password_login = login_details.2.map_err(AuthenticationError::from)?;
+
+        Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
+    }
+}
+
 #[uniffi::export]
 impl AuthenticationService {
     pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
         self.homeserver_details.read().unwrap().clone()
-    }
-}
-
-impl AuthenticationService {
-    /// Creates a new service to authenticate a user with.
-    pub fn new(base_path: String) -> Self {
-        AuthenticationService {
-            base_path,
-            client: RwLock::new(None),
-            homeserver_details: RwLock::new(None),
-        }
     }
 
     /// Updates the service to authenticate with the homeserver for the
@@ -120,6 +149,7 @@ impl AuthenticationService {
         let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
         let client = Arc::new(ClientBuilder::new())
             .base_path(self.base_path.clone())
+            .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .username(whoami.user_id.to_string())
             .build()
@@ -172,6 +202,7 @@ impl AuthenticationService {
         };
         let client = Arc::new(ClientBuilder::new())
             .base_path(self.base_path.clone())
+            .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .username(whoami.user_id.to_string())
             .build()
@@ -180,24 +211,5 @@ impl AuthenticationService {
         // Restore the client using the session.
         client.restore_session_inner(session).map_err(AuthenticationError::from)?;
         Ok(client)
-    }
-
-    /// Get the homeserver login details from a client.
-    async fn details_from_client(
-        &self,
-        client: &Arc<Client>,
-    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let login_details = join3(
-            client.async_homeserver(),
-            client.authentication_issuer(),
-            client.supports_password_login(),
-        )
-        .await;
-
-        let url = login_details.0;
-        let authentication_issuer = login_details.1;
-        let supports_password_login = login_details.2.map_err(AuthenticationError::from)?;
-
-        Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
     }
 }
