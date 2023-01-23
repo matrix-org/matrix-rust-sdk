@@ -278,7 +278,7 @@ async fn back_pagination() {
         timeline_stream.next().await,
         Some(VecDiff::Push { value }) => value
     );
-    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider(_));
 
     let message = assert_matches!(
         timeline_stream.next().await,
