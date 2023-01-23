@@ -557,9 +557,9 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         // This function is only ever called by add_room_key via
-        // handle_decrypted_to_device_event, so sender and sender_key are
+        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ?content.room_id, algorithm = ?event.content.algorithm())
+        fields(room_id = ?content.room_id, session_id)
     )]
     async fn handle_key(
         &self,
@@ -576,22 +576,29 @@ impl OlmMachine {
             None,
         );
 
-        if let Ok(session) = session {
-            tracing::Span::current().record("session_id", session.session_id());
+        match session {
+            Ok(session) => {
+                tracing::Span::current().record("session_id", session.session_id());
 
-            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
-                info!("Received a new megolm room key");
-                Ok(Some(session))
-            } else {
-                warn!(
-                    "Received a megolm room key that we already have a better \
-                     version of, discarding",
-                );
+                if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
+                    info!("Received a new megolm room key");
+
+                    Ok(Some(session))
+                } else {
+                    warn!(
+                        "Received a megolm room key that we already have a better version of, \
+                        discarding",
+                    );
+
+                    Ok(None)
+                }
+            }
+            Err(e) => {
+                tracing::Span::current().record("session_id", &content.session_id);
+                warn!("Received a room key event which contained an invalid session key: {e}");
+
                 Ok(None)
             }
-        } else {
-            warn!("Received a room key with an unsupported algorithm");
-            Ok(None)
         }
     }
 
