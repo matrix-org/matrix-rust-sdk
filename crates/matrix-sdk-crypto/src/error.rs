@@ -89,8 +89,8 @@ pub enum MegolmError {
     MissingRoomKey,
 
     /// Decryption failed because of a mismatch between the identity keys of the
-    /// device we received the room key from and the identity keys recorded in the
-    /// plaintext of the room key to-device message.
+    /// device we received the room key from and the identity keys recorded in
+    /// the plaintext of the room key to-device message.
     #[error(
         "decryption failed because of mismatched identity keys of the sending device and those recorded in the to-device message"
     )]
