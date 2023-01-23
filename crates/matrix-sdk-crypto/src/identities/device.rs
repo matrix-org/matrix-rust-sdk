@@ -178,7 +178,8 @@ impl Device {
                 }),
                 // If both keys match, we have ourselves an owner.
                 (Some(true), Some(true)) => Ok(true),
-                // In all other cases, we just don't know.
+                // In the remaining cases, the device is missing at least one of the required
+                // identity keys, so we default to a negative answer.
                 _ => Ok(false),
             }
         } else {
