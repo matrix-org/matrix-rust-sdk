@@ -33,7 +33,7 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
-            member::{MembershipChange, RoomMemberEventContent},
+            member::{Change, RoomMemberEventContent},
             message::MessageType,
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
@@ -269,8 +269,11 @@ pub enum TimelineItemContent {
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
 
-    /// An `m.room.member` event.
-    RoomMember(RoomMember),
+    /// A room membership change.
+    MembershipChange(RoomMembershipChange),
+
+    /// A room member profile change.
+    ProfileChange(MemberProfileChange),
 
     /// Another state event.
     OtherState(OtherState),
@@ -472,15 +475,15 @@ impl Sticker {
     }
 }
 
-/// An `m.room.member` event.
+/// An event changing a room membership.
 #[derive(Clone, Debug)]
-pub struct RoomMember {
+pub struct RoomMembershipChange {
     pub(super) user_id: OwnedUserId,
     pub(super) content: FullStateEventContent<RoomMemberEventContent>,
-    pub(super) sender: OwnedUserId,
+    pub(super) change: Option<MembershipChange>,
 }
 
-impl RoomMember {
+impl RoomMembershipChange {
     /// The ID of the user whose membership changed.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -498,17 +501,91 @@ impl RoomMember {
     /// with redacted events.
     // FIXME: Fetch the prev_content when missing so we can compute this with
     // redacted events?
-    pub fn membership_change(&self) -> Option<MembershipChange<'_>> {
-        match &self.content {
-            FullStateEventContent::Original { content, prev_content } => {
-                Some(content.membership_change(
-                    prev_content.as_ref().map(|c| c.details()),
-                    &self.sender,
-                    &self.user_id,
-                ))
-            }
-            FullStateEventContent::Redacted(_) => None,
-        }
+    pub fn change(&self) -> Option<MembershipChange> {
+        self.change
+    }
+}
+
+/// An enum over all the possible room membership changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MembershipChange {
+    /// No change.
+    None,
+
+    /// Must never happen.
+    Error,
+
+    /// User joined the room.
+    Joined,
+
+    /// User left the room.
+    Left,
+
+    /// User was banned.
+    Banned,
+
+    /// User was unbanned.
+    Unbanned,
+
+    /// User was kicked.
+    Kicked,
+
+    /// User was invited.
+    Invited,
+
+    /// User was kicked and banned.
+    KickedAndBanned,
+
+    /// User accepted the invite.
+    InvitationAccepted,
+
+    /// User rejected the invite.
+    InvitationRejected,
+
+    /// User had their invite revoked.
+    InvitationRevoked,
+
+    /// User knocked.
+    Knocked,
+
+    /// User had their knock accepted.
+    KnockAccepted,
+
+    /// User retracted their knock.
+    KnockRetracted,
+
+    /// User had their knock denied.
+    KnockDenied,
+
+    /// Not implemented.
+    NotImplemented,
+}
+
+/// An event changing a member's profile.
+///
+/// Note that profile changes only occur in the timeline when the user's
+/// membership is already `join`.
+#[derive(Clone, Debug)]
+pub struct MemberProfileChange {
+    pub(super) user_id: OwnedUserId,
+    pub(super) displayname_change: Option<Change<Option<String>>>,
+    pub(super) avatar_url_change: Option<Change<Option<OwnedMxcUri>>>,
+}
+
+impl MemberProfileChange {
+    /// The ID of the user whose profile changed.
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// The display name change induced by this event.
+    pub fn displayname_change(&self) -> Option<&Change<Option<String>>> {
+        self.displayname_change.as_ref()
+    }
+
+    /// The avatar URL change induced by this event.
+    pub fn avatar_url_change(&self) -> Option<&Change<Option<OwnedMxcUri>>> {
+        self.avatar_url_change.as_ref()
     }
 }
 

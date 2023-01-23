@@ -102,14 +102,23 @@ impl Details {
                     e.sender(),
                     s.content().body,
                 ),
-                TimelineItemContent::RoomMember(m) => format!(
-                    "[{}] {}: '{}' state event",
+                TimelineItemContent::MembershipChange(m) => format!(
+                    "[{}] {} - membership change '{:?}' for {}",
                     e.timestamp()
                         .to_system_time()
                         .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
                         .unwrap_or_default(),
                     e.sender(),
-                    m.content().event_type(),
+                    m.change(),
+                    m.user_id(),
+                ),
+                TimelineItemContent::ProfileChange(_) => format!(
+                    "[{}] {} - profile change",
+                    e.timestamp()
+                        .to_system_time()
+                        .map(|s| DateTime::<Local>::from(s).format("%Y-%m-%dT%T").to_string())
+                        .unwrap_or_default(),
+                    e.sender(),
                 ),
                 TimelineItemContent::OtherState(s) => format!(
                     "[{}] {}: '{}' state event",
