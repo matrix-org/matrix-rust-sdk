@@ -378,6 +378,12 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
+    pub fn send_updates_for_items(self: Arc<Self>, enable: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.send_updates_for_items(enable);
+        Arc::new(builder)
+    }
+
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.ranges(ranges);
@@ -499,10 +505,8 @@ impl SlidingSyncView {
     ) -> Arc<StoppableSpawn> {
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
-            loop {
-                if let Some(diff) = room_list.next().await {
-                    observer.did_receive_update(diff.into());
-                }
+            if let Some(diff) = room_list.next().await {
+                observer.did_receive_update(diff.into());
             }
         })))
     }
