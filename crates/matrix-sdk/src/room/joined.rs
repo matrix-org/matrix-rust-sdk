@@ -697,7 +697,7 @@ impl Joined {
                 };
 
                 #[cfg(not(target_arch = "wasm32"))]
-                let (data, res) = tokio::task::spawn_blocking(make_thumbnail(data))
+                let (data, res) = tokio::task::spawn_blocking(move || make_thumbnail(data))
                     .await
                     .expect("Task join error");
 
