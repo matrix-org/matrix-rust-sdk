@@ -171,9 +171,9 @@ impl Device {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt
                 // instead.
                 (_, Some(false)) | (Some(false), _) => Err(MegolmError::MismatchedIdentityKeys {
-                    ed25519: key.into(),
+                    key_ed25519: key.into(),
                     device_ed25519: self.ed25519_key().map(Into::into),
-                    curve25519: session.sender_key().into(),
+                    key_curve25519: session.sender_key().into(),
                     device_curve25519: self.curve25519_key().map(Into::into),
                 }),
                 // If both keys match, we have ourselves an owner.

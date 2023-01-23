@@ -96,11 +96,11 @@ pub enum MegolmError {
     )]
     MismatchedIdentityKeys {
         /// The Ed25519 key recorded in the room key's to-device message.
-        ed25519: Box<Ed25519PublicKey>,
+        key_ed25519: Box<Ed25519PublicKey>,
         /// The Ed25519 identity key of the device sending the room key.
         device_ed25519: Option<Box<Ed25519PublicKey>>,
         /// The Curve25519 key recorded in the room key's to-device message.
-        curve25519: Box<Curve25519PublicKey>,
+        key_curve25519: Box<Curve25519PublicKey>,
         /// The Curve25519 identity key of the device sending the room key.
         device_curve25519: Option<Box<Curve25519PublicKey>>,
     },
