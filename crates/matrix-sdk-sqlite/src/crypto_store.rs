@@ -899,20 +899,20 @@ impl CryptoStore for SqliteCryptoStore {
         return Ok(Some(session));
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users_cache.contains(user_id)
+    async fn is_user_tracked(&self, user_id: &UserId) -> StoreResult<bool> {
+        Ok(self.tracked_users_cache.contains(user_id))
     }
 
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query_cache.is_empty()
+    async fn has_users_for_key_query(&self) -> StoreResult<bool> {
+        Ok(!self.users_for_key_query_cache.is_empty()) // TODO: remove cache
     }
 
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
+    async fn users_for_key_query(&self) -> StoreResult<HashSet<OwnedUserId>> {
+        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()) // TODO: remove cache
     }
 
-    fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
+    async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
+        Ok(self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect())
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> StoreResult<bool> {
