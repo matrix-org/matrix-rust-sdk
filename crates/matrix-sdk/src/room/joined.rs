@@ -687,6 +687,7 @@ impl Joined {
             let data_slot;
             #[cfg(feature = "image-proc")]
             let (data, thumbnail) = if config.generate_thumbnail {
+                let content_type = content_type.clone();
                 let make_thumbnail = move |data| {
                     let res = generate_image_thumbnail(
                         &content_type,
