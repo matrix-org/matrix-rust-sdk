@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
-use dashmap::DashSet;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::locks::Mutex;
@@ -31,9 +30,10 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
@@ -81,8 +81,6 @@ pub struct IndexeddbCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for IndexeddbCryptoStore {
@@ -193,8 +191,6 @@ impl IndexeddbCryptoStore {
             inner: db,
             store_cipher,
             account_info: RwLock::new(None).into(),
-            tracked_users_cache: DashSet::new().into(),
-            users_for_key_query_cache: DashSet::new().into(),
         })
     }
 
@@ -522,24 +518,24 @@ impl IndexeddbCryptoStore {
         Ok(())
     }
 
-    async fn load_tracked_users(&self) -> Result<()> {
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(KEYS::TRACKED_USERS, IdbTransactionMode::Readonly)?;
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
         let user_ids = os.get_all_keys()?.await?;
+
+        let mut users = Vec::new();
+
         for user_id in user_ids.iter() {
             let dirty: bool =
                 !matches!(os.get(&user_id)?.await?.map(|v| v.into_serde()), Some(Ok(false)));
-            let Some(Ok(user)) = user_id.as_string().map(UserId::parse) else { continue };
-            self.tracked_users_cache.insert(user.clone());
+            let Some(Ok(user_id)) = user_id.as_string().map(UserId::parse) else { continue };
 
-            if dirty {
-                self.users_for_key_query_cache.insert(user);
-            }
+            users.push(TrackedUser { user_id, dirty });
         }
 
-        Ok(())
+        Ok(users)
     }
 
     async fn load_outbound_group_session(
@@ -601,8 +597,6 @@ impl IndexeddbCryptoStore {
             .get(&JsValue::from_str(KEYS::ACCOUNT))?
             .await?
         {
-            self.load_tracked_users().await?;
-
             let pickle = self.deserialize_value(pickle)?;
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
@@ -756,38 +750,18 @@ impl IndexeddbCryptoStore {
         Ok(())
     }
 
-    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
-        Ok(self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect())
-    }
-
-    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
-        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect())
-    }
-
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.to_owned());
-
-        if dirty {
-            self.users_for_key_query_cache.insert(user.to_owned());
-        } else {
-            self.users_for_key_query_cache.remove(user);
-        }
-
+    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(KEYS::TRACKED_USERS, IdbTransactionMode::Readwrite)?;
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
 
-        os.put_key_val(
-            &JsValue::from_str(user.as_str()),
-            &match dirty {
-                true => JsValue::TRUE,
-                false => JsValue::FALSE,
-            },
-        )?;
+        for (user, dirty) in users {
+            os.put_key_val(&JsValue::from_str(user.as_str()), &JsValue::from(*dirty))?;
+        }
 
         tx.await.into_result()?;
-        Ok(already_added)
+        Ok(())
     }
 
     async fn get_device(
@@ -1017,32 +991,16 @@ impl CryptoStore for IndexeddbCryptoStore {
         self.reset_backup_state().await.map_err(|e| e.into())
     }
 
-    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool, CryptoStoreError> {
-        Ok(self.tracked_users_cache.contains(user_id))
-    }
-
-    async fn has_users_for_key_query(&self) -> Result<bool, CryptoStoreError> {
-        Ok(!self.users_for_key_query_cache.is_empty())
-    }
-
-    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
-        self.tracked_users().await
-    }
-
-    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
-        self.users_for_key_query().await
-    }
-
     async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
         self.load_backup_keys().await.map_err(|e| e.into())
     }
 
-    async fn update_tracked_user(
-        &self,
-        user: &UserId,
-        dirty: bool,
-    ) -> Result<bool, CryptoStoreError> {
-        self.update_tracked_user(user, dirty).await.map_err(|e| e.into())
+    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<(), CryptoStoreError> {
+        self.save_tracked_users(users).await.map_err(Into::into)
+    }
+
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>, CryptoStoreError> {
+        self.load_tracked_users().await.map_err(Into::into)
     }
 
     async fn get_device(
