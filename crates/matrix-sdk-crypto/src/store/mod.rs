@@ -40,6 +40,7 @@
 
 pub mod caches;
 mod memorystore;
+
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 #[allow(missing_docs)]
