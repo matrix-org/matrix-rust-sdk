@@ -757,13 +757,7 @@ impl IndexeddbCryptoStore {
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
 
         for (user, dirty) in users {
-            os.put_key_val(
-                &JsValue::from_str(user.as_str()),
-                &match dirty {
-                    true => JsValue::TRUE,
-                    false => JsValue::FALSE,
-                },
-            )?;
+            os.put_key_val(&JsValue::from_str(user.as_str()), &JsValue::from(*dirty))?;
         }
 
         tx.await.into_result()?;

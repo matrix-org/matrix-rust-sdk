@@ -40,7 +40,6 @@
 
 pub mod caches;
 mod memorystore;
-#[allow(missing_docs)]
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 #[allow(missing_docs)]
@@ -705,7 +704,7 @@ impl Store {
     pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
         self.load_tracked_users().await?;
 
-        Ok(self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect())
+        Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
     }
 }
 
