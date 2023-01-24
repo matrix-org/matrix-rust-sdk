@@ -27,7 +27,7 @@ use matrix_sdk_base::{
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
-    EventId, TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId,
 };
 use tracing::{error, instrument, warn};
 
@@ -382,9 +382,9 @@ impl TimelineItem {
         }
     }
 
-    /// Creates a new day divider from the given year, month and day.
-    fn day_divider(year: i32, month: u32, day: u32) -> Self {
-        Self::Virtual(VirtualTimelineItem::DayDivider { year, month, day })
+    /// Creates a new day divider from the given timestamp.
+    fn day_divider(ts: MilliSecondsSinceUnixEpoch) -> Self {
+        Self::Virtual(VirtualTimelineItem::DayDivider(ts))
     }
 
     fn read_marker() -> Self {

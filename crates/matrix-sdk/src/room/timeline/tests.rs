@@ -21,6 +21,7 @@ use std::sync::{
 
 use assert_matches::assert_matches;
 use async_trait::async_trait;
+use chrono::{Datelike, Local, TimeZone};
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
@@ -435,13 +436,14 @@ async fn day_divider() {
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let (year, month, day) = assert_matches!(
+    let ts = assert_matches!(
         day_divider.as_virtual().unwrap(),
-        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+        VirtualTimelineItem::DayDivider(ts) => *ts
     );
-    assert_eq!(year, 2022);
-    assert_eq!(month, 12);
-    assert_eq!(day, 1);
+    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    assert_eq!(date.year(), 2022);
+    assert_eq!(date.month(), 12);
+    assert_eq!(date.day(), 1);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();
@@ -476,13 +478,14 @@ async fn day_divider() {
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let (year, month, day) = assert_matches!(
+    let ts = assert_matches!(
         day_divider.as_virtual().unwrap(),
-        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+        VirtualTimelineItem::DayDivider(ts) => *ts
     );
-    assert_eq!(year, 2022);
-    assert_eq!(month, 12);
-    assert_eq!(day, 2);
+    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    assert_eq!(date.year(), 2022);
+    assert_eq!(date.month(), 12);
+    assert_eq!(date.day(), 2);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();

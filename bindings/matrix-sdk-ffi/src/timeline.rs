@@ -157,8 +157,8 @@ impl TimelineItem {
     pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
         use matrix_sdk::room::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
         match &self.0 {
-            Item::Virtual(VItem::DayDivider { year, month, day }) => {
-                Some(VirtualTimelineItem::DayDivider { year: *year, month: *month, day: *day })
+            Item::Virtual(VItem::DayDivider(ts)) => {
+                Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() })
             }
             Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
             Item::Virtual(VItem::LoadingIndicator) => Some(VirtualTimelineItem::LoadingIndicator),
@@ -613,16 +613,9 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
 pub enum VirtualTimelineItem {
     /// A divider between messages of two days.
     DayDivider {
-        /// The year.
-        year: i32,
-        /// The month of the year.
-        ///
-        /// A value between 1 and 12.
-        month: u32,
-        /// The day of the month.
-        ///
-        /// A value between 1 and 31.
-        day: u32,
+        /// A timestamp in milliseconds since Unix Epoch on that day in local
+        /// time.
+        ts: u64,
     },
 
     /// The user's own read marker.
