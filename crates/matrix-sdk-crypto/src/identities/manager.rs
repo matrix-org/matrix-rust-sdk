@@ -33,13 +33,12 @@ use tracing::{debug, info, instrument, trace, warn};
 use crate::{
     error::OlmResult,
     identities::{
-        MasterPubkey, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
-        ReadOnlyUserIdentity, SelfSigningPubkey, UserSigningPubkey,
+        ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
     },
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::{CrossSigningKey, DeviceKeys},
+    types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
     LocalTrust, SignatureError,
 };

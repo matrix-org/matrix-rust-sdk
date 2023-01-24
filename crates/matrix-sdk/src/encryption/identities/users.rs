@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use matrix_sdk_base::{
     crypto::{
-        MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity, UserIdentity as InnerUserIdentity,
+        types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
+        UserIdentity as InnerUserIdentity,
     },
     locks::RwLock,
 };

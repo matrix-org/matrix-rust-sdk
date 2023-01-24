@@ -75,7 +75,7 @@ pub use file_encryption::{
 };
 pub use gossiping::GossipRequest;
 pub use identities::{
-    Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
