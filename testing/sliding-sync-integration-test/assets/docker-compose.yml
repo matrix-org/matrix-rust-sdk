@@ -8,7 +8,7 @@ services:
     healthcheck:
       disable: true
     volumes:
-      - matrix-rust-sdk-sliding-sync-ci-data:/data
+      - ./data/synapse:/data
       
     ports:
       - 8228:8008/tcp
@@ -24,6 +24,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
       
   sliding-sync-proxy:
     image: ghcr.io/matrix-org/sliding-sync:v0.98.0
@@ -37,6 +39,3 @@ services:
       SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
     ports:
       - 8338:8338
-
-volumes:
-  matrix-rust-sdk-sliding-sync-ci-data:
