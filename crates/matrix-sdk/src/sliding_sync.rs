@@ -16,6 +16,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
@@ -328,7 +329,7 @@ impl SlidingSyncRoom {
     }
 }
 
-impl std::ops::Deref for SlidingSyncRoom {
+impl Deref for SlidingSyncRoom {
     type Target = v4::SlidingSyncRoom;
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -337,14 +338,14 @@ impl std::ops::Deref for SlidingSyncRoom {
 
 type ViewState = Mutable<SlidingSyncState>;
 type SyncMode = Mutable<SlidingSyncMode>;
-type PosState = Mutable<Option<String>>;
+type StringState = Mutable<Option<String>>;
 type RangeState = Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = Mutable<Option<u32>>;
 type RoomsList = Arc<MutableVec<RoomListEntry>>;
 type RoomsMap = Arc<MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
 type RoomsSubscriptions = Arc<MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
 type RoomUnsubscribe = Arc<MutableVec<OwnedRoomId>>;
-type ViewsList = Arc<MutableVec<SlidingSyncView>>;
+type Views = Arc<MutableBTreeMap<String, SlidingSyncView>>;
 
 use derive_builder::Builder;
 
@@ -376,7 +377,7 @@ pub struct SlidingSyncConfig {
     /// The client this sliding sync will be using
     client: Client,
     #[builder(private, default)]
-    views: Vec<SlidingSyncView>,
+    views: BTreeMap<String, SlidingSyncView>,
     #[builder(private, default)]
     extensions: Option<ExtensionsConfig>,
     #[builder(private, default)]
@@ -398,15 +399,15 @@ impl SlidingSyncConfig {
         if let Some(storage_key) = storage_key.as_ref() {
             trace!(storage_key, "trying to load from cold");
 
-            for view in views.iter_mut() {
+            for (name, view) in views.iter_mut() {
                 if let Some(frozen_view) = client
                     .store()
-                    .get_custom_value(format!("{storage_key}::{0}", view.name).as_bytes())
+                    .get_custom_value(format!("{storage_key}::{name}").as_bytes())
                     .await?
                     .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
                     .transpose()?
                 {
-                    trace!(name = view.name, "frozen for view found");
+                    trace!(name, "frozen for view found");
 
                     let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
                     view.set_from_cold(rooms_count, rooms_list);
@@ -416,7 +417,7 @@ impl SlidingSyncConfig {
                         });
                     }
                 } else {
-                    trace!(name = view.name, "no frozen state for view found");
+                    trace!(name, "no frozen state for view found");
                 }
             }
 
@@ -442,7 +443,7 @@ impl SlidingSyncConfig {
         trace!(len = rooms_found.len(), "rooms unfrozen");
         let rooms = Arc::new(MutableBTreeMap::with_values(rooms_found));
 
-        let views = Arc::new(MutableVec::new_with_values(views));
+        let views = Arc::new(MutableBTreeMap::with_values(views));
 
         Ok(SlidingSync {
             homeserver,
@@ -457,6 +458,7 @@ impl SlidingSyncConfig {
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
+            delta_token: Mutable::new(None), // FIXME: freeze and unfreeze
             subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
             unsubscribe: Default::default(),
         })
@@ -465,14 +467,12 @@ impl SlidingSyncConfig {
 
 impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(mut self) -> Self {
-        let views = self.views.get_or_insert_with(Default::default);
-        views.push(
+    pub fn add_fullsync_view(self) -> Self {
+        self.add_view(
             SlidingSyncViewBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
-        );
-        self
+        )
     }
 
     /// The cold cache key to read from and store the frozen state at
@@ -493,10 +493,12 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Add the given view to the list of views
+    /// Add the given view to the views.
+    ///
+    /// Replace any view with the name.
     pub fn add_view(mut self, v: SlidingSyncView) -> Self {
         let views = self.views.get_or_insert_with(Default::default);
-        views.push(v);
+        views.insert(v.name.clone(), v);
         self
     }
 
@@ -601,10 +603,11 @@ pub struct SlidingSync {
     storage_key: Option<String>,
 
     // ------ Internal state
-    pos: PosState,
+    pos: StringState,
+    delta_token: StringState,
 
     /// The views of this sliding sync instance
-    pub views: ViewsList,
+    pub views: Views,
 
     subscriptions: RoomsSubscriptions,
     unsubscribe: RoomUnsubscribe,
@@ -654,7 +657,9 @@ impl SlidingSync {
             self.views
                 .lock_ref()
                 .iter()
-                .map(|v| (v.name.clone(), FrozenSlidingSyncView::freeze(v, &rooms_lock)))
+                .map(|(name, view)| {
+                    (name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock))
+                })
                 .collect::<Vec<_>>()
         };
         for (name, frozen) in frozen_views {
@@ -675,19 +680,17 @@ impl SlidingSync {
     /// Generate a new SlidingSyncBuilder with the same inner settings and views
     /// but without the current state
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
-        let builder = SlidingSyncBuilder::default()
+        let mut builder = SlidingSyncBuilder::default()
             .client(self.client.clone())
-            .views(
-                self.views
-                    .lock_ref()
-                    .to_vec()
-                    .iter()
-                    .map(|v| {
-                        v.new_builder().build().expect("builder worked before, builder works now")
-                    })
-                    .collect(),
-            )
             .subscriptions(self.subscriptions.lock_ref().to_owned());
+        for view in self
+            .views
+            .lock_ref()
+            .values()
+            .map(|v| v.new_builder().build().expect("builder worked before, builder works now"))
+        {
+            builder = builder.add_view(view);
+        }
 
         if let Some(h) = &self.homeserver {
             builder.homeserver(h.clone())
@@ -737,7 +740,7 @@ impl SlidingSync {
     /// listening to the stream and is therefor not necessarily up to date
     /// with the views used for the stream.
     pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
-        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned()
+        self.views.lock_ref().get(view_name).cloned()
     }
 
     /// Remove the SlidingSyncView named `view_name` from the views list if
@@ -746,29 +749,21 @@ impl SlidingSync {
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
-    pub fn pop_view(&self, _view_name: &str) -> Option<SlidingSyncView> {
-        unimplemented!("Index based sliding sync doesn't support removing views");
+    pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncView> {
+        self.views.lock_mut().remove(view_name)
     }
 
     /// Add the view to the list of views
     ///
     /// As views need to have a unique `.name`, if a view with the same name
-    /// is found the new view will replace the old one and the return will give
-    /// the position it was found at. If none is found, the view will be pushed
-    /// to the end and `None` is returned.
+    /// is found the new view will replace the old one and the return it or
+    /// `None`.
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
-    pub fn add_view(&self, view: SlidingSyncView) -> Option<usize> {
-        let mut v = self.views.lock_mut();
-        if let Some(idx) = v.iter().position(|v| v.name == view.name) {
-            v.set_cloned(idx, view);
-            Some(idx)
-        } else {
-            v.push_cloned(view);
-            None
-        }
+    pub fn add_view(&self, view: SlidingSyncView) -> Option<SlidingSyncView> {
+        self.views.lock_mut().insert_cloned(view.name.clone(), view)
     }
 
     /// Lookup a set of rooms
@@ -780,17 +775,17 @@ impl SlidingSync {
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
+    #[instrument(skip_all, fields(views=views.len()))]
     async fn handle_response(
         &self,
         resp: v4::Response,
         extensions: Option<ExtensionsConfig>,
-        views: &[SlidingSyncView],
-        generators: &mut [SlidingSyncViewRequestGenerator<'_>],
-        ranges: &[Vec<(usize, usize)>],
+        views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
+        self.delta_token.replace(resp.delta_token);
         let update = {
             let mut rooms = Vec::new();
             let mut rooms_map = self.rooms.lock_mut();
@@ -817,24 +812,16 @@ impl SlidingSync {
             }
 
             let mut updated_views = Vec::new();
-            if resp.lists.len() != views.len() {
-                return Err(Error::BadViewsCount {
-                    found: resp.lists.len(),
-                    expected: views.len(),
-                }
-                .into());
-            }
 
-            for (((view, generator), ranges), updates) in std::iter::zip(
-                std::iter::zip(std::iter::zip(views, generators), ranges),
-                &resp.lists,
-            ) {
+            for (name, updates) in resp.lists {
+                let Some(generator) = views.get_mut(&name) else {
+                    error!("Response for view {name} - unknown to us. skipping");
+                    continue
+                };
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
-                trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-                if view.handle_response(count, &updates.ops, ranges, &rooms)? {
-                    updated_views.push(view.name.clone());
-                    generator.update_state(count, ranges);
+                if generator.handle_response(count, &updates.ops, &rooms)? {
+                    updated_views.push(name.clone());
                 }
             }
 
@@ -860,41 +847,40 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        let views = self.views.lock_ref().to_vec();
+    pub fn stream<'a>(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+        let mut views = {
+            let mut views = BTreeMap::new();
+            let views_lock = self.views.lock_ref();
+            for (name, view) in views_lock.deref().iter() {
+                views.insert(name.clone(), view.request_generator());
+            }
+            views
+        };
         let client = self.client.clone();
 
         debug!(?self.extensions, "Setting view stream going");
-
         async_stream::stream! {
-            let mut remaining_views = views.clone();
-            let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
-                .iter()
-                .map(SlidingSyncView::request_generator)
-                .collect();
+
             loop {
                 debug!(?self.extensions, "Sync loop running");
 
-                let mut requests = Vec::new();
-                let mut current_ranges = vec![];
-                let mut new_remaining_generators = Vec::new();
-                let mut new_remaining_views = Vec::new();
+                let mut requests = BTreeMap::new();
+                let mut to_remove = Vec::new();
 
-                for (mut generator, view) in std::iter::zip(remaining_generators, remaining_views) {
-                    if let Some((request, range)) = generator.next() {
-                        requests.push(request);
-                        current_ranges.push(range);
-                        new_remaining_generators.push(generator);
-                        new_remaining_views.push(view);
+                for (name, generator) in views.iter_mut() {
+                    if let Some(request) = generator.next() {
+                        requests.insert(name.clone(), request);
+                    } else {
+                        to_remove.push(name.clone());
                     }
                 }
-
-                if new_remaining_views.is_empty() {
-                    return
+                for n in to_remove {
+                    views.remove(&n);
                 }
 
-                remaining_views = new_remaining_views;
-                remaining_generators = new_remaining_generators;
+                if views.is_empty() {
+                    return
+                }
 
                 let pos = self.pos.get_cloned();
                 let room_subscriptions = self.subscriptions.lock_ref().clone();
@@ -957,10 +943,6 @@ impl SlidingSync {
                                 break
                             }
                             warn!("Session expired. Restarting sliding sync.");
-                            remaining_generators = views
-                                .iter()
-                                .map(SlidingSyncView::request_generator)
-                                .collect();
                             *self.pos.lock_mut() = None;
 
                             // reset our extensions to the last known good ones.
@@ -975,7 +957,7 @@ impl SlidingSync {
 
                 debug!("received");
 
-                let updates =  match self.handle_response(resp, extensions, &remaining_views, &mut remaining_generators, &current_ranges).await {
+                let updates =  match self.handle_response(resp, extensions, &mut views).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
@@ -1203,18 +1185,20 @@ enum InnerSlidingSyncViewRequestGenerator {
     Live,
 }
 
-struct SlidingSyncViewRequestGenerator<'a> {
-    view: &'a SlidingSyncView,
+struct SlidingSyncViewRequestGenerator {
+    view: SlidingSyncView,
+    ranges: Vec<(usize, usize)>,
     inner: InnerSlidingSyncViewRequestGenerator,
 }
 
-impl<'a> SlidingSyncViewRequestGenerator<'a> {
-    fn new_with_paging_syncup(view: &'a SlidingSyncView) -> Self {
+impl SlidingSyncViewRequestGenerator {
+    fn new_with_paging_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
 
         SlidingSyncViewRequestGenerator {
             view,
+            ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                 position: 0,
                 batch_size,
@@ -1223,12 +1207,13 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         }
     }
 
-    fn new_with_growing_syncup(view: &'a SlidingSyncView) -> Self {
+    fn new_with_growing_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
 
         SlidingSyncViewRequestGenerator {
             view,
+            ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position: 0,
                 batch_size,
@@ -1237,16 +1222,20 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         }
     }
 
-    fn new_live(view: &'a SlidingSyncView) -> Self {
-        SlidingSyncViewRequestGenerator { view, inner: InnerSlidingSyncViewRequestGenerator::Live }
+    fn new_live(view: SlidingSyncView) -> Self {
+        SlidingSyncViewRequestGenerator {
+            view,
+            ranges: Default::default(),
+            inner: InnerSlidingSyncViewRequestGenerator::Live,
+        }
     }
 
     fn prefetch_request(
-        &self,
+        &mut self,
         start: u32,
         batch_size: u32,
         limit: Option<u32>,
-    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
+    ) -> v4::SyncRequestList {
         let calc_end = start + batch_size;
         let end = match limit {
             Some(l) => std::cmp::min(l, calc_end),
@@ -1255,60 +1244,73 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
-    fn make_request_for_ranges(
-        &self,
-        ranges: Vec<(UInt, UInt)>,
-    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
+    #[instrument(skip(self), fields(name=self.view.name))]
+    fn make_request_for_ranges(&mut self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
         let timeline_limit = self.view.timeline_limit.get_cloned();
         let filters = self.view.filters.clone();
 
-        (
-            assign!(v4::SyncRequestList::default(), {
-                ranges: ranges.clone(),
+        self.ranges = ranges
+            .iter()
+            .map(|(a, b)| {
+                (
+                    usize::try_from(*a).expect("range is a valid u32"),
+                    usize::try_from(*b).expect("range is a valid u32"),
+                )
+            })
+            .collect();
+
+        assign!(v4::SyncRequestList::default(), {
+            ranges: ranges,
+            room_details: assign!(v4::RoomDetailsConfig::default(), {
                 required_state,
-                sort,
                 timeline_limit,
-                filters,
             }),
-            ranges
-                .into_iter()
-                .map(|(a, b)| {
-                    (
-                        usize::try_from(a).expect("range is a valid u32"),
-                        usize::try_from(b).expect("range is a valid u32"),
-                    )
-                })
-                .collect(),
-        )
+            sort,
+            filters,
+        })
     }
 
     // generate the next live request
-    fn live_request(&self) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
+    fn live_request(&mut self) -> v4::SyncRequestList {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
 
-    fn update_state(&mut self, total: u32, ranges: &[(usize, usize)]) {
-        let Some((_start, end)) = ranges.first() else {
+    #[instrument(skip_all, fields(name=self.view.name, rooms_count, has_ops=!ops.is_empty()))]
+    fn handle_response(
+        &mut self,
+        rooms_count: u32,
+        ops: &Vec<v4::SyncOp>,
+        rooms: &Vec<OwnedRoomId>,
+    ) -> Result<bool, Error> {
+        let res = self.view.handle_response(rooms_count, ops, &self.ranges, rooms)?;
+        self.update_state(rooms_count.checked_sub(1).unwrap_or_default()); // index is 0 based, count is 1 based
+        Ok(res)
+    }
+
+    fn update_state(&mut self, max_index: u32) {
+        let Some((_start, range_end)) = self.ranges.first() else {
             error!("Why don't we have any ranges?");
             return
         };
+
+        let end = if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
+
+        trace!(end, max_index, range_end, name = self.view.name, "updating state");
 
         if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position: _, limit, .. }
         | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
             position: _, limit, ..
         } = self.inner
         {
-            let max = limit.unwrap_or(total);
-            if end >= &(max as usize) {
-                // we are switching to live mode
-                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                    !matches!(before, SlidingSyncState::Live)
-                });
+            let max = limit.unwrap_or(max_index);
+            if end >= max {
+                trace!(name = self.view.name, "going live");
                 // keep listening to the entire list to learn about position updates
                 self.view.set_range(0, max);
+                // we are switching to live mode
                 self.inner = InnerSlidingSyncViewRequestGenerator::Live
             }
         }
@@ -1320,7 +1322,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
                 limit,
             } => {
                 self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                    position: *end as u32,
+                    position: end,
                     batch_size,
                     limit,
                 };
@@ -1334,7 +1336,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
                 limit,
             } => {
                 self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                    position: *end as u32,
+                    position: end,
                     batch_size,
                     limit,
                 };
@@ -1351,8 +1353,8 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     }
 }
 
-impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = (v4::SyncRequestList, Vec<(usize, usize)>);
+impl Iterator for SlidingSyncViewRequestGenerator {
+    type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner {
@@ -1676,6 +1678,7 @@ impl SlidingSyncView {
             return Ok(true);
         }
 
+        debug!("regular update");
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1729,15 +1732,15 @@ impl SlidingSyncView {
         Ok(changed)
     }
 
-    fn request_generator(&self) -> SlidingSyncViewRequestGenerator<'_> {
+    fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
         match self.sync_mode.read_only().get_cloned() {
             SlidingSyncMode::PagingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self)
+                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
             }
             SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self)
+                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
             }
-            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self),
+            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
         }
     }
 }
