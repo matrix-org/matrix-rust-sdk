@@ -20,9 +20,11 @@ use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 
 use crate::{
     error::SignatureError,
-    identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     olm::utility::SignJson,
-    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKeys},
+    types::{
+        CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, Signatures, SigningKeys,
+        UserSigningPubkey,
+    },
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };

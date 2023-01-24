@@ -32,10 +32,9 @@ use vodozemac::Ed25519Signature;
 
 use crate::{
     error::SignatureError,
-    identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
-    types::DeviceKeys,
+    types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentity,
 };
