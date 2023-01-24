@@ -415,25 +415,27 @@ impl TimelineItem {
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
 fn find_event_by_id<'a>(
-    lock: &'a [Arc<TimelineItem>],
+    items: &'a [Arc<TimelineItem>],
     event_id: &EventId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    lock.iter()
+    items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         .rfind(|(_, it)| it.event_id() == Some(event_id))
 }
 
 fn find_event_by_txn_id<'a>(
-    lock: &'a [Arc<TimelineItem>],
+    items: &'a [Arc<TimelineItem>],
     txn_id: &TransactionId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    lock.iter()
+    items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         .rfind(|(_, it)| it.key == *txn_id)
 }
 
-fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
-    lock.iter().rposition(|item| item.is_read_marker())
+fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
+    items.iter().rposition(|item| item.is_read_marker())
 }
