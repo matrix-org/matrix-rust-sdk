@@ -30,12 +30,7 @@ that server. If you are using the provided `docker-compose`, the default will be
 To drop the database of your docker-compose run:
 
 ```bash
-docker-compose -f assets/docker-compose.yml stop
-docker volume rm -f matrix-rust-sdk-sliding-sync-ci-data
-```
-
-or simply:
-
-```bash
 docker-compose -f assets/docker-compose.yml down -v
 ```
+
+Then remove the local data stored at `./data`.
