@@ -521,7 +521,9 @@ impl PrivateCrossSigningIdentity {
             .await
             .expect("Can't sign our freshly created master key with our account");
 
-        master.public_key = public_key.into();
+        master.public_key = public_key
+            .try_into()
+            .expect("We can always convert our own CrossSignigKey into a MasterPubkey");
 
         let identity = Self::new_helper(account.user_id(), master).await;
         let signature_request = identity
@@ -539,14 +541,24 @@ impl PrivateCrossSigningIdentity {
         let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
         master.sign_subkey(&mut public_key);
 
-        let user = UserSigning { inner: user, public_key: public_key.into() };
+        let user = UserSigning {
+            inner: user,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random UserSigningPubkey"),
+        };
 
         let self_signing = Signing::new();
         let mut public_key =
             self_signing.cross_signing_key(user_id.to_owned(), KeyUsage::SelfSigning);
         master.sign_subkey(&mut public_key);
 
-        let self_signing = SelfSigning { inner: self_signing, public_key: public_key.into() };
+        let self_signing = SelfSigning {
+            inner: self_signing,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random SelfSigningPubkey"),
+        };
 
         Self {
             user_id: user_id.into(),
@@ -800,7 +812,7 @@ mod tests {
             "We're only uploading our own signature"
         );
 
-        bob_public.master_key = master.into();
+        bob_public.master_key = master.try_into().unwrap();
 
         user_signing.public_key.verify_master_key(bob_public.master_key()).unwrap();
     }

@@ -39,7 +39,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::{CrossSigningKey, DeviceKeys},
+    types::DeviceKeys,
     utilities::FailuresCache,
     LocalTrust,
 };
@@ -432,17 +432,13 @@ impl IdentityManager {
         // TODO: this is a bit chunky, refactor this into smaller methods.
 
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize_as::<CrossSigningKey>() {
+            match master_key.deserialize_as::<MasterPubkey>() {
                 Ok(master_key) => {
-                    let master_key = MasterPubkey::from(master_key);
-
-                    let self_signing = if let Some(s) = response
+                    let Some(self_signing) = response
                         .self_signing_keys
                         .get(user_id)
-                        .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                    {
-                        SelfSigningPubkey::from(s)
-                    } else {
+                        .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
+                    else {
                         warn!(
                             user_id = user_id.as_str(),
                             "A user identity didn't contain a self signing pubkey \
@@ -454,13 +450,11 @@ impl IdentityManager {
                     let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                         match &mut i {
                             ReadOnlyUserIdentities::Own(identity) => {
-                                let user_signing = if let Some(s) = response
+                                let Some(user_signing) = response
                                     .user_signing_keys
                                     .get(user_id)
-                                    .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                                {
-                                    UserSigningPubkey::from(s)
-                                } else {
+                                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+                                else {
                                     warn!(
                                         user_id = user_id.as_str(),
                                         "User identity for our own user didn't \
@@ -478,13 +472,11 @@ impl IdentityManager {
                             }
                         }
                     } else if user_id == self.user_id() {
-                        if let Some(s) = response
+                        if let Some(user_signing) = response
                             .user_signing_keys
                             .get(user_id)
-                            .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
+                            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
                         {
-                            let user_signing = UserSigningPubkey::from(s);
-
                             if master_key.user_id() != user_id
                                 || self_signing.user_id() != user_id
                                 || user_signing.user_id() != user_id
