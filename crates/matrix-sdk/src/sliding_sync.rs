@@ -35,7 +35,8 @@ use ruma::{
     api::client::{
         error::ErrorKind,
         sync::sync_events::v4::{
-            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
+            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+            TypingConfig,
         },
     },
     assign,
@@ -531,6 +532,41 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Activate e2ee, to-device-message, account data, typing and receipt
+    /// extensions if not yet configured.
+    ///
+    /// Will leave any extension configuration found untouched, so the order
+    /// does not matter.
+    pub fn with_all_extensions(mut self) -> Self {
+        {
+            let mut cfg = self
+                .extensions
+                .get_or_insert_with(Default::default)
+                .get_or_insert_with(Default::default);
+            if cfg.to_device.is_none() {
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.e2ee.is_none() {
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.account_data.is_none() {
+                cfg.account_data =
+                    Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.receipt.is_none() {
+                cfg.receipt = Some(assign!(ReceiptConfig::default(), {enabled : Some(true)}));
+            }
+
+            if cfg.typing.is_none() {
+                cfg.typing = Some(assign!(TypingConfig::default(), {enabled : Some(true)}));
+            }
+        }
+        self
+    }
+
     /// Set the E2EE extension configuration.
     pub fn with_e2ee_extension(mut self, e2ee: E2EEConfig) -> Self {
         self.extensions
@@ -582,6 +618,42 @@ impl SlidingSyncBuilder {
             .get_or_insert_with(Default::default)
             .get_or_insert_with(Default::default)
             .account_data = None;
+        self
+    }
+
+    /// Set the Typing extension configuration.
+    pub fn with_typing_extension(mut self, typing: TypingConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .typing = Some(typing);
+        self
+    }
+
+    /// Unset the Typing extension configuration.
+    pub fn without_typing_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .typing = None;
+        self
+    }
+
+    /// Set the Receipt extension configuration.
+    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .receipt = Some(receipt);
+        self
+    }
+
+    /// Unset the Receipt extension configuration.
+    pub fn without_receipt_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .receipt = None;
         self
     }
 
