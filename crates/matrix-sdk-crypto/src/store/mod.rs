@@ -628,14 +628,14 @@ impl Store {
     /// This method will fill up the store-internal caches, unlike the method on
     /// the various [`CryptoStore`] implementations.
     pub async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
-        for (user, dirty) in users {
-            if *dirty {
-                self.users_for_key_query_cache.insert((*user).to_owned());
+        for &(user, dirty) in users {
+            if dirty {
+                self.users_for_key_query_cache.insert(user.to_owned());
             } else {
-                self.users_for_key_query_cache.remove(*user);
+                self.users_for_key_query_cache.remove(user);
             }
 
-            self.tracked_users_cache.insert((*user).to_owned());
+            self.tracked_users_cache.insert(user.to_owned());
         }
 
         self.inner.save_tracked_users(users).await?;

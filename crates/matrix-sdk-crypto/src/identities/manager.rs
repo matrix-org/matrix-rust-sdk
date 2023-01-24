@@ -643,7 +643,7 @@ impl IdentityManager {
 
         for user_id in users {
             if !self.store.is_user_tracked(user_id).await? {
-                tracked_users.push((user_id, true))
+                tracked_users.push((user_id, true));
             }
         }
 
