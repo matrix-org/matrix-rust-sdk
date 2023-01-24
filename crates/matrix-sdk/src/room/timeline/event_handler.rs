@@ -686,10 +686,11 @@ fn _update_timeline_item(
 }
 
 fn find_local_echo_by_event_id<'a>(
-    lock: &'a [Arc<TimelineItem>],
+    items: &'a [Arc<TimelineItem>],
     event_id: &EventId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    lock.iter()
+    items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         // Note: not using event_id() method as this is only supposed to find
