@@ -685,8 +685,8 @@ impl SlidingSync {
         self.inner.view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
-    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<u32> {
-        self.inner.add_view(view.inner.clone()).map(|u| u as u32)
+    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<Arc<SlidingSyncView>> {
+        self.inner.add_view(view.inner.clone()).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
     pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {

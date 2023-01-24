@@ -219,7 +219,7 @@ mod tests {
         // we only heard about the ones we had asked for
         assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
 
-        let Some(view_2) = sync_proxy.pop_view(view_name_2) else {
+        let Some(view_2) = sync_proxy.pop_view(&view_name_2.to_owned()) else {
             bail!("Room exists");
         };
 
@@ -368,11 +368,6 @@ mod tests {
         let _room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
-        let _room_summary = stream.next().await.context(
-            "No room summary found, loop ended
-        unsuccessfully",
-        )??;
-
         let rooms_list = full_view
             .rooms_list
             .lock_ref()
@@ -392,6 +387,7 @@ mod tests {
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // -- 10
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
@@ -401,12 +397,11 @@ mod tests {
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
                 RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // -- 20
                 RoomListEntryEasy::Filled,
             ]
         );
+
         assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Live, "full isn't live yet");
         Ok(())
     }

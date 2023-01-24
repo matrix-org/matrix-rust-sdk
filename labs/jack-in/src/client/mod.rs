@@ -41,7 +41,7 @@ pub async fn run_client(
         .build()
         .await?;
     let stream = syncer.stream();
-    let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
+    let view = syncer.view("full-sync").expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
     tx.send(ssync_state.clone()).await?;
