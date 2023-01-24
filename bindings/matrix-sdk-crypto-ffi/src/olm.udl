@@ -59,6 +59,7 @@ enum DecryptionError {
     "Identifier",
     "Serialization",
     "Megolm",
+    "MissingRoomKey",
     "Store",
 };
 

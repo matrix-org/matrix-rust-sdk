@@ -59,8 +59,19 @@ pub enum DecryptionError {
     Serialization(#[from] serde_json::Error),
     #[error(transparent)]
     Identifier(#[from] IdParseError),
-    #[error(transparent)]
-    Megolm(#[from] MegolmError),
+    #[error("Megolm decryption error: {error_message}")]
+    Megolm { error_message: String },
+    #[error("Can't find the room key to decrypt the event")]
+    MissingRoomKey,
     #[error(transparent)]
     Store(#[from] InnerStoreError),
+}
+
+impl From<MegolmError> for DecryptionError {
+    fn from(value: MegolmError) -> Self {
+        match value {
+            MegolmError::MissingRoomKey => Self::MissingRoomKey,
+            _ => Self::Megolm { error_message: value.to_string() },
+        }
+    }
 }
