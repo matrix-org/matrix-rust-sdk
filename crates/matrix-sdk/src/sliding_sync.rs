@@ -1654,7 +1654,7 @@ impl SlidingSyncView {
         self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
-    #[instrument(skip(self, ops))]
+    #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
     fn handle_response(
         &self,
         rooms_count: u32,
@@ -1667,6 +1667,7 @@ impl SlidingSyncView {
             || current_rooms_count == Some(0)
             || self.is_cold.load(Ordering::SeqCst)
         {
+            debug!("first run, replacing roomslist");
             // first response, we do that slightly differentely
             let rooms_list =
                 MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
@@ -1678,6 +1679,7 @@ impl SlidingSyncView {
             self.is_cold.store(false, Ordering::SeqCst);
             return Ok(true);
         }
+
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1699,6 +1701,8 @@ impl SlidingSyncView {
             if !ops.is_empty() {
                 room_ops(&mut rooms_list, ops, ranges)?;
                 changed = true;
+            } else {
+                debug!("no rooms operations found");
             }
         }
 
@@ -1710,6 +1714,7 @@ impl SlidingSyncView {
         if self.send_updates_for_items && !rooms.is_empty() {
             let found_views = self.find_rooms_in_view(rooms);
             if !found_views.is_empty() {
+                debug!("room details found");
                 let mut rooms_list = self.rooms_list.lock_mut();
                 for (pos, room_id) in found_views {
                     // trigger an `UpdatedAt` update
