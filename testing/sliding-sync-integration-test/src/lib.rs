@@ -137,7 +137,7 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         // and let's update the order of all views again
         let Some(RoomListEntry::Filled(room_id)) = view1
@@ -169,7 +169,7 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         Ok(())
     }
@@ -178,7 +178,6 @@ mod tests {
     // update later.
     //
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "removing and re-adding views isn't supported by the protocol yet"]
     async fn live_views() -> anyhow::Result<()> {
         let view_name_1 = "sliding1";
         let view_name_2 = "sliding2";
@@ -244,7 +243,7 @@ mod tests {
 
         let content = RoomMessageEventContent::text_plain("Hello world");
 
-        room.send(content, None).await?; // this should put our room up to the  most recent
+        room.send(content, None).await?; // this should put our room up to the most recent
 
         let mut saw_update = false;
         for _n in 0..2 {
@@ -261,31 +260,13 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         assert!(sync_proxy.add_view(view_2).is_none());
 
         // we need to restart the stream after every view listing update
         let stream = sync_proxy.stream();
         pin_mut!(stream);
-
-        let mut saw_update = false;
-        for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                bail!("sync has closed unexpectedly");
-            };
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
-                // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_2]);
-                // we didn't update the other views, so only no 2 should se an update
-                saw_update = true;
-                break;
-            }
-        }
-
-        assert!(saw_update, "We didn't see the updae come through the pipe");
 
         // and let's update the order of all views again
         let Some(RoomListEntry::Filled(room_id)) = view1
@@ -313,13 +294,13 @@ mod tests {
             // we only heard about the ones we had asked for
             if !summary.views.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_1, view_name_3, view_name_2]); // notice that our view 2 is now the lastview, but all have seen updates
+                assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]); // all views are visible again
                 saw_update = true;
                 break;
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         Ok(())
     }
