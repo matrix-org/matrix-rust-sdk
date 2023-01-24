@@ -47,10 +47,11 @@ use crate::{
             forwarded_room_key::ForwardedRoomKeyContent,
             room::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
-        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey, SigningKey,
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
+    MegolmError, OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest,
+    VerificationRequest,
 };
 
 /// A read-only version of a `Device`.
@@ -157,16 +158,32 @@ impl Device {
     /// An `InboundGroupSession` is exchanged between devices as an Olm
     /// encrypted `m.room_key` event. This method determines if this `Device`
     /// can be confirmed as the creator and owner of the `m.room_key`.
-    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> bool {
+    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> Result<bool, MegolmError> {
         if session.has_been_imported() {
-            false
-        } else if let Some(SigningKey::Ed25519(key)) =
-            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519)
+            Ok(false)
+        } else if let Some(key) =
+            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
-            self.ed25519_key().map(|k| k == *key).unwrap_or(false)
-                && self.curve25519_key().map(|k| k == session.sender_key).unwrap_or(false)
+            let ed25519_comparison = self.ed25519_key().map(|k| k == key);
+            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key);
+
+            match (ed25519_comparison, curve25519_comparison) {
+                // If we have any of the keys but they don't turn out to match, refuse to decrypt
+                // instead.
+                (_, Some(false)) | (Some(false), _) => Err(MegolmError::MismatchedIdentityKeys {
+                    key_ed25519: key.into(),
+                    device_ed25519: self.ed25519_key().map(Into::into),
+                    key_curve25519: session.sender_key().into(),
+                    device_curve25519: self.curve25519_key().map(Into::into),
+                }),
+                // If both keys match, we have ourselves an owner.
+                (Some(true), Some(true)) => Ok(true),
+                // In the remaining cases, the device is missing at least one of the required
+                // identity keys, so we default to a negative answer.
+                _ => Ok(false),
+            }
         } else {
-            false
+            Ok(false)
         }
     }
 

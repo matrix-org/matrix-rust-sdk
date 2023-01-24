@@ -1064,7 +1064,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
         Ok(
             // First find the device corresponding to the Curve25519 identity
             // key that sent us the session (recorded upon successful
@@ -1082,7 +1082,7 @@ impl OlmMachine {
                 //
                 //     a) This is our own device, or
                 //     b) The device itself is considered to be trusted.
-                if device.is_owner_of_session(session)
+                if device.is_owner_of_session(session)?
                     && (device.is_our_own_device() || device.is_verified())
                 {
                     (VerificationState::Trusted, Some(device.device_id().to_owned()))
@@ -1106,7 +1106,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> StoreResult<EncryptionInfo> {
+    ) -> MegolmResult<EncryptionInfo> {
         let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
@@ -1625,7 +1625,7 @@ pub(crate) mod tests {
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
                 ToDeviceEvent,
             },
-            DeviceKeys, SignedKey,
+            DeviceKeys, SignedKey, SigningKeys,
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
@@ -2453,5 +2453,40 @@ pub(crate) mod tests {
         let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 
         assert!(session.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn room_key_with_fake_identity_keys() {
+        let room_id = room_id!("!test:localhost");
+        let (alice, _) = get_machine_pair_with_setup_sessions().await;
+        let device = ReadOnlyDevice::from_machine(&alice).await;
+        alice.store.save_devices(&[device]).await.unwrap();
+
+        let (outbound, mut inbound) =
+            alice.account.create_group_session_pair(room_id, Default::default()).await.unwrap();
+
+        let fake_key = Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE")
+            .unwrap()
+            .into();
+        let signing_keys = SigningKeys::from([(DeviceKeyAlgorithm::Ed25519, fake_key)]);
+        inbound.signing_keys = signing_keys.into();
+
+        let content = json!({});
+        let content = outbound.encrypt(content, "m.dummy").await;
+        alice.store.save_inbound_group_sessions(&[inbound]).await.unwrap();
+
+        let event = json!({
+            "sender": alice.user_id(),
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "type": "m.room.encrypted",
+            "content": content,
+        });
+        let event = json_convert(&event).unwrap();
+
+        assert_matches!(
+            alice.decrypt_room_event(&event, room_id).await,
+            Err(MegolmError::MismatchedIdentityKeys { .. })
+        );
     }
 }
