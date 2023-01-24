@@ -77,39 +77,44 @@ pub struct MasterSigning {
 #[allow(missing_debug_implementations)]
 pub struct PickledMasterSigning {
     pickle: PickledSigning,
-    public_key: CrossSigningKey,
+    public_key: MasterPubkey,
 }
 
 #[derive(Deserialize, Serialize)]
 #[allow(missing_debug_implementations)]
 pub struct PickledUserSigning {
     pickle: PickledSigning,
-    public_key: CrossSigningKey,
+    public_key: UserSigningPubkey,
 }
 
 #[derive(Deserialize, Serialize)]
 #[allow(missing_debug_implementations)]
 pub struct PickledSelfSigning {
     pickle: PickledSigning,
-    public_key: CrossSigningKey,
+    public_key: SelfSigningPubkey,
 }
 
 impl MasterSigning {
     pub fn new(user_id: OwnedUserId) -> Self {
         let inner = Signing::new();
-        let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
+        let public_key = inner
+            .cross_signing_key(user_id, KeyUsage::Master)
+            .try_into()
+            .expect("A freshly created master key can be converted into a MasterPubkey");
         let mut key = Self { inner, public_key };
         let mut cross_signing_key = key.public_key.as_ref().to_owned();
 
         key.sign_subkey(&mut cross_signing_key);
-        key.public_key = cross_signing_key.into();
+        key.public_key = cross_signing_key
+            .try_into()
+            .expect("A freshly signed master key can be converted into a MasterPubkey");
 
         key
     }
 
     pub fn pickle(&self) -> PickledMasterSigning {
         let pickle = self.inner.pickle();
-        let public_key = self.public_key.as_ref().clone();
+        let public_key = self.public_key.clone();
         PickledMasterSigning { pickle, public_key }
     }
 
@@ -119,15 +124,19 @@ impl MasterSigning {
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
-        let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
+        let public_key = inner
+            .cross_signing_key(user_id, KeyUsage::Master)
+            .try_into()
+            .expect("A master key can always be imported from a base64 encoded value");
 
         Ok(Self { inner, public_key })
     }
 
     pub fn from_pickle(pickle: PickledMasterSigning) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle)?;
+        let public_key = pickle.public_key;
 
-        Ok(Self { inner, public_key: pickle.public_key.into() })
+        Ok(Self { inner, public_key })
     }
 
     pub fn sign(&self, message: &str) -> Ed25519Signature {
@@ -152,7 +161,7 @@ impl MasterSigning {
 impl UserSigning {
     pub fn pickle(&self) -> PickledUserSigning {
         let pickle = self.inner.pickle();
-        let public_key = self.public_key.as_ref().clone();
+        let public_key = self.public_key.clone();
         PickledUserSigning { pickle, public_key }
     }
 
@@ -162,7 +171,10 @@ impl UserSigning {
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
-        let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
+        let public_key = inner
+            .cross_signing_key(user_id, KeyUsage::UserSigning)
+            .try_into()
+            .expect("A user-signing key can always be imported from a base64 encoded value");
 
         Ok(Self { inner, public_key })
     }
@@ -203,14 +215,14 @@ impl UserSigning {
     pub fn from_pickle(pickle: PickledUserSigning) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle)?;
 
-        Ok(Self { inner, public_key: pickle.public_key.into() })
+        Ok(Self { inner, public_key: pickle.public_key })
     }
 }
 
 impl SelfSigning {
     pub fn pickle(&self) -> PickledSelfSigning {
         let pickle = self.inner.pickle();
-        let public_key = self.public_key.as_ref().clone();
+        let public_key = self.public_key.clone();
         PickledSelfSigning { pickle, public_key }
     }
 
@@ -220,7 +232,10 @@ impl SelfSigning {
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
-        let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
+        let public_key = inner
+            .cross_signing_key(user_id, KeyUsage::SelfSigning)
+            .try_into()
+            .expect("A self-signing key can always be imported from a base64 encoded value");
 
         Ok(Self { inner, public_key })
     }
@@ -244,7 +259,7 @@ impl SelfSigning {
     pub fn from_pickle(pickle: PickledSelfSigning) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle)?;
 
-        Ok(Self { inner, public_key: pickle.public_key.into() })
+        Ok(Self { inner, public_key: pickle.public_key })
     }
 }
 
