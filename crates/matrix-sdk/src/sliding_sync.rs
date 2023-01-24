@@ -394,6 +394,7 @@ impl SlidingSyncConfig {
             mut extensions,
             subscriptions,
         } = self;
+        let mut delta_token_inner = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = storage_key.as_ref() {
@@ -421,7 +422,7 @@ impl SlidingSyncConfig {
                 }
             }
 
-            if let Some(f) = client
+            if let Some(FrozenSlidingSync { to_device_since, delta_token }) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
                 .await?
@@ -429,13 +430,14 @@ impl SlidingSyncConfig {
                 .transpose()?
             {
                 trace!("frozen for generic found");
-                if let Some(since) = f.to_device_since {
+                if let Some(since) = to_device_since {
                     if let Some(to_device_ext) =
                         extensions.get_or_insert_with(Default::default).to_device.as_mut()
                     {
                         to_device_ext.since = Some(since);
                     }
                 }
+                delta_token_inner = delta_token;
             }
             trace!("sync unfrozen done");
         };
@@ -458,7 +460,7 @@ impl SlidingSyncConfig {
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
-            delta_token: Mutable::new(None), // FIXME: freeze and unfreeze
+            delta_token: Mutable::new(delta_token_inner),
             subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
             unsubscribe: Default::default(),
         })
@@ -631,11 +633,14 @@ pub struct SlidingSync {
 struct FrozenSlidingSync {
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delta_token: Option<String>,
 }
 
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(v: &SlidingSync) -> Self {
         FrozenSlidingSync {
+            delta_token: v.delta_token.get_cloned(),
             to_device_since: v
                 .extensions
                 .lock()
@@ -883,6 +888,7 @@ impl SlidingSync {
                 }
 
                 let pos = self.pos.get_cloned();
+                let delta_token = self.delta_token.get_cloned();
                 let room_subscriptions = self.subscriptions.lock_ref().clone();
                 let unsubscribe_rooms = {
                     let unsubs = self.unsubscribe.lock_ref().to_vec();
@@ -907,6 +913,7 @@ impl SlidingSync {
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    delta_token,
                     timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
