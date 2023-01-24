@@ -505,8 +505,10 @@ impl SlidingSyncView {
     ) -> Arc<StoppableSpawn> {
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
-            if let Some(diff) = room_list.next().await {
-                observer.did_receive_update(diff.into());
+            loop {
+                if let Some(diff) = room_list.next().await {
+                    observer.did_receive_update(diff.into());
+                }
             }
         })))
     }
