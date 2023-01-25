@@ -104,6 +104,9 @@ interface SlidingSyncViewBuilder {
     [Self=ByArc]
     SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
 
+    [Self=ByArc]
+    SlidingSyncViewBuilder send_updates_for_items(boolean enable);
+
     [Throws=ClientError, Self=ByArc]
     SlidingSyncView build();
 };

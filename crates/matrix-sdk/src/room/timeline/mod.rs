@@ -27,7 +27,7 @@ use matrix_sdk_base::{
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
-    EventId, TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId,
 };
 use tracing::{error, instrument, warn};
 
@@ -382,9 +382,9 @@ impl TimelineItem {
         }
     }
 
-    /// Creates a new day divider from the given year, month and day.
-    fn day_divider(year: i32, month: u32, day: u32) -> Self {
-        Self::Virtual(VirtualTimelineItem::DayDivider { year, month, day })
+    /// Creates a new day divider from the given timestamp.
+    fn day_divider(ts: MilliSecondsSinceUnixEpoch) -> Self {
+        Self::Virtual(VirtualTimelineItem::DayDivider(ts))
     }
 
     fn read_marker() -> Self {
@@ -415,25 +415,27 @@ impl TimelineItem {
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
 fn find_event_by_id<'a>(
-    lock: &'a [Arc<TimelineItem>],
+    items: &'a [Arc<TimelineItem>],
     event_id: &EventId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    lock.iter()
+    items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         .rfind(|(_, it)| it.event_id() == Some(event_id))
 }
 
 fn find_event_by_txn_id<'a>(
-    lock: &'a [Arc<TimelineItem>],
+    items: &'a [Arc<TimelineItem>],
     txn_id: &TransactionId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    lock.iter()
+    items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
         .rfind(|(_, it)| it.key == *txn_id)
 }
 
-fn find_read_marker(lock: &[Arc<TimelineItem>]) -> Option<usize> {
-    lock.iter().rposition(|item| item.is_read_marker())
+fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
+    items.iter().rposition(|item| item.is_read_marker())
 }

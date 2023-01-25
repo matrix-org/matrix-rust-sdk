@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone};
 use futures_signals::signal_vec::MutableVecLockMut;
 use indexmap::map::Entry;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
@@ -518,9 +518,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    let (year, month, day) = timestamp_to_ymd(*timestamp);
                     self.timeline_items
-                        .push_cloned(Arc::new(TimelineItem::day_divider(year, month, day)));
+                        .push_cloned(Arc::new(TimelineItem::day_divider(*timestamp)));
                 }
 
                 self.timeline_items.push_cloned(item);
@@ -532,21 +531,29 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     {
                         // TODO: Check whether anything is different about the
                         //       old and new item?
-                        self.timeline_items.set_cloned(idx, item);
-                        return;
+                        // Remove local echo, remote echo will be added below
+                        self.timeline_items.remove(idx);
                     } else {
                         warn!(
                             "Received event with transaction ID, but didn't \
                              find matching timeline item"
                         );
                     }
-                }
-
-                if let Some((idx, old_item)) = find_event_by_id(self.timeline_items, event_id) {
+                } else if let Some((idx, _old_item)) =
+                    find_local_echo_by_event_id(self.timeline_items, event_id)
+                {
                     // This occurs very often right now due to a sliding-sync
                     // bug: https://github.com/matrix-org/sliding-sync/issues/3
-                    // TODO: Use warn log level once that bug is fixed.
-                    trace!(
+                    // TODO: Remove this branch once the bug is fixed?
+                    trace!("Received remote echo without transaction ID");
+                    self.timeline_items.remove(idx);
+                } else if let Some((idx, old_item)) =
+                    find_event_by_id(self.timeline_items, event_id)
+                {
+                    // TODO: Remove for better performance? Doing another scan
+                    // over all the items if the event is not a remote echo is
+                    // slow.
+                    warn!(
                         ?item,
                         ?old_item,
                         "Received event with an ID we already have a timeline item for"
@@ -573,22 +580,21 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             };
 
                         // Check if the earliest day divider has the same date as this event.
-                        if let Some(VirtualTimelineItem::DayDivider { year, month, day }) =
+                        if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
                             self.timeline_items.get(offset).and_then(|item| item.as_virtual())
                         {
-                            if let Some(day_divider_item) = maybe_create_day_divider_from_ymd(
-                                (*year, *month, *day),
-                                timestamp_to_ymd(*origin_server_ts),
+                            if let Some(day_divider_item) = maybe_create_day_divider_from_timestamps(
+                                *divider_ts,
+                                *origin_server_ts,
                             ) {
                                 self.timeline_items
                                     .insert_cloned(offset, Arc::new(day_divider_item));
                             }
                         } else {
                             // The list must always start with a day divider.
-                            let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
                             self.timeline_items.insert_cloned(
                                 offset,
-                                Arc::new(TimelineItem::day_divider(year, month, day)),
+                                Arc::new(TimelineItem::day_divider(*origin_server_ts)),
                             );
                         }
 
@@ -608,9 +614,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                             }
                         } else {
                             // If there is not event item, there is no day divider yet.
-                            let (year, month, day) = timestamp_to_ymd(*origin_server_ts);
-                            self.timeline_items
-                                .push_cloned(Arc::new(TimelineItem::day_divider(year, month, day)));
+                            self.timeline_items.push_cloned(Arc::new(TimelineItem::day_divider(
+                                *origin_server_ts,
+                            )));
                         }
 
                         self.timeline_items.push_cloned(item)
@@ -679,16 +685,32 @@ fn _update_timeline_item(
     }
 }
 
-/// Converts a timestamp to a `(year, month, day)` tuple.
-fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
-    let datetime = Local
+fn find_local_echo_by_event_id<'a>(
+    items: &'a [Arc<TimelineItem>],
+    event_id: &EventId,
+) -> Option<(usize, &'a EventTimelineItem)> {
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+        // Note: not using event_id() method as this is only supposed to find
+        // local echoes, where the event ID is stored in the separate field
+        // rather than the key.
+        .rfind(|(_, it)| it.event_id.as_deref() == Some(event_id))
+}
+
+/// Converts a timestamp since Unix Epoch to a local date and time.
+fn timestamp_to_local_datetime(ts: MilliSecondsSinceUnixEpoch) -> DateTime<Local> {
+    Local
         .timestamp_millis_opt(ts.0.into())
         // Only returns `None` if date is after Dec 31, 262143 BCE.
         .single()
         // Fallback to the current date to avoid issues with malicious
         // homeservers.
-        .unwrap_or_else(Local::now);
+        .unwrap_or_else(Local::now)
+}
 
+fn datetime_to_ymd(datetime: DateTime<Local>) -> (i32, u32, u32) {
     (datetime.year(), datetime.month(), datetime.day())
 }
 
@@ -698,19 +720,11 @@ fn maybe_create_day_divider_from_timestamps(
     old_ts: MilliSecondsSinceUnixEpoch,
     new_ts: MilliSecondsSinceUnixEpoch,
 ) -> Option<TimelineItem> {
-    maybe_create_day_divider_from_ymd(timestamp_to_ymd(old_ts), timestamp_to_ymd(new_ts))
-}
+    let old_date = timestamp_to_local_datetime(old_ts);
+    let new_date = timestamp_to_local_datetime(new_ts);
 
-/// Returns a new day divider item for the new YMD `(year, month, day)` tuple if
-/// it is on a different day than the old YMD tuple.
-fn maybe_create_day_divider_from_ymd(
-    old_ymd: (i32, u32, u32),
-    new_ymd: (i32, u32, u32),
-) -> Option<TimelineItem> {
-    let (old_year, old_month, old_day) = old_ymd;
-    let (new_year, new_month, new_day) = new_ymd;
-    if old_year != new_year || old_month != new_month || old_day != new_day {
-        Some(TimelineItem::day_divider(new_year, new_month, new_day))
+    if datetime_to_ymd(old_date) != datetime_to_ymd(new_date) {
+        Some(TimelineItem::day_divider(new_ts))
     } else {
         None
     }

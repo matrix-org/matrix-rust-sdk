@@ -51,10 +51,12 @@ use std::{
     fmt::Debug,
     io::Error as IoError,
     ops::Deref,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use async_trait::async_trait;
+use atomic::Ordering;
+use dashmap::DashSet;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use ruma::{
@@ -99,6 +101,10 @@ pub struct Store {
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<dyn CryptoStore>,
     verification_machine: VerificationMachine,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
+    tracked_user_loading_lock: Arc<Mutex<()>>,
+    tracked_users_loaded: Arc<AtomicBool>,
 }
 
 #[derive(Default, Debug)]
@@ -115,6 +121,18 @@ pub struct Changes {
     pub key_requests: Vec<GossipRequest>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+}
+
+/// A user for which we are tracking the list of devices.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TrackedUser {
+    /// The user ID of the user.
+    pub user_id: OwnedUserId,
+    /// The outdate/dirty flag of the user, remembers if the list of devices for
+    /// the user is considered to be out of date. If the list of devices is
+    /// out of date, a `/keys/query` request should be sent out for this
+    /// user.
+    pub dirty: bool,
 }
 
 impl Changes {
@@ -268,7 +286,16 @@ impl Store {
         store: Arc<dyn CryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        Self { user_id, identity, inner: store, verification_machine }
+        Self {
+            user_id,
+            identity,
+            inner: store,
+            verification_machine,
+            tracked_users_cache: DashSet::new().into(),
+            users_for_key_query_cache: DashSet::new().into(),
+            tracked_users_loaded: AtomicBool::new(false).into(),
+            tracked_user_loading_lock: Mutex::new(()).into(),
+        }
     }
 
     /// UserId associated with this store
@@ -587,6 +614,99 @@ impl Store {
 
         Ok(())
     }
+
+    /// Mark that the given user has an outdated device list.
+    ///
+    /// This means that the user will be considered for a `/keys/query` request
+    /// next time [`Store::users_for_key_query()`] is called.
+    pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
+        self.save_tracked_users(&[(user, true)]).await
+    }
+
+    /// Save the list of users and their outdated/dirty flags to the store.
+    ///
+    /// This method will fill up the store-internal caches, unlike the method on
+    /// the various [`CryptoStore`] implementations.
+    pub async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
+        for &(user, dirty) in users {
+            if dirty {
+                self.users_for_key_query_cache.insert(user.to_owned());
+            } else {
+                self.users_for_key_query_cache.remove(user);
+            }
+
+            self.tracked_users_cache.insert(user.to_owned());
+        }
+
+        self.inner.save_tracked_users(users).await?;
+
+        Ok(())
+    }
+
+    /// Load the list of users for whom we are tracking their device lists and
+    /// fill out our caches.
+    ///
+    /// This method ensures that we're only going to load the users from the
+    /// actual [`CryptoStore`] once, it will also make sure that any
+    /// concurrent calls to this method get deduplicated.
+    async fn load_tracked_users(&self) -> Result<()> {
+        // If the users are loaded do nothing, otherwise acquire a lock.
+        if !self.tracked_users_loaded.load(Ordering::SeqCst) {
+            let _lock = self.tracked_user_loading_lock.lock().await;
+
+            // Check again if the users have been loaded, in case another call to this
+            // method loaded the tracked users between the time we tried to
+            // acquire the lock and the time we actually acquired the lock.
+            if !self.tracked_users_loaded.load(Ordering::SeqCst) {
+                let tracked_users = self.inner.load_tracked_users().await?;
+
+                for user in tracked_users {
+                    self.tracked_users_cache.insert(user.user_id.to_owned());
+
+                    if user.dirty {
+                        self.users_for_key_query_cache.insert(user.user_id);
+                    }
+                }
+
+                self.tracked_users_loaded.store(true, Ordering::SeqCst);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Are we tracking the list of devices this user has?
+    pub async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool> {
+        self.load_tracked_users().await?;
+
+        Ok(self.tracked_users_cache.contains(user_id))
+    }
+
+    /// Are there any users that have the outdated/dirty flag set for their list
+    /// of devices?
+    pub async fn has_users_for_key_query(&self) -> Result<bool> {
+        self.load_tracked_users().await?;
+
+        Ok(!self.users_for_key_query_cache.is_empty())
+    }
+
+    /// Get the set of users that has the outdate/dirty flag set for their list
+    /// of devices.
+    ///
+    /// This set should be included in a `/keys/query` request which will update
+    /// the device list.
+    pub async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>> {
+        self.load_tracked_users().await?;
+
+        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect())
+    }
+
+    /// See the docs for [`crate::OlmMachine::tracked_users()`].
+    pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
+        self.load_tracked_users().await?;
+
+        Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
+    }
 }
 
 impl Deref for Store {
@@ -726,29 +846,12 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>>;
 
-    /// Is the given user already tracked.
-    async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool>;
+    /// Load the list of users whose devices we are keeping track of.
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>>;
 
-    /// Are there any tracked users that are marked as dirty.
-    async fn has_users_for_key_query(&self) -> Result<bool>;
-
-    /// Set of users that we need to query keys for. This is a subset of
-    /// the tracked users.
-    async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>>;
-
-    /// Get all tracked users we know about.
-    async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>>;
-
-    /// Add an user for tracking.
-    ///
-    /// Returns true if the user wasn't already tracked, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `user` - The user that should be marked as tracked.
-    ///
-    /// * `dirty` - Should the user be also marked for a key query.
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>;
+    /// Save a list of users and their respective dirty/outdated flags to the
+    /// store.
+    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()>;
 
     /// Get the device for the given user with the given device ID.
     ///

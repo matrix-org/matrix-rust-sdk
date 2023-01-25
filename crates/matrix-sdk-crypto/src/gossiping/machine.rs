@@ -299,7 +299,7 @@ impl GossipMachine {
                 ?secret_name,
                 "Received a secret request form an unknown device",
             );
-            self.store.update_tracked_user(&event.sender, true).await?;
+            self.store.mark_user_as_changed(&event.sender).await?;
 
             None
         })
@@ -372,7 +372,7 @@ impl GossipMachine {
                 device_id = ?event.content.requesting_device_id,
                 "Received a key request from an unknown device",
             );
-            self.store.update_tracked_user(&event.sender, true).await?;
+            self.store.mark_user_as_changed(&event.sender).await?;
 
             return Ok(None);
         };
@@ -821,7 +821,7 @@ impl GossipMachine {
                 secret_name = secret_name.as_ref(),
                 "Received a m.secret.send event from an unknown device"
             );
-            self.store.update_tracked_user(&event.sender, true).await?;
+            self.store.mark_user_as_changed(&event.sender).await?;
         }
 
         Ok(())

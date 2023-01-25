@@ -191,13 +191,9 @@ impl IdentityManager {
             ..Default::default()
         };
 
-        // TODO: turn this into a single transaction.
         self.store.save_changes(changes).await?;
-        let updated_users: Vec<&UserId> = response.device_keys.keys().map(Deref::deref).collect();
-
-        for user_id in updated_users {
-            self.store.update_tracked_user(user_id, false).await?;
-        }
+        self.mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
+            .await?;
 
         let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
@@ -596,7 +592,7 @@ impl IdentityManager {
         // The check for emptiness is done first for performance.
         let users =
             if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
-                self.update_tracked_users([self.user_id()]).await?;
+                self.store.mark_user_as_changed(self.user_id()).await?;
                 self.store.users_for_key_query().await?
             } else {
                 users
@@ -616,48 +612,50 @@ impl IdentityManager {
         }
     }
 
-    /// Mark that the given user has changed his devices.
+    /// Receive the list of users that contained changed devices from the
+    /// `/sync` response.
     ///
     /// This will queue up the given user for a key query.
     ///
     /// Note: The user already needs to be tracked for it to be queued up for a
     /// key query.
-    ///
-    /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
-        if self.store.is_user_tracked(user_id).await? {
-            self.store.update_tracked_user(user_id, true).await?;
-            Ok(true)
-        } else {
-            Ok(false)
+    pub async fn receive_device_changes(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        let mut changed_user: Vec<(&UserId, bool)> = Vec::new();
+
+        for user_id in users {
+            if self.store.is_user_tracked(user_id).await? {
+                changed_user.push((user_id, true))
+            }
         }
+
+        self.store.save_tracked_users(&changed_user).await
     }
 
-    /// Update the tracked users.
-    ///
-    /// # Arguments
-    ///
-    /// * `users` - An iterator over user ids that should be marked for
-    /// tracking.
-    ///
-    /// This will mark users that weren't seen before for a key query and
-    /// tracking.
-    ///
-    /// If the user is already known to the Olm machine it will not be
-    /// considered for a key query.
+    /// See the docs for [`OlmMachine::update_tracked_users()`].
     pub async fn update_tracked_users(
         &self,
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        for user in users {
-            if self.store.is_user_tracked(user).await? {
-                continue;
-            }
+        let mut tracked_users = Vec::new();
 
-            self.store.update_tracked_user(user, true).await?;
+        for user_id in users {
+            if !self.store.is_user_tracked(user_id).await? {
+                tracked_users.push((user_id, true));
+            }
         }
 
-        Ok(())
+        self.store.save_tracked_users(&tracked_users).await
+    }
+
+    pub async fn mark_tracked_users_as_up_to_date(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        let updated_users: Vec<(&UserId, bool)> = users.map(|u| (u, false)).collect();
+        self.store.save_tracked_users(&updated_users).await
     }
 }
 
@@ -897,7 +895,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::Duration;
+    use std::{ops::Deref, time::Duration};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -935,6 +933,26 @@ pub(crate) mod tests {
         let response = response_from_file(&response);
 
         KeysQueryResponse::try_from_http_response(response).unwrap()
+    }
+
+    #[async_test]
+    async fn test_tracked_users() {
+        let manager = manager().await;
+        let alice = user_id!("@alice:example.org");
+
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
+        manager.receive_device_changes([alice].iter().map(Deref::deref)).await.unwrap();
+        assert!(
+            !manager.store.is_user_tracked(alice).await.unwrap(),
+            "Receiving a device changes update for a user we don't track does nothing"
+        );
+        assert!(
+            !manager.store.users_for_key_query().await.unwrap().contains(alice),
+            "The user we don't track doesn't end up in the `/keys/query` request"
+        );
     }
 
     #[async_test]
@@ -1031,7 +1049,7 @@ pub(crate) mod tests {
             manager.store.tracked_users().await.unwrap().is_empty(),
             "No users are initially tracked"
         );
-        manager.store.update_tracked_user(alice, true).await.unwrap();
+        manager.store.mark_user_as_changed(alice).await.unwrap();
 
         assert!(
             manager.store.tracked_users().await.unwrap().contains(alice),
@@ -1065,7 +1083,7 @@ pub(crate) mod tests {
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
-        manager.store.update_tracked_user(alice, true).await.unwrap();
+        manager.store.mark_user_as_changed(alice).await.unwrap();
         assert!(manager
             .users_for_key_query()
             .await

@@ -21,6 +21,7 @@ use std::sync::{
 
 use assert_matches::assert_matches;
 use async_trait::async_trait;
+use chrono::{Datelike, Local, TimeZone};
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVecExt, VecDiff};
 use futures_util::StreamExt;
@@ -411,8 +412,67 @@ async fn remote_echo_without_txn_id() {
         }))
         .await;
 
-    let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+    // The local echo is removed
+    assert_matches!(stream.next().await, Some(VecDiff::Pop { .. }));
+    // This day divider shouldn't be present, or the previous one should be
+    // removed. There being a two day dividers in a row is a bug, but it's
+    // non-trivial to fix and rare enough that we can fix it later (only happens
+    // when the first message on a given day is a local echo).
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    // … and the remote echo is added.
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
+}
+
+#[async_test]
+async fn remote_echo_new_position() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.stream();
+
+    // Given a local event…
+    let txn_id = timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("echo"),
+        ))
+        .await;
+
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let txn_id_from_event = assert_matches!(
+        item.as_event().unwrap().key(),
+        TimelineKey::TransactionId(txn_id) => txn_id
+    );
+    assert_eq!(txn_id, *txn_id_from_event);
+
+    // … and another event that comes back before the remote echo
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;
+    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _bob_message = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+
+    // When the remote echo comes in…
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "body": "echo",
+                "msgtype": "m.text",
+            },
+            "sender": &*ALICE,
+            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
+            "origin_server_ts": 6,
+            "type": "m.room.message",
+            "unsigned": {
+                "transaction_id": txn_id,
+            },
+        }))
+        .await;
+
+    // … the local echo should be removed
+    assert_matches!(stream.next().await, Some(VecDiff::RemoveAt { index: 1 }));
+
+    // … and the remote echo added
+    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
 }
 
@@ -435,13 +495,14 @@ async fn day_divider() {
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let (year, month, day) = assert_matches!(
+    let ts = assert_matches!(
         day_divider.as_virtual().unwrap(),
-        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+        VirtualTimelineItem::DayDivider(ts) => *ts
     );
-    assert_eq!(year, 2022);
-    assert_eq!(month, 12);
-    assert_eq!(day, 1);
+    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    assert_eq!(date.year(), 2022);
+    assert_eq!(date.month(), 12);
+    assert_eq!(date.day(), 1);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();
@@ -476,13 +537,14 @@ async fn day_divider() {
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let (year, month, day) = assert_matches!(
+    let ts = assert_matches!(
         day_divider.as_virtual().unwrap(),
-        VirtualTimelineItem::DayDivider { year, month, day } => (*year, *month, *day)
+        VirtualTimelineItem::DayDivider(ts) => *ts
     );
-    assert_eq!(year, 2022);
-    assert_eq!(month, 12);
-    assert_eq!(day, 2);
+    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    assert_eq!(date.year(), 2022);
+    assert_eq!(date.month(), 12);
+    assert_eq!(date.day(), 2);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();
