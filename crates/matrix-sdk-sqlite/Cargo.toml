@@ -10,7 +10,6 @@ rust-version = { workspace = true }
 [features]
 default = []
 
-#state-store = ["dep:matrix-sdk-base"]
 crypto-store = [
     "dep:matrix-sdk-base",
     "dep:matrix-sdk-crypto",

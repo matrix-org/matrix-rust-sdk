@@ -249,6 +249,9 @@ fn run_crypto_tests() -> Result<()> {
 
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store")
+        .run()?;
+
     Ok(())
 }
 
