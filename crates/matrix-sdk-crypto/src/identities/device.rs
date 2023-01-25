@@ -259,7 +259,7 @@ impl Device {
         }
     }
 
-    /// Is this device cross signed by it's owner?
+    /// Is this device cross signed by its owner?
     pub fn is_cross_signed_by_owner(&self) -> bool {
         self.device_owner_identity
             .as_ref()

@@ -1123,14 +1123,14 @@ impl OlmMachine {
                         )
                     }
                 } else if device_owner_verified {
-                    // The user is verified by us but he hasn't self verified his device
+                    // The user is verified by us but the user hasn't self-verified their device
                     (
                         VerificationState::UnSignedDeviceOfVerifiedUser,
                         Some(device.device_id().to_owned()),
                     )
                 } else {
                     // The user is not verified by us,
-                    // and the device is not properly verified by him
+                    // and the device is not properly verified by them
                     (
                         VerificationState::UnSignedDeviceOfUnverifiedUser,
                         Some(device.device_id().to_owned()),
