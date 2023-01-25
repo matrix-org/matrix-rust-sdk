@@ -5,6 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use indexmap::IndexSet;
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
@@ -44,6 +45,8 @@ pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
 pub(super) struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
     pub(super) reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    // ID of event that is not in the timeline yet => List of reaction event / txn ID
+    pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<TimelineKey>>,
     pub(super) fully_read_event: Option<OwnedEventId>,
     pub(super) fully_read_event_in_timeline: bool,
 }

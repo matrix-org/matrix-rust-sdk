@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
 use futures_signals::signal_vec::MutableVecLockMut;
-use indexmap::map::Entry;
+use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
@@ -36,14 +36,14 @@ use ruma::{
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, OtherState, Profile, RoomMember, Sticker,
-        TimelineDetails,
+        AnyOtherFullStateEventContent, BundledReactions, OtherState, Profile, ReactionGroup,
+        RoomMember, Sticker,
     },
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
@@ -214,6 +214,7 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     flow: Flow,
     timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
     reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<TimelineKey>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     result: HandleEventResult,
@@ -246,6 +247,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             flow,
             timeline_items,
             reaction_map: &mut timeline_meta.reaction_map,
+            pending_reactions: &mut timeline_meta.pending_reactions,
             fully_read_event: &mut timeline_meta.fully_read_event,
             fully_read_event_in_timeline: &mut timeline_meta.fully_read_event_in_timeline,
             result: HandleEventResult::default(),
@@ -375,31 +377,68 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
+        let old_txn_id = match &self.flow {
+            Flow::Local { .. } => None,
+            Flow::Remote { txn_id, .. } => txn_id.as_ref(),
+        };
 
-        update_timeline_item!(self, event_id, "reaction", |item| {
+        if let Some((idx, item)) = find_event_by_id(self.timeline_items, event_id) {
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
             if let TimelineItemContent::RedactedMessage = item.content {
                 debug!("Ignoring reaction on redacted event");
-                None
+                return;
             } else {
                 let mut reactions = item.reactions.clone();
-                let reaction_details =
-                    reactions.bundled.entry(c.relates_to.key.clone()).or_default();
+                let reaction_group = reactions.bundled.entry(c.relates_to.key.clone()).or_default();
 
-                reaction_details.count += uint!(1);
-                if let TimelineDetails::Ready(senders) = &mut reaction_details.senders {
-                    senders.push(self.meta.sender.clone());
+                if let Some(txn_id) = old_txn_id {
+                    // Remove the local echo from the related event.
+                    if reaction_group
+                        .0
+                        .remove(&TimelineKey::TransactionId(txn_id.clone()))
+                        .is_none()
+                    {
+                        warn!(
+                            "Received reaction with transaction ID, but didn't \
+                             find matching reaction in the related event's reactions"
+                        );
+                    }
                 }
+                reaction_group.0.insert(self.flow.to_key(), self.meta.sender.clone());
 
                 trace!("Adding reaction");
-                Some(item.with_reactions(reactions))
+                self.timeline_items
+                    .set_cloned(idx, Arc::new(TimelineItem::Event(item.with_reactions(reactions))));
+                self.result.items_updated += 1;
             }
-        });
+        } else {
+            trace!("Timeline item not found, adding reaction to the pending list");
+            let pending = self.pending_reactions.entry(event_id.to_owned()).or_default();
 
-        if self.result.items_updated > 0 {
-            self.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+            if let Some(txn_id) = old_txn_id {
+                // Remove the local echo from the pending reactions.
+                if !pending.remove(&TimelineKey::TransactionId(txn_id.clone())) {
+                    warn!(
+                        "Received reaction with transaction ID, but didn't \
+                         find matching reaction in pending_reactions"
+                    );
+                }
+            }
+
+            pending.insert(self.flow.to_key());
         }
+
+        if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.flow {
+            // Remove the local echo from the reaction map.
+            if self.reaction_map.remove(&TimelineKey::TransactionId(txn_id.clone())).is_none() {
+                warn!(
+                    "Received reaction with transaction ID, but didn't \
+                     find matching reaction in reaction_map"
+                );
+            }
+        }
+        self.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
     }
 
     #[instrument(skip_all)]
@@ -419,47 +458,29 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
-        if let Some((sender, rel)) =
-            self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
-        {
+        if let Some((_, rel)) = self.reaction_map.remove(&TimelineKey::EventId(redacts.clone())) {
             update_timeline_item!(self, &rel.event_id, "redaction", |item| {
                 let mut reactions = item.reactions.clone();
 
-                let Entry::Occupied(mut details_entry) = reactions.bundled.entry(rel.key) else {
-                    return None;
-                };
-                let details = details_entry.get_mut();
-                details.count -= uint!(1);
+                let count = {
+                    let Entry::Occupied(mut group_entry) = reactions.bundled.entry(rel.key.clone()) else {
+                        return None;
+                    };
+                    let group = group_entry.get_mut();
 
-                if details.count == uint!(0) {
-                    details_entry.remove();
-                    return Some(item.with_reactions(reactions));
-                }
+                    if group.0.remove(&TimelineKey::EventId(redacts.clone())).is_none() {
+                        error!(
+                            "inconsistent state: reaction from reaction_map not in reaction list \
+                             of timeline item"
+                        );
+                        return None;
+                    }
 
-                let TimelineDetails::Ready(senders) = &mut details.senders else {
-                    // FIXME: We probably want to support this somehow in
-                    //        the future, but right now it's not possible.
-                    warn!(
-                        "inconsistent state: shouldn't have a reaction_map entry for a \
-                            timeline item with incomplete reactions"
-                    );
-                    return None;
+                    group.len()
                 };
 
-                if let Some(idx) = senders.iter().position(|s| *s == sender) {
-                    senders.remove(idx);
-                } else {
-                    error!(
-                        "inconsistent state: sender from reaction_map not in reaction sender list \
-                         of timeline item"
-                    );
-                    return None;
-                }
-
-                if u64::from(details.count) != senders.len() as u64 {
-                    error!("inconsistent state: reaction count differs from number of senders");
-                    // Can't make things worse by updating the item, so no early
-                    // return here.
+                if count == 0 {
+                    reactions.bundled.remove(&rel.key);
                 }
 
                 trace!("Removing reaction");
@@ -467,7 +488,16 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             });
 
             if !self.result.items_updated > 0 {
-                warn!("reaction_map out of sync with timeline items");
+                if let Some(reactions) = self.pending_reactions.get_mut(&rel.event_id) {
+                    if !reactions.remove(&TimelineKey::EventId(redacts.clone())) {
+                        error!(
+                            "inconsistent state: reaction from reaction_map not in reaction list \
+                             of pending_reactions"
+                        );
+                    }
+                } else {
+                    warn!("reaction_map out of sync with timeline items");
+                }
             }
         }
 
@@ -485,7 +515,9 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     fn add(&mut self, item: NewEventTimelineItem) {
         self.result.item_added = true;
 
-        let NewEventTimelineItem { content, reactions } = item;
+        let NewEventTimelineItem { content } = item;
+        let reactions = self.pending_reactions().unwrap_or_default();
+
         let item = EventTimelineItem {
             key: self.flow.to_key(),
             event_id: None,
@@ -636,6 +668,31 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             );
         }
     }
+
+    fn pending_reactions(&mut self) -> Option<BundledReactions> {
+        match &self.flow {
+            Flow::Local { .. } => None,
+            Flow::Remote { event_id, .. } => {
+                let reactions = self.pending_reactions.remove(event_id)?;
+                let mut bundled = IndexMap::new();
+
+                for timeline_key in reactions {
+                    let Some((sender, annotation)) = self.reaction_map.get(&timeline_key) else {
+                        error!(
+                            "inconsistent state: reaction from pending_reactions not in reaction_map"
+                        );
+                        continue;
+                    };
+
+                    let group: &mut ReactionGroup =
+                        bundled.entry(annotation.key.clone()).or_default();
+                    group.0.insert(timeline_key, sender.clone());
+                }
+
+                Some(BundledReactions { bundled })
+            }
+        }
+    }
 }
 
 pub(crate) fn update_read_marker(
@@ -732,7 +789,6 @@ fn maybe_create_day_divider_from_timestamps(
 
 struct NewEventTimelineItem {
     content: TimelineItemContent,
-    reactions: BundledReactions,
 }
 
 impl NewEventTimelineItem {
@@ -749,9 +805,7 @@ impl NewEventTimelineItem {
             edited,
         });
 
-        let reactions = relations.annotation.map(BundledReactions::from).unwrap_or_default();
-
-        Self { content, reactions }
+        Self::from_content(content)
     }
 
     fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
@@ -794,6 +848,6 @@ impl NewEventTimelineItem {
     }
 
     fn from_content(content: TimelineItemContent) -> Self {
-        Self { content, reactions: BundledReactions::default() }
+        Self { content }
     }
 }

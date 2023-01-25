@@ -213,7 +213,7 @@ impl EventTimelineItem {
         self.0
             .reactions()
             .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
+            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.len() as u64 })
             .collect()
     }
 

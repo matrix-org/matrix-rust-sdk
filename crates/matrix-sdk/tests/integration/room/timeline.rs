@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
-        AnyOtherFullStateEventContent, PaginationOptions, TimelineDetails, TimelineItemContent,
-        TimelineKey, VirtualTimelineItem,
+        AnyOtherFullStateEventContent, PaginationOptions, TimelineItemContent, TimelineKey,
+        VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
 };
@@ -419,10 +419,11 @@ async fn reaction() {
     let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
-    let details = &event_item.reactions()["👍"];
-    assert_eq!(details.count, uint!(1));
-    let senders = assert_matches!(&details.senders, TimelineDetails::Ready(s) => s);
-    assert_eq!(*senders, vec![user_id!("@bob:example.org").to_owned()]);
+    let group = &event_item.reactions()["👍"];
+    assert_eq!(group.len(), 1);
+    let mut senders = group.senders();
+    assert_eq!(senders.next(), Some(user_id!("@bob:example.org")));
+    assert_eq!(senders.next(), None);
 
     // TODO: After adding raw timeline items, check for one here
 
