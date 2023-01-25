@@ -321,17 +321,14 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    // let tracked_users: Vec<_> = data
-    //     .tracked_users
-    //     .into_iter()
-    //     .map(|u| Ok(((parse_user_id(&u)?), true)))
-    //     .collect::<anyhow::Result<_>>()?;
+    let tracked_users: Vec<_> = data
+        .tracked_users
+        .into_iter()
+        .map(|u| Ok(((parse_user_id(&u)?), true)))
+        .collect::<anyhow::Result<_>>()?;
 
-    // let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u,
-    // *d)).collect();
-
-    // // TODO:
-    // // runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
+    let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
+    store.save_tracked_users(tracked_users.as_slice()).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
