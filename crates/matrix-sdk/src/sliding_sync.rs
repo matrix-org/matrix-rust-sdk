@@ -1598,7 +1598,7 @@ impl SlidingSyncView {
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the item was
-    /// found in the room_list, return None otherwise.  
+    /// found in the room_list, return None otherwise.
     pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
         let ranges = self.ranges.lock_ref();
         let listing = self.rooms_list.lock_ref();
@@ -1772,7 +1772,7 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn check_find_room_in_view() -> crate::Result<()> {
+    async fn check_find_room_in_view() -> Result<()> {
         let view = SlidingSyncViewBuilder::default()
             .name("testview")
             .add_range(0u32, 9u32)
