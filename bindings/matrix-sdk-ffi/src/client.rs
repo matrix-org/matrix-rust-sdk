@@ -144,6 +144,12 @@ impl Client {
         self.client.authentication_issuer().await.map(|server| server.to_string())
     }
 
+    /// The sliding sync proxy that is trusted by the homeserver. `None` when
+    /// not configured.
+    pub async fn sliding_sync_proxy(&self) -> Option<String> {
+        self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+    }
+
     /// Whether or not the client's homeserver supports the password login flow.
     pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.client.get_login_types().await?;
