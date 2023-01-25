@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Deref,
     sync::Arc,
 };
 
@@ -16,11 +17,38 @@ use crate::{
     sync_events, types, vodozemac,
 };
 
+/// The value used by the `OlmMachine` JS class.
+///
+/// It has 2 states: `Opened` and `Closed`. Why maintaining the state here?
+/// Because NodeJS has no way to drop an object explicitely, and we want to be
+/// able to “close” the `OlmMachine` to free all associated data. More over,
+/// `napi-rs` doesn't allow a function to take the ownership of the type itself
+/// (`fn close(self) { … }`). So we manage the state ourselves.
+///
+/// Using the `OlmMachine` when its state is `Closed` will panic.
+enum OlmMachineInner {
+    Opened(matrix_sdk_crypto::OlmMachine),
+    Closed,
+}
+
+impl Deref for OlmMachineInner {
+    type Target = matrix_sdk_crypto::OlmMachine;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Opened(machine) => machine,
+            Self::Closed => panic!("The `OlmMachine` has been closed, cannot use it anymore"),
+        }
+    }
+}
+
 /// State machine implementation of the Olm/Megolm encryption protocol
 /// used for Matrix end to end encryption.
+// #[napi(custom_finalize)]
 #[napi]
 pub struct OlmMachine {
-    inner: matrix_sdk_crypto::OlmMachine,
+    inner: OlmMachineInner,
 }
 
 #[napi]
@@ -77,7 +105,7 @@ impl OlmMachine {
         store_passphrase.zeroize();
 
         Ok(OlmMachine {
-            inner: match store {
+            inner: OlmMachineInner::Opened(match store {
                 Some(store) => matrix_sdk_crypto::OlmMachine::with_store(
                     user_id.inner.as_ref(),
                     device_id.inner.as_ref(),
@@ -92,7 +120,7 @@ impl OlmMachine {
                     )
                     .await
                 }
-            },
+            }),
         })
     }
 
@@ -406,5 +434,17 @@ impl OlmMachine {
     #[napi(strict)]
     pub async fn sign(&self, message: String) -> types::Signatures {
         self.inner.sign(message.as_str()).await.into()
+    }
+
+    /// Shut down the `OlmMachine`.
+    ///
+    /// The `OlmMachine` cannot be used after this method has been called,
+    /// otherwise it will panic.
+    ///
+    /// All associated resources will be closed too, like the crypto storage
+    /// connections.
+    #[napi(strict)]
+    pub fn close(&mut self) {
+        self.inner = OlmMachineInner::Closed;
     }
 }
