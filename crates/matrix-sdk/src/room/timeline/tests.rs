@@ -46,8 +46,8 @@ use ruma::{
             topic::RedactedRoomTopicEventContent,
         },
         AnyMessageLikeEventContent, EmptyStateKey, FullStateEventContent, MessageLikeEventContent,
-        MessageLikeEventType, OriginalStateEventContent, RedactedStateEventContent,
-        StateEventContent, StateEventType,
+        MessageLikeEventType, RedactedStateEventContent, StateEventContent, StateEventType,
+        StaticStateEventContent,
     },
     room_id,
     serde::Raw,
@@ -767,7 +767,7 @@ impl TestTimeline {
         content: C,
         prev_content: Option<C>,
     ) where
-        C: OriginalStateEventContent<StateKey = EmptyStateKey>,
+        C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = make_state_event(sender, "", content, prev_content);
         let raw = Raw::new(&ev).unwrap().cast();
@@ -781,7 +781,7 @@ impl TestTimeline {
         content: C,
         prev_content: Option<C>,
     ) where
-        C: OriginalStateEventContent,
+        C: StaticStateEventContent,
     {
         let ev = make_state_event(sender, state_key.as_ref(), content, prev_content);
         let raw = Raw::new(&ev).unwrap().cast();
