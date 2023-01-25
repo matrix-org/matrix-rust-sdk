@@ -847,7 +847,10 @@ impl Client {
 impl Client {
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
         RUNTIME.block_on(async move {
-            let inner = self.client.sliding_sync().await;
+            let mut inner = self.client.sliding_sync().await;
+            if let Some(sliding_sync_proxy) = self.client.sliding_sync_proxy().await {
+                inner = inner.homeserver(sliding_sync_proxy);
+            }
             Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
         })
     }

@@ -25,8 +25,10 @@ impl Drop for AuthenticationService {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum AuthenticationError {
-    #[error("A successful call to use_server must be made first.")]
+    #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
+    #[error("The homeserver doesn't provide a trusted a sliding sync proxy in its well-known configuration.")]
+    SlidingSyncNotAvailable,
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
     #[error("An error occurred: {message}")]
@@ -116,6 +118,10 @@ impl AuthenticationService {
         let client = builder.build().map_err(AuthenticationError::from)?;
 
         RUNTIME.block_on(async move {
+            if client.sliding_sync_proxy().await.is_none() {
+                return Err(AuthenticationError::SlidingSyncNotAvailable);
+            }
+
             let details = Arc::new(self.details_from_client(&client).await?);
 
             *self.client.write().unwrap() = Some(client);
