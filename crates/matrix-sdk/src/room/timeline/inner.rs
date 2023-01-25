@@ -184,7 +184,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
-        let fully_read_event = match raw.deserialize() {
+        let fully_read_event_id = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
             Err(error) => {
                 error!(?error, "Failed to deserialize `m.fully_read` account data");
@@ -192,7 +192,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         };
 
-        self.set_fully_read_event(fully_read_event).await;
+        self.set_fully_read_event(fully_read_event_id).await;
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
