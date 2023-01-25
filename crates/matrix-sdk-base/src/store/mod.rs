@@ -55,14 +55,13 @@ use ruma::{
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, OriginalStateEventContent, RedactedStateEventContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventType, StaticEventContent, SyncStateEvent,
+        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use serde::de::DeserializeOwned;
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
@@ -385,8 +384,8 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + OriginalStateEventContent<StateKey = EmptyStateKey>,
-        C::Redacted: RedactedStateEventContent + DeserializeOwned,
+        C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C::Redacted: RedactedStateEventContent,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
     }
@@ -402,7 +401,7 @@ pub trait StateStoreExt: StateStore {
         state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + OriginalStateEventContent,
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -420,7 +419,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + OriginalStateEventContent,
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
