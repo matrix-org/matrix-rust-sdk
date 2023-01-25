@@ -34,10 +34,13 @@ describe(EncryptionSettings.name, () => {
     });
 });
 
-describe("VerificationState", () => {
-    test("has the correct variant values", () => {
-        expect(VerificationState.Trusted).toStrictEqual(0);
-        expect(VerificationState.Untrusted).toStrictEqual(1);
-        expect(VerificationState.UnknownDevice).toStrictEqual(2);
+describe('VerificationState', () => {
+    test('has the correct variant values', () => {
+        expect(VerificationState.Verified).toStrictEqual(0);
+        expect(VerificationState.SignedDeviceOfUnverifiedUser).toStrictEqual(1);
+        expect(VerificationState.UnSignedDeviceOfVerifiedUser).toStrictEqual(2);
+        expect(VerificationState.UnSignedDeviceOfUnverifiedUser).toStrictEqual(3);
+        expect(VerificationState.UnknownDevice).toStrictEqual(4);
+        expect(VerificationState.UnsafeSource).toStrictEqual(5);
     });
 });

@@ -29,9 +29,6 @@ pub enum VerificationState {
     /// The key is coming from an unsafe source, and authenticity cannot
     /// be established.
     UnsafeSource,
-    /// The key used to decrypt as an inconsistent set of identity keys.
-    /// Potential attack?
-    Mismatch,
 }
 
 /// The algorithm specific information of a decrypted event.

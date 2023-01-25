@@ -131,9 +131,6 @@ pub enum VerificationState {
     /// The key is coming from an unsafe source, and authenticity cannot
     /// be established.
     UnsafeSource,
-    /// The key used to decrypt as an inconsistent set of identity keys.
-    /// Potential attack?
-    Mismatch,
 }
 
 impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
@@ -147,7 +144,6 @@ impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for Ver
             UnSignedDeviceOfUnverifiedUser => Self::UnSignedDeviceOfUnverifiedUser,
             UnknownDevice => Self::UnknownDevice,
             UnsafeSource => Self::UnsafeSource,
-            Mismatch => Self::Mismatch,
         }
     }
 }

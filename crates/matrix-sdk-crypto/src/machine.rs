@@ -1089,7 +1089,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
         Ok(if session.has_been_imported() {
             // the sender_key is claimed we can't check any authenticity
             // No point of trying to find the matching device
@@ -1101,7 +1101,7 @@ impl OlmMachine {
             .find(|d| d.curve25519_key() == Some(session.sender_key()))
         {
             // We found a matching device, let's check if it owns the session
-            if device.is_owner_of_session(session) {
+            if device.is_owner_of_session(session)? {
                 // We want to make a distinction between an unsigned device of a verified
                 // owner and an unsigned device of an unverified user
                 let device_owner_verified = device.is_device_owner_verified();
@@ -1137,9 +1137,8 @@ impl OlmMachine {
                     )
                 }
             } else {
-                // mismatch of identity and fingerprint
-                // The device (curve, ed) does not matched the key (curve, claimed_ed)
-                (VerificationState::Mismatch, Some(device.device_id().to_owned()))
+                // The device is not confirmed of beeing owner of that key
+                (VerificationState::UnsafeSource, Some(device.device_id().to_owned()))
             }
         } else {
             // We didn't find a device, no way to know if we should trust

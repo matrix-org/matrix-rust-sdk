@@ -145,7 +145,6 @@ impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for Ver
             UnSignedDeviceOfUnverifiedUser => Self::UnSignedDeviceOfUnverifiedUser,
             UnknownDevice => Self::UnknownDevice,
             UnsafeSource => Self::UnsafeSource,
-            Mismatch => Self::Mismatch,
         }
     }
 }
