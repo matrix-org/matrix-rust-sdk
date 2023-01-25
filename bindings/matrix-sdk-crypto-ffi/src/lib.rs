@@ -165,6 +165,20 @@ impl From<anyhow::Error> for MigrationError {
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
 pub fn migrate(
+    data: MigrationData,
+    path: &str,
+    passphrase: Option<String>,
+    progress_listener: Box<dyn ProgressListener>,
+) -> anyhow::Result<()> {
+    use tokio::runtime::Runtime;
+    let runtime = Runtime::new()?;
+    runtime.block_on(async move {
+        migrate_data(data, path, passphrase, progress_listener).await?;
+        Ok(())
+    })
+}
+
+async fn migrate_data(
     mut data: MigrationData,
     path: &str,
     passphrase: Option<String>,
@@ -174,7 +188,6 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
         olm::{Account, Session},
@@ -196,9 +209,7 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let runtime = Runtime::new()?;
-
-    let store = runtime.block_on(SqliteCryptoStore::open(path, passphrase.as_deref()))?;
+    let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -295,11 +306,13 @@ pub fn migrate(
         data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
 
     let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
-    runtime.block_on(cross_signing.import_secrets_unchecked(
-        data.cross_signing.master_key.as_deref(),
-        data.cross_signing.self_signing_key.as_deref(),
-        data.cross_signing.user_signing_key.as_deref(),
-    ))?;
+    cross_signing
+        .import_secrets_unchecked(
+            data.cross_signing.master_key.as_deref(),
+            data.cross_signing.self_signing_key.as_deref(),
+            data.cross_signing.user_signing_key.as_deref(),
+        )
+        .await?;
 
     data.cross_signing.master_key.zeroize();
     data.cross_signing.self_signing_key.zeroize();
@@ -308,16 +321,17 @@ pub fn migrate(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let tracked_users: Vec<_> = data
-        .tracked_users
-        .into_iter()
-        .map(|u| Ok(((parse_user_id(&u)?), true)))
-        .collect::<anyhow::Result<_>>()?;
+    // let tracked_users: Vec<_> = data
+    //     .tracked_users
+    //     .into_iter()
+    //     .map(|u| Ok(((parse_user_id(&u)?), true)))
+    //     .collect::<anyhow::Result<_>>()?;
 
-    let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
+    // let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u,
+    // *d)).collect();
 
-    // TODO:
-    // runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
+    // // TODO:
+    // // runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -331,7 +345,7 @@ pub fn migrate(
         backup_version: data.backup_version,
         ..Default::default()
     };
-    runtime.block_on(store.save_changes(changes))?;
+    store.save_changes(changes).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
