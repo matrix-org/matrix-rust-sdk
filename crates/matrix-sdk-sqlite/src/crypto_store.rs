@@ -13,13 +13,12 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
-use dashmap::DashSet;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
@@ -32,11 +31,12 @@ use matrix_sdk_crypto::{
         Result as StoreResult, RoomKeyCounts,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::fs;
 use tracing::{debug, error, instrument, warn};
 
@@ -53,6 +53,7 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
+#[derive(Debug)]
 enum Error {
     Crypto(CryptoStoreError),
     Sqlite(rusqlite::Error),
@@ -89,12 +90,6 @@ impl From<Error> for CryptoStoreError {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TrackedUser {
-    user_id: OwnedUserId,
-    dirty: bool,
-}
-
 /// A sqlite based cryptostore.
 #[derive(Clone)]
 pub struct SqliteCryptoStore {
@@ -105,9 +100,6 @@ pub struct SqliteCryptoStore {
     // DB values cached in memory
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     session_cache: SessionStore,
-
-    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for SqliteCryptoStore {
@@ -154,8 +146,6 @@ impl SqliteCryptoStore {
             pool,
             account_info: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
-            tracked_users_cache: Arc::new(DashSet::new()),
-            users_for_key_query_cache: Arc::new(DashSet::new()),
         })
     }
 
@@ -216,18 +206,14 @@ impl SqliteCryptoStore {
         Ok(self.pool.get().await?)
     }
 
-    async fn load_tracked_users(&self) -> Result<()> {
-        for value in self.acquire().await?.get_tracked_users().await? {
-            let user: TrackedUser = self.deserialize_value(&value)?;
-
-            self.tracked_users_cache.insert(user.user_id.to_owned());
-
-            if user.dirty {
-                self.users_for_key_query_cache.insert(user.user_id);
-            }
-        }
-
-        Ok(())
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
+        self.acquire()
+            .await?
+            .get_tracked_users()
+            .await?
+            .iter()
+            .map(|value| Ok(self.deserialize_value(value)?))
+            .collect()
     }
 
     async fn save_tracked_users(
@@ -597,7 +583,6 @@ impl CryptoStore for SqliteCryptoStore {
         if let Some(pickle) = conn.get_kv("account").await? {
             let pickle = self.deserialize_value(&pickle)?;
 
-            self.load_tracked_users().await?;
             let account = ReadOnlyAccount::from_pickle(pickle)?;
 
             let account_info = AccountInfo {
@@ -857,6 +842,24 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(self.acquire().await?.reset_inbound_group_session_backup_state().await?)
     }
 
+    async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
+        let conn = self.acquire().await?;
+
+        let backup_version = conn
+            .get_kv("backup_version_v1")
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?;
+
+        let recovery_key = conn
+            .get_kv("recovery_key_v1")
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()?;
+
+        Ok(BackupKeys { backup_version, recovery_key })
+    }
+
     async fn get_outbound_group_sessions(
         &self,
         room_id: &RoomId,
@@ -878,34 +881,12 @@ impl CryptoStore for SqliteCryptoStore {
         return Ok(Some(session));
     }
 
-    async fn is_user_tracked(&self, user_id: &UserId) -> StoreResult<bool> {
-        Ok(self.tracked_users_cache.contains(user_id))
+    async fn load_tracked_users(&self) -> StoreResult<Vec<TrackedUser>> {
+        Ok(self.load_tracked_users().await?)
     }
 
-    async fn has_users_for_key_query(&self) -> StoreResult<bool> {
-        Ok(!self.users_for_key_query_cache.is_empty()) // TODO: remove cache
-    }
-
-    async fn users_for_key_query(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()) // TODO: remove cache
-    }
-
-    async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
-        Ok(self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect())
-    }
-
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> StoreResult<bool> {
-        let already_added = self.tracked_users_cache.insert(user.to_owned());
-
-        if dirty {
-            self.users_for_key_query_cache.insert(user.to_owned());
-        } else {
-            self.users_for_key_query_cache.remove(user);
-        }
-
-        self.save_tracked_users(&[(user, dirty)]).await?;
-
-        Ok(already_added)
+    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> StoreResult<()> {
+        self.save_tracked_users(users).await
     }
 
     async fn get_device(
@@ -998,7 +979,7 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .iter()
             .map(|value| {
-                let request = self.deserialize_key_request(&value, false)?;
+                let request = self.deserialize_key_request(value, false)?;
                 Ok(request)
             })
             .collect()
@@ -1007,24 +988,6 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> StoreResult<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
-    }
-
-    async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
-        let conn = self.acquire().await?;
-
-        let backup_version = conn
-            .get_kv("backup_version_v1")
-            .await?
-            .map(|value| self.deserialize_value(&value))
-            .transpose()?;
-
-        let recovery_key = conn
-            .get_kv("recovery_key_v1")
-            .await?
-            .map(|value| self.deserialize_value(&value))
-            .transpose()?;
-
-        Ok(BackupKeys { backup_version, recovery_key })
     }
 }
 
