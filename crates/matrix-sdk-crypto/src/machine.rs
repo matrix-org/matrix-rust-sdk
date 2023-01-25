@@ -1676,7 +1676,7 @@ pub(crate) mod tests {
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
                 ToDeviceEvent,
             },
-            DeviceKeys, EventEncryptionAlgorithm, SignedKey,
+            DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
