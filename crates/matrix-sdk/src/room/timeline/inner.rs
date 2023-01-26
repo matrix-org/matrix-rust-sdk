@@ -28,7 +28,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_txn_id, Profile, TimelineItem, TimelineKey,
+    find_event_by_id, find_event_by_txn_id, Profile, TimelineItem, TimelineKey,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room};
 
@@ -149,12 +149,18 @@ impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
         let mut lock = self.items.lock_mut();
         if let Some((idx, item)) = find_event_by_txn_id(&lock, txn_id) {
-            if item.event_id.as_ref().map_or(false, |ev_id| *ev_id != event_id) {
-                error!("remote echo and send-event response disagree on the event ID");
+            if let Some(existing_event_id) = &item.event_id {
+                error!(
+                    ?existing_event_id, new_event_id = ?event_id, ?txn_id,
+                    "Local echo already has an event ID"
+                );
             }
 
             lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))));
-        } else {
+        } else if find_event_by_id(&lock, &event_id).is_none() {
+            // Event isn't found by transaction ID, and also not by event ID
+            // (which it would if the remote echo comes in before the send-event
+            // response)
             warn!(?txn_id, "Timeline item not found, can't add event ID");
         }
     }
