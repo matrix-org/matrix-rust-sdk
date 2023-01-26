@@ -516,7 +516,14 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         self.result.item_added = true;
 
         let NewEventTimelineItem { content } = item;
-        let reactions = self.pending_reactions().unwrap_or_default();
+        let mut reactions = self.pending_reactions().unwrap_or_default();
+
+        // Drop pending reactions if the message is redacted.
+        if let TimelineItemContent::RedactedMessage = content {
+            if !reactions.is_empty() {
+                reactions = BundledReactions::default();
+            }
+        }
 
         let item = EventTimelineItem {
             key: self.flow.to_key(),
