@@ -218,7 +218,7 @@ impl Update<Msg> for Model {
                             match tl.send(RoomMessageEventContent::text_plain(m).into(), None).await
                             {
                                 Ok(_r) => tracing::info!("Message send"),
-                                Err(e) => tracing::error!("Sending message failed: {:}", e),
+                                Err(e) => tracing::error!("Sending message failed: {e}"),
                             }
                         });
                     } else {

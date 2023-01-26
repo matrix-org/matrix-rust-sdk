@@ -47,7 +47,7 @@ pub async fn run_client(
 
     pin_mut!(stream);
     if let Some(Err(e)) = stream.next().await {
-        error!("Stopped: Initial Query on sliding sync failed: {:?}", e);
+        error!("Stopped: Initial Query on sliding sync failed: {e:?}");
         return Ok(());
     }
 
@@ -71,7 +71,7 @@ pub async fn run_client(
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
-                error!("Error: {:}", e);
+                error!("Error: {e}");
                 break;
             }
             None => {
@@ -107,12 +107,12 @@ pub async fn run_client(
         }
         match update {
             Ok(update) => {
-                info!("Live update received: {:?}", update);
+                info!("Live update received: {update:?}");
                 tx.send(ssync_state.clone()).await?;
                 err_counter = 0;
             }
             Err(e) => {
-                warn!("Live update error: {:?}", e);
+                warn!("Live update error: {e:?}");
                 err_counter += 1;
                 if err_counter > 3 {
                     error!("Received 3 errors in a row. stopping.");
