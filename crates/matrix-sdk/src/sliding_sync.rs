@@ -860,7 +860,7 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub async fn stream<'a>(
+    pub async fn stream(
         &self,
     ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
         let views = self.views.lock_ref().to_vec();
