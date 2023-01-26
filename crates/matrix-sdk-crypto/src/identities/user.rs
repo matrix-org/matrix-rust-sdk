@@ -1006,16 +1006,21 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::user_id;
+    use serde_json::{json, Value};
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
         ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
     };
     use crate::{
-        identities::{manager::testing::own_key_query, Device},
+        identities::{
+            manager::testing::own_key_query, Device, MasterPubkey, SelfSigningPubkey,
+            UserSigningPubkey,
+        },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
         types::CrossSigningKey,
@@ -1121,5 +1126,35 @@ pub(crate) mod tests {
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.is_verified());
+    }
+
+    /// Test that `CrossSigningKey` instances without a correct `usage` cannot
+    /// be deserialized into high-level structs representing the MSK, SSK
+    /// and USK.
+    #[test]
+    fn cannot_instantiate_keys_with_incorrect_usage() {
+        let user_id = user_id!("@example:localhost");
+        let response = own_key_query();
+
+        let master_key = response.master_keys.get(user_id).unwrap();
+        let mut master_key_json: Value = master_key.deserialize_as().unwrap();
+        let self_signing_key = response.self_signing_keys.get(user_id).unwrap();
+        let mut self_signing_key_json: Value = self_signing_key.deserialize_as().unwrap();
+        let user_signing_key = response.user_signing_keys.get(user_id).unwrap();
+        let mut user_signing_key_json: Value = user_signing_key.deserialize_as().unwrap();
+
+        // Delete the usages.
+        let usage = master_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+        let usage = self_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+        let usage = user_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+
+        // It should now be impossible to deserialize the keys into their corresponding
+        // high-level cross-signing key structs.
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<UserSigningPubkey>(user_signing_key_json), Err(_));
     }
 }
