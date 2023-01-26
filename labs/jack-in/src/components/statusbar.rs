@@ -46,7 +46,7 @@ impl MockComponent for StatusBar {
                     }
                 } else {
                     tabs.push(Spans::from(format!(
-                        "Loaded {:} rooms in {}s",
+                        "Loaded {} rooms in {}s",
                         self.sstate.loaded_rooms_count(),
                         self.sstate.started().elapsed().as_secs()
                     )));

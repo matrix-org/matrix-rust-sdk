@@ -328,7 +328,7 @@ impl Client {
             return LoopCtrl::Break;
         }
 
-        tracing::warn!("Ignoring sync error: {:?}", sync_error);
+        tracing::warn!("Ignoring sync error: {sync_error:?}");
         LoopCtrl::Continue
     }
 }
