@@ -61,10 +61,6 @@ use ruma::{
 #[derive(Clone)]
 pub struct EventTimelineItem {
     pub(super) key: TimelineKey,
-    // If this item is a local echo that has been acknowledged by the server
-    // but not remote-echoed yet, this field holds the event ID from the send
-    // response.
-    pub(super) event_id: Option<OwnedEventId>,
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Profile,
     pub(super) content: TimelineItemContent,
@@ -80,7 +76,6 @@ impl fmt::Debug for EventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventTimelineItem")
             .field("key", &self.key)
-            .field("event_id", &self.event_id)
             .field("sender", &self.sender)
             .field("content", &self.content)
             .field("reactions", &self.reactions)
@@ -109,8 +104,8 @@ impl EventTimelineItem {
     /// of the send request that created the event.
     pub fn event_id(&self) -> Option<&EventId> {
         match &self.key {
-            TimelineKey::TransactionId(_) => self.event_id.as_deref(),
-            TimelineKey::EventId(id) => Some(id),
+            TimelineKey::TransactionId { event_id, .. } => event_id.as_deref(),
+            TimelineKey::EventId(event_id) => Some(event_id),
         }
     }
 
@@ -178,8 +173,15 @@ impl EventTimelineItem {
         }
     }
 
-    pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
-        Self { event_id, ..self.clone() }
+    pub(super) fn with_transaction_id_event_id(
+        &self,
+        txn_id: &OwnedTransactionId,
+        event_id: Option<OwnedEventId>,
+    ) -> Self {
+        Self {
+            key: TimelineKey::new_transaction_id_with_event_id(txn_id.clone(), event_id),
+            ..self.clone()
+        }
     }
 
     pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
@@ -212,14 +214,46 @@ impl EventTimelineItem {
 pub enum TimelineKey {
     /// Transaction ID, for an event that was created locally and hasn't been
     /// acknowledged by the server yet.
-    TransactionId(OwnedTransactionId),
+    TransactionId {
+        /// The transaction ID.
+        txn_id: OwnedTransactionId,
+        /// The event ID received from the server in the event-sending response
+        /// (not the sync response).
+        event_id: Option<OwnedEventId>,
+    },
     /// Event ID, for an event that is synced with the server.
     EventId(OwnedEventId),
 }
 
+impl TimelineKey {
+    /// Creates a new `TimelineKey::TransactionId` with only a transaction ID.
+    pub fn new_transaction_id(txn_id: OwnedTransactionId) -> Self {
+        Self::TransactionId { txn_id, event_id: None }
+    }
+
+    /// Creates a new `TimelineKey::TransactionId` with a transaction ID _and_
+    /// an event ID.
+    pub fn new_transaction_id_with_event_id(
+        txn_id: OwnedTransactionId,
+        event_id: Option<OwnedEventId>,
+    ) -> Self {
+        Self::TransactionId { txn_id, event_id }
+    }
+
+    /// Creates a new `TimelineKey::EventId`.
+    pub fn new_event_id(event_id: OwnedEventId) -> Self {
+        Self::EventId(event_id)
+    }
+
+    /// Checks whether `self` is a transaction ID with the given event ID.
+    pub fn is_transaction_id_with_event_id(&self, event_id: &EventId) -> bool {
+        matches!(self, Self::TransactionId { event_id: Some(txn_event_id), .. } if AsRef::<EventId>::as_ref(txn_event_id) == event_id)
+    }
+}
+
 impl PartialEq<TransactionId> for TimelineKey {
     fn eq(&self, id: &TransactionId) -> bool {
-        matches!(self, TimelineKey::TransactionId(txn_id) if txn_id == id)
+        matches!(self, TimelineKey::TransactionId { txn_id, .. } if txn_id == id)
     }
 }
 

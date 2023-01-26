@@ -146,17 +146,27 @@ impl<P: ProfileProvider> TimelineInner<P> {
         .await
     }
 
+    /// Update the transaction ID by an event ID.
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
         let mut lock = self.items.lock_mut();
         if let Some((idx, item)) = find_event_by_txn_id(&lock, txn_id) {
-            if let Some(existing_event_id) = &item.event_id {
+            let TimelineKey::TransactionId { txn_id, event_id: txn_event_id } = &item.key else {
+                unreachable!("`find_event_by_txn_id` can only find items with `TimelineKey::TransactionId`")
+            };
+
+            if let Some(existing_event_id) = txn_event_id {
                 error!(
                     ?existing_event_id, new_event_id = ?event_id, ?txn_id,
                     "Local echo already has an event ID"
                 );
             }
 
-            lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))));
+            lock.set_cloned(
+                idx,
+                Arc::new(TimelineItem::Event(
+                    item.with_transaction_id_event_id(txn_id, Some(event_id)),
+                )),
+            );
         } else if find_event_by_id(&lock, &event_id).is_none() {
             // Event isn't found by transaction ID, and also not by event ID
             // (which it would if the remote echo comes in before the send-event

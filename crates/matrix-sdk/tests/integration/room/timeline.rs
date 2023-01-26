@@ -189,7 +189,7 @@ async fn echo() {
     let item = local_echo.as_event().unwrap();
     assert!(item.event_id().is_none());
     assert!(item.is_own());
-    assert_matches!(item.key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.key(), TimelineKey::TransactionId { .. });
     assert_matches!(item.raw(), None);
 
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
@@ -206,7 +206,7 @@ async fn echo() {
     let item = sent_confirmation.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(item.is_own());
-    assert_matches!(item.key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.key(), TimelineKey::TransactionId { .. });
     assert_matches!(item.raw(), None);
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(

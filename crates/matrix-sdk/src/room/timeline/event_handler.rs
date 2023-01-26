@@ -68,7 +68,7 @@ impl Flow {
     fn to_key(&self) -> TimelineKey {
         match self {
             Self::Remote { event_id, .. } => TimelineKey::EventId(event_id.to_owned()),
-            Self::Local { txn_id, .. } => TimelineKey::TransactionId(txn_id.to_owned()),
+            Self::Local { txn_id, .. } => TimelineKey::new_transaction_id(txn_id.to_owned()),
         }
     }
 
@@ -490,7 +490,6 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         let NewEventTimelineItem { content, reactions } = item;
         let item = EventTimelineItem {
             key: self.flow.to_key(),
-            event_id: None,
             sender: self.meta.sender.to_owned(),
             sender_profile: self.meta.sender_profile.clone(),
             content,
@@ -695,10 +694,7 @@ fn find_local_echo_by_event_id<'a>(
         .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        // Note: not using event_id() method as this is only supposed to find
-        // local echoes, where the event ID is stored in the separate field
-        // rather than the key.
-        .rfind(|(_, it)| it.event_id.as_deref() == Some(event_id))
+        .rfind(|(_, it)| it.key.is_transaction_id_with_event_id(event_id))
 }
 
 /// Converts a timestamp since Unix Epoch to a local date and time.
