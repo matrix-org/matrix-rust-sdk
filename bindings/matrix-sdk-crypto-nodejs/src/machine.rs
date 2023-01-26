@@ -20,7 +20,7 @@ use crate::{
 /// The value used by the `OlmMachine` JS class.
 ///
 /// It has 2 states: `Opened` and `Closed`. Why maintaining the state here?
-/// Because NodeJS has no way to drop an object explicitely, and we want to be
+/// Because NodeJS has no way to drop an object explicitly, and we want to be
 /// able to “close” the `OlmMachine` to free all associated data. More over,
 /// `napi-rs` doesn't allow a function to take the ownership of the type itself
 /// (`fn close(self) { … }`). So we manage the state ourselves.
