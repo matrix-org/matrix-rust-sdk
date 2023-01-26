@@ -217,8 +217,8 @@ pub enum TimelineKey {
     TransactionId {
         /// The transaction ID.
         txn_id: OwnedTransactionId,
-        /// The event ID received by the server as the new event's response (not
-        /// the sync response).
+        /// The event ID received from the server in the event-sending response
+        /// (not the sync response).
         event_id: Option<OwnedEventId>,
     },
     /// Event ID, for an event that is synced with the server.
