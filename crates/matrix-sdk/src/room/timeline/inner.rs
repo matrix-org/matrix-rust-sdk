@@ -45,6 +45,8 @@ pub(super) struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
     pub(super) reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
     pub(super) fully_read_event: Option<OwnedEventId>,
+    /// Whether the event that the fully-ready event _refers to_ is part of the
+    /// timeline.
     pub(super) fully_read_event_in_timeline: bool,
 }
 
@@ -198,6 +200,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         let mut metadata_lock = self.metadata.lock().await;
 
+        // A similar event has been handled already. We can ignore it.
         if metadata_lock.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
             return;
         }

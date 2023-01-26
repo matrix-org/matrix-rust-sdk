@@ -273,11 +273,15 @@ async fn update_read_marker() {
     timeline.inner.set_fully_read_event(event_id.clone()).await;
     assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 2, new_index: 3 }));
 
+    // Nothing should happen if the fully read event is set back to the same event
+    // as before.
+    timeline.inner.set_fully_read_event(event_id.clone()).await;
+
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
 
-    // Nothing should happen if the fully read event is set back to the same event
-    // as before.
+    // Nothing should happen if the fully read event is refering to an old event
+    // that has already been marked as fully read.
     timeline.inner.set_fully_read_event(event_id).await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;

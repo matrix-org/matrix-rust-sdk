@@ -646,6 +646,7 @@ pub(crate) fn update_read_marker(
     let Some(fully_read_event) = fully_read_event else { return };
     let read_marker_idx = find_read_marker(items_lock);
     let fully_read_event_idx = find_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
+
     match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
