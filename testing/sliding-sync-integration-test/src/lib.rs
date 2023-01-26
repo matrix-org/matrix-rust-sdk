@@ -75,7 +75,7 @@ mod tests {
     async fn it_works_smoke_test() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = setup("odo".to_owned(), false).await?;
         let sync_proxy = sync_proxy_builder.add_fullsync_view().build().await?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -109,7 +109,7 @@ mod tests {
 
         assert!(sync_proxy.view(view_name_3).is_none());
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -120,7 +120,7 @@ mod tests {
         assert!(sync_proxy.add_view(build_view(view_name_3)?).is_none());
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
 
         let mut saw_update = false;
@@ -210,7 +210,7 @@ mod tests {
             bail!("but we just added that view!");
         };
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
         let Some(room_summary ) = stream.next().await else {
             bail!("No room summary found, loop ended unsuccessfully");
@@ -224,7 +224,7 @@ mod tests {
         };
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
 
         // Let's trigger an update by sending a message to room pos=3, making it move to
@@ -266,7 +266,7 @@ mod tests {
         assert!(sync_proxy.add_view(view_2).is_none());
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
 
         let mut saw_update = false;
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(view.state.get_cloned(), SlidingSyncState::Cold, "view isn't cold");
         assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Cold, "full isn't cold");
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
 
         // exactly one poll!
@@ -422,7 +422,7 @@ mod tests {
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
         let view = sync_proxy.view("sliding").context("but we just added that view!")?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -610,7 +610,7 @@ mod tests {
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
         let view = sync_proxy.view("sliding").context("but we just added that view!")?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream()?;
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -893,7 +893,7 @@ mod tests {
                 .await?;
             let growing_sync =
                 sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
-            let stream = sync_proxy.stream().await?;
+            let stream = sync_proxy.stream()?;
             pin_mut!(stream);
             while growing_sync.state.get_cloned() != SlidingSyncState::Live {
                 // we wait until growing sync is all done, too
