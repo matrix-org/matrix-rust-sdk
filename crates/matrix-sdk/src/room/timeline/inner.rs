@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
@@ -63,7 +63,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.signal_vec_cloned()
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(super) async fn add_initial_events(
+        &mut self,
+        events: Vec<matrix_sdk_base::deserialized_responses::SyncTimelineEvent>,
+    ) {
         if events.is_empty() {
             return;
         }
@@ -222,18 +226,25 @@ impl<P: ProfileProvider> TimelineInner<P> {
         );
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip(self, olm_machine))]
-    pub(super) async fn retry_event_decryption(
+    /// Collect events and their metadata that are unable-to-decrypt (UTD)
+    /// events in the timeline.
+    fn collect_utds(
         &self,
-        room_id: &RoomId,
-        olm_machine: &OlmMachine,
-        session_ids: BTreeSet<&str>,
-    ) {
+        session_ids: Option<BTreeSet<&str>>,
+    ) -> Vec<(usize, OwnedEventId, String, Raw<AnySyncTimelineEvent>)> {
         use super::EncryptedMessage;
 
-        let utds_for_session: Vec<_> = self
-            .items
+        let should_retry = |session_id: &str| {
+            let session_ids = &session_ids;
+
+            if let Some(session_ids) = session_ids {
+                session_ids.contains(session_id)
+            } else {
+                true
+            }
+        };
+
+        self.items
             .lock_ref()
             .iter()
             .enumerate()
@@ -243,7 +254,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
                 match utd {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                        if session_ids.contains(session_id.as_str()) =>
+                        if should_retry(session_id) =>
                     {
                         let TimelineKey::EventId(event_id) = &event_item.key else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
@@ -261,7 +272,20 @@ impl<P: ProfileProvider> TimelineInner<P> {
                     | EncryptedMessage::Unknown => None,
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip(self, olm_machine))]
+    pub(super) async fn retry_event_decryption(
+        &self,
+        room_id: &RoomId,
+        olm_machine: &OlmMachine,
+        session_ids: Option<BTreeSet<&str>>,
+    ) {
+        debug!("Retrying decryption");
+
+        let utds_for_session = self.collect_utds(session_ids);
 
         if utds_for_session.is_empty() {
             trace!("Found no events to retry decryption for");

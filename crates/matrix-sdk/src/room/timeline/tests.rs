@@ -238,7 +238,7 @@ async fn unable_to_decrypt() {
         .retry_event_decryption(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             &olm_machine,
-            iter::once(SESSION_ID).collect(),
+            Some(iter::once(SESSION_ID).collect()),
         )
         .await;
 
