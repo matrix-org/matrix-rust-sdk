@@ -37,7 +37,7 @@ pub async fn run_client(
         .cold_cache("jack-in-default")
         .build()
         .await?;
-    let stream = syncer.stream().expect("we can build the stream");
+    let stream = syncer.stream();
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
