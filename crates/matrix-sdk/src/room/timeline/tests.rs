@@ -37,10 +37,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            member::{
-                MembershipChange, MembershipState, RedactedRoomMemberEventContent,
-                RoomMemberEventContent,
-            },
+            member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
             message::{self, MessageType, RoomMessageEventContent},
             name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
@@ -57,8 +54,9 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage, Profile,
-    TimelineInner, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage,
+    MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent, TimelineKey,
+    VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -665,9 +663,9 @@ async fn room_member() {
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    assert_matches!(member.membership_change(), Some(MembershipChange::Invited));
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
     let mut second_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     second_room_member_content.displayname = Some("Alice".to_owned());
@@ -681,9 +679,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    assert_matches!(member.membership_change(), Some(MembershipChange::InvitationAccepted));
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
     let mut third_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     third_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
@@ -697,17 +695,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    let (display_name_change, avatar_url_change) = assert_matches!(
-        member.membership_change(),
-        Some(MembershipChange::ProfileChanged {
-            displayname_change,
-            avatar_url_change
-        }) => (displayname_change, avatar_url_change)
-    );
-    assert_matches!(display_name_change, Some(_));
-    assert_matches!(avatar_url_change, None);
+    let profile = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::ProfileChange(ev) => ev);
+    assert_matches!(profile.displayname_change(), Some(_));
+    assert_matches!(profile.avatar_url_change(), None);
 
     timeline
         .handle_live_redacted_state_event_with_state_key(
@@ -718,9 +708,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Redacted(_));
-    assert_matches!(member.membership_change(), None);
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
+    assert_matches!(membership.change(), None);
 }
 
 struct TestTimeline {

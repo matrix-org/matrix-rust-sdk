@@ -50,9 +50,9 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, Message, OtherState,
-        Profile, ReactionDetails, RoomMember, Sticker, TimelineDetails, TimelineItemContent,
-        TimelineKey,
+        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, MemberProfileChange,
+        MembershipChange, Message, OtherState, Profile, ReactionDetails, RoomMembershipChange,
+        Sticker, TimelineDetails, TimelineItemContent, TimelineKey,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
