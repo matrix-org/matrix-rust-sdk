@@ -524,7 +524,42 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
                 self.timeline_items.push_cloned(item);
             }
-            Flow::Remote { txn_id, event_id, position, origin_server_ts, .. } => {
+            Flow::Remote { position: TimelineItemPosition::Start, origin_server_ts, .. } => {
+                // If there is a loading indicator at the top, check for / insert the day
+                // divider at position 1 and the new event at 2 rather than 0 and 1.
+                let offset = match self.timeline_items.first().and_then(|item| item.as_virtual()) {
+                    Some(
+                        VirtualTimelineItem::LoadingIndicator | VirtualTimelineItem::TimelineStart,
+                    ) => 1,
+                    _ => 0,
+                };
+
+                // Check if the earliest day divider has the same date as this event.
+                if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
+                    self.timeline_items.get(offset).and_then(|item| item.as_virtual())
+                {
+                    if let Some(day_divider_item) =
+                        maybe_create_day_divider_from_timestamps(*divider_ts, *origin_server_ts)
+                    {
+                        self.timeline_items.insert_cloned(offset, Arc::new(day_divider_item));
+                    }
+                } else {
+                    // The list must always start with a day divider.
+                    self.timeline_items.insert_cloned(
+                        offset,
+                        Arc::new(TimelineItem::day_divider(*origin_server_ts)),
+                    );
+                }
+
+                self.timeline_items.insert_cloned(offset + 1, item);
+            }
+            Flow::Remote {
+                position: TimelineItemPosition::End,
+                txn_id,
+                event_id,
+                origin_server_ts,
+                ..
+            } => {
                 if let Some(txn_id) = txn_id {
                     if let Some((idx, _old_item)) =
                         find_event_by_txn_id(self.timeline_items, txn_id)
@@ -566,64 +601,28 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     return;
                 }
 
-                match position {
-                    TimelineItemPosition::Start => {
-                        // If there is a loading indicator at the top, check for / insert the day
-                        // divider at position 1 and the new event at 2 rather than 0 and 1.
-                        let offset =
-                            match self.timeline_items.first().and_then(|item| item.as_virtual()) {
-                                Some(
-                                    VirtualTimelineItem::LoadingIndicator
-                                    | VirtualTimelineItem::TimelineStart,
-                                ) => 1,
-                                _ => 0,
-                            };
+                // Check if the latest event has the same date as this event.
+                if let Some(latest_event) =
+                    self.timeline_items.iter().rev().find_map(|item| item.as_event())
+                {
+                    let old_ts = latest_event.timestamp();
 
-                        // Check if the earliest day divider has the same date as this event.
-                        if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
-                            self.timeline_items.get(offset).and_then(|item| item.as_virtual())
-                        {
-                            if let Some(day_divider_item) = maybe_create_day_divider_from_timestamps(
-                                *divider_ts,
-                                *origin_server_ts,
-                            ) {
-                                self.timeline_items
-                                    .insert_cloned(offset, Arc::new(day_divider_item));
-                            }
-                        } else {
-                            // The list must always start with a day divider.
-                            self.timeline_items.insert_cloned(
-                                offset,
-                                Arc::new(TimelineItem::day_divider(*origin_server_ts)),
-                            );
-                        }
-
-                        self.timeline_items.insert_cloned(offset + 1, item)
+                    if let Some(day_divider_item) =
+                        maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
+                    {
+                        self.timeline_items.push_cloned(Arc::new(day_divider_item));
                     }
-                    TimelineItemPosition::End => {
-                        // Check if the latest event has the same date as this event.
-                        if let Some(latest_event) =
-                            self.timeline_items.iter().rev().find_map(|item| item.as_event())
-                        {
-                            let old_ts = latest_event.timestamp();
-
-                            if let Some(day_divider_item) =
-                                maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
-                            {
-                                self.timeline_items.push_cloned(Arc::new(day_divider_item));
-                            }
-                        } else {
-                            // If there is not event item, there is no day divider yet.
-                            self.timeline_items.push_cloned(Arc::new(TimelineItem::day_divider(
-                                *origin_server_ts,
-                            )));
-                        }
-
-                        self.timeline_items.push_cloned(item)
-                    }
-                    #[cfg(feature = "e2e-encryption")]
-                    TimelineItemPosition::Update(idx) => self.timeline_items.set_cloned(*idx, item),
+                } else {
+                    // If there is not event item, there is no day divider yet.
+                    self.timeline_items
+                        .push_cloned(Arc::new(TimelineItem::day_divider(*origin_server_ts)));
                 }
+
+                self.timeline_items.push_cloned(item);
+            }
+            #[cfg(feature = "e2e-encryption")]
+            Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
+                self.timeline_items.set_cloned(*idx, item);
             }
         }
 
