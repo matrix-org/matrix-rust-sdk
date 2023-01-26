@@ -93,6 +93,17 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    pub(super) async fn clear(&self) {
+        let mut timeline_meta = self.metadata.lock().await;
+        let mut timeline_items = self.items.lock_mut();
+
+        timeline_meta.reaction_map.clear();
+        timeline_meta.fully_read_event = None;
+        timeline_meta.fully_read_event_in_timeline = false;
+
+        timeline_items.clear();
+    }
+
     pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,

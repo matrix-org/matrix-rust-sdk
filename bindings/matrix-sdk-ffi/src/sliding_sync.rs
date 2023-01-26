@@ -7,7 +7,7 @@ use futures_signals::{
     signal::SignalExt,
     signal_vec::{SignalVecExt, VecDiff},
 };
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -20,7 +20,7 @@ pub use matrix_sdk::{
     Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
 use tracing::{debug, error, trace, warn};
 
 use super::{Client, Room, RUNTIME};
@@ -186,8 +186,8 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> Option<StoppableSpawn> {
         let mut timeline_lock = self.timeline.write().unwrap();
-        let timeline_signal = match &*timeline_lock {
-            Some(timeline) => timeline.signal(),
+        let timeline = match &*timeline_lock {
+            Some(timeline) => timeline,
             None => {
                 let Some(timeline) = RUNTIME.block_on(self.inner.timeline()) else {
                     warn!(
@@ -196,12 +196,13 @@ impl SlidingSyncRoom {
                     );
                     return None;
                 };
-                timeline_lock.insert(Arc::new(timeline)).signal()
+                timeline_lock.insert(Arc::new(timeline))
             }
         };
+        let timeline_signal = timeline.signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
-        Some(StoppableSpawn::with_handle(RUNTIME.spawn(timeline_signal.for_each(move |diff| {
+        let handle_events = timeline_signal.for_each(move |diff| {
             let listener = listener.clone();
             let fut = RUNTIME
                 .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
@@ -211,7 +212,22 @@ impl SlidingSyncRoom {
                     error!("Timeline listener error: {e}");
                 }
             }
-        }))))
+        });
+
+        let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
+        let timeline = timeline.clone();
+        let handle_sliding_sync_reset = async move {
+            loop {
+                match reset_broadcast_rx.recv().await {
+                    Err(RecvError::Closed) => break,
+                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
+                }
+            }
+        };
+
+        Some(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+            join(handle_events, handle_sliding_sync_reset).await;
+        })))
     }
 }
 

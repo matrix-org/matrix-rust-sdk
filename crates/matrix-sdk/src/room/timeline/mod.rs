@@ -185,6 +185,18 @@ impl Timeline {
         self
     }
 
+    /// Clear all timeline items, and reset pagination parameters.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub async fn clear(&self) {
+        let mut start_lock = self.start_token.lock().await;
+        let mut end_lock = self._end_token.lock().await;
+
+        *start_lock = None;
+        *end_lock = None;
+
+        self.inner.clear().await;
+    }
+
     /// Add more events to the start of the timeline.
     ///
     /// # Arguments
