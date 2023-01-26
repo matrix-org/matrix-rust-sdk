@@ -280,7 +280,7 @@ async fn update_read_marker() {
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
 
-    // Nothing should happen if the fully read event is refering to an old event
+    // Nothing should happen if the fully read event is referring to an old event
     // that has already been marked as fully read.
     timeline.inner.set_fully_read_event(event_id).await;
 
