@@ -7,7 +7,7 @@ use std::{ops::Deref, time::Duration};
 use futures::executor::block_on;
 use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{error, info, warn};
 use tuirealm::{
     props::{Alignment, Borders, Color},
     terminal::TerminalBridge,
@@ -217,8 +217,8 @@ impl Update<Msg> for Model {
                             // fire and forget
                             match tl.send(RoomMessageEventContent::text_plain(m).into(), None).await
                             {
-                                Ok(_r) => tracing::info!("Message send"),
-                                Err(e) => tracing::error!("Sending message failed: {e}"),
+                                Ok(_r) => info!("Message send"),
+                                Err(e) => error!("Sending message failed: {e}"),
                             }
                         });
                     } else {

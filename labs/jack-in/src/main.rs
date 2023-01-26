@@ -17,7 +17,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_sled::make_store_config;
 use sanitize_filename_reader_friendly::sanitize;
-use tracing::{error, log};
+use tracing::{error, info, log};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
 use tuirealm::{application::PollStrategy, Event, Update};
@@ -214,7 +214,7 @@ async fn main() -> Result<()> {
         .map(|v| serde_json::from_slice(&v))
         .transpose()?
     {
-        tracing::info!("Restoring session from store");
+        info!("Restoring session from store");
         client.restore_session(session).await?;
     } else {
         let theme = ColorfulTheme::default();

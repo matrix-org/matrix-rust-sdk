@@ -19,6 +19,7 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use tracing::{debug, warn};
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
@@ -59,9 +60,7 @@ impl Client {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
                     session_verification_controller.process_to_device_message(ev).await;
                 } else {
-                    tracing::debug!(
-                        "received to-device message, but verification controller isn't ready"
-                    );
+                    debug!("received to-device message, but verification controller isn't ready");
                 }
             }
         });
@@ -328,7 +327,7 @@ impl Client {
             return LoopCtrl::Break;
         }
 
-        tracing::warn!("Ignoring sync error: {sync_error:?}");
+        warn!("Ignoring sync error: {sync_error:?}");
         LoopCtrl::Continue
     }
 }
