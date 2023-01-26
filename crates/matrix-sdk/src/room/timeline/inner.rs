@@ -63,7 +63,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.signal_vec_cloned()
     }
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(any(test, feature = "experimental-sliding-sync"))]
     pub(super) async fn add_initial_events(
         &mut self,
         events: Vec<matrix_sdk_base::deserialized_responses::SyncTimelineEvent>,
