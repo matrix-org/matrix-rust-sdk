@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
-#[cfg(feature = "experimental-sliding-sync")]
+#[cfg((any(test, feature = "experimental-sliding-sync")))]
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
     crypto::OlmMachine,
