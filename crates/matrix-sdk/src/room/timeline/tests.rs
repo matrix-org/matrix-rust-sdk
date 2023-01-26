@@ -392,7 +392,7 @@ async fn remote_echo_without_txn_id() {
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId { .. });
 
     // That has an event ID assigned already (from the response to sending it)…
     let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
@@ -400,7 +400,7 @@ async fn remote_echo_without_txn_id() {
 
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId { .. });
 
     // When an event with the same ID comes in…
     timeline
@@ -446,7 +446,7 @@ async fn remote_echo_new_position() {
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let txn_id_from_event = assert_matches!(
         item.as_event().unwrap().key(),
-        TimelineKey::TransactionId(txn_id) => txn_id
+        TimelineKey::TransactionId { txn_id, .. } => txn_id
     );
     assert_eq!(txn_id, *txn_id_from_event);
 

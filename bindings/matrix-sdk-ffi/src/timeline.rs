@@ -602,7 +602,9 @@ impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
         use matrix_sdk::room::timeline::TimelineKey::*;
 
         match timeline_key {
-            TransactionId(txn_id) => TimelineKey::TransactionId { txn_id: txn_id.to_string() },
+            TransactionId { txn_id, .. } => {
+                TimelineKey::TransactionId { txn_id: txn_id.to_string() }
+            }
             EventId(event_id) => TimelineKey::EventId { event_id: event_id.to_string() },
         }
     }
