@@ -860,13 +860,13 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub fn stream(&self) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
+    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         let views = self.views.lock_ref().to_vec();
         let client = self.client.clone();
 
         debug!(?self.extensions, "Setting view stream going");
 
-        Ok(async_stream::stream! {
+        async_stream::stream! {
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
@@ -987,7 +987,7 @@ impl SlidingSync {
                 debug!("handled");
                 yield Ok(updates);
             }
-        })
+        }
     }
 }
 

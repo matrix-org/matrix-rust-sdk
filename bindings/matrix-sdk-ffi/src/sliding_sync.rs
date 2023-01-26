@@ -674,7 +674,7 @@ impl SlidingSync {
         })));
 
         RUNTIME.spawn(async move {
-            let stream = inner.stream().unwrap();
+            let stream = inner.stream();
             pin_mut!(stream);
             loop {
                 let update = match stream.next().await {
