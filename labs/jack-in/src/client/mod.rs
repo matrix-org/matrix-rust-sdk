@@ -5,7 +5,10 @@ use tracing::{error, info, warn};
 
 pub mod state;
 
-use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
+use matrix_sdk::{
+    ruma::{api::client::error::ErrorKind, OwnedRoomId},
+    Client, SlidingSyncState, SlidingSyncViewBuilder,
+};
 
 pub async fn run_client(
     client: Client,
@@ -71,8 +74,10 @@ pub async fn run_client(
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
-                error!("Error: {e}");
-                break;
+                if e.client_api_error_kind() != Some(&ErrorKind::UnknownPos) {
+                    error!("Error: {e}");
+                    break;
+                }
             }
             None => {
                 error!("Never reached live state");

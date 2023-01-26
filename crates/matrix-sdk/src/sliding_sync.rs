@@ -967,8 +967,6 @@ impl SlidingSync {
                             *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
 
                             debug!(?self.extensions, "Resetting view stream");
-
-                            continue
                         }
                         yield Err(e.into());
                         continue
