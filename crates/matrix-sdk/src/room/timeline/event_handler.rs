@@ -390,7 +390,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 return;
             } else {
                 let mut reactions = item.reactions.clone();
-                let reaction_group = reactions.bundled.entry(c.relates_to.key.clone()).or_default();
+                let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
                     // Remove the local echo from the related event.
@@ -463,7 +463,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 let mut reactions = item.reactions.clone();
 
                 let count = {
-                    let Entry::Occupied(mut group_entry) = reactions.bundled.entry(rel.key.clone()) else {
+                    let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
                         return None;
                     };
                     let group = group_entry.get_mut();
@@ -480,7 +480,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 };
 
                 if count == 0 {
-                    reactions.bundled.remove(&rel.key);
+                    reactions.remove(&rel.key);
                 }
 
                 trace!("Removing reaction");
@@ -689,7 +689,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     group.0.insert(timeline_key, sender.clone());
                 }
 
-                Some(BundledReactions { bundled })
+                Some(bundled)
             }
         }
     }

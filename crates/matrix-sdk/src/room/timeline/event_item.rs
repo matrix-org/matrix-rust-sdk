@@ -129,10 +129,8 @@ impl EventTimelineItem {
     }
 
     /// Get the reactions of this item.
-    pub fn reactions(&self) -> &IndexMap<String, ReactionGroup> {
-        // FIXME: Find out the state of incomplete bundled reactions, adjust
-        //        Ruma if necessary, return the whole BundledReactions field
-        &self.reactions.bundled
+    pub fn reactions(&self) -> &BundledReactions {
+        &self.reactions
     }
 
     /// Get the timestamp of this item.
@@ -403,14 +401,11 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct BundledReactions {
-    /// The reactions grouped by key.
-    ///
-    /// Key: The reaction, usually an emoji.\
-    /// Value: The group of reactions.
-    pub bundled: IndexMap<String, ReactionGroup>,
-}
+/// The reactions grouped by key.
+///
+/// Key: The reaction, usually an emoji.\
+/// Value: The group of reactions.
+pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
 /// A group of reaction events on the same event with the same key.
 ///
