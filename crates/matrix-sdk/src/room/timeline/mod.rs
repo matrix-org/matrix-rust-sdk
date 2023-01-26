@@ -20,6 +20,8 @@ use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
 use ruma::{
     assign,
@@ -89,10 +91,12 @@ impl Timeline {
     pub(crate) async fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
-        events: Vec<matrix_sdk_base::deserialized_responses::SyncTimelineEvent>,
+        events: Vec<SyncTimelineEvent>,
     ) -> Self {
         let mut inner = TimelineInner::new(room.to_owned());
         inner.add_initial_events(events).await;
+
+        let timeline = Self::from_inner(Arc::new(inner), prev_token);
 
         // The events we're injecting might be encrypted events, but we might
         // have received the room key to decrypt them while nobody was listening to the
@@ -101,7 +105,7 @@ impl Timeline {
         // TODO: We could spawn a task here and put this into the background, though it
         // might not be worth it depending on the number of events we injected.
         // Some measuring needs to be done.
-        let timeline = Self::from_inner(Arc::new(inner), prev_token);
+        #[cfg(feature = "e2e-encryption")]
         timeline.retry_decryption_for_all_events().await;
 
         timeline
@@ -293,7 +297,7 @@ impl Timeline {
             .await;
     }
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     async fn retry_decryption_for_all_events(&self) {
         self.inner
             .retry_event_decryption(
