@@ -215,12 +215,19 @@ impl EventTimelineItem {
         self.0.timestamp().0.into()
     }
 
-    pub fn reactions(&self) -> Vec<Reaction> {
-        self.0
-            .reactions()
-            .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
-            .collect()
+    pub fn reactions(&self) -> Option<Vec<Reaction>> {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        match &self.0 {
+            Local(_) => None,
+            Remote(remote_event_item) => Some(
+                remote_event_item
+                    .reactions()
+                    .iter()
+                    .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
+                    .collect(),
+            ),
+        }
     }
 
     pub fn raw(&self) -> Option<String> {
