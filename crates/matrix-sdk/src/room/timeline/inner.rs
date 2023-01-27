@@ -28,9 +28,12 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_id, find_event_by_txn_id, Profile, TimelineItem, TimelineKey,
+    find_event_by_id, find_event_by_txn_id, EventTimelineItem, Profile, TimelineItem, TimelineKey,
 };
-use crate::{events::SyncTimelineEventWithoutContent, room};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    room::{self, timeline::event_item::RemoteEventTimelineItem},
+};
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
@@ -149,12 +152,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
     /// Update the transaction ID by an event ID.
     pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
         let mut lock = self.items.lock_mut();
-        if let Some((idx, item)) = find_event_by_txn_id(&lock, txn_id) {
-            let TimelineKey::TransactionId { txn_id, event_id: txn_event_id } = &item.key else {
-                unreachable!("`find_event_by_txn_id` can only find items with `TimelineKey::TransactionId`")
-            };
-
-            if let Some(existing_event_id) = txn_event_id {
+        if let Some((idx, local_event_item)) = find_event_by_txn_id(&lock, txn_id) {
+            if let Some(existing_event_id) = &local_event_item.event_id {
                 error!(
                     ?existing_event_id, new_event_id = ?event_id, ?txn_id,
                     "Local echo already has an event ID"
@@ -163,9 +162,9 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
             lock.set_cloned(
                 idx,
-                Arc::new(TimelineItem::Event(
-                    item.with_transaction_id_event_id(txn_id, Some(event_id)),
-                )),
+                Arc::new(TimelineItem::Event(EventTimelineItem::Local(
+                    local_event_item.with_event_id(event_id),
+                ))),
             );
         } else if find_event_by_id(&lock, &event_id).is_none() {
             // Event isn't found by transaction ID, and also not by event ID
@@ -249,22 +248,29 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .enumerate()
             .filter_map(|(idx, item)| {
                 let event_item = &item.as_event()?;
-                let utd = event_item.content.as_unable_to_decrypt()?;
+                let utd = event_item.content().as_unable_to_decrypt()?;
 
                 match utd {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
                         if session_ids.contains(session_id.as_str()) =>
                     {
-                        let TimelineKey::EventId(event_id) = &event_item.key else {
+                        let EventTimelineItem::Remote(RemoteEventTimelineItem { event_id, raw, .. }) = event_item else {
+                        // let TimelineKey::EventId(event_id) = &event_item.key else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
                             return None;
                         };
-                        let Some(raw) = event_item.raw.clone() else {
+
+                        let Some(raw) = raw else {
                             error!("No raw event in unable-to-decrypt timeline item");
                             return None;
                         };
 
-                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw))
+                        Some((
+                            idx,
+                            event_id.to_owned(),
+                            session_id.to_owned(),
+                            raw.clone(),
+                        ))
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
