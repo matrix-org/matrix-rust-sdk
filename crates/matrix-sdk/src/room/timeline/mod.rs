@@ -20,10 +20,9 @@ use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    locks::Mutex,
-};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
@@ -88,6 +87,7 @@ impl Timeline {
         Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) async fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
@@ -95,7 +95,20 @@ impl Timeline {
     ) -> Self {
         let mut inner = TimelineInner::new(room.to_owned());
         inner.add_initial_events(events).await;
-        Self::from_inner(Arc::new(inner), prev_token)
+
+        let timeline = Self::from_inner(Arc::new(inner), prev_token);
+
+        // The events we're injecting might be encrypted events, but we might
+        // have received the room key to decrypt them while nobody was listening to the
+        // `m.room_key` event, let's retry now.
+        //
+        // TODO: We could spawn a task here and put this into the background, though it
+        // might not be worth it depending on the number of events we injected.
+        // Some measuring needs to be done.
+        #[cfg(feature = "e2e-encryption")]
+        timeline.retry_decryption_for_all_events().await;
+
+        timeline
     }
 
     fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
@@ -279,7 +292,18 @@ impl Timeline {
             .retry_event_decryption(
                 self.room().room_id(),
                 self.room().client.olm_machine().expect("Olm machine wasn't started"),
-                session_ids.into_iter().map(AsRef::as_ref).collect(),
+                Some(session_ids.into_iter().map(AsRef::as_ref).collect()),
+            )
+            .await;
+    }
+
+    #[cfg(all(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
+    async fn retry_decryption_for_all_events(&self) {
+        self.inner
+            .retry_event_decryption(
+                self.room().room_id(),
+                self.room().client.olm_machine().expect("Olm machine wasn't started"),
+                None,
             )
             .await;
     }
