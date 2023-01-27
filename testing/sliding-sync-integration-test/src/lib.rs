@@ -47,7 +47,7 @@ async fn make_room(client: &Client, room_name: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 enum RoomListEntryEasy {
     Empty,
     Invalid,
@@ -66,13 +66,20 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        iter::repeat,
+        time::{Duration, Instant},
+    };
 
     use anyhow::{bail, Context};
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
-        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode, SlidingSyncState,
-        SlidingSyncViewBuilder,
+        ruma::{
+            api::client::error::ErrorKind as RumaError,
+            events::room::message::RoomMessageEventContent,
+        },
+        test_utils::force_sliding_sync_pos,
+        SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
     };
 
     use super::*;
@@ -362,32 +369,7 @@ mod tests {
             .map(Into::<RoomListEntryEasy>::into)
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            rooms_list,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // -- 10
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // -- 20
-                RoomListEntryEasy::Filled,
-            ]
-        );
+        assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
 
         assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Live, "full isn't live yet");
         Ok(())
@@ -419,28 +401,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         let _signal = view.rooms_list.signal_vec_cloned();
@@ -467,28 +431,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(1)
+                .chain(repeat(RoomListEntryEasy::Filled).take(10))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         view.set_range(5, 10);
@@ -510,28 +457,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(5)
+                .chain(repeat(RoomListEntryEasy::Filled).take(6))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         // let's move the window
@@ -555,28 +485,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(5)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(4))
+                .collect::<Vec<_>>()
         );
         Ok(())
     }
@@ -607,28 +520,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Empty)
+                .take(1)
+                .chain(repeat(RoomListEntryEasy::Filled).take(10))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         let _signal = view.rooms_list.signal_vec_cloned();
@@ -654,28 +550,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         // let's move the window again
@@ -699,28 +577,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(2)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // now we "move" the room of pos 3 to pos 0;
@@ -759,28 +620,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(2)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // items has moved, thus we shouldn't find it where it was
@@ -807,28 +651,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Invalid).take(2))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // and check that our room move has been accepted properly, too.
@@ -938,58 +765,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 10
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 20
-                RoomListEntryEasy::Filled, // 20
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty, // 30
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty, // 40
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty, // 50
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(21)
+                .chain(repeat(RoomListEntryEasy::Empty).take(29))
+                .collect::<Vec<_>>()
         );
 
         // we have 50 and catch up in batches of 10. let's go two more, see it grow.
@@ -1006,58 +785,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 10
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 20
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 30
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled, // 40
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty, // 50
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(41)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         Ok(())
@@ -1125,6 +856,96 @@ mod tests {
                 acc
             }),
             41
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn continue_on_reset() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        print!("setup took its time");
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .limit(100)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        println!("starting the sliding sync setup");
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(growing_sync)
+            .build()
+            .await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let summary = room_summary?;
+            if summary.views.iter().any(|s| s == "growing") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            21
+        );
+
+        // force the pos to be invalid and thus this being reset internally
+        force_sliding_sync_pos(&sync_proxy, "100".to_owned());
+        let mut error_seen = false;
+
+        for _n in 0..2 {
+            let summary = match stream.next().await {
+                Some(Ok(e)) => e,
+                Some(Err(e)) => {
+                    match e.client_api_error_kind() {
+                        Some(RumaError::UnknownPos) => {
+                            // we expect this to come through.
+                            error_seen = true;
+                            continue;
+                        }
+                        _ => Err(e)?,
+                    }
+                }
+                None => anyhow::bail!("Stream ended unexpectedly."),
+            };
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "growing") {
+                break;
+            }
+        }
+
+        assert!(error_seen, "We have not seen the UnknownPos error");
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            30
         );
 
         Ok(())

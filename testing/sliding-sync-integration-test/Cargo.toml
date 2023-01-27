@@ -8,7 +8,7 @@ publish = false
 anyhow = { workspace = true }
 ctor = { workspace = true }
 matrix-sdk-integration-testing = { path = "../matrix-sdk-integration-testing", features = ["helpers"] }
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync"] }
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync", "testing"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 futures = { version = "0.3.25" }
 uuid = { version = "1.2.2" }

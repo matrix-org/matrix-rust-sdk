@@ -677,7 +677,7 @@ pub struct SlidingSync {
     storage_key: Option<String>,
 
     // ------ Internal state
-    pos: StringState,
+    pub(crate) pos: StringState,
     delta_token: StringState,
 
     /// The views of this sliding sync instance
@@ -1436,7 +1436,7 @@ impl SlidingSyncViewRequestGenerator {
                     limit,
                 };
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                    !matches!(before, SlidingSyncState::CatchingUp)
                 });
             }
             InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
@@ -1450,7 +1450,7 @@ impl SlidingSyncViewRequestGenerator {
                     limit,
                 };
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
+                    !matches!(before, SlidingSyncState::CatchingUp)
                 });
             }
             InnerSlidingSyncViewRequestGenerator::Live => {

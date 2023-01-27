@@ -21,6 +21,7 @@ default = [
     "sled",
     "native-tls",
 ]
+testing = []
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
