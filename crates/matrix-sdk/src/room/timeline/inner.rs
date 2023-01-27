@@ -254,7 +254,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
                         if session_ids.contains(session_id.as_str()) =>
                     {
                         let EventTimelineItem::Remote(RemoteEventTimelineItem { event_id, raw, .. }) = event_item else {
-                        // let TimelineKey::EventId(event_id) = &event_item.key else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
                             return None;
                         };
