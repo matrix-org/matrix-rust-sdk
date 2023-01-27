@@ -43,7 +43,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, LocalEventTimelineItem,
-        MemberProfileChange, OtherState, Profile, RoomMembershipChange, Sticker, TimelineDetails,
+        MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
+        Sticker, TimelineDetails,
     },
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
@@ -526,7 +527,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     raw,
                 }),
                 Flow::Remote { event_id, .. } => {
-                    EventTimelineItem::Remote(super::event_item::RemoteEventTimelineItem {
+                    EventTimelineItem::Remote(RemoteEventTimelineItem {
                         event_id: event_id.clone(),
                         sender,
                         sender_profile,
