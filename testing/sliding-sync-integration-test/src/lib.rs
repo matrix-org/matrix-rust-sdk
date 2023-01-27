@@ -1000,12 +1000,21 @@ mod tests {
         make_room(&client, "one-more".to_owned()).await?;
         make_room(&client, "two-more".to_owned()).await?;
 
-        for _n in 0..2 {
+        let mut seen = false;
+
+        for _n in 0..4 {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "growing") {
-                break;
+            if summary.views.iter().any(|s| s == "growing")
+                && view.rooms_count.get_cloned().unwrap_or_default() == 32
+            {
+                if seen {
+                    // once we saw 32, we give it another loop to catch up!
+                    break;
+                } else {
+                    seen = true;
+                }
             }
         }
 
