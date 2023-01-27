@@ -65,6 +65,22 @@ pub enum EventTimelineItem {
 }
 
 impl EventTimelineItem {
+    /// Get the `LocalEventTimelineItem` if `self` is `Local`.
+    pub fn as_local(&self) -> Option<&LocalEventTimelineItem> {
+        match self {
+            Self::Local(local_event_item) => Some(local_event_item),
+            Self::Remote(_) => None,
+        }
+    }
+
+    /// Get the `RemoteEventTimelineItem` if `self` is `Remote`.
+    pub fn as_remote(&self) -> Option<&RemoteEventTimelineItem> {
+        match self {
+            Self::Local(_) => None,
+            Self::Remote(remote_event_item) => Some(remote_event_item),
+        }
+    }
+
     /// Get the event ID of this item.
     ///
     /// If this returns `Some(_)`, the event was successfully created by the
@@ -164,20 +180,21 @@ impl EventTimelineItem {
 #[derive(Clone)]
 pub struct LocalEventTimelineItem {
     /// The transaction ID.
-    pub(super) transaction_id: OwnedTransactionId,
+    pub transaction_id: OwnedTransactionId,
     /// The event ID received from the server in the event-sending response.
-    pub(super) event_id: Option<OwnedEventId>,
+    pub event_id: Option<OwnedEventId>,
     /// The sender of the event.
-    pub(super) sender: OwnedUserId,
+    pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub(super) sender_profile: Profile,
+    pub sender_profile: Profile,
     /// The timestamp of the event.
-    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
+    pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
-    pub(super) content: TimelineItemContent,
-    pub(super) encryption_info: Option<EncryptionInfo>,
+    pub content: TimelineItemContent,
+    /// Encryption information.
+    pub encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
-    pub(super) raw: Option<Raw<AnySyncTimelineEvent>>,
+    pub raw: Option<Raw<AnySyncTimelineEvent>>,
 }
 
 impl LocalEventTimelineItem {
@@ -209,22 +226,24 @@ impl fmt::Debug for LocalEventTimelineItem {
 
 #[derive(Clone)]
 pub struct RemoteEventTimelineItem {
-    pub(super) event_id: OwnedEventId,
+    /// The event ID.
+    pub event_id: OwnedEventId,
     /// The sender of the event.
-    pub(super) sender: OwnedUserId,
+    pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub(super) sender_profile: Profile,
+    pub sender_profile: Profile,
     /// The timestamp of the event.
-    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
+    pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
-    pub(super) content: TimelineItemContent,
+    pub content: TimelineItemContent,
     /// All bundled reactions about the event.
-    pub(super) reactions: BundledReactions,
+    pub reactions: BundledReactions,
     /// Whether the event has been sent by the the logged-in user themselves..
-    pub(super) is_own: bool,
-    pub(super) encryption_info: Option<EncryptionInfo>,
+    pub is_own: bool,
+    /// Encryption information.
+    pub encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
-    pub(super) raw: Option<Raw<AnySyncTimelineEvent>>,
+    pub raw: Option<Raw<AnySyncTimelineEvent>>,
 }
 
 impl RemoteEventTimelineItem {
@@ -242,6 +261,13 @@ impl RemoteEventTimelineItem {
             reactions: BundledReactions::default(),
             ..self.clone()
         }
+    }
+
+    /// Get the reactions of this item.
+    pub fn reactions(&self) -> &IndexMap<String, ReactionDetails> {
+        // FIXME: Find out the state of incomplete bundled reactions, adjust
+        //        Ruma if necessary, return the whole BundledReactions field
+        &self.reactions.bundled
     }
 }
 
