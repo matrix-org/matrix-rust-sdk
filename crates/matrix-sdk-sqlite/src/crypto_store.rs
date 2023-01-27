@@ -418,12 +418,10 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
         &self,
         session_id: Key,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
-        // TODO: Probably use prepare_cached?
         Ok(self
             .query_row(
                 "SELECT room_id, data FROM inbound_group_session WHERE session_id = ?",
                 (session_id,),
-                // TODO: return named type instead of tuple?
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .await
