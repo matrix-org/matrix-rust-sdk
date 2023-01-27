@@ -1291,12 +1291,18 @@ impl SlidingSyncViewRequestGenerator {
     fn new_with_paging_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
+        let position = view
+            .ranges
+            .get_cloned()
+            .first()
+            .map(|(_start, end)| u32::try_from(*end).unwrap())
+            .unwrap_or_default();
 
         SlidingSyncViewRequestGenerator {
             view,
             ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                position: 0,
+                position,
                 batch_size,
                 limit,
             },
@@ -1306,12 +1312,18 @@ impl SlidingSyncViewRequestGenerator {
     fn new_with_growing_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
+        let position = view
+            .ranges
+            .get_cloned()
+            .first()
+            .map(|(_start, end)| u32::try_from(*end).unwrap())
+            .unwrap_or_default();
 
         SlidingSyncViewRequestGenerator {
             view,
             ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                position: 0,
+                position,
                 batch_size,
                 limit,
             },
@@ -1404,10 +1416,11 @@ impl SlidingSyncViewRequestGenerator {
             let max = limit.unwrap_or(max_index);
             if end >= max {
                 trace!(name = self.view.name, "going live");
-                // keep listening to the entire list to learn about position updates
-                self.view.set_range(0, max);
                 // we are switching to live mode
+                self.view.set_range(0, max);
                 self.inner = InnerSlidingSyncViewRequestGenerator::Live
+            } else {
+                self.view.set_range(0, end);
             }
         }
 

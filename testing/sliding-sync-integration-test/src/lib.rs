@@ -33,12 +33,18 @@ async fn random_setup_with_rooms_opt_store(
     let (client, sliding_sync_builder) = setup(namespace.clone(), use_sled_store).await?;
 
     for room_num in 0..number_of_rooms {
-        let mut request = CreateRoomRequest::new();
-        request.name = Some(format!("{namespace}-{room_num}"));
-        let _event_id = client.create_room(request).await?;
+        make_room(&client, format!("{namespace}-{room_num}")).await?
     }
 
     Ok((client, sliding_sync_builder))
+}
+
+#[allow(dead_code)]
+async fn make_room(client: &Client, room_name: String) -> anyhow::Result<()> {
+    let mut request = CreateRoomRequest::new();
+    request.name = Some(room_name);
+    let _event_id = client.create_room(request).await?;
+    Ok(())
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -897,6 +903,305 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(duration < Duration::from_micros(10), "cold recovery was too slow: {duration:?}");
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn growing_sync_keeps_going() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .batch_size(10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        // we have 50 and catch up in batches of 10. so let's get over to 20.
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 10
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 20
+                RoomListEntryEasy::Filled, // 20
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty, // 30
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty, // 40
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty, // 50
+            ]
+        );
+
+        // we have 50 and catch up in batches of 10. let's go two more, see it grow.
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            [
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 10
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 20
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 30
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Filled, // 40
+                RoomListEntryEasy::Filled,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty,
+                RoomListEntryEasy::Empty, // 50
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .batch_size(10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        // we have 50 and catch up in batches of 10. so let's get over to 20.
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            21
+        );
+
+        // we have 50 and catch up in batches of 10. Let's make sure the restart
+        // continues
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            41
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
+        let (client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        print!("setup took its time");
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .limit(100)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        println!("starting the sliding sync setup");
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(growing_sync)
+            .build()
+            .await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+        while view.state.get_cloned() != SlidingSyncState::Live {
+            // we wait until growing sync is all done, too
+            println!("awaiting");
+            let _room_summary = stream
+                .next()
+                .await
+                .context("No room summary found, loop ended unsuccessfully")??;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            30
+        );
+        // all found. let's add two more.
+
+        make_room(&client, "one-more".to_owned()).await?;
+        make_room(&client, "two-more".to_owned()).await?;
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "growing") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            32
+        );
 
         Ok(())
     }
