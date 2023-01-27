@@ -207,6 +207,7 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     meta: TimelineEventMetadata,
     flow: Flow,
     timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
+    #[allow(clippy::type_complexity)]
     reaction_map: &'a mut HashMap<
         (Option<OwnedTransactionId>, Option<OwnedEventId>),
         (OwnedUserId, Annotation),

@@ -207,9 +207,9 @@ impl LocalEventTimelineItem {
     }
 }
 
-impl Into<EventTimelineItem> for LocalEventTimelineItem {
-    fn into(self) -> EventTimelineItem {
-        EventTimelineItem::Local(self)
+impl From<LocalEventTimelineItem> for EventTimelineItem {
+    fn from(value: LocalEventTimelineItem) -> Self {
+        Self::Local(value)
     }
 }
 
@@ -274,9 +274,9 @@ impl RemoteEventTimelineItem {
     }
 }
 
-impl Into<EventTimelineItem> for RemoteEventTimelineItem {
-    fn into(self) -> EventTimelineItem {
-        EventTimelineItem::Remote(self)
+impl From<RemoteEventTimelineItem> for EventTimelineItem {
+    fn from(value: RemoteEventTimelineItem) -> Self {
+        Self::Remote(value)
     }
 }
 

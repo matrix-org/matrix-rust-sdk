@@ -437,7 +437,7 @@ fn find_event_by_txn_id<'a>(
             EventTimelineItem::Local(local_event_item) => Some((idx, local_event_item)),
             _ => None,
         })
-        .rfind(|(_, local_event_item)| &local_event_item.transaction_id == txn_id)
+        .rfind(|(_, local_event_item)| local_event_item.transaction_id == txn_id)
 }
 
 fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
