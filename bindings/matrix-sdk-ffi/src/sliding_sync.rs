@@ -693,6 +693,10 @@ impl SlidingSync {
         self.inner.pop_view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
+    pub fn add_common_extensions(&self) {
+        self.inner.add_common_extensions();
+    }
+
     pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
         let client = self.client.clone();
@@ -790,6 +794,37 @@ impl SlidingSyncBuilder {
         builder.inner = builder.inner.with_common_extensions();
         Arc::new(builder)
     }
+
+    pub fn without_e2ee_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_e2ee_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_to_device_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_to_device_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_account_data_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_account_data_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_receipt_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_receipt_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_typing_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_typing_extension();
+        Arc::new(builder)
+    }
+
 
     pub fn with_all_extensions(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
