@@ -28,7 +28,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_id, find_event_by_txn_id, EventTimelineItem, Profile, TimelineItem, TimelineKey,
+    find_event_by_id, find_event_by_txn_id, EventTimelineItem, Profile, TimelineItem,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -46,7 +46,8 @@ pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
 #[derive(Debug, Default)]
 pub(super) struct TimelineInnerMetadata {
     // Reaction event / txn ID => sender and reaction data
-    pub(super) reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    pub(super) reaction_map:
+        HashMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), (OwnedUserId, Annotation)>,
     pub(super) fully_read_event: Option<OwnedEventId>,
     /// Whether the event that the fully-ready event _refers to_ is part of the
     /// timeline.

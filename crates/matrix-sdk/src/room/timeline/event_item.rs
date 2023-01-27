@@ -50,7 +50,7 @@ use ruma::{
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
+    OwnedTransactionId, OwnedUserId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -60,7 +60,10 @@ use ruma::{
 /// reactions and edits are also part of the item.
 #[derive(Debug, Clone)]
 pub enum EventTimelineItem {
+    /// An event item that has been sent, but not yet acknowledged by the
+    /// server.
     Local(LocalEventTimelineItem),
+    /// An event item that has eben sent _and_ acknowledged by the server.
     Remote(RemoteEventTimelineItem),
 }
 
@@ -238,7 +241,7 @@ pub struct RemoteEventTimelineItem {
     pub content: TimelineItemContent,
     /// All bundled reactions about the event.
     pub reactions: BundledReactions,
-    /// Whether the event has been sent by the the logged-in user themselves..
+    /// Whether the event has been sent by the the logged-in user themselves.
     pub is_own: bool,
     /// Encryption information.
     pub encryption_info: Option<EncryptionInfo>,
@@ -289,70 +292,6 @@ impl fmt::Debug for RemoteEventTimelineItem {
             .field("encryption_info", &self.encryption_info)
             // skip raw, too noisy
             .finish_non_exhaustive()
-    }
-}
-
-/// A unique identifier for a timeline item.
-///
-/// This identifier is used to find the item in the timeline in order to update
-/// its state.
-///
-/// When an event is created locally, the timeline reflects this with an item
-/// that has a [`TransactionId`](Self::TransactionId) key. Once the server has
-/// acknowledged the event and given it an ID, that item's key is replaced by
-/// [`EventId`](Self::EventId) containing the new ID.
-///
-/// When an event related to the original event whose ID is stored in a
-/// [`TimelineKey`] is received, the key is left untouched, but other parts of
-/// the timeline item may be updated. Thus, the current data model is only able
-/// to handle relations that reference the initial event that resulted in a
-/// timeline item being created, not other related events. At the time of
-/// writing, there is no relation that is meant to refer to other events that
-/// only exist for their relation (e.g. edits, replies).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TimelineKey {
-    /// Transaction ID, for an event that was created locally and hasn't been
-    /// acknowledged by the server yet.
-    TransactionId {
-        /// The transaction ID.
-        txn_id: OwnedTransactionId,
-        /// The event ID received from the server in the event-sending response
-        /// (not the sync response).
-        event_id: Option<OwnedEventId>,
-    },
-    /// Event ID, for an event that is synced with the server.
-    EventId(OwnedEventId),
-}
-
-impl TimelineKey {
-    /// Creates a new `TimelineKey::TransactionId` with only a transaction ID.
-    pub fn new_transaction_id(txn_id: OwnedTransactionId) -> Self {
-        Self::TransactionId { txn_id, event_id: None }
-    }
-
-    /// Creates a new `TimelineKey::TransactionId` with a transaction ID _and_
-    /// an event ID.
-    pub fn new_transaction_id_with_event_id(
-        txn_id: OwnedTransactionId,
-        event_id: Option<OwnedEventId>,
-    ) -> Self {
-        Self::TransactionId { txn_id, event_id }
-    }
-
-    /// Creates a new `TimelineKey::EventId`.
-    pub fn new_event_id(event_id: OwnedEventId) -> Self {
-        Self::EventId(event_id)
-    }
-
-    /// Checks whether `self` is a transaction ID with the given event ID.
-    pub fn is_transaction_id_with_event_id(&self, event_id: &EventId) -> bool {
-        matches!(self, Self::TransactionId { event_id: Some(txn_event_id), .. } if AsRef::<EventId>::as_ref(txn_event_id) == event_id)
-    }
-}
-
-impl PartialEq<TransactionId> for TimelineKey {
-    fn eq(&self, id: &TransactionId) -> bool {
-        matches!(self, TimelineKey::TransactionId { txn_id, .. } if txn_id == id)
     }
 }
 

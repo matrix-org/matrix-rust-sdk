@@ -9,7 +9,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
         AnyOtherFullStateEventContent, PaginationOptions, TimelineDetails, TimelineItemContent,
-        TimelineKey, VirtualTimelineItem,
+        VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
 };

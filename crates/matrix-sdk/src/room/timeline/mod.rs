@@ -57,7 +57,7 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, MemberProfileChange,
         MembershipChange, Message, OtherState, Profile, ReactionDetails, RoomMembershipChange,
-        Sticker, TimelineDetails, TimelineItemContent, TimelineKey,
+        Sticker, TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,

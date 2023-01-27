@@ -46,7 +46,7 @@ use super::{
         MemberProfileChange, OtherState, Profile, RoomMembershipChange, Sticker, TimelineDetails,
     },
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
-    TimelineInnerMetadata, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
 
@@ -65,13 +65,6 @@ pub(super) enum Flow {
 }
 
 impl Flow {
-    fn to_key(&self) -> TimelineKey {
-        match self {
-            Self::Local { txn_id, .. } => TimelineKey::new_transaction_id(txn_id.to_owned()),
-            Self::Remote { event_id, .. } => TimelineKey::EventId(event_id.to_owned()),
-        }
-    }
-
     fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match self {
             Flow::Local { timestamp, .. } => *timestamp,
@@ -213,7 +206,10 @@ pub(super) struct TimelineEventHandler<'a, 'i> {
     meta: TimelineEventMetadata,
     flow: Flow,
     timeline_items: &'a mut MutableVecLockMut<'i, Arc<TimelineItem>>,
-    reaction_map: &'a mut HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    reaction_map: &'a mut HashMap<
+        (Option<OwnedTransactionId>, Option<OwnedEventId>),
+        (OwnedUserId, Annotation),
+    >,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
     result: HandleEventResult,
@@ -405,7 +401,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         });
 
         if self.result.items_updated > 0 {
-            self.reaction_map.insert(self.flow.to_key(), (self.meta.sender.clone(), c.relates_to));
+            self.reaction_map.insert(
+                match &self.flow {
+                    Flow::Local { txn_id, .. } => (Some(txn_id.to_owned()), None),
+                    Flow::Remote { event_id, .. } => (None, Some(event_id.to_owned())),
+                },
+                (self.meta.sender.clone(), c.relates_to),
+            );
         }
     }
 
@@ -426,9 +428,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
-        if let Some((sender, rel)) =
-            self.reaction_map.remove(&TimelineKey::EventId(redacts.clone()))
-        {
+        if let Some((sender, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let EventTimelineItem::Remote(remote_event_item) = event_item else {
                     error!("inconsistent state: reaction receives on a non-remote event item");
@@ -498,7 +498,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         if self.result.items_updated > 0 {
             // We will want to know this when debugging redaction issues.
-            debug!(redaction_key = ?self.flow.to_key(), "redaction affected no event");
+            debug!(redaction_key = ?redacts, "redaction affected no event");
         }
     }
 

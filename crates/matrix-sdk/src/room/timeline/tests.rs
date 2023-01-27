@@ -56,7 +56,7 @@ use serde_json::{json, Value as JsonValue};
 use super::{
     event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage,
     EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
-    TimelineKey, VirtualTimelineItem,
+    VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
