@@ -376,7 +376,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         update_timeline_item!(self, event_id, "reaction", |event_item| {
             let EventTimelineItem::Remote(remote_event_item) = event_item else {
-                error!("inconsistent state: reaction receives on a non-remote event item");
+                error!("inconsistent state: reaction received on a non-remote event item");
                 return None;
             };
 
