@@ -431,7 +431,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         if let Some((sender, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let EventTimelineItem::Remote(remote_event_item) = event_item else {
-                    error!("inconsistent state: reaction receives on a non-remote event item");
+                    error!("inconsistent state: reaction received on a non-remote event item");
                     return None;
                 };
 
@@ -489,7 +489,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
             let EventTimelineItem::Remote(remote_event_item) = event_item else {
-                    error!("inconsistent state: reaction receives on a non-remote event item");
+                    error!("inconsistent state: reaction received on a non-remote event item");
                     return None;
                 };
 
