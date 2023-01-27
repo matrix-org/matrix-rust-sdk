@@ -839,9 +839,9 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get the backup keys we have stored.
     async fn load_backup_keys(&self) -> Result<BackupKeys>;
 
-    /// Get the outbound group sessions we have stored that is used for the
+    /// Get the outbound group session we have stored that is used for the
     /// given room.
-    async fn get_outbound_group_sessions(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>>;

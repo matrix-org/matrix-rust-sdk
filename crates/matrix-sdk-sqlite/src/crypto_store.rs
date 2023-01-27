@@ -860,7 +860,7 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(BackupKeys { backup_version, recovery_key })
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> StoreResult<Option<OutboundGroupSession>> {
