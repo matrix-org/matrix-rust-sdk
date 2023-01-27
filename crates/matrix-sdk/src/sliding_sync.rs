@@ -796,6 +796,27 @@ impl SlidingSync {
         }
     }
 
+    /// Add the common extensions if not already configured
+    pub fn add_common_extensions(&self) {
+        let mut lock = self
+                .extensions
+                .lock()
+                .unwrap();
+        let mut cfg = lock.get_or_insert_with(Default::default);
+        if cfg.to_device.is_none() {
+            cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+        }
+
+        if cfg.e2ee.is_none() {
+            cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+        }
+
+        if cfg.account_data.is_none() {
+            cfg.account_data =
+                Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+        }
+    }
+
     /// Lookup a specific room
     pub fn get_room(&self, room_id: OwnedRoomId) -> Option<SlidingSyncRoom> {
         self.rooms.lock_ref().get(&room_id).cloned()
