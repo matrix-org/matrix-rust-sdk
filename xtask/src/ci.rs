@@ -125,6 +125,7 @@ impl CiArgs {
 
 fn check_bindings() -> Result<()> {
     cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
+    cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features='jaeger-rageshakes'").run()?;
     cmd!(
         "
         uniffi-bindgen generate

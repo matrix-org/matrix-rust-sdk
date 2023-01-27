@@ -21,6 +21,8 @@ macro_rules! unwrap_or_clone_arc_into_variant {
 }
 
 mod platform;
+#[cfg(feature = "jaeger-rageshakes")]
+mod rageshake;
 
 pub mod authentication_service;
 pub mod client;
