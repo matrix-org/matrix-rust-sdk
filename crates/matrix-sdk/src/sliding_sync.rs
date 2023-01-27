@@ -1276,8 +1276,8 @@ impl SlidingSyncViewBuilder {
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
-    GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32> },
-    PagingFullSync { position: u32, batch_size: u32, limit: Option<u32> },
+    GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
+    PagingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     Live,
 }
 
@@ -1305,6 +1305,7 @@ impl SlidingSyncViewRequestGenerator {
                 position,
                 batch_size,
                 limit,
+                live: false,
             },
         }
     }
@@ -1326,6 +1327,7 @@ impl SlidingSyncViewRequestGenerator {
                 position,
                 batch_size,
                 limit,
+                live: false,
             },
         }
     }
@@ -1408,50 +1410,35 @@ impl SlidingSyncViewRequestGenerator {
 
         trace!(end, max_index, range_end, name = self.view.name, "updating state");
 
-        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position: _, limit, .. }
-        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-            position: _, limit, ..
-        } = self.inner
-        {
-            let max = limit.unwrap_or(max_index);
-            if end >= max {
-                trace!(name = self.view.name, "going live");
-                // we are switching to live mode
-                self.view.set_range(0, max);
-                self.inner = InnerSlidingSyncViewRequestGenerator::Live
-            } else {
-                self.view.set_range(0, end);
-            }
-        }
-
-        match self.inner {
+        match &mut self.inner {
             InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                position: _,
-                batch_size,
-                limit,
-            } => {
-                self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                    position: end,
-                    batch_size,
-                    limit,
-                };
-                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    !matches!(before, SlidingSyncState::CatchingUp)
-                });
+                position, live, limit, ..
             }
-            InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                position: _,
-                batch_size,
-                limit,
+            | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position, live, limit, ..
             } => {
-                self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                    position: end,
-                    batch_size,
-                    limit,
-                };
-                self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                    !matches!(before, SlidingSyncState::CatchingUp)
-                });
+                let max = limit
+                    .map(|limit| if limit > max_index { max_index } else { limit })
+                    .unwrap_or(max_index);
+                trace!(end, max, name = self.view.name, "updating state");
+                if end >= max {
+                    trace!(name = self.view.name, "going live");
+                    // we are switching to live mode
+                    self.view.set_range(0, max);
+                    *position = max;
+                    *live = true;
+
+                    self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
+                        !matches!(before, SlidingSyncState::Live)
+                    });
+                } else {
+                    *position = end;
+                    *live = false;
+                    self.view.set_range(0, end);
+                    self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
+                        !matches!(before, SlidingSyncState::CatchingUp)
+                    });
+                }
             }
             InnerSlidingSyncViewRequestGenerator::Live => {
                 self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
@@ -1467,15 +1454,23 @@ impl Iterator for SlidingSyncViewRequestGenerator {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner {
+            InnerSlidingSyncViewRequestGenerator::PagingFullSync { live, .. }
+            | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { live, .. }
+                if live =>
+            {
+                Some(self.live_request())
+            }
             InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                 position,
                 batch_size,
                 limit,
+                ..
             } => Some(self.prefetch_request(position, batch_size, limit)),
             InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position,
                 batch_size,
                 limit,
+                ..
             } => Some(self.prefetch_request(0, position + batch_size, limit)),
             InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
         }
