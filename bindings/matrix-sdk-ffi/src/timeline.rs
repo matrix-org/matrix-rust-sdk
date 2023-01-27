@@ -175,6 +175,17 @@ pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelin
 
 #[uniffi::export]
 impl EventTimelineItem {
+    pub fn is_local(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Local(_))
+    }
+
+    pub fn is_remote(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Remote(_))
+    }
 
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
