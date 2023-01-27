@@ -163,9 +163,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
             lock.set_cloned(
                 idx,
-                Arc::new(TimelineItem::Event(EventTimelineItem::Local(
-                    local_event_item.with_event_id(event_id),
-                ))),
+                Arc::new(TimelineItem::Event(local_event_item.with_event_id(event_id).into())),
             );
         } else if find_event_by_id(&lock, &event_id).is_none() {
             // Event isn't found by transaction ID, and also not by event ID
