@@ -825,7 +825,6 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-
     pub fn with_all_extensions(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.with_all_extensions();

@@ -798,10 +798,7 @@ impl SlidingSync {
 
     /// Add the common extensions if not already configured
     pub fn add_common_extensions(&self) {
-        let mut lock = self
-                .extensions
-                .lock()
-                .unwrap();
+        let mut lock = self.extensions.lock().unwrap();
         let mut cfg = lock.get_or_insert_with(Default::default);
         if cfg.to_device.is_none() {
             cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
@@ -812,8 +809,7 @@ impl SlidingSync {
         }
 
         if cfg.account_data.is_none() {
-            cfg.account_data =
-                Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+            cfg.account_data = Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
         }
     }
 
