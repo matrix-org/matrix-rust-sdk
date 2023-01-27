@@ -175,9 +175,6 @@ pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelin
 
 #[uniffi::export]
 impl EventTimelineItem {
-    pub fn key(&self) -> TimelineKey {
-        self.0.key().into()
-    }
 
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
@@ -631,27 +628,8 @@ pub struct Reaction {
 
 #[derive(Clone)]
 pub struct ReactionDetails {
-    pub id: TimelineKey,
+    pub id: String,
     pub sender: String,
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum TimelineKey {
-    TransactionId { txn_id: String },
-    EventId { event_id: String },
-}
-
-impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
-    fn from(timeline_key: &matrix_sdk::room::timeline::TimelineKey) -> Self {
-        use matrix_sdk::room::timeline::TimelineKey::*;
-
-        match timeline_key {
-            TransactionId { txn_id, .. } => {
-                TimelineKey::TransactionId { txn_id: txn_id.to_string() }
-            }
-            EventId(event_id) => TimelineKey::EventId { event_id: event_id.to_string() },
-        }
-    }
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.

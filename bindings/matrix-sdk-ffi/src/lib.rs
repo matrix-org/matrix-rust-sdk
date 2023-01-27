@@ -94,7 +94,7 @@ mod uniffi_types {
             FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, MembershipChange, Message,
             MessageFormat, MessageType, NoticeMessageContent, OtherState, Profile, Reaction,
             TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo,
+            TimelineItemContent, TimelineItemContentKind, UpdateAtData, VideoInfo,
             VideoMessageContent, VirtualTimelineItem,
         },
     };
