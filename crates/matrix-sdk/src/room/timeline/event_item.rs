@@ -162,7 +162,7 @@ impl EventTimelineItem {
     /// yet.
     pub fn raw(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self {
-            Self::Local(local_event) => None,
+            Self::Local(_local_event) => None,
             Self::Remote(ref remote_event) => Some(&remote_event.raw),
         }
     }
