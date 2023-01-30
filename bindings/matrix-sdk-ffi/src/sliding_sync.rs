@@ -13,7 +13,7 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId,
+    assign, IdParseError, OwnedRoomId, UInt,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
@@ -544,13 +544,11 @@ impl SlidingSyncView {
 
 #[uniffi::export]
 impl SlidingSyncView {
+    /// Get the current list of rooms
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
         self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
     }
-}
 
-#[uniffi::export]
-impl SlidingSyncView {
     /// Reset the ranges to a particular set
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
@@ -567,12 +565,29 @@ impl SlidingSyncView {
         self.inner.add_range(start, end);
     }
 
+    /// Reset the ranges
     pub fn reset_ranges(&self) {
         self.inner.reset_ranges();
     }
 
+    /// Total of rooms matching the filter
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
+    }
+
+    /// The current timeline limit
+    pub fn get_timeline_limit(&self) -> Option<u32> {
+        self.inner.timeline_limit.get_cloned().map(|limit| u32::try_from(limit).unwrap_or_default())
+    }
+
+    /// The current timeline limit
+    pub fn set_timeline_limit(&self, value: u32) {
+        self.inner.timeline_limit.set(Some(UInt::try_from(value).unwrap()))
+    }
+
+    /// Unset the current timeline limit
+    pub fn unset_timeline_limit(&self) {
+        self.inner.timeline_limit.set(None)
     }
 }
 
