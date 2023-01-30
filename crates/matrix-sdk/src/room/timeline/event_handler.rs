@@ -43,8 +43,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, LocalEventTimelineItem,
-        MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
-        Sticker, TimelineDetails,
+        LocalEventTimelineItemSendState, MemberProfileChange, OtherState, Profile,
+        RemoteEventTimelineItem, RoomMembershipChange, Sticker, TimelineDetails,
     },
     find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
@@ -240,13 +240,16 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
     #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> HandleEventResult {
         let span = tracing::Span::current();
+
         match &self.flow {
             Flow::Local { txn_id, .. } => {
                 span.record("txn_id", debug(txn_id));
             }
+
             Flow::Remote { event_id, txn_id, position, .. } => {
                 span.record("event_id", debug(event_id));
                 span.record("position", debug(position));
+
                 if let Some(txn_id) = txn_id {
                     span.record("txn_id", debug(txn_id));
                 }
@@ -279,21 +282,27 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     );
                 }
             },
+
             TimelineEventKind::RedactedMessage => {
                 self.add(NewEventTimelineItem::redacted_message());
             }
+
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content);
             }
+
             TimelineEventKind::RoomMember { user_id, content, sender } => {
                 self.add(NewEventTimelineItem::room_member(user_id, content, sender));
             }
+
             TimelineEventKind::OtherState { state_key, content } => {
                 self.add(NewEventTimelineItem::other_state(state_key, content));
             }
+
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
                 self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
             }
+
             TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
                 self.add(NewEventTimelineItem::failed_to_parse_state(event_type, state_key, error));
             }
@@ -488,6 +497,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         }
     }
 
+    /// Add a new event item in the timeline.
     fn add(&mut self, item: NewEventTimelineItem) {
         self.result.item_added = true;
 
@@ -500,6 +510,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             match &self.flow {
                 Flow::Local { txn_id, timestamp } => {
                     EventTimelineItem::Local(LocalEventTimelineItem {
+                        send_state: LocalEventTimelineItemSendState::NotSentYet,
                         transaction_id: txn_id.to_owned(),
                         event_id: None,
                         sender,
