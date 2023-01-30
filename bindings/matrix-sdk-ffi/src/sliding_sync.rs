@@ -367,6 +367,36 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
     }
 }
 
+impl From<SyncRequestListFilters> for SlidingSyncRequestListFilters {
+    fn from(value: SyncRequestListFilters) -> Self {
+        let SyncRequestListFilters {
+            is_dm,
+            spaces,
+            is_encrypted,
+            is_invite,
+            is_tombstoned,
+            room_types,
+            not_room_types,
+            room_name_like,
+            tags,
+            not_tags,
+            ..
+        } = value;
+        SlidingSyncRequestListFilters {
+            is_dm,
+            spaces,
+            is_encrypted,
+            is_invite,
+            is_tombstoned,
+            room_types,
+            not_room_types,
+            room_name_like,
+            tags,
+            not_tags,
+        }
+    }
+}
+
 impl SlidingSyncViewBuilder {
     pub fn new() -> Self {
         Default::default()
@@ -567,12 +597,24 @@ impl SlidingSyncView {
         self.inner.add_range(start, end);
     }
 
+    /// Reset the ranges
     pub fn reset_ranges(&self) {
         self.inner.reset_ranges();
     }
 
+    /// The total of rooms applying to the filters
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
+    }
+
+    /// The current filters
+    pub fn filters(&self) -> Option<SlidingSyncRequestListFilters> {
+        self.inner.filters().map(Into::into)
+    }
+
+    /// The current filters
+    pub fn update_filters(&self, filters: SlidingSyncRequestListFilters) {
+        self.inner.update_filters(Some(filters.into()))
     }
 }
 

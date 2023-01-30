@@ -1037,8 +1037,8 @@ pub struct SlidingSyncView {
     limit: Option<u32>,
 
     /// Any filters to apply to the query
-    #[builder(default)]
-    filters: Option<v4::SyncRequestListFilters>,
+    #[builder(setter(name = "filters_raw"), private, default)]
+    filters: Mutable<Option<v4::SyncRequestListFilters>>,
 
     /// The maximum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
@@ -1199,6 +1199,12 @@ impl SlidingSyncViewBuilder {
         self.timeline_limit = None;
         self
     }
+
+    /// Update the filters
+    pub fn filters(mut self, filters: Option<v4::SyncRequestListFilters>) -> Self {
+        self.filters = Some(Mutable::new(filters));
+        self
+    }
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
@@ -1266,7 +1272,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
         let timeline_limit = self.view.timeline_limit;
-        let filters = self.view.filters.clone();
+        let filters = self.view.filters.get_cloned();
 
         (
             assign!(v4::SyncRequestList::default(), {
@@ -1654,6 +1660,19 @@ impl SlidingSyncView {
         self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
+    /// The current filters
+    pub fn filters(&self) -> Option<v4::SyncRequestListFilters> {
+        self.filters.get_cloned()
+    }
+
+    /// The current filters
+    pub fn update_filters(&self, new_filters: Option<v4::SyncRequestListFilters>) {
+        self.filters.set(new_filters)
+    }
+}
+
+// private interfaces
+impl SlidingSyncView {
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
     fn handle_response(
         &self,
