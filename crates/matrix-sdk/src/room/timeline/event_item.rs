@@ -497,8 +497,8 @@ pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
 /// A group of reaction events on the same event with the same key.
 ///
-/// This is a map of the timeline key of the reaction to the ID of the sender of
-/// the reaction.
+/// This is a map of the event ID or transaction ID of the reactions to the ID
+/// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
 pub struct ReactionGroup(
     pub(super) IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>,
