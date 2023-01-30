@@ -31,7 +31,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_id, find_event_by_txn_id, EventTimelineItem, Profile, TimelineItem,
+    rfind_event_item, EventTimelineItem, Profile, TimelineItem,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -163,7 +163,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     /// server, so the sending has failed. If the event ID is `Some(_)`, it
     /// means the sending has been successful.
     ///
-    /// If no local event is found, a warning is raised.   
+    /// If no local event is found, a warning is raised.
     pub(super) fn update_event_id_of_local_event(
         &self,
         txn_id: &TransactionId,
@@ -171,31 +171,34 @@ impl<P: ProfileProvider> TimelineInner<P> {
     ) {
         let mut lock = self.items.lock_mut();
 
-        // Look for the local event by the transaction ID.
-        if let Some((idx, local_event_item)) = find_event_by_txn_id(&lock, txn_id) {
-            // An event ID already exists, that's a broken state, let's emit an error but
-            // also override to the given event ID.
-            if let Some(existing_event_id) = &local_event_item.event_id {
-                error!(
-                    ?existing_event_id, new_event_id = ?event_id, ?txn_id,
-                    "Local echo already has an event ID"
-                );
-            }
+        // Look for the local event by the transaction ID or event ID.
+        let result = rfind_event_item(&lock, |it| {
+            it.transaction_id() == Some(txn_id)
+                || event_id.is_some() && it.event_id() == event_id.as_deref()
+        });
 
-            lock.set_cloned(
-                idx,
-                Arc::new(TimelineItem::Event(local_event_item.with_event_id(event_id).into())),
+        let Some((idx, item)) = result else {
+            // Event isn't found at all.
+            warn!(?txn_id, "Timeline item not found, can't add event ID");
+            return;
+        };
+
+        let EventTimelineItem::Local(item) = item else {
+            // Remote echo already received. This is very unlikely.
+            trace!(?txn_id, "Remote echo received before send-event response");
+            return;
+        };
+
+        // An event ID already exists, that's a broken state, let's emit an
+        // error but also override to the given event ID.
+        if let Some(existing_event_id) = &item.event_id {
+            error!(
+                ?existing_event_id, new_event_id = ?event_id, ?txn_id,
+                "Local echo already has an event ID"
             );
         }
-        // No local event has been found.
-        else if let Some(event_id) = event_id {
-            if find_event_by_id(&lock, &event_id).is_none() {
-                // Event isn't found by transaction ID, and also not by event ID
-                // (which it would if the remote echo comes in before the send-event
-                // response)
-                warn!(?txn_id, "Timeline item not found, can't add event ID");
-            }
-        }
+
+        lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(event_id).into())));
     }
 
     /// Handle a back-paginated event.

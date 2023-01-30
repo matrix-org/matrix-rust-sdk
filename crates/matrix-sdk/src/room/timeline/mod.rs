@@ -47,11 +47,6 @@ mod tests;
 mod to_device;
 mod virtual_item;
 
-use self::{
-    event_item::LocalEventTimelineItem,
-    inner::{TimelineInner, TimelineInnerMetadata},
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem,
@@ -61,6 +56,10 @@ pub use self::{
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
+};
+use self::{
+    inner::{TimelineInner, TimelineInnerMetadata},
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
 /// A high-level view into a regular¹ room's contents.
@@ -438,29 +437,22 @@ impl TimelineItem {
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
-fn find_event_by_id<'a>(
-    items: &'a [Arc<TimelineItem>],
-    event_id: &EventId,
-) -> Option<(usize, &'a EventTimelineItem)> {
+fn rfind_event_item(
+    items: &[Arc<TimelineItem>],
+    mut f: impl FnMut(&EventTimelineItem) -> bool,
+) -> Option<(usize, &EventTimelineItem)> {
     items
         .iter()
         .enumerate()
         .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| it.event_id() == Some(event_id))
+        .rfind(|(_, it)| f(it))
 }
 
-fn find_event_by_txn_id<'a>(
+fn rfind_event_by_id<'a>(
     items: &'a [Arc<TimelineItem>],
-    txn_id: &TransactionId,
-) -> Option<(usize, &'a LocalEventTimelineItem)> {
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, event_item)| match event_item.as_event()? {
-            EventTimelineItem::Local(local_event_item) => Some((idx, local_event_item)),
-            _ => None,
-        })
-        .rfind(|(_, local_event_item)| local_event_item.transaction_id == txn_id)
+    event_id: &EventId,
+) -> Option<(usize, &'a EventTimelineItem)> {
+    rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
 fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
