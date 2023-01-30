@@ -394,11 +394,12 @@ async fn remote_echo_full_trip() {
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
     {
-        let event_id = None;
+        timeline.inner.update_event_send_state(&txn_id, EventSendState::SendingFailed);
 
-        timeline.inner.update_event_id_of_local_event(&txn_id, event_id);
-
-        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let item = assert_matches!(
+            stream.next().await,
+            Some(VecDiff::UpdateAt { value, index: 1 }) => value
+        );
         let event = item.as_event().unwrap().as_local().unwrap();
         assert_eq!(event.send_state, EventSendState::SendingFailed);
     }
@@ -408,11 +409,17 @@ async fn remote_echo_full_trip() {
     let event_id = {
         let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
 
-        timeline.inner.update_event_id_of_local_event(&txn_id, Some(event_id.to_owned()));
+        timeline.inner.update_event_send_state(
+            &txn_id,
+            EventSendState::Sent { event_id: event_id.to_owned() },
+        );
 
-        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let item = assert_matches!(
+            stream.next().await,
+            Some(VecDiff::UpdateAt { value, index: 1 }) => value
+        );
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, EventSendState::Sent);
+        assert_matches!(event.send_state, EventSendState::Sent { .. });
 
         event_id
     };

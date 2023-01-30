@@ -20,10 +20,10 @@ use ruma::{
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, field::debug, info, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -32,7 +32,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    rfind_event_item, EventTimelineItem, Profile, TimelineItem,
+    rfind_event_item, EventSendState, EventTimelineItem, Profile, TimelineItem,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -160,36 +160,40 @@ impl<P: ProfileProvider> TimelineInner<P> {
     ) -> crate::error::Result<()> {
         match response {
             Ok(response) => {
-                self.update_event_id_of_local_event(txn_id, Some(response.event_id));
+                self.update_event_send_state(
+                    txn_id,
+                    EventSendState::Sent { event_id: response.event_id },
+                );
 
                 Ok(())
             }
             Err(error) => {
-                self.update_event_id_of_local_event(txn_id, None);
+                self.update_event_send_state(txn_id, EventSendState::SendingFailed);
 
                 Err(error)
             }
         }
     }
 
-    /// Update the event ID of a local event represented by a transaction ID.
-    ///
-    /// If the event ID is `None`, it means there is no event ID returned by the
-    /// server, so the sending has failed. If the event ID is `Some(_)`, it
-    /// means the sending has been successful.
+    /// Update the send state of a local event represented by a transaction ID.
     ///
     /// If no local event is found, a warning is raised.
-    pub(super) fn update_event_id_of_local_event(
+    pub(super) fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
-        event_id: Option<OwnedEventId>,
+        send_state: EventSendState,
     ) {
         let mut lock = self.items.lock_mut();
+
+        let new_event_id: Option<&EventId> = match &send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
+        };
 
         // Look for the local event by the transaction ID or event ID.
         let result = rfind_event_item(&lock, |it| {
             it.transaction_id() == Some(txn_id)
-                || event_id.is_some() && it.event_id() == event_id.as_deref()
+                || new_event_id.is_some() && it.event_id() == new_event_id
         });
 
         let Some((idx, item)) = result else {
@@ -204,16 +208,15 @@ impl<P: ProfileProvider> TimelineInner<P> {
             return;
         };
 
-        // An event ID already exists, that's a broken state, let's emit an
-        // error but also override to the given event ID.
-        if let Some(existing_event_id) = &item.event_id {
-            error!(
-                ?existing_event_id, new_event_id = ?event_id, ?txn_id,
-                "Local echo already has an event ID"
-            );
+        // The event was already marked as sent, that's a broken state, let's
+        // emit an error but also override to the given sent state.
+        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+            let new_event_id = new_event_id.map(debug);
+            error!(?existing_event_id, ?new_event_id, ?txn_id, "Local echo already marked as sent");
         }
 
-        lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(event_id).into())));
+        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        lock.set_cloned(idx, Arc::new(new_item));
     }
 
     /// Handle a back-paginated event.

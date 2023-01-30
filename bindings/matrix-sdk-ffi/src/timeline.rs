@@ -179,17 +179,17 @@ pub enum EventSendState {
     /// sending has failed.
     SendingFailed,
     /// The local event has been sent successfully to the server.
-    Sent,
+    Sent { event_id: String },
 }
 
-impl From<matrix_sdk::room::timeline::EventSendState> for EventSendState {
-    fn from(value: matrix_sdk::room::timeline::EventSendState) -> Self {
+impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
+    fn from(value: &matrix_sdk::room::timeline::EventSendState) -> Self {
         use matrix_sdk::room::timeline::EventSendState::*;
 
         match value {
             NotSentYet => Self::NotSendYet,
             SendingFailed => Self::SendingFailed,
-            Sent => Self::Sent,
+            Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }
 }
@@ -269,7 +269,7 @@ impl EventTimelineItem {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
-            Local(local_event) => Some(local_event.send_state.into()),
+            Local(local_event) => Some((&local_event.send_state).into()),
             Remote(_) => None,
         }
     }

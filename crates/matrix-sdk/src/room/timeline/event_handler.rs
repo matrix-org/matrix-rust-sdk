@@ -535,7 +535,6 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     EventTimelineItem::Local(LocalEventTimelineItem {
                         send_state: EventSendState::NotSentYet,
                         transaction_id: txn_id.to_owned(),
-                        event_id: None,
                         sender,
                         sender_profile,
                         timestamp: *timestamp,
