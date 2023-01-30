@@ -28,6 +28,7 @@ use ruma::{
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
     EventId, MilliSecondsSinceUnixEpoch, TransactionId,
 };
+use thiserror::Error;
 use tracing::{error, instrument, warn};
 
 use super::Joined;
@@ -50,9 +51,9 @@ mod virtual_item;
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventTimelineItem,
-        LocalEventTimelineItemSendState, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionGroup, RoomMembershipChange, Sticker, TimelineDetails,
-        TimelineItemContent,
+        InReplyToDetails, LocalEventTimelineItemSendState, MemberProfileChange, MembershipChange,
+        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
@@ -386,6 +387,44 @@ impl Timeline {
         let response = room.send(content, Some(&txn_id)).await;
         self.inner.handle_local_event_send_response(&txn_id, response)
     }
+
+    /// Fetch unavailable details about the event with the given ID.
+    ///
+    /// This method tries to make all the requests it can. If an error is
+    /// encountered for a given request, it is forwarded with the
+    /// [`TimelineDetails::Error`] variant.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - The transaction ID of the event to fetch details for, if
+    ///   any.
+    ///
+    /// * `event_id` - The event ID of the event to fetch details for, if any.
+    ///
+    /// At least one of those two arguments should be `Some(_)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the identifiers don't match any event in the
+    /// timeline, or if the event is removed from the timeline before all
+    /// requests are handled.
+    #[instrument(fields(room_id = ?self.room().room_id()))]
+    pub async fn fetch_event_details(
+        &self,
+        txn_id: Option<&TransactionId>,
+        event_id: Option<&EventId>,
+    ) -> Result<()> {
+        let (index, item) = rfind_event_item(&self.inner.items(), |it| {
+            txn_id.is_some() && it.transaction_id() == txn_id
+                || event_id.is_some() && it.event_id() == event_id
+        })
+        .map(|(pos, item)| (pos, item.clone()))
+        .ok_or(Error::EventNotInTimeline)?;
+
+        self.inner.fetch_in_reply_to_details(index, item).await?;
+
+        Ok(())
+    }
 }
 
 /// A single entry in timeline.
@@ -469,4 +508,17 @@ fn rfind_event_by_id<'a>(
 
 fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
     items.iter().rposition(|item| item.is_read_marker())
+}
+
+/// Errors specific to the timeline.
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// The requested event is not in the timeline.
+    #[error("Event not found in timeline")]
+    EventNotInTimeline,
+
+    /// The event is currently unsupported for this use case.
+    #[error("Unsupported event")]
+    UnsupportedEvent,
 }
