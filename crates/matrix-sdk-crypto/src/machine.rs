@@ -1137,7 +1137,7 @@ impl OlmMachine {
                     )
                 }
             } else {
-                // The device is not confirmed of beeing owner of that key
+                // The device is not confirmed of being creator of that key
                 (VerificationState::UnsafeSource, Some(device.device_id().to_owned()))
             }
         } else {
