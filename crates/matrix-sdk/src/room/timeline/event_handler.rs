@@ -65,22 +65,6 @@ pub(super) enum Flow {
     },
 }
 
-impl Flow {
-    fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
-        match self {
-            Flow::Local { timestamp, .. } => *timestamp,
-            Flow::Remote { origin_server_ts, .. } => *origin_server_ts,
-        }
-    }
-
-    fn raw_event(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
-        match self {
-            Flow::Local { .. } => None,
-            Flow::Remote { raw_event, .. } => Some(raw_event),
-        }
-    }
-}
-
 pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Profile,
