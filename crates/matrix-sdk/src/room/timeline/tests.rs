@@ -826,7 +826,7 @@ impl TestTimeline {
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = json! ({
+        let ev = json!({
             "type": "m.room.redaction",
             "content": {},
             "redacts": redacts,
