@@ -13,6 +13,7 @@ use matrix_sdk_base::{
     locks::Mutex,
 };
 use ruma::{
+    api::client::message::send_message_event::v3::Response as SendMessageEventResponse,
     events::{
         fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
         AnySyncTimelineEvent,
@@ -109,6 +110,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         .await;
     }
 
+    /// Handle the creation of a new local event.
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
@@ -134,6 +136,68 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .handle_event(kind);
     }
 
+    /// Handle the response returned by the server when a local event has been
+    /// sent.
+    pub(super) fn handle_local_event_send_response(
+        &self,
+        txn_id: &TransactionId,
+        response: crate::error::Result<SendMessageEventResponse>,
+    ) -> crate::error::Result<()> {
+        match response {
+            Ok(response) => {
+                self.update_event_id_of_local_event(txn_id, Some(response.event_id));
+
+                Ok(())
+            }
+            Err(error) => {
+                self.update_event_id_of_local_event(txn_id, None);
+
+                Err(error)
+            }
+        }
+    }
+
+    /// Update the event ID of a local event represented by a transaction ID.
+    ///
+    /// If the event ID is `None`, it means there is no event ID returned by the
+    /// server, so the sending has failed. If the event ID is `Some(_)`, it
+    /// means the sending has been successful.
+    ///
+    /// If no local event is found, a warning is raised.   
+    pub(super) fn update_event_id_of_local_event(
+        &self,
+        txn_id: &TransactionId,
+        event_id: Option<OwnedEventId>,
+    ) {
+        let mut lock = self.items.lock_mut();
+
+        // Look for the local event by the transaction ID.
+        if let Some((idx, local_event_item)) = find_event_by_txn_id(&lock, txn_id) {
+            // An event ID already exists, that's a broken state, let's emit an error but
+            // also override to the given event ID.
+            if let Some(existing_event_id) = &local_event_item.event_id {
+                error!(
+                    ?existing_event_id, new_event_id = ?event_id, ?txn_id,
+                    "Local echo already has an event ID"
+                );
+            }
+
+            lock.set_cloned(
+                idx,
+                Arc::new(TimelineItem::Event(local_event_item.with_event_id(event_id).into())),
+            );
+        }
+        // No local event has been found.
+        else if let Some(event_id) = event_id {
+            if find_event_by_id(&lock, &event_id).is_none() {
+                // Event isn't found by transaction ID, and also not by event ID
+                // (which it would if the remote echo comes in before the send-event
+                // response)
+                warn!(?txn_id, "Timeline item not found, can't add event ID");
+            }
+        }
+    }
+
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
@@ -151,29 +215,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
             &self.profile_provider,
         )
         .await
-    }
-
-    /// Update the transaction ID by an event ID.
-    pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
-        let mut lock = self.items.lock_mut();
-        if let Some((idx, local_event_item)) = find_event_by_txn_id(&lock, txn_id) {
-            if let Some(existing_event_id) = &local_event_item.event_id {
-                error!(
-                    ?existing_event_id, new_event_id = ?event_id, ?txn_id,
-                    "Local echo already has an event ID"
-                );
-            }
-
-            lock.set_cloned(
-                idx,
-                Arc::new(TimelineItem::Event(local_event_item.with_event_id(event_id).into())),
-            );
-        } else if find_event_by_id(&lock, &event_id).is_none() {
-            // Event isn't found by transaction ID, and also not by event ID
-            // (which it would if the remote echo comes in before the send-event
-            // response)
-            warn!(?txn_id, "Timeline item not found, can't add event ID");
-        }
     }
 
     #[instrument(skip_all)]

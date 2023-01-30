@@ -58,6 +58,7 @@ use super::{
     EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
+use crate::room::timeline::event_item::LocalEventTimelineItemSendState;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -370,7 +371,7 @@ async fn invalid_event() {
 }
 
 #[async_test]
-async fn remote_echo_without_txn_id() {
+async fn remote_echo_full_trip() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
@@ -383,18 +384,41 @@ async fn remote_echo_without_txn_id() {
 
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Local(_));
+    // Scenario 1: The local event has not been sent yet to the server.
+    {
+        let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+        let event = item.as_event().unwrap().as_local().unwrap();
+        assert_eq!(event.send_state, LocalEventTimelineItemSendState::NotSentYet);
+    }
 
-    // That has an event ID assigned already (from the response to sending it)…
-    let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
-    timeline.inner.add_event_id(&txn_id, event_id.to_owned());
+    // Scenario 2: The local event has not been sent to the server successfully, it
+    // has failed. In this case, there is no event ID.
+    {
+        let event_id = None;
 
-    let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
-    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Local(_));
+        timeline.inner.update_event_id_of_local_event(&txn_id, event_id);
 
-    // When an event with the same ID comes in…
+        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let event = item.as_event().unwrap().as_local().unwrap();
+        assert_eq!(event.send_state, LocalEventTimelineItemSendState::SendingFailed);
+    }
+
+    // Scenario 3: The local event has been sent successfully to the server and an
+    // event ID has been received as part of the server's response.
+    let event_id = {
+        let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
+
+        timeline.inner.update_event_id_of_local_event(&txn_id, Some(event_id.to_owned()));
+
+        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let event = item.as_event().unwrap().as_local().unwrap();
+        assert_eq!(event.send_state, LocalEventTimelineItemSendState::Sent);
+
+        event_id
+    };
+
+    // Now, a sync has been run against the server, and an event with the same ID
+    // comes in.
     timeline
         .handle_live_custom_event(json!({
             "content": {
@@ -410,6 +434,7 @@ async fn remote_echo_without_txn_id() {
 
     // The local echo is removed
     assert_matches!(stream.next().await, Some(VecDiff::Pop { .. }));
+
     // This day divider shouldn't be present, or the previous one should be
     // removed. There being a two day dividers in a row is a bug, but it's
     // non-trivial to fix and rare enough that we can fix it later (only happens

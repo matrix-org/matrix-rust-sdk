@@ -54,9 +54,10 @@ use self::{
 };
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, MemberProfileChange,
-        MembershipChange, Message, OtherState, Profile, ReactionDetails, RoomMembershipChange,
-        Sticker, TimelineDetails, TimelineItemContent,
+        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem,
+        LocalEventTimelineItemSendState, MemberProfileChange, MembershipChange, Message,
+        OtherState, Profile, ReactionDetails, RoomMembershipChange, Sticker, TimelineDetails,
+        TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
@@ -371,10 +372,8 @@ impl Timeline {
         // Not ideal, but works for now.
         let room = Joined { inner: self.room().clone() };
 
-        let response = room.send(content, Some(&txn_id)).await?;
-        self.inner.add_event_id(&txn_id, response.event_id);
-
-        Ok(())
+        let response = room.send(content, Some(&txn_id)).await;
+        self.inner.handle_local_event_send_response(&txn_id, response)
     }
 }
 

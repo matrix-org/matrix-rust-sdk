@@ -180,8 +180,22 @@ impl EventTimelineItem {
     }
 }
 
-#[derive(Clone, Debug)]
+/// This type represents the “send state” of a local event timeline item.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum LocalEventTimelineItemSendState {
+    /// The local event has not been sent yet.
+    NotSentYet,
+    /// The local event has been sent to the server, but unsuccessfully: The
+    /// sending has failed.
+    SendingFailed,
+    /// The local event has been sent successfully to the server.
+    Sent,
+}
+
+#[derive(Debug, Clone)]
 pub struct LocalEventTimelineItem {
+    /// The send state of this local event.
+    pub send_state: LocalEventTimelineItemSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
     /// The event ID received from the server in the event-sending response.
@@ -198,8 +212,23 @@ pub struct LocalEventTimelineItem {
 
 impl LocalEventTimelineItem {
     /// Clone the current event item, and update its `event_id`.
-    pub(super) fn with_event_id(&self, event_id: OwnedEventId) -> Self {
-        Self { event_id: Some(event_id), ..self.clone() }
+    ///
+    /// `event_id` is optional:
+    ///   * `Some(_)` means the local event has been sent successfully to the
+    ///     server, its send state will be moved to
+    ///     [`LocalEventTimelineItemSendState::Sent`].
+    ///   * `None` means the local event has been failed to be sent to the
+    ///     server, its send state will be moved to
+    ///     [`LocalEventTimelineItemSendState::SendingFailed`].
+    pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
+        Self {
+            send_state: match &event_id {
+                Some(_) => LocalEventTimelineItemSendState::Sent,
+                None => LocalEventTimelineItemSendState::SendingFailed,
+            },
+            event_id,
+            ..self.clone()
+        }
     }
 }
 
