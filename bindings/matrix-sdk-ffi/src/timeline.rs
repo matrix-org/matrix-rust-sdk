@@ -170,6 +170,32 @@ impl TimelineItem {
     }
 }
 
+/// This type represents the “send state” of a local event timeline item.
+#[derive(Clone, uniffi::Enum)]
+pub enum LocalEventTimelineItemSendState {
+    /// The local event has not been sent yet.
+    NotSendYet,
+    /// The local event has been sent to the server, but unsuccessfully: The
+    /// sending has failed.
+    SendingFailed,
+    /// The local event has been sent successfully to the server.
+    Sent,
+}
+
+impl From<matrix_sdk::room::timeline::LocalEventTimelineItemSendState>
+    for LocalEventTimelineItemSendState
+{
+    fn from(value: matrix_sdk::room::timeline::LocalEventTimelineItemSendState) -> Self {
+        use matrix_sdk::room::timeline::LocalEventTimelineItemSendState::*;
+
+        match value {
+            NotSentYet => Self::NotSendYet,
+            SendingFailed => Self::SendingFailed,
+            Sent => Self::Sent,
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
 
@@ -232,6 +258,15 @@ impl EventTimelineItem {
 
     pub fn raw(&self) -> Option<String> {
         self.0.raw().map(|r| r.json().get().to_owned())
+    }
+
+    pub fn local_send_state(&self) -> Option<LocalEventTimelineItemSendState> {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        match &self.0 {
+            Local(local_event) => Some(local_event.send_state.into()),
+            Remote(_) => None,
+        }
     }
 
     pub fn fmt_debug(&self) -> String {
