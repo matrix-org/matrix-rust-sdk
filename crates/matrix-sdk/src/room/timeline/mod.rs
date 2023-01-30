@@ -47,18 +47,19 @@ mod tests;
 mod to_device;
 mod virtual_item;
 
+use self::{
+    event_item::LocalEventTimelineItem,
+    inner::{TimelineInner, TimelineInnerMetadata},
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
+};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, MemberProfileChange,
         MembershipChange, Message, OtherState, Profile, ReactionDetails, RoomMembershipChange,
-        Sticker, TimelineDetails, TimelineItemContent, TimelineKey,
+        Sticker, TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
-};
-use self::{
-    inner::{TimelineInner, TimelineInnerMetadata},
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
 /// A high-level view into a regular¹ room's contents.
@@ -452,12 +453,15 @@ fn find_event_by_id<'a>(
 fn find_event_by_txn_id<'a>(
     items: &'a [Arc<TimelineItem>],
     txn_id: &TransactionId,
-) -> Option<(usize, &'a EventTimelineItem)> {
+) -> Option<(usize, &'a LocalEventTimelineItem)> {
     items
         .iter()
         .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| it.key == *txn_id)
+        .filter_map(|(idx, event_item)| match event_item.as_event()? {
+            EventTimelineItem::Local(local_event_item) => Some((idx, local_event_item)),
+            _ => None,
+        })
+        .rfind(|(_, local_event_item)| local_event_item.transaction_id == txn_id)
 }
 
 fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {

@@ -175,8 +175,16 @@ pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelin
 
 #[uniffi::export]
 impl EventTimelineItem {
-    pub fn key(&self) -> TimelineKey {
-        self.0.key().into()
+    pub fn is_local(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Local(_))
+    }
+
+    pub fn is_remote(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Remote(_))
     }
 
     pub fn event_id(&self) -> Option<String> {
@@ -207,12 +215,19 @@ impl EventTimelineItem {
         self.0.timestamp().0.into()
     }
 
-    pub fn reactions(&self) -> Vec<Reaction> {
-        self.0
-            .reactions()
-            .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
-            .collect()
+    pub fn reactions(&self) -> Option<Vec<Reaction>> {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        match &self.0 {
+            Local(_) => None,
+            Remote(remote_event_item) => Some(
+                remote_event_item
+                    .reactions()
+                    .iter()
+                    .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
+                    .collect(),
+            ),
+        }
     }
 
     pub fn raw(&self) -> Option<String> {
@@ -631,27 +646,8 @@ pub struct Reaction {
 
 #[derive(Clone)]
 pub struct ReactionDetails {
-    pub id: TimelineKey,
+    pub id: String,
     pub sender: String,
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum TimelineKey {
-    TransactionId { txn_id: String },
-    EventId { event_id: String },
-}
-
-impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
-    fn from(timeline_key: &matrix_sdk::room::timeline::TimelineKey) -> Self {
-        use matrix_sdk::room::timeline::TimelineKey::*;
-
-        match timeline_key {
-            TransactionId { txn_id, .. } => {
-                TimelineKey::TransactionId { txn_id: txn_id.to_string() }
-            }
-            EventId(event_id) => TimelineKey::EventId { event_id: event_id.to_string() },
-        }
-    }
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
