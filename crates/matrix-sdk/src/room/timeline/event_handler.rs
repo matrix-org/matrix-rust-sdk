@@ -46,7 +46,7 @@ use super::{
         LocalEventTimelineItemSendState, MemberProfileChange, OtherState, Profile,
         RemoteEventTimelineItem, RoomMembershipChange, Sticker, TimelineDetails,
     },
-    find_event_by_id, find_event_by_txn_id, find_read_marker, EventTimelineItem, Message,
+    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, Message,
     TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
@@ -599,45 +599,44 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 origin_server_ts,
                 ..
             } => {
-                if let Some(txn_id) = txn_id {
-                    if let Some((idx, _old_item)) =
-                        find_event_by_txn_id(self.timeline_items, txn_id)
-                    {
-                        // TODO: Check whether anything is different about the
-                        //       old and new item?
-                        // Remove local echo, remote echo will be added below
-                        self.timeline_items.remove(idx);
-                    } else {
-                        warn!(
-                            "Received event with transaction ID, but didn't \
-                             find matching timeline item"
-                        );
-                    }
-                } else if let Some((idx, _old_item)) =
-                    find_local_echo_by_event_id(self.timeline_items, event_id)
-                {
-                    // This occurs very often right now due to a sliding-sync
-                    // bug: https://github.com/matrix-org/sliding-sync/issues/3
-                    // TODO: Remove this branch once the bug is fixed?
-                    trace!("Received remote echo without transaction ID");
-                    self.timeline_items.remove(idx);
-                } else if let Some((idx, old_item)) =
-                    find_event_by_id(self.timeline_items, event_id)
-                {
-                    // TODO: Remove for better performance? Doing another scan
-                    // over all the items if the event is not a remote echo is
-                    // slow.
-                    warn!(
-                        ?item,
-                        ?old_item,
-                        "Received event with an ID we already have a timeline item for"
-                    );
+                let result = rfind_event_item(self.timeline_items, |it| {
+                    txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
+                        || it.event_id() == Some(event_id)
+                });
 
-                    // With /messages and /sync sometimes disagreeing on order
-                    // of messages, we might want to change the position in some
-                    // circumstances, but for now this should be good enough.
-                    self.timeline_items.set_cloned(idx, item);
-                    return;
+                if let Some((idx, old_item)) = result {
+                    if let EventTimelineItem::Remote(old_item) = old_item {
+                        // Item was previously received by the server. Until we
+                        // implement forwards pagination, this indicates a bug
+                        // somewhere.
+                        warn!(?item, ?old_item, "Received duplicate event");
+
+                        // With /messages and /sync sometimes disagreeing on
+                        // order of messages, we might want to change the
+                        // position in some circumstances, but for now this
+                        // should be good enough.
+                        self.timeline_items.set_cloned(idx, item);
+                        return;
+                    };
+
+                    if txn_id.is_none() {
+                        // The event was created by this client, but the server
+                        // sent it back without a transaction ID. This occurs
+                        // very often right now due to a sliding-sync bug:
+                        // https://github.com/matrix-org/sliding-sync/issues/3
+                        // TODO: Raise log level once that bug is fixed
+                        trace!("Received remote echo without transaction ID");
+                    }
+
+                    // Remove local echo, remote echo will be added below
+                    // TODO: Check whether anything is different about the
+                    //       old and new item?
+                    self.timeline_items.remove(idx);
+                } else if txn_id.is_some() {
+                    warn!(
+                        "Received event with transaction ID, but didn't \
+                         find matching timeline item"
+                    );
                 }
 
                 // Check if the latest event has the same date as this event.
@@ -684,7 +683,7 @@ pub(crate) fn update_read_marker(
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
     let read_marker_idx = find_read_marker(items_lock);
-    let fully_read_event_idx = find_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
+    let fully_read_event_idx = rfind_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
 
     match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
@@ -715,7 +714,7 @@ fn _update_timeline_item(
     action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
 ) {
-    if let Some((idx, item)) = find_event_by_id(timeline_items, event_id) {
+    if let Some((idx, item)) = rfind_event_by_id(timeline_items, event_id) {
         if let Some(new_item) = update(item) {
             timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(new_item)));
             *items_updated += 1;
@@ -723,20 +722,6 @@ fn _update_timeline_item(
     } else {
         debug!("Timeline item not found, discarding {action}");
     }
-}
-
-fn find_local_echo_by_event_id<'a>(
-    items: &'a [Arc<TimelineItem>],
-    event_id: &EventId,
-) -> Option<(usize, &'a LocalEventTimelineItem)> {
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, event_item)| match event_item.as_event()? {
-            EventTimelineItem::Local(local_event_item) => Some((idx, local_event_item)),
-            _ => None,
-        })
-        .rfind(|(_, local_event_item)| local_event_item.event_id.as_deref() == Some(event_id))
 }
 
 /// Converts a timestamp since Unix Epoch to a local date and time.

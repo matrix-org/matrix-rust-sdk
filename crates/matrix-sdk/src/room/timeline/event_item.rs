@@ -50,7 +50,7 @@ use ruma::{
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedTransactionId, OwnedUserId, UInt, UserId,
+    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -81,6 +81,19 @@ impl EventTimelineItem {
         match self {
             Self::Local(_) => None,
             Self::Remote(remote_event_item) => Some(remote_event_item),
+        }
+    }
+
+    /// Get the transaction ID of this item.
+    ///
+    /// The transaction ID is only kept until the remote echo for a local event
+    /// is received, at which point the `EventTimelineItem::Local` is
+    /// transformed to `EventTimelineItem::Remote` and the transaction ID
+    /// discarded.
+    pub fn transaction_id(&self) -> Option<&TransactionId> {
+        match self {
+            Self::Local(local) => Some(&local.transaction_id),
+            Self::Remote(_) => None,
         }
     }
 
