@@ -512,32 +512,29 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         let item = {
             let sender = self.meta.sender.to_owned();
             let sender_profile = self.meta.sender_profile.clone();
-            let timestamp = self.flow.timestamp();
-            let encryption_info = self.meta.encryption_info.clone();
-            let raw = self.flow.raw_event().cloned();
 
             match &self.flow {
-                Flow::Local { txn_id, .. } => EventTimelineItem::Local(LocalEventTimelineItem {
-                    transaction_id: txn_id.to_owned(),
-                    event_id: None,
-                    sender,
-                    sender_profile,
-                    timestamp,
-                    content,
-                    encryption_info,
-                    raw,
-                }),
-                Flow::Remote { event_id, .. } => {
+                Flow::Local { txn_id, timestamp } => {
+                    EventTimelineItem::Local(LocalEventTimelineItem {
+                        transaction_id: txn_id.to_owned(),
+                        event_id: None,
+                        sender,
+                        sender_profile,
+                        timestamp: *timestamp,
+                        content,
+                    })
+                }
+                Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                     EventTimelineItem::Remote(RemoteEventTimelineItem {
                         event_id: event_id.clone(),
                         sender,
                         sender_profile,
-                        timestamp,
+                        timestamp: *origin_server_ts,
                         content,
                         reactions,
                         is_own: self.meta.is_own_event,
-                        encryption_info,
-                        raw,
+                        encryption_info: self.meta.encryption_info.clone(),
+                        raw: raw_event.clone(),
                     })
                 }
             }

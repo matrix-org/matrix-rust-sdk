@@ -161,9 +161,9 @@ impl EventTimelineItem {
     /// Returns `None` if this event hasn't been echoed back by the server
     /// yet.
     pub fn raw(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
-        match self {
-            Self::Local(local_event) => local_event.raw.as_ref(),
-            Self::Remote(remote_event) => remote_event.raw.as_ref(),
+        match &self {
+            Self::Local(local_event) => None,
+            Self::Remote(ref remote_event) => Some(&remote_event.raw),
         }
     }
 
@@ -194,10 +194,6 @@ pub struct LocalEventTimelineItem {
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
     pub content: TimelineItemContent,
-    /// Encryption information.
-    pub encryption_info: Option<EncryptionInfo>,
-    // FIXME: Expose the raw JSON of aggregated events somehow
-    pub raw: Option<Raw<AnySyncTimelineEvent>>,
 }
 
 impl LocalEventTimelineItem {
@@ -221,8 +217,6 @@ impl fmt::Debug for LocalEventTimelineItem {
             .field("sender", &self.sender)
             .field("timestamp", &self.timestamp)
             .field("content", &self.content)
-            .field("encryption_info", &self.encryption_info)
-            // skip raw, too noisy
             .finish_non_exhaustive()
     }
 }
@@ -246,7 +240,7 @@ pub struct RemoteEventTimelineItem {
     /// Encryption information.
     pub encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
-    pub raw: Option<Raw<AnySyncTimelineEvent>>,
+    pub raw: Raw<AnySyncTimelineEvent>,
 }
 
 impl RemoteEventTimelineItem {

@@ -258,11 +258,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
                             return None;
                         };
 
-                        let Some(raw) = raw else {
-                            error!("No raw event in unable-to-decrypt timeline item");
-                            return None;
-                        };
-
                         Some((
                             idx,
                             event_id.to_owned(),
