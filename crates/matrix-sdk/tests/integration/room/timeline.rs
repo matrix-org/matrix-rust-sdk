@@ -407,7 +407,7 @@ async fn reaction() {
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
-    let msg = assert_matches!(event_item.content, TimelineItemContent::Message(ref msg) => msg);
+    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
     let details = &event_item.reactions()["👍"];
