@@ -231,12 +231,11 @@ impl Account {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let profile = client.account().get_profile().await? {
-    ///     println!(
-    ///         "You are '{:?}' with avatar '{:?}'",
-    ///         profile.displayname, profile.avatar_url
-    ///     );
-    /// }
+    /// let profile = client.account().get_profile().await?;
+    /// println!(
+    ///     "You are '{:?}' with avatar '{:?}'",
+    ///     profile.displayname, profile.avatar_url
+    /// );
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {

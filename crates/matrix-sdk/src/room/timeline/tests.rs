@@ -37,10 +37,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            member::{
-                MembershipChange, MembershipState, RedactedRoomMemberEventContent,
-                RoomMemberEventContent,
-            },
+            member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
             message::{self, MessageType, RoomMessageEventContent},
             name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
@@ -57,8 +54,9 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage, Profile,
-    TimelineInner, TimelineItem, TimelineItemContent, TimelineKey, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, inner::ProfileProvider, EncryptedMessage,
+    EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
+    VirtualTimelineItem,
 };
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -72,26 +70,26 @@ async fn reaction_redaction() {
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let event = item.as_event().unwrap();
+    let event = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event.reactions().len(), 0);
 
-    let msg_event_id = event.event_id().unwrap();
+    let msg_event_id = &event.event_id;
 
     let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
-    let event = item.as_event().unwrap();
+    let event = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event.reactions().len(), 1);
 
     // TODO: After adding raw timeline items, check for one here
 
-    let reaction_event_id = event.event_id().unwrap();
+    let reaction_event_id = event.event_id.as_ref();
 
     timeline.handle_live_redaction(&BOB, reaction_event_id).await;
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
-    let event = item.as_event().unwrap();
+    let event = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event.reactions().len(), 0);
 }
 
@@ -103,11 +101,11 @@ async fn invalid_edit() {
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let event = item.as_event().unwrap();
+    let event = item.as_event().unwrap().as_remote().unwrap();
     let msg = event.content.as_message().unwrap();
     assert_eq!(msg.body(), "test");
 
-    let msg_event_id = event.event_id().unwrap();
+    let msg_event_id = &event.event_id;
 
     let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
@@ -238,7 +236,7 @@ async fn unable_to_decrypt() {
         .retry_event_decryption(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             &olm_machine,
-            iter::once(SESSION_ID).collect(),
+            Some(iter::once(SESSION_ID).collect()),
         )
         .await;
 
@@ -246,9 +244,9 @@ async fn unable_to_decrypt() {
 
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
-    let event = item.as_event().unwrap();
+    let event = item.as_event().unwrap().as_remote().unwrap();
     assert_matches!(&event.encryption_info, Some(_));
-    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
+    let text = assert_matches!(&event.content, TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
 }
 
@@ -273,11 +271,15 @@ async fn update_read_marker() {
     timeline.inner.set_fully_read_event(event_id.clone()).await;
     assert_matches!(stream.next().await, Some(VecDiff::Move { old_index: 2, new_index: 3 }));
 
+    // Nothing should happen if the fully read event is set back to the same event
+    // as before.
+    timeline.inner.set_fully_read_event(event_id.clone()).await;
+
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
 
-    // Nothing should happen if the fully read event is set back to the same event
-    // as before.
+    // Nothing should happen if the fully read event is referring to an old event
+    // that has already been marked as fully read.
     timeline.inner.set_fully_read_event(event_id).await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;
@@ -307,15 +309,12 @@ async fn invalid_event_content() {
 
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let event_item = item.as_event().unwrap();
-    assert_eq!(event_item.sender(), "@alice:example.org");
-    assert_eq!(
-        *event_item.key(),
-        TimelineKey::EventId(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned())
-    );
-    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
+    let event_item = item.as_event().unwrap().as_remote().unwrap();
+    assert_eq!(event_item.sender, "@alice:example.org");
+    assert_eq!(event_item.event_id, event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned());
+    assert_eq!(event_item.timestamp, MilliSecondsSinceUnixEpoch(uint!(10)));
     let event_type = assert_matches!(
-        event_item.content(),
+        &event_item.content,
         TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
     );
     assert_eq!(*event_type, MessageLikeEventType::RoomMessage);
@@ -334,15 +333,12 @@ async fn invalid_event_content() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let event_item = item.as_event().unwrap();
-    assert_eq!(event_item.sender(), "@alice:example.org");
-    assert_eq!(
-        *event_item.key(),
-        TimelineKey::EventId(event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned())
-    );
-    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
+    let event_item = item.as_event().unwrap().as_remote().unwrap();
+    assert_eq!(event_item.sender, "@alice:example.org");
+    assert_eq!(event_item.event_id, event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned());
+    assert_eq!(event_item.timestamp, MilliSecondsSinceUnixEpoch(uint!(2179)));
     let (event_type, state_key) = assert_matches!(
-        event_item.content(),
+        &event_item.content,
         TimelineItemContent::FailedToParseState {
             event_type,
             state_key,
@@ -350,7 +346,7 @@ async fn invalid_event_content() {
         } => (event_type, state_key)
     );
     assert_eq!(*event_type, StateEventType::RoomMember);
-    assert_eq!(*state_key, "@alice:example.org");
+    assert_eq!(state_key, "@alice:example.org");
 }
 
 #[async_test]
@@ -388,7 +384,7 @@ async fn remote_echo_without_txn_id() {
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Local(_));
 
     // That has an event ID assigned already (from the response to sending it)…
     let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
@@ -396,7 +392,7 @@ async fn remote_echo_without_txn_id() {
 
     let item =
         assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::TransactionId(_));
+    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Local(_));
 
     // When an event with the same ID comes in…
     timeline
@@ -422,7 +418,7 @@ async fn remote_echo_without_txn_id() {
 
     // … and the remote echo is added.
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
+    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Remote(_));
 }
 
 #[async_test]
@@ -440,11 +436,8 @@ async fn remote_echo_new_position() {
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let txn_id_from_event = assert_matches!(
-        item.as_event().unwrap().key(),
-        TimelineKey::TransactionId(txn_id) => txn_id
-    );
-    assert_eq!(txn_id, *txn_id_from_event);
+    let txn_id_from_event = item.as_event().unwrap().as_local().unwrap();
+    assert_eq!(txn_id, *txn_id_from_event.transaction_id);
 
     // … and another event that comes back before the remote echo
     timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;
@@ -473,7 +466,7 @@ async fn remote_echo_new_position() {
 
     // … and the remote echo added
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    assert_matches!(item.as_event().unwrap().key(), TimelineKey::EventId(_));
+    assert_matches!(item.as_event().unwrap(), EventTimelineItem::Remote(_));
 }
 
 #[async_test]
@@ -661,9 +654,9 @@ async fn room_member() {
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    assert_matches!(member.membership_change(), Some(MembershipChange::Invited));
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
     let mut second_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     second_room_member_content.displayname = Some("Alice".to_owned());
@@ -677,9 +670,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    assert_matches!(member.membership_change(), Some(MembershipChange::InvitationAccepted));
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
     let mut third_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     third_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
@@ -693,17 +686,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Original { .. });
-    let (display_name_change, avatar_url_change) = assert_matches!(
-        member.membership_change(),
-        Some(MembershipChange::ProfileChanged {
-            displayname_change,
-            avatar_url_change
-        }) => (displayname_change, avatar_url_change)
-    );
-    assert_matches!(display_name_change, Some(_));
-    assert_matches!(avatar_url_change, None);
+    let profile = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::ProfileChange(ev) => ev);
+    assert_matches!(profile.displayname_change(), Some(_));
+    assert_matches!(profile.avatar_url_change(), None);
 
     timeline
         .handle_live_redacted_state_event_with_state_key(
@@ -714,9 +699,9 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let member = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RoomMember(ev) => ev);
-    assert_matches!(member.content(), FullStateEventContent::Redacted(_));
-    assert_matches!(member.membership_change(), None);
+    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
+    assert_matches!(membership.change(), None);
 }
 
 struct TestTimeline {
