@@ -194,7 +194,7 @@ async fn echo() {
     assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
-    send_hdl.await.unwrap().unwrap();
+    send_hdl.await.unwrap();
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
