@@ -161,9 +161,9 @@ impl EventTimelineItem {
     /// Returns `None` if this event hasn't been echoed back by the server
     /// yet.
     pub fn raw(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
-        match &self {
+        match self {
             Self::Local(_local_event) => None,
-            Self::Remote(ref remote_event) => Some(&remote_event.raw),
+            Self::Remote(remote_event) => Some(&remote_event.raw),
         }
     }
 
