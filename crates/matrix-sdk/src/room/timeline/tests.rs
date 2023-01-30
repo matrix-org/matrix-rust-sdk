@@ -58,7 +58,7 @@ use super::{
     EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
-use crate::room::timeline::event_item::LocalEventTimelineItemSendState;
+use crate::room::timeline::event_item::EventSendState;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -388,7 +388,7 @@ async fn remote_echo_full_trip() {
     {
         let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::NotSentYet);
+        assert_eq!(event.send_state, EventSendState::NotSentYet);
     }
 
     // Scenario 2: The local event has not been sent to the server successfully, it
@@ -400,7 +400,7 @@ async fn remote_echo_full_trip() {
 
         let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::SendingFailed);
+        assert_eq!(event.send_state, EventSendState::SendingFailed);
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an
@@ -412,7 +412,7 @@ async fn remote_echo_full_trip() {
 
         let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::Sent);
+        assert_eq!(event.send_state, EventSendState::Sent);
 
         event_id
     };

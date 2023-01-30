@@ -172,7 +172,7 @@ impl TimelineItem {
 
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
-pub enum LocalEventTimelineItemSendState {
+pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSendYet,
     /// The local event has been sent to the server, but unsuccessfully: The
@@ -182,11 +182,9 @@ pub enum LocalEventTimelineItemSendState {
     Sent,
 }
 
-impl From<matrix_sdk::room::timeline::LocalEventTimelineItemSendState>
-    for LocalEventTimelineItemSendState
-{
-    fn from(value: matrix_sdk::room::timeline::LocalEventTimelineItemSendState) -> Self {
-        use matrix_sdk::room::timeline::LocalEventTimelineItemSendState::*;
+impl From<matrix_sdk::room::timeline::EventSendState> for EventSendState {
+    fn from(value: matrix_sdk::room::timeline::EventSendState) -> Self {
+        use matrix_sdk::room::timeline::EventSendState::*;
 
         match value {
             NotSentYet => Self::NotSendYet,
@@ -267,7 +265,7 @@ impl EventTimelineItem {
         self.0.raw().map(|r| r.json().get().to_owned())
     }
 
-    pub fn local_send_state(&self) -> Option<LocalEventTimelineItemSendState> {
+    pub fn local_send_state(&self) -> Option<EventSendState> {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
