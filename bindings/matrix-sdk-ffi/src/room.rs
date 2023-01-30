@@ -295,16 +295,18 @@ impl Room {
         })
     }
 
-    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {
+    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) {
         let timeline = match &*self.timeline.read().unwrap() {
             Some(t) => Arc::clone(t),
-            None => bail!("Timeline not set up, can't send message"),
+            None => {
+                error!("Timeline not set up, can't send message");
+                return;
+            }
         };
 
-        RUNTIME.block_on(async move {
-            timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await?;
-            Ok(())
-        })
+        RUNTIME.spawn(async move {
+            timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
+        });
     }
 
     pub fn send_reply(
@@ -326,24 +328,27 @@ impl Room {
         let event_id: &EventId =
             in_reply_to_event_id.as_str().try_into().context("Failed to create EventId.")?;
 
-        RUNTIME.block_on(async move {
+        let reply_content = RUNTIME.block_on(async move {
             let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
 
             let event_content = timeline_event
                 .event
                 .deserialize_as::<RoomMessageEvent>()
-                .context("Couldn't deserialise event")?;
+                .context("Couldn't deserialize event")?;
 
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            let reply_content = RoomMessageEventContent::text_markdown(msg)
-                .make_reply_to(original_message, ForwardThread::Yes);
+            anyhow::Ok(
+                RoomMessageEventContent::text_markdown(msg)
+                    .make_reply_to(original_message, ForwardThread::Yes),
+            )
+        })?;
 
-            timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await?;
-
-            Ok(())
-        })
+        RUNTIME.spawn(async move {
+            timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await;
+        });
+        Ok(())
     }
 
     pub fn edit(
@@ -365,7 +370,7 @@ impl Room {
         let event_id: &EventId =
             original_event_id.as_str().try_into().context("Failed to create EventId.")?;
 
-        RUNTIME.block_on(async move {
+        let edited_content = RUNTIME.block_on(async move {
             let timeline_event = room.event(event_id).await.context("Couldn't find event.")?;
 
             let event_content = timeline_event
@@ -384,11 +389,13 @@ impl Room {
 
             let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);
             edited_content.relates_to = Some(Relation::Replacement(replacement));
+            Ok(edited_content)
+        })?;
 
-            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await?;
-
-            Ok(())
-        })
+        RUNTIME.spawn(async move {
+            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
+        });
+        Ok(())
     }
 
     /// Redacts an event from the room.

@@ -14,9 +14,12 @@
 
 //! Unit tests (based on private methods) for the timeline API.
 
-use std::sync::{
-    atomic::{AtomicU32, Ordering::SeqCst},
-    Arc,
+use std::{
+    io,
+    sync::{
+        atomic::{AtomicU32, Ordering::SeqCst},
+        Arc,
+    },
 };
 
 use assert_matches::assert_matches;
@@ -58,7 +61,7 @@ use super::{
     EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
-use crate::room::timeline::event_item::EventSendState;
+use crate::{room::timeline::event_item::EventSendState, Error};
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -388,20 +391,24 @@ async fn remote_echo_full_trip() {
     {
         let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, EventSendState::NotSentYet);
+        assert_matches!(event.send_state, EventSendState::NotSentYet);
     }
 
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
     {
-        timeline.inner.update_event_send_state(&txn_id, EventSendState::SendingFailed);
+        let some_io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "this is a test"));
+        timeline.inner.update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error: Arc::new(some_io_error) },
+        );
 
         let item = assert_matches!(
             stream.next().await,
             Some(VecDiff::UpdateAt { value, index: 1 }) => value
         );
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, EventSendState::SendingFailed);
+        assert_matches!(event.send_state, EventSendState::SendingFailed { .. });
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an

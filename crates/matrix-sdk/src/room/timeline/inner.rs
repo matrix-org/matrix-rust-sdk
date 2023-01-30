@@ -14,7 +14,6 @@ use matrix_sdk_base::{
     locks::Mutex,
 };
 use ruma::{
-    api::client::message::send_message_event::v3::Response as SendMessageEventResponse,
     events::{
         fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
         AnySyncTimelineEvent,
@@ -149,30 +148,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
         let mut timeline_items = self.items.lock_mut();
         TimelineEventHandler::new(event_meta, flow, &mut timeline_items, &mut timeline_meta)
             .handle_event(kind);
-    }
-
-    /// Handle the response returned by the server when a local event has been
-    /// sent.
-    pub(super) fn handle_local_event_send_response(
-        &self,
-        txn_id: &TransactionId,
-        response: crate::error::Result<SendMessageEventResponse>,
-    ) -> crate::error::Result<()> {
-        match response {
-            Ok(response) => {
-                self.update_event_send_state(
-                    txn_id,
-                    EventSendState::Sent { event_id: response.event_id },
-                );
-
-                Ok(())
-            }
-            Err(error) => {
-                self.update_event_send_state(txn_id, EventSendState::SendingFailed);
-
-                Err(error)
-            }
-        }
     }
 
     /// Update the send state of a local event represented by a transaction ID.

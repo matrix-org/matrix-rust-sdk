@@ -370,11 +370,7 @@ impl Timeline {
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(
-        &self,
-        content: AnyMessageLikeEventContent,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<()> {
+    pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
@@ -383,7 +379,12 @@ impl Timeline {
         let room = Joined { inner: self.room().clone() };
 
         let response = room.send(content, Some(&txn_id)).await;
-        self.inner.handle_local_event_send_response(&txn_id, response)
+
+        let send_state = match response {
+            Ok(response) => EventSendState::Sent { event_id: response.event_id },
+            Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+        };
+        self.inner.update_event_send_state(&txn_id, send_state);
     }
 }
 

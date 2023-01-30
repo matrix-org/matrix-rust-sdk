@@ -52,6 +52,8 @@ use ruma::{
     OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 
+use crate::Error;
+
 /// An item in the timeline that represents at least one event.
 ///
 /// There is always one main event that gives the `EventTimelineItem` its
@@ -209,13 +211,16 @@ impl EventTimelineItem {
 }
 
 /// This type represents the "send state" of a local event timeline item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed,
+    SendingFailed {
+        /// Details about how sending the event failed.
+        error: Arc<Error>,
+    },
     /// The local event has been sent successfully to the server.
     Sent {
         /// The event ID assigned by the server.
