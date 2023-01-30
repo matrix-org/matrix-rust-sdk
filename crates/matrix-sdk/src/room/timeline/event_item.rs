@@ -180,7 +180,7 @@ impl EventTimelineItem {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalEventTimelineItem {
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
@@ -206,18 +206,6 @@ impl LocalEventTimelineItem {
 impl From<LocalEventTimelineItem> for EventTimelineItem {
     fn from(value: LocalEventTimelineItem) -> Self {
         Self::Local(value)
-    }
-}
-
-impl fmt::Debug for LocalEventTimelineItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LocalEventTimelineItem")
-            .field("transaction_id", &self.transaction_id)
-            .field("event_id", &self.event_id)
-            .field("sender", &self.sender)
-            .field("timestamp", &self.timestamp)
-            .field("content", &self.content)
-            .finish_non_exhaustive()
     }
 }
 
