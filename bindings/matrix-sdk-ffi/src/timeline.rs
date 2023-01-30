@@ -175,7 +175,7 @@ impl TimelineItem {
 pub enum LocalEventTimelineItemSendState {
     /// The local event has not been sent yet.
     NotSendYet,
-    /// The local event has been sent to the server, but unsucessfully: The
+    /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed,
     /// The local event has been sent successfully to the server.
