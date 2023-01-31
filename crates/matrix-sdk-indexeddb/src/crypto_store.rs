@@ -639,13 +639,7 @@ impl IndexeddbCryptoStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            let range = sender_key.encode_to_range().map_err(|e| {
-                IndexeddbCryptoStoreError::DomException {
-                    code: 0,
-                    name: "IdbKeyRangeMakeError".to_owned(),
-                    message: e,
-                }
-            })?;
+            let range = self.encode_to_range(KEYS::SESSION, sender_key)?;
             let sessions: Vec<Session> = self
                 .inner
                 .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
