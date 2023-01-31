@@ -98,6 +98,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(super) async fn clear(&self) {
         let mut timeline_meta = self.metadata.lock().await;
         let mut timeline_items = self.items.lock_mut();
