@@ -5,6 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use indexmap::IndexSet;
 #[cfg(any(test, feature = "experimental-sliding-sync"))]
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
@@ -48,9 +49,12 @@ pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
 /// Non-signalling parts of `TimelineInner`.
 #[derive(Debug, Default)]
 pub(super) struct TimelineInnerMetadata {
-    // Reaction event / txn ID => sender and reaction data
+    /// Reaction event / txn ID => sender and reaction data.
     pub(super) reaction_map:
         HashMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), (OwnedUserId, Annotation)>,
+    /// ID of event that is not in the timeline yet => List of reaction event
+    /// IDs.
+    pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     pub(super) fully_read_event: Option<OwnedEventId>,
     /// Whether the event that the fully-ready event _refers to_ is part of the
     /// timeline.

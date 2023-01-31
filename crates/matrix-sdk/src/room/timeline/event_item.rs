@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Deref, sync::Arc};
 
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
@@ -22,7 +22,6 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        relation::{AnnotationChunk, AnnotationType},
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -49,8 +48,8 @@ use ruma::{
         MessageLikeEventType, StateEventType,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 
 /// An item in the timeline that represents at least one event.
@@ -291,10 +290,10 @@ impl RemoteEventTimelineItem {
     }
 
     /// Get the reactions of this item.
-    pub fn reactions(&self) -> &IndexMap<String, ReactionDetails> {
+    pub fn reactions(&self) -> &BundledReactions {
         // FIXME: Find out the state of incomplete bundled reactions, adjust
         //        Ruma if necessary, return the whole BundledReactions field
-        &self.reactions.bundled
+        &self.reactions
     }
 }
 
@@ -503,58 +502,33 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct BundledReactions {
-    /// Whether all reactions are known, or some may be missing.
-    ///
-    /// If this is `false`, the remaining reactions can be fetched via **TODO**.
-    pub complete: bool, // FIXME: Unclear whether this is needed
+/// The reactions grouped by key.
+///
+/// Key: The reaction, usually an emoji.\
+/// Value: The group of reactions.
+pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
-    /// The reactions.
-    ///
-    /// Key: The reaction, usually an emoji.\
-    /// Value: The count.
-    pub bundled: IndexMap<String, ReactionDetails>,
-}
+/// A group of reaction events on the same event with the same key.
+///
+/// This is a map of the event ID or transaction ID of the reactions to the ID
+/// of the sender of the reaction.
+#[derive(Clone, Debug, Default)]
+pub struct ReactionGroup(
+    pub(super) IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>,
+);
 
-impl From<Box<AnnotationChunk>> for BundledReactions {
-    fn from(ann: Box<AnnotationChunk>) -> Self {
-        let bundled = ann
-            .chunk
-            .into_iter()
-            .filter_map(|a| {
-                (a.annotation_type == AnnotationType::Reaction).then(|| {
-                    let details =
-                        ReactionDetails { count: a.count, senders: TimelineDetails::Unavailable };
-                    (a.key, details)
-                })
-            })
-            .collect();
-
-        BundledReactions { bundled, complete: ann.next_batch.is_none() }
+impl ReactionGroup {
+    /// The senders of the reactions in this group.
+    pub fn senders(&self) -> impl Iterator<Item = &UserId> {
+        self.values().map(AsRef::as_ref)
     }
 }
 
-impl Default for BundledReactions {
-    fn default() -> Self {
-        Self { complete: true, bundled: IndexMap::new() }
-    }
-}
+impl Deref for ReactionGroup {
+    type Target = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
 
-/// The details of a group of reaction events on the same event with the same
-/// key.
-#[derive(Clone, Debug)]
-pub struct ReactionDetails {
-    /// The amount of reactions with this key.
-    pub count: UInt,
-
-    /// The senders of the reactions.
-    pub senders: TimelineDetails<Vec<OwnedUserId>>,
-}
-
-impl Default for ReactionDetails {
-    fn default() -> Self {
-        Self { count: uint!(0), senders: TimelineDetails::Ready(Vec::new()) }
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
