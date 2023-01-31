@@ -772,10 +772,10 @@ impl BaseClient {
 
                         let user_ids: Vec<&UserId> =
                             joined.iter().chain(&invited).map(Deref::deref).collect();
-                        o.update_tracked_users(user_ids).await
+                        o.update_tracked_users(user_ids).await?
                     }
 
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
                 }
             }
 
@@ -983,7 +983,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine() {
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
 

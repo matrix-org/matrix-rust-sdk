@@ -39,7 +39,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::{CrossSigningKey, DeviceKeys},
+    types::DeviceKeys,
     utilities::FailuresCache,
     LocalTrust,
 };
@@ -85,7 +85,7 @@ impl KeysQueryListener {
         timeout: Duration,
         user: &UserId,
     ) -> Result<UserKeyQueryResult, ElapsedError> {
-        let users_for_key_query = self.store.users_for_key_query();
+        let users_for_key_query = self.store.users_for_key_query().await.unwrap_or_default();
 
         if users_for_key_query.contains(user) {
             if let Err(e) = self.wait(timeout).await {
@@ -191,13 +191,9 @@ impl IdentityManager {
             ..Default::default()
         };
 
-        // TODO: turn this into a single transaction.
         self.store.save_changes(changes).await?;
-        let updated_users: Vec<&UserId> = response.device_keys.keys().map(Deref::deref).collect();
-
-        for user_id in updated_users {
-            self.store.update_tracked_user(user_id, false).await?;
-        }
+        self.mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
+            .await?;
 
         let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
@@ -436,17 +432,13 @@ impl IdentityManager {
         // TODO: this is a bit chunky, refactor this into smaller methods.
 
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize_as::<CrossSigningKey>() {
+            match master_key.deserialize_as::<MasterPubkey>() {
                 Ok(master_key) => {
-                    let master_key = MasterPubkey::from(master_key);
-
-                    let self_signing = if let Some(s) = response
+                    let Some(self_signing) = response
                         .self_signing_keys
                         .get(user_id)
-                        .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                    {
-                        SelfSigningPubkey::from(s)
-                    } else {
+                        .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
+                    else {
                         warn!(
                             user_id = user_id.as_str(),
                             "A user identity didn't contain a self signing pubkey \
@@ -458,13 +450,11 @@ impl IdentityManager {
                     let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                         match &mut i {
                             ReadOnlyUserIdentities::Own(identity) => {
-                                let user_signing = if let Some(s) = response
+                                let Some(user_signing) = response
                                     .user_signing_keys
                                     .get(user_id)
-                                    .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                                {
-                                    UserSigningPubkey::from(s)
-                                } else {
+                                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+                                else {
                                     warn!(
                                         user_id = user_id.as_str(),
                                         "User identity for our own user didn't \
@@ -482,13 +472,11 @@ impl IdentityManager {
                             }
                         }
                     } else if user_id == self.user_id() {
-                        if let Some(s) = response
+                        if let Some(user_signing) = response
                             .user_signing_keys
                             .get(user_id)
-                            .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
+                            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
                         {
-                            let user_signing = UserSigningPubkey::from(s);
-
                             if master_key.user_id() != user_id
                                 || self_signing.user_id() != user_id
                                 || user_signing.user_id() != user_id
@@ -586,74 +574,80 @@ impl IdentityManager {
     ///
     /// [`OlmMachine`]: struct.OlmMachine.html
     /// [`receive_keys_query_response`]: #method.receive_keys_query_response
-    pub async fn users_for_key_query(&self) -> Vec<KeysQueryRequest> {
-        let users = self.store.users_for_key_query();
+    pub async fn users_for_key_query(&self) -> StoreResult<Vec<KeysQueryRequest>> {
+        let users = self.store.users_for_key_query().await?;
 
         // We always want to track our own user, but in case we aren't in an encrypted
         // room yet, we won't be tracking ourselves yet. This ensures we are always
         // tracking ourselves.
         //
         // The check for emptiness is done first for performance.
-        let users = if users.is_empty() && !self.store.tracked_users().contains(self.user_id()) {
-            self.update_tracked_users([self.user_id()]).await;
-            self.store.users_for_key_query()
-        } else {
-            users
-        };
+        let users =
+            if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
+                self.store.mark_user_as_changed(self.user_id()).await?;
+                self.store.users_for_key_query().await?
+            } else {
+                users
+            };
 
         if users.is_empty() {
-            Vec::new()
+            Ok(Vec::new())
         } else {
             let users: Vec<OwnedUserId> =
                 users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();
 
-            users
+            Ok(users
                 .chunks(Self::MAX_KEY_QUERY_USERS)
                 .map(|u| u.iter().map(|u| (u.clone(), Vec::new())).collect())
                 .map(KeysQueryRequest::new)
-                .collect()
+                .collect())
         }
     }
 
-    /// Mark that the given user has changed his devices.
+    /// Receive the list of users that contained changed devices from the
+    /// `/sync` response.
     ///
     /// This will queue up the given user for a key query.
     ///
     /// Note: The user already needs to be tracked for it to be queued up for a
     /// key query.
-    ///
-    /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
-        if self.store.is_user_tracked(user_id) {
-            self.store.update_tracked_user(user_id, true).await?;
-            Ok(true)
-        } else {
-            Ok(false)
+    pub async fn receive_device_changes(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        let mut changed_user: Vec<(&UserId, bool)> = Vec::new();
+
+        for user_id in users {
+            if self.store.is_user_tracked(user_id).await? {
+                changed_user.push((user_id, true))
+            }
         }
+
+        self.store.save_tracked_users(&changed_user).await
     }
 
-    /// Update the tracked users.
-    ///
-    /// # Arguments
-    ///
-    /// * `users` - An iterator over user ids that should be marked for
-    /// tracking.
-    ///
-    /// This will mark users that weren't seen before for a key query and
-    /// tracking.
-    ///
-    /// If the user is already known to the Olm machine it will not be
-    /// considered for a key query.
-    pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
-        for user in users {
-            if self.store.is_user_tracked(user) {
-                continue;
-            }
+    /// See the docs for [`OlmMachine::update_tracked_users()`].
+    pub async fn update_tracked_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        let mut tracked_users = Vec::new();
 
-            if let Err(e) = self.store.update_tracked_user(user, true).await {
-                warn!("Error storing users for tracking: {e}");
+        for user_id in users {
+            if !self.store.is_user_tracked(user_id).await? {
+                tracked_users.push((user_id, true));
             }
         }
+
+        self.store.save_tracked_users(&tracked_users).await
+    }
+
+    pub async fn mark_tracked_users_as_up_to_date(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        let updated_users: Vec<(&UserId, bool)> = users.map(|u| (u, false)).collect();
+        self.store.save_tracked_users(&updated_users).await
     }
 }
 
@@ -893,7 +887,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::Duration;
+    use std::{ops::Deref, time::Duration};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -934,9 +928,29 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_tracked_users() {
+        let manager = manager().await;
+        let alice = user_id!("@alice:example.org");
+
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
+        manager.receive_device_changes([alice].iter().map(Deref::deref)).await.unwrap();
+        assert!(
+            !manager.store.is_user_tracked(alice).await.unwrap(),
+            "Receiving a device changes update for a user we don't track does nothing"
+        );
+        assert!(
+            !manager.store.users_for_key_query().await.unwrap().contains(alice),
+            "The user we don't track doesn't end up in the `/keys/query` request"
+        );
+    }
+
+    #[async_test]
     async fn test_manager_creation() {
         let manager = manager().await;
-        assert!(manager.store.tracked_users().is_empty())
+        assert!(manager.store.tracked_users().await.unwrap().is_empty())
     }
 
     #[async_test]
@@ -1004,13 +1018,16 @@ pub(crate) mod tests {
     async fn no_tracked_users_key_query_request() {
         let manager = manager().await;
 
-        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
 
-        let requests = manager.users_for_key_query().await;
+        let requests = manager.users_for_key_query().await.unwrap();
 
         assert!(!requests.is_empty(), "We query the keys for our own user");
         assert!(
-            manager.store.tracked_users().contains(manager.user_id()),
+            manager.store.tracked_users().await.unwrap().contains(manager.user_id()),
             "Our own user is now tracked"
         );
     }
@@ -1020,16 +1037,20 @@ pub(crate) mod tests {
         let manager = manager().await;
         let alice = user_id!("@alice:example.org");
 
-        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
-        manager.store.update_tracked_user(alice, true).await.unwrap();
+        assert!(
+            manager.store.tracked_users().await.unwrap().is_empty(),
+            "No users are initially tracked"
+        );
+        manager.store.mark_user_as_changed(alice).await.unwrap();
 
         assert!(
-            manager.store.tracked_users().contains(alice),
+            manager.store.tracked_users().await.unwrap().contains(alice),
             "Alice is tracked after being marked as tracked"
         );
         assert!(manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
@@ -1040,6 +1061,7 @@ pub(crate) mod tests {
         assert!(!manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
@@ -1049,13 +1071,15 @@ pub(crate) mod tests {
         assert!(!manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
 
-        manager.store.update_tracked_user(alice, true).await.unwrap();
+        manager.store.mark_user_as_changed(alice).await.unwrap();
         assert!(manager
             .users_for_key_query()
             .await
+            .unwrap()
             .iter()
             .any(|r| r.device_keys.contains_key(alice)));
     }

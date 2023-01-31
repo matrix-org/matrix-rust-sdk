@@ -724,7 +724,7 @@ mod tests {
         let appservice = appservice(None, None).await?;
         appservice.register_user_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
-        let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
+        let uri = "/_matrix/app/v1/users/%40_botty_1:dev.famedly.local?access_token=hs_token";
 
         let response = appservice
             .service()
@@ -742,7 +742,7 @@ mod tests {
         let appservice = appservice(None, None).await?;
         appservice.register_room_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
-        let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
+        let uri = "/_matrix/app/v1/rooms/%23magicforest:example.com?access_token=hs_token";
 
         let response = appservice
             .service()

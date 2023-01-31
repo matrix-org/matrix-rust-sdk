@@ -299,8 +299,8 @@ impl OlmMachine {
     ///
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
-    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.store.tracked_users()
+    pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
+        self.store.tracked_users().await
     }
 
     /// Get the outgoing requests that need to be sent out.
@@ -321,7 +321,7 @@ impl OlmMachine {
             requests.push(r);
         }
 
-        for request in self.identity_manager.users_for_key_query().await.into_iter().map(|r| {
+        for request in self.identity_manager.users_for_key_query().await?.into_iter().map(|r| {
             OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
         }) {
             requests.push(request);
@@ -557,9 +557,9 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         // This function is only ever called by add_room_key via
-        // handle_decrypted_to_device_event, so sender and sender_key are
+        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ?content.room_id, algorithm = ?event.content.algorithm())
+        fields(room_id = ?content.room_id, session_id)
     )]
     async fn handle_key(
         &self,
@@ -576,22 +576,29 @@ impl OlmMachine {
             None,
         );
 
-        if let Ok(session) = session {
-            tracing::Span::current().record("session_id", session.session_id());
+        match session {
+            Ok(session) => {
+                tracing::Span::current().record("session_id", session.session_id());
 
-            if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
-                info!("Received a new megolm room key");
-                Ok(Some(session))
-            } else {
-                warn!(
-                    "Received a megolm room key that we already have a better \
-                     version of, discarding",
-                );
+                if self.store.compare_group_session(&session).await? == SessionOrdering::Better {
+                    info!("Received a new megolm room key");
+
+                    Ok(Some(session))
+                } else {
+                    warn!(
+                        "Received a megolm room key that we already have a better version of, \
+                        discarding",
+                    );
+
+                    Ok(None)
+                }
+            }
+            Err(e) => {
+                tracing::Span::current().record("session_id", &content.session_id);
+                warn!("Received a room key event which contained an invalid session key: {e}");
+
                 Ok(None)
             }
-        } else {
-            warn!("Received a room key with an unsupported algorithm");
-            Ok(None)
         }
     }
 
@@ -1008,10 +1015,12 @@ impl OlmMachine {
 
         self.update_key_counts(one_time_keys_counts, unused_fallback_keys).await;
 
-        for user_id in &changed_devices.changed {
-            if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
-                error!(error = ?e, "Error marking a tracked user as changed");
-            }
+        if let Err(e) = self
+            .identity_manager
+            .receive_device_changes(changed_devices.changed.iter().map(|u| u.as_ref()))
+            .await
+        {
+            error!(error = ?e, "Error marking a tracked user as changed");
         }
 
         for raw_event in to_device_events {
@@ -1057,7 +1066,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> StoreResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
         Ok(
             // First find the device corresponding to the Curve25519 identity
             // key that sent us the session (recorded upon successful
@@ -1075,7 +1084,7 @@ impl OlmMachine {
                 //
                 //     a) This is our own device, or
                 //     b) The device itself is considered to be trusted.
-                if device.is_owner_of_session(session)
+                if device.is_owner_of_session(session)?
                     && (device.is_our_own_device() || device.is_verified())
                 {
                     (VerificationState::Trusted, Some(device.device_id().to_owned()))
@@ -1099,7 +1108,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> StoreResult<EncryptionInfo> {
+    ) -> MegolmResult<EncryptionInfo> {
         let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
@@ -1153,7 +1162,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, sender, algorithm, session_id))]
+    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1163,6 +1172,7 @@ impl OlmMachine {
 
         let span = tracing::Span::current();
         span.record("sender", debug(&event.sender));
+        span.record("event_id", debug(&event.event_id));
         span.record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
@@ -1182,17 +1192,13 @@ impl OlmMachine {
             match e {
                 MegolmError::MissingRoomKey
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
-                    // TODO: log the withheld reason if we have one.
-                    debug!(
-                        "Failed to decrypt a room event, the room key is \
-                         missing or has been ratcheted"
-                    );
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
-                _ => {
-                    warn!("Failed to decrypt a room event: {e}");
-                }
+                _ => {}
             }
+
+            // TODO: log the withheld reason if we have one.
+            warn!("Failed to decrypt a room event: {e}");
         }
 
         result
@@ -1215,8 +1221,11 @@ impl OlmMachine {
     /// "changed" notification for that user in the future.
     ///
     /// Users that were already in the list are unaffected.
-    pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
-        self.identity_manager.update_tracked_users(users).await;
+    pub async fn update_tracked_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> StoreResult<()> {
+        self.identity_manager.update_tracked_users(users).await
     }
 
     async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
@@ -1618,7 +1627,7 @@ pub(crate) mod tests {
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
                 ToDeviceEvent,
             },
-            DeviceKeys, SignedKey,
+            DeviceKeys, SignedKey, SigningKeys,
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
@@ -2446,5 +2455,40 @@ pub(crate) mod tests {
         let session = bob.store.get_inbound_group_session(room_id, &session_id).await;
 
         assert!(session.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn room_key_with_fake_identity_keys() {
+        let room_id = room_id!("!test:localhost");
+        let (alice, _) = get_machine_pair_with_setup_sessions().await;
+        let device = ReadOnlyDevice::from_machine(&alice).await;
+        alice.store.save_devices(&[device]).await.unwrap();
+
+        let (outbound, mut inbound) =
+            alice.account.create_group_session_pair(room_id, Default::default()).await.unwrap();
+
+        let fake_key = Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE")
+            .unwrap()
+            .into();
+        let signing_keys = SigningKeys::from([(DeviceKeyAlgorithm::Ed25519, fake_key)]);
+        inbound.signing_keys = signing_keys.into();
+
+        let content = json!({});
+        let content = outbound.encrypt(content, "m.dummy").await;
+        alice.store.save_inbound_group_sessions(&[inbound]).await.unwrap();
+
+        let event = json!({
+            "sender": alice.user_id(),
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "type": "m.room.encrypted",
+            "content": content,
+        });
+        let event = json_convert(&event).unwrap();
+
+        assert_matches!(
+            alice.decrypt_room_event(&event, room_id).await,
+            Err(MegolmError::MismatchedIdentityKeys { .. })
+        );
     }
 }

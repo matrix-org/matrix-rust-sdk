@@ -168,14 +168,16 @@ impl OlmMachine {
     ///
     /// Returns a `Set<UserId>`.
     #[wasm_bindgen(js_name = "trackedUsers")]
-    pub fn tracked_users(&self) -> Set {
+    pub fn tracked_users(&self) -> Result<Promise, JsError> {
         let set = Set::new(&JsValue::UNDEFINED);
+        let me = self.inner.clone();
 
-        for user in self.inner.tracked_users() {
-            set.add(&identifiers::UserId::from(user).into());
-        }
-
-        set
+        Ok(future_to_promise(async move {
+            for user in me.tracked_users().await? {
+                set.add(&identifiers::UserId::from(user).into());
+            }
+            Ok(set)
+        }))
     }
 
     /// Update the list of tracked users.
@@ -205,7 +207,7 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            me.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+            me.update_tracked_users(users.iter().map(AsRef::as_ref)).await?;
             Ok(JsValue::UNDEFINED)
         }))
     }

@@ -121,6 +121,14 @@ impl Room {
         self.room.is_tombstoned()
     }
 
+    pub fn canonical_alias(&self) -> Option<String> {
+        self.room.canonical_alias().map(|a| a.to_string())
+    }
+
+    pub fn alternative_aliases(&self) -> Vec<String> {
+        self.room.alt_aliases().iter().map(|a| a.to_string()).collect()
+    }
+
     pub fn membership(&self) -> Membership {
         match &self.room {
             SdkRoom::Invited(_) => Membership::Invited,

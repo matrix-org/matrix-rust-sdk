@@ -1,10 +1,10 @@
 use ruma::{
     events::{
         BundledRelations, EventContent, EventContentFromType, MessageLikeEventContent,
-        MessageLikeEventType, MessageLikeUnsigned, OriginalStateEventContent,
-        OriginalSyncMessageLikeEvent, OriginalSyncStateEvent, RedactContent,
+        MessageLikeEventType, MessageLikeUnsigned, OriginalSyncMessageLikeEvent,
+        OriginalSyncStateEvent, PossiblyRedactedStateEventContent, RedactContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
-        RedactedSyncStateEvent, StateEventContent, StateEventType,
+        RedactedSyncStateEvent, StateEventContent, StateEventType, StaticStateEventContent,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -150,11 +150,16 @@ impl RedactContent for NoStateEventContent {
 impl StateEventContent for NoStateEventContent {
     type StateKey = String;
 }
-impl OriginalStateEventContent for NoStateEventContent {
+impl StaticStateEventContent for NoStateEventContent {
     // We don't care about the `prev_content` since it wont deserialize with useful
     // data. Use this type which is `StateUnsigned` minus the `prev_content`
     // field.
     type Unsigned = MessageLikeUnsigned;
     type PossiblyRedacted = Self;
 }
-impl RedactedStateEventContent for NoStateEventContent {}
+impl RedactedStateEventContent for NoStateEventContent {
+    type StateKey = String;
+}
+impl PossiblyRedactedStateEventContent for NoStateEventContent {
+    type StateKey = String;
+}

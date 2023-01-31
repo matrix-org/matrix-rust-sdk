@@ -16,6 +16,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
@@ -24,13 +25,18 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
+use futures_signals::{
+    signal::Mutable,
+    signal_map::{MutableBTreeMap, MutableBTreeMapLockRef},
+    signal_vec::{MutableVec, MutableVecLockMut},
+};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncResponse};
 use ruma::{
     api::client::{
         error::ErrorKind,
         sync::sync_events::v4::{
-            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
+            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+            TypingConfig,
         },
     },
     assign,
@@ -272,6 +278,7 @@ impl SlidingSyncRoom {
         let v4::SlidingSyncRoom {
             name,
             initial,
+            limited,
             is_dm,
             invite_state,
             unread_notifications,
@@ -303,21 +310,27 @@ impl SlidingSyncRoom {
         }
 
         if !timeline.is_empty() {
-            if self.is_cold.load(Ordering::Relaxed) {
+            if self.is_cold.load(Ordering::SeqCst) {
                 // if we come from cold storage, we hard overwrite
                 self.timeline.lock_mut().replace_cloned(timeline);
-                self.is_cold.store(false, Ordering::Relaxed);
+                self.is_cold.store(false, Ordering::SeqCst);
+            } else if *limited {
+                // the server alerted us that we missed items in between
+                self.timeline.lock_mut().replace_cloned(timeline);
             } else {
                 let mut ref_timeline = self.timeline.lock_mut();
                 for e in timeline {
                     ref_timeline.push_cloned(e);
                 }
             }
+        } else if *limited {
+            // notihing but we were alerted that we are stale. clear up
+            self.timeline.lock_mut().clear();
         }
     }
 }
 
-impl std::ops::Deref for SlidingSyncRoom {
+impl Deref for SlidingSyncRoom {
     type Target = v4::SlidingSyncRoom;
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -326,14 +339,14 @@ impl std::ops::Deref for SlidingSyncRoom {
 
 type ViewState = Mutable<SlidingSyncState>;
 type SyncMode = Mutable<SlidingSyncMode>;
-type PosState = Mutable<Option<String>>;
+type StringState = Mutable<Option<String>>;
 type RangeState = Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = Mutable<Option<u32>>;
 type RoomsList = Arc<MutableVec<RoomListEntry>>;
 type RoomsMap = Arc<MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
 type RoomsSubscriptions = Arc<MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
 type RoomUnsubscribe = Arc<MutableVec<OwnedRoomId>>;
-type ViewsList = Arc<MutableVec<SlidingSyncView>>;
+type Views = Arc<MutableBTreeMap<String, SlidingSyncView>>;
 
 use derive_builder::Builder;
 
@@ -365,7 +378,7 @@ pub struct SlidingSyncConfig {
     /// The client this sliding sync will be using
     client: Client,
     #[builder(private, default)]
-    views: Vec<SlidingSyncView>,
+    views: BTreeMap<String, SlidingSyncView>,
     #[builder(private, default)]
     extensions: Option<ExtensionsConfig>,
     #[builder(private, default)]
@@ -382,45 +395,58 @@ impl SlidingSyncConfig {
             mut extensions,
             subscriptions,
         } = self;
-        let mut rooms = Default::default();
+        let mut delta_token_inner = None;
+        let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = storage_key.as_ref() {
-            if let Some(mut f) = client
+            trace!(storage_key, "trying to load from cold");
+
+            for (name, view) in views.iter_mut() {
+                if let Some(frozen_view) = client
+                    .store()
+                    .get_custom_value(format!("{storage_key}::{name}").as_bytes())
+                    .await?
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .transpose()?
+                {
+                    trace!(name, "frozen for view found");
+
+                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
+                    view.set_from_cold(rooms_count, rooms_list);
+                    for (key, frozen_room) in rooms.into_iter() {
+                        rooms_found.entry(key).or_insert_with(|| {
+                            SlidingSyncRoom::from_frozen(frozen_room, client.clone())
+                        });
+                    }
+                } else {
+                    trace!(name, "no frozen state for view found");
+                }
+            }
+
+            if let Some(FrozenSlidingSync { to_device_since, delta_token }) = client
                 .store()
                 .get_custom_value(storage_key.as_bytes())
                 .await?
                 .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
                 .transpose()?
             {
-                for view in views.iter_mut() {
-                    if let Some(frozen_view) = f.views.remove(&view.name) {
-                        view.set_from_cold(frozen_view);
-                    }
-                }
-
-                rooms = f
-                    .rooms
-                    .into_iter()
-                    .map(|(k, v)| (k, SlidingSyncRoom::from_frozen(v, client.clone())))
-                    .collect();
-
-                if let Some(since) = f.to_device_since {
+                trace!("frozen for generic found");
+                if let Some(since) = to_device_since {
                     if let Some(to_device_ext) =
                         extensions.get_or_insert_with(Default::default).to_device.as_mut()
                     {
                         to_device_ext.since = Some(since);
                     }
                 }
+                delta_token_inner = delta_token;
             }
+            trace!("sync unfrozen done");
         };
 
-        let rooms = Arc::new(MutableBTreeMap::with_values(rooms));
-        // map the roomsmap into the views:
-        for v in &mut views {
-            v.rooms = rooms.clone();
-        }
+        trace!(len = rooms_found.len(), "rooms unfrozen");
+        let rooms = Arc::new(MutableBTreeMap::with_values(rooms_found));
 
-        let views = Arc::new(MutableVec::new_with_values(views));
+        let views = Arc::new(MutableBTreeMap::with_values(views));
 
         Ok(SlidingSync {
             homeserver,
@@ -429,11 +455,13 @@ impl SlidingSyncConfig {
 
             views,
             rooms,
+
             extensions: Mutex::new(extensions).into(),
             sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
             pos: Mutable::new(None),
+            delta_token: Mutable::new(delta_token_inner),
             subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
             unsubscribe: Default::default(),
         })
@@ -442,14 +470,12 @@ impl SlidingSyncConfig {
 
 impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(mut self) -> Self {
-        let views = self.views.get_or_insert_with(Default::default);
-        views.push(
+    pub fn add_fullsync_view(self) -> Self {
+        self.add_view(
             SlidingSyncViewBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
-        );
-        self
+        )
     }
 
     /// The cold cache key to read from and store the frozen state at
@@ -470,10 +496,12 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Add the given view to the list of views
+    /// Add the given view to the views.
+    ///
+    /// Replace any view with the name.
     pub fn add_view(mut self, v: SlidingSyncView) -> Self {
         let views = self.views.get_or_insert_with(Default::default);
-        views.push(v);
+        views.insert(v.name.clone(), v);
         self
     }
 
@@ -489,16 +517,51 @@ impl SlidingSyncBuilder {
                 .get_or_insert_with(Default::default)
                 .get_or_insert_with(Default::default);
             if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.account_data.is_none() {
                 cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+            }
+        }
+        self
+    }
+
+    /// Activate e2ee, to-device-message, account data, typing and receipt
+    /// extensions if not yet configured.
+    ///
+    /// Will leave any extension configuration found untouched, so the order
+    /// does not matter.
+    pub fn with_all_extensions(mut self) -> Self {
+        {
+            let mut cfg = self
+                .extensions
+                .get_or_insert_with(Default::default)
+                .get_or_insert_with(Default::default);
+            if cfg.to_device.is_none() {
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+            }
+
+            if cfg.e2ee.is_none() {
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+            }
+
+            if cfg.account_data.is_none() {
+                cfg.account_data =
+                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+            }
+
+            if cfg.receipt.is_none() {
+                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
+            }
+
+            if cfg.typing.is_none() {
+                cfg.typing = Some(assign!(TypingConfig::default(), { enabled: Some(true) }));
             }
         }
         self
@@ -558,6 +621,42 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Set the Typing extension configuration.
+    pub fn with_typing_extension(mut self, typing: TypingConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .typing = Some(typing);
+        self
+    }
+
+    /// Unset the Typing extension configuration.
+    pub fn without_typing_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .typing = None;
+        self
+    }
+
+    /// Set the Receipt extension configuration.
+    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .receipt = Some(receipt);
+        self
+    }
+
+    /// Unset the Receipt extension configuration.
+    pub fn without_receipt_extension(mut self) -> Self {
+        self.extensions
+            .get_or_insert_with(Default::default)
+            .get_or_insert_with(Default::default)
+            .receipt = None;
+        self
+    }
+
     /// Build the Sliding Sync
     ///
     /// if configured, load the cached data from cold storage
@@ -578,10 +677,11 @@ pub struct SlidingSync {
     storage_key: Option<String>,
 
     // ------ Internal state
-    pos: PosState,
+    pos: StringState,
+    delta_token: StringState,
 
     /// The views of this sliding sync instance
-    pub views: ViewsList,
+    pub views: Views,
 
     subscriptions: RoomsSubscriptions,
     unsubscribe: RoomUnsubscribe,
@@ -603,17 +703,16 @@ pub struct SlidingSync {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
-    views: BTreeMap<String, FrozenSlidingSyncView>,
-    rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delta_token: Option<String>,
 }
 
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(v: &SlidingSync) -> Self {
         FrozenSlidingSync {
-            views: v.views.lock_ref().iter().map(|v| (v.name.clone(), v.into())).collect(),
-            rooms: v.rooms.lock_ref().iter().map(|(k, v)| (k.clone(), v.into())).collect(),
+            delta_token: v.delta_token.get_cloned(),
             to_device_since: v
                 .extensions
                 .lock()
@@ -627,8 +726,29 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 impl SlidingSync {
     async fn cache_to_storage(&self) -> Result<()> {
         let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
+        trace!(storage_key, "saving to storage for later use");
         let v = serde_json::to_vec(&FrozenSlidingSync::from(self))?;
         self.client.store().set_custom_value(storage_key.as_bytes(), v).await?;
+        let frozen_views = {
+            let rooms_lock = self.rooms.lock_ref();
+            self.views
+                .lock_ref()
+                .iter()
+                .map(|(name, view)| {
+                    (name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (name, frozen) in frozen_views {
+            trace!(storage_key, name, "saving to view for later use");
+            self.client
+                .store()
+                .set_custom_value(
+                    format!("{storage_key}::{name}").as_bytes(),
+                    serde_json::to_vec(&frozen)?,
+                )
+                .await?; // FIXME: parallilize?
+        }
         Ok(())
     }
 }
@@ -637,19 +757,17 @@ impl SlidingSync {
     /// Generate a new SlidingSyncBuilder with the same inner settings and views
     /// but without the current state
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
-        let builder = SlidingSyncBuilder::default()
+        let mut builder = SlidingSyncBuilder::default()
             .client(self.client.clone())
-            .views(
-                self.views
-                    .lock_ref()
-                    .to_vec()
-                    .iter()
-                    .map(|v| {
-                        v.new_builder().build().expect("builder worked before, builder works now")
-                    })
-                    .collect(),
-            )
             .subscriptions(self.subscriptions.lock_ref().to_owned());
+        for view in self
+            .views
+            .lock_ref()
+            .values()
+            .map(|v| v.new_builder().build().expect("builder worked before, builder works now"))
+        {
+            builder = builder.add_view(view);
+        }
 
         if let Some(h) = &self.homeserver {
             builder.homeserver(h.clone())
@@ -678,6 +796,23 @@ impl SlidingSync {
         }
     }
 
+    /// Add the common extensions if not already configured
+    pub fn add_common_extensions(&self) {
+        let mut lock = self.extensions.lock().unwrap();
+        let mut cfg = lock.get_or_insert_with(Default::default);
+        if cfg.to_device.is_none() {
+            cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+        }
+
+        if cfg.e2ee.is_none() {
+            cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+        }
+
+        if cfg.account_data.is_none() {
+            cfg.account_data = Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+        }
+    }
+
     /// Lookup a specific room
     pub fn get_room(&self, room_id: OwnedRoomId) -> Option<SlidingSyncRoom> {
         self.rooms.lock_ref().get(&room_id).cloned()
@@ -699,7 +834,7 @@ impl SlidingSync {
     /// listening to the stream and is therefor not necessarily up to date
     /// with the views used for the stream.
     pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
-        self.views.lock_ref().iter().find(|v| v.name == view_name).cloned()
+        self.views.lock_ref().get(view_name).cloned()
     }
 
     /// Remove the SlidingSyncView named `view_name` from the views list if
@@ -708,29 +843,21 @@ impl SlidingSync {
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
-    pub fn pop_view(&self, _view_name: &str) -> Option<SlidingSyncView> {
-        unimplemented!("Index based sliding sync doesn't support removing views");
+    pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncView> {
+        self.views.lock_mut().remove(view_name)
     }
 
     /// Add the view to the list of views
     ///
     /// As views need to have a unique `.name`, if a view with the same name
-    /// is found the new view will replace the old one and the return will give
-    /// the position it was found at. If none is found, the view will be pushed
-    /// to the end and `None` is returned.
+    /// is found the new view will replace the old one and the return it or
+    /// `None`.
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
-    pub fn add_view(&self, view: SlidingSyncView) -> Option<usize> {
-        let mut v = self.views.lock_mut();
-        if let Some(idx) = v.iter().position(|v| v.name == view.name) {
-            v.set_cloned(idx, view);
-            Some(idx)
-        } else {
-            v.push_cloned(view);
-            None
-        }
+    pub fn add_view(&self, view: SlidingSyncView) -> Option<SlidingSyncView> {
+        self.views.lock_mut().insert_cloned(view.name.clone(), view)
     }
 
     /// Lookup a set of rooms
@@ -742,37 +869,18 @@ impl SlidingSync {
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
+    #[instrument(skip_all, fields(views = views.len()))]
     async fn handle_response(
         &self,
         resp: v4::Response,
         extensions: Option<ExtensionsConfig>,
-        views: &[SlidingSyncView],
-        ranges: &[Vec<(usize, usize)>],
+        views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         debug!("main client processed.");
         self.pos.replace(Some(resp.pos));
+        self.delta_token.replace(resp.delta_token);
         let update = {
-            let mut updated_views = Vec::new();
-            if resp.lists.len() != views.len() {
-                return Err(Error::BadViewsCount {
-                    found: resp.lists.len(),
-                    expected: views.len(),
-                }
-                .into());
-            }
-
-            for ((view, ranges), updates) in
-                std::iter::zip(std::iter::zip(views, ranges), &resp.lists)
-            {
-                let count: u32 =
-                    updates.count.try_into().expect("the list total count convertible into u32");
-                trace!("view {:?}  update: {:?}", view.name, !updates.ops.is_empty());
-                if view.handle_response(count, &updates.ops, ranges)? {
-                    updated_views.push(view.name.clone());
-                }
-            }
-
             let mut rooms = Vec::new();
             let mut rooms_map = self.rooms.lock_mut();
             for (id, mut room_data) in resp.rooms.into_iter() {
@@ -794,6 +902,20 @@ impl SlidingSync {
                         SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
                     );
                     rooms.push(id);
+                }
+            }
+
+            let mut updated_views = Vec::new();
+
+            for (name, updates) in resp.lists {
+                let Some(generator) = views.get_mut(&name) else {
+                    error!("Response for view {name} - unknown to us. skipping");
+                    continue
+                };
+                let count: u32 =
+                    updates.count.try_into().expect("the list total count convertible into u32");
+                if generator.handle_response(count, &updates.ops, &rooms)? {
+                    updated_views.push(name.clone());
                 }
             }
 
@@ -819,45 +941,43 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub async fn stream<'a>(
-        &self,
-    ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
-        let views = self.views.lock_ref().to_vec();
+    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+        let mut views = {
+            let mut views = BTreeMap::new();
+            let views_lock = self.views.lock_ref();
+            for (name, view) in views_lock.deref().iter() {
+                views.insert(name.clone(), view.request_generator());
+            }
+            views
+        };
         let client = self.client.clone();
 
         debug!(?self.extensions, "Setting view stream going");
+        async_stream::stream! {
 
-        Ok(async_stream::stream! {
-            let mut remaining_views = views.clone();
-            let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
-                .iter()
-                .map(SlidingSyncView::request_generator)
-                .collect();
             loop {
                 debug!(?self.extensions, "Sync loop running");
 
-                let mut requests = Vec::new();
-                let mut current_ranges = vec![];
-                let mut new_remaining_generators = Vec::new();
-                let mut new_remaining_views = Vec::new();
+                let mut requests = BTreeMap::new();
+                let mut to_remove = Vec::new();
 
-                for (mut generator, view) in std::iter::zip(remaining_generators, remaining_views) {
-                    if let Some((request, range)) = generator.next() {
-                        requests.push(request);
-                        current_ranges.push(range);
-                        new_remaining_generators.push(generator);
-                        new_remaining_views.push(view);
+                for (name, generator) in views.iter_mut() {
+                    if let Some(request) = generator.next() {
+                        requests.insert(name.clone(), request);
+                    } else {
+                        to_remove.push(name.clone());
                     }
                 }
+                for n in to_remove {
+                    views.remove(&n);
+                }
 
-                if new_remaining_views.is_empty() {
+                if views.is_empty() {
                     return
                 }
 
-                remaining_views = new_remaining_views;
-                remaining_generators = new_remaining_generators;
-
                 let pos = self.pos.get_cloned();
+                let delta_token = self.delta_token.get_cloned();
                 let room_subscriptions = self.subscriptions.lock_ref().clone();
                 let unsubscribe_rooms = {
                     let unsubs = self.unsubscribe.lock_ref().to_vec();
@@ -882,6 +1002,7 @@ impl SlidingSync {
                 let req = assign!(v4::Request::new(), {
                     lists: requests,
                     pos,
+                    delta_token,
                     timeout: Some(timeout),
                     room_subscriptions,
                     unsubscribe_rooms,
@@ -906,30 +1027,24 @@ impl SlidingSync {
 
                 let resp = match resp_res {
                     Ok(r) => {
-                        self.failure_count.store(0, Ordering::Relaxed);
+                        self.failure_count.store(0, Ordering::SeqCst);
                         r
                     },
                     Err(e) => {
                         if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
-                            if self.failure_count.fetch_add(1, Ordering::Relaxed) >= 3 {
+                            if self.failure_count.fetch_add(1, Ordering::SeqCst) >= 3 {
                                 error!("session expired three times in a row");
                                 yield Err(e.into());
                                 break
                             }
                             warn!("Session expired. Restarting sliding sync.");
-                            remaining_generators = views
-                                .iter()
-                                .map(SlidingSyncView::request_generator)
-                                .collect();
                             *self.pos.lock_mut() = None;
 
                             // reset our extensions to the last known good ones.
                             *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
 
                             debug!(?self.extensions, "Resetting view stream");
-
-                            continue
                         }
                         yield Err(e.into());
                         continue
@@ -938,7 +1053,7 @@ impl SlidingSync {
 
                 debug!("received");
 
-                let updates =  match self.handle_response(resp, extensions, &remaining_views, &current_ranges).await {
+                let updates =  match self.handle_response(resp, extensions, &mut views).await {
                     Ok(r) => r,
                     Err(e) => {
                         yield Err(e.into());
@@ -948,7 +1063,7 @@ impl SlidingSync {
                 debug!("handled");
                 yield Ok(updates);
             }
-        })
+        }
     }
 }
 
@@ -986,7 +1101,12 @@ pub struct SlidingSyncView {
     #[builder(default = "20")]
     batch_size: u32,
 
-    /// How many rooms request at a time when doing a full-sync catch up
+    /// Whether the view should send `UpdatedAt`-Diff signals for rooms
+    /// that have changed
+    #[builder(default = "false")]
+    send_updates_for_items: bool,
+
+    /// How many rooms request a total hen doing a full-sync catch up
     #[builder(setter(into), default)]
     limit: Option<u32>,
 
@@ -996,7 +1116,7 @@ pub struct SlidingSyncView {
 
     /// The maximum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
-    timeline_limit: Option<UInt>,
+    pub timeline_limit: Mutable<Option<UInt>>,
 
     // ----- Public state
     /// Name of this view to easily recognise them
@@ -1024,6 +1144,9 @@ pub struct SlidingSyncView {
     #[builder(private)]
     rooms_updated_signal: futures_signals::signal::Sender<()>,
 
+    #[builder(private)]
+    is_cold: Arc<AtomicBool>,
+
     /// Get informed if anything in the room changed
     ///
     /// If you only care to know about changes once all of them have applied
@@ -1035,23 +1158,43 @@ pub struct SlidingSyncView {
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSyncView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     rooms_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     rooms_list: Vec<RoomListEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
 
-impl From<&SlidingSyncView> for FrozenSlidingSyncView {
-    fn from(v: &SlidingSyncView) -> Self {
+impl FrozenSlidingSyncView {
+    fn freeze(
+        source_view: &SlidingSyncView,
+        rooms_map: &MutableBTreeMapLockRef<'_, OwnedRoomId, SlidingSyncRoom>,
+    ) -> Self {
+        let mut rooms = BTreeMap::new();
+        let mut rooms_list = Vec::new();
+        for entry in source_view.rooms_list.lock_ref().iter() {
+            match entry {
+                RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
+                    rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
+                }
+                _ => {}
+            };
+
+            rooms_list.push(entry.freeze());
+        }
         FrozenSlidingSyncView {
-            rooms_count: *v.rooms_count.lock_ref(),
-            rooms_list: v.rooms_list.lock_ref().iter().map(|e| e.freeze()).collect(),
+            rooms_count: *source_view.rooms_count.lock_ref(),
+            rooms_list,
+            rooms,
         }
     }
 }
 
 impl SlidingSyncView {
-    fn set_from_cold(&mut self, v: FrozenSlidingSyncView) {
-        let FrozenSlidingSyncView { rooms_count, rooms_list } = v;
+    fn set_from_cold(&mut self, rooms_count: Option<u32>, rooms_list: Vec<RoomListEntry>) {
         self.state.set(SlidingSyncState::Preload);
+        self.is_cold.store(true, Ordering::SeqCst);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
@@ -1069,12 +1212,12 @@ impl SlidingSyncViewBuilder {
     /// Build the view
     pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
         let (sender, receiver) = futures_signals::signal::channel(());
+        self.is_cold = Some(Arc::new(AtomicBool::new(false)));
         self.rooms_updated_signal = Some(sender);
         self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
         self.finish_build()
     }
 
-    // defaults
     fn default_sort() -> Vec<String> {
         vec!["by_recency".to_owned(), "by_name".to_owned()]
     }
@@ -1120,7 +1263,7 @@ impl SlidingSyncViewBuilder {
 
     /// Set the limit of regular events to fetch for the timeline.
     pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
-        self.timeline_limit = Some(Some(timeline_limit.into()));
+        self.timeline_limit = Some(Mutable::new(Some(timeline_limit.into())));
         self
     }
 
@@ -1138,18 +1281,20 @@ enum InnerSlidingSyncViewRequestGenerator {
     Live,
 }
 
-struct SlidingSyncViewRequestGenerator<'a> {
-    view: &'a SlidingSyncView,
+struct SlidingSyncViewRequestGenerator {
+    view: SlidingSyncView,
+    ranges: Vec<(usize, usize)>,
     inner: InnerSlidingSyncViewRequestGenerator,
 }
 
-impl<'a> SlidingSyncViewRequestGenerator<'a> {
-    fn new_with_paging_syncup(view: &'a SlidingSyncView) -> Self {
+impl SlidingSyncViewRequestGenerator {
+    fn new_with_paging_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
 
         SlidingSyncViewRequestGenerator {
             view,
+            ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                 position: 0,
                 batch_size,
@@ -1158,12 +1303,13 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         }
     }
 
-    fn new_with_growing_syncup(view: &'a SlidingSyncView) -> Self {
+    fn new_with_growing_syncup(view: SlidingSyncView) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
 
         SlidingSyncViewRequestGenerator {
             view,
+            ranges: Default::default(),
             inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position: 0,
                 batch_size,
@@ -1172,94 +1318,105 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         }
     }
 
-    fn new_live(view: &'a SlidingSyncView) -> Self {
-        SlidingSyncViewRequestGenerator { view, inner: InnerSlidingSyncViewRequestGenerator::Live }
+    fn new_live(view: SlidingSyncView) -> Self {
+        SlidingSyncViewRequestGenerator {
+            view,
+            ranges: Default::default(),
+            inner: InnerSlidingSyncViewRequestGenerator::Live,
+        }
     }
 
     fn prefetch_request(
-        &self,
+        &mut self,
         start: u32,
         batch_size: u32,
         limit: Option<u32>,
-    ) -> (u32, (v4::SyncRequestList, Vec<(usize, usize)>)) {
+    ) -> v4::SyncRequestList {
         let calc_end = start + batch_size;
         let end = match limit {
             Some(l) => std::cmp::min(l, calc_end),
             _ => calc_end,
         };
-        let ranges = vec![(start.into(), end.into())];
-        (end, self.make_request_for_ranges(ranges))
+        self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
-    fn make_request_for_ranges(
-        &self,
-        ranges: Vec<(UInt, UInt)>,
-    ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
+    #[instrument(skip(self), fields(name = self.view.name))]
+    fn make_request_for_ranges(&mut self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
-        let timeline_limit = self.view.timeline_limit;
+        let timeline_limit = self.view.timeline_limit.get_cloned();
         let filters = self.view.filters.clone();
 
-        (
-            assign!(v4::SyncRequestList::default(), {
-                ranges: ranges.clone(),
+        self.ranges = ranges
+            .iter()
+            .map(|(a, b)| {
+                (
+                    usize::try_from(*a).expect("range is a valid u32"),
+                    usize::try_from(*b).expect("range is a valid u32"),
+                )
+            })
+            .collect();
+
+        assign!(v4::SyncRequestList::default(), {
+            ranges: ranges,
+            room_details: assign!(v4::RoomDetailsConfig::default(), {
                 required_state,
-                sort,
                 timeline_limit,
-                filters,
             }),
-            ranges
-                .into_iter()
-                .map(|(a, b)| {
-                    (
-                        usize::try_from(a).expect("range is a valid u32"),
-                        usize::try_from(b).expect("range is a valid u32"),
-                    )
-                })
-                .collect(),
-        )
+            sort,
+            filters,
+        })
     }
 
     // generate the next live request
-    fn live_request(&self) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
+    fn live_request(&mut self) -> v4::SyncRequestList {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
-}
 
-impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = (v4::SyncRequestList, Vec<(usize, usize)>);
+    #[instrument(skip_all, fields(name = self.view.name, rooms_count, has_ops = !ops.is_empty()))]
+    fn handle_response(
+        &mut self,
+        rooms_count: u32,
+        ops: &Vec<v4::SyncOp>,
+        rooms: &Vec<OwnedRoomId>,
+    ) -> Result<bool, Error> {
+        let res = self.view.handle_response(rooms_count, ops, &self.ranges, rooms)?;
+        self.update_state(rooms_count.saturating_sub(1)); // index is 0 based, count is 1 based
+        Ok(res)
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position, limit, .. }
-        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { position, limit, .. } =
-            self.inner
+    fn update_state(&mut self, max_index: u32) {
+        let Some((_start, range_end)) = self.ranges.first() else {
+            error!("Why don't we have any ranges?");
+            return
+        };
+
+        let end = if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
+
+        trace!(end, max_index, range_end, name = self.view.name, "updating state");
+
+        if let InnerSlidingSyncViewRequestGenerator::PagingFullSync { position: _, limit, .. }
+        | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+            position: _, limit, ..
+        } = self.inner
         {
-            if let Some(count) = self.view.rooms_count.get_cloned() {
-                let end = limit.unwrap_or(count);
-                if count <= position || end <= position {
-                    // we are switching to live mode
-                    self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        !matches!(before, SlidingSyncState::Live)
-                    });
-                    // keep listening to the entire list to learn about position updates
-                    self.view.set_range(0, end);
-                    self.inner = InnerSlidingSyncViewRequestGenerator::Live
-                }
-            } else {
-                // upon first catch up request, we want to switch state
-                self.view.state.set_if(SlidingSyncState::Preload, |before, _now| {
-                    matches!(before, SlidingSyncState::Cold)
-                });
+            let max = limit.unwrap_or(max_index);
+            if end >= max {
+                trace!(name = self.view.name, "going live");
+                // keep listening to the entire list to learn about position updates
+                self.view.set_range(0, max);
+                // we are switching to live mode
+                self.inner = InnerSlidingSyncViewRequestGenerator::Live
             }
         }
+
         match self.inner {
             InnerSlidingSyncViewRequestGenerator::PagingFullSync {
-                position,
+                position: _,
                 batch_size,
                 limit,
             } => {
-                let (end, req) = self.prefetch_request(position, batch_size, limit);
                 self.inner = InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                     position: end,
                     batch_size,
@@ -1268,14 +1425,12 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
                     matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
                 });
-                Some(req)
             }
             InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
-                position,
+                position: _,
                 batch_size,
                 limit,
             } => {
-                let (end, req) = self.prefetch_request(0, position + batch_size, limit);
                 self.inner = InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                     position: end,
                     batch_size,
@@ -1284,16 +1439,179 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
                 self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
                     matches!(before, SlidingSyncState::Preload | SlidingSyncState::Cold)
                 });
-                Some(req)
             }
             InnerSlidingSyncViewRequestGenerator::Live => {
                 self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
                     !matches!(before, SlidingSyncState::Live)
                 });
-                Some(self.live_request())
             }
         }
     }
+}
+
+impl Iterator for SlidingSyncViewRequestGenerator {
+    type Item = v4::SyncRequestList;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner {
+            InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+                position,
+                batch_size,
+                limit,
+            } => Some(self.prefetch_request(position, batch_size, limit)),
+            InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+                position,
+                batch_size,
+                limit,
+            } => Some(self.prefetch_request(0, position + batch_size, limit)),
+            InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
+        }
+    }
+}
+
+#[instrument(skip(ops))]
+fn room_ops(
+    rooms_list: &mut MutableVecLockMut<'_, RoomListEntry>,
+    ops: &Vec<v4::SyncOp>,
+    room_ranges: &Vec<(usize, usize)>,
+) -> Result<(), Error> {
+    let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
+    for op in ops {
+        match &op.op {
+            v4::SlidingOp::Sync => {
+                let start: u32 = op
+                    .range
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`range` must be present for Sync and Update operation".to_owned(),
+                        )
+                    })?
+                    .0
+                    .try_into()
+                    .map_err(|e| Error::BadResponse(format!("`range` not a valid int: {e:}")))?;
+                let room_ids = op.room_ids.clone();
+                room_ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let idx = start as usize + i;
+                        if idx >= rooms_list.len() {
+                            rooms_list.insert_cloned(idx, RoomListEntry::Filled(r));
+                        } else {
+                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
+                        }
+                    })
+                    .count();
+            }
+            v4::SlidingOp::Delete => {
+                let pos: u32 = op
+                    .index
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`index` must be present for DELETE operation".to_owned(),
+                        )
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
+                    })?;
+                rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+            }
+            v4::SlidingOp::Insert => {
+                let pos: usize = op
+                    .index
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`index` must be present for INSERT operation".to_owned(),
+                        )
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
+                    })?;
+                let sliced = rooms_list.as_slice();
+                let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
+                    Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
+                })?);
+                let mut dif = 0usize;
+                loop {
+                    // find the next empty slot and drop it
+                    let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
+                    let check_prev = !prev_overflow && index_in_range(prev_p);
+                    let (next_p, overflown) = pos.overflowing_add(dif);
+                    let check_after = !overflown && next_p < sliced.len() && index_in_range(next_p);
+                    if !check_prev && !check_after {
+                        return Err(Error::BadResponse(
+                            "We were asked to insert but could not find any direction to shift to"
+                                .to_owned(),
+                        ));
+                    }
+
+                    if check_prev && sliced[prev_p].empty_or_invalidated() {
+                        // we only check for previous, if there are items left
+                        rooms_list.remove(prev_p);
+                        break;
+                    } else if check_after && sliced[next_p].empty_or_invalidated() {
+                        rooms_list.remove(next_p);
+                        break;
+                    } else {
+                        // let's check the next position;
+                        dif += 1;
+                    }
+                }
+                rooms_list.insert_cloned(pos, room);
+            }
+            v4::SlidingOp::Invalidate => {
+                let max_len = rooms_list.len();
+                let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
+                    (
+                        range.0.try_into().map_err(|e| {
+                            Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
+                        })?,
+                        range.1.try_into().map_err(|e| {
+                            Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
+                        })?,
+                    )
+                } else {
+                    return Err(Error::BadResponse(
+                        "`range` must be given on `Invalidate` operation".to_owned(),
+                    ));
+                };
+
+                if pos > end {
+                    return Err(Error::BadResponse(
+                        "Invalid invalidation, end smaller than start".to_owned(),
+                    ));
+                }
+
+                // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
+                // ensure we pick them all up
+                while pos <= end {
+                    if pos as usize >= max_len {
+                        break; // how does this happen?
+                    }
+                    let idx = pos as usize;
+                    let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
+                        Some(b.clone())
+                    } else {
+                        None
+                    };
+
+                    if let Some(b) = entry {
+                        rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b));
+                    } else {
+                        rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+                    }
+                    pos += 1;
+                }
+            }
+            s => {
+                warn!("Unknown operation occurred: {:?}", s);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl SlidingSyncView {
@@ -1370,165 +1688,93 @@ impl SlidingSyncView {
             .collect()
     }
 
+    /// Find the current valid position of the room in the vies room_list.
+    ///
+    /// Only matches against the current ranges and only against filled items.
+    /// Invalid items are ignore. Return the total position the item was
+    /// found in the room_list, return None otherwise.
+    pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
+        let ranges = self.ranges.lock_ref();
+        let listing = self.rooms_list.lock_ref();
+        for (start_uint, end_uint) in ranges.iter() {
+            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let end: usize = (*end_uint).try_into().unwrap();
+            let iterator = listing.iter().skip(cur_pos);
+            for n in iterator {
+                if let RoomListEntry::Filled(r) = n {
+                    if room_id == r {
+                        return Some(cur_pos);
+                    }
+                }
+                if cur_pos == end {
+                    break;
+                }
+                cur_pos += 1;
+            }
+        }
+        None
+    }
+
+    /// Find the current valid position of the rooms in the views room_list.
+    ///
+    /// Only matches against the current ranges and only against filled items.
+    /// Invalid items are ignore. Return the total position the items that were
+    /// found in the room_list, will skip any room not found in the rooms_list.
+    pub fn find_rooms_in_view(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
+        let ranges = self.ranges.lock_ref();
+        let listing = self.rooms_list.lock_ref();
+        let mut rooms_found = Vec::new();
+        for (start_uint, end_uint) in ranges.iter() {
+            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let end: usize = (*end_uint).try_into().unwrap();
+            let iterator = listing.iter().skip(cur_pos);
+            for n in iterator {
+                if let RoomListEntry::Filled(r) = n {
+                    if room_ids.contains(r) {
+                        rooms_found.push((cur_pos, r.clone()));
+                    }
+                }
+                if cur_pos == end {
+                    break;
+                }
+                cur_pos += 1;
+            }
+        }
+        rooms_found
+    }
+
     /// Return the room_id at the given index
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
         self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
-    #[instrument(skip(self, ops))]
-    fn room_ops(
-        &self,
-        ops: &Vec<v4::SyncOp>,
-        room_ranges: &Vec<(usize, usize)>,
-    ) -> Result<(), Error> {
-        let mut rooms_list = self.rooms_list.lock_mut();
-        let _rooms_map = self.rooms.lock_mut();
-
-        let index_in_range =
-            |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
-        for op in ops {
-            match &op.op {
-                v4::SlidingOp::Sync => {
-                    let start: u32 = op
-                        .range
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`range` must be present for Sync and Update operation".to_owned(),
-                            )
-                        })?
-                        .0
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`range` not a valid int: {e:}"))
-                        })?;
-                    let room_ids = op.room_ids.clone();
-                    room_ids
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, r)| {
-                            let idx = start as usize + i;
-                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
-                        })
-                        .count();
-                }
-                v4::SlidingOp::Delete => {
-                    let pos: u32 = op
-                        .index
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`index` must be present for DELETE operation".to_owned(),
-                            )
-                        })?
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
-                        })?;
-                    rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
-                }
-                v4::SlidingOp::Insert => {
-                    let pos: usize = op
-                        .index
-                        .ok_or_else(|| {
-                            Error::BadResponse(
-                                "`index` must be present for INSERT operation".to_owned(),
-                            )
-                        })?
-                        .try_into()
-                        .map_err(|e| {
-                            Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
-                        })?;
-                    let sliced = rooms_list.as_slice();
-                    let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
-                        Error::BadResponse(
-                            "`room_id` must be present for INSERT operation".to_owned(),
-                        )
-                    })?);
-                    let mut dif = 0usize;
-                    loop {
-                        // find the next empty slot and drop it
-                        let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
-                        let check_prev = !prev_overflow && index_in_range(prev_p);
-                        let (next_p, overflown) = pos.overflowing_add(dif);
-                        let check_after =
-                            !overflown && next_p < sliced.len() && index_in_range(next_p);
-                        if !check_prev && !check_after {
-                            return Err(Error::BadResponse("We were asked to insert but could not find any direction to shift to".to_owned()));
-                        }
-
-                        if check_prev && sliced[prev_p].empty_or_invalidated() {
-                            // we only check for previous, if there are items left
-                            rooms_list.remove(prev_p);
-                            break;
-                        } else if check_after && sliced[next_p].empty_or_invalidated() {
-                            rooms_list.remove(next_p);
-                            break;
-                        } else {
-                            // let's check the next position;
-                            dif += 1;
-                        }
-                    }
-                    rooms_list.insert_cloned(pos, room);
-                }
-                v4::SlidingOp::Invalidate => {
-                    let max_len = rooms_list.len();
-                    let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
-                        (
-                            range.0.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
-                            })?,
-                            range.1.try_into().map_err(|e| {
-                                Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
-                            })?,
-                        )
-                    } else {
-                        return Err(Error::BadResponse(
-                            "`range` must be given on `Invalidate` operation".to_owned(),
-                        ));
-                    };
-
-                    if pos > end {
-                        return Err(Error::BadResponse(
-                            "Invalid invalidation, end smaller than start".to_owned(),
-                        ));
-                    }
-
-                    // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
-                    // ensure we pick them all up
-                    while pos <= end {
-                        if pos as usize >= max_len {
-                            break; // how does this happen?
-                        }
-                        let idx = pos as usize;
-                        let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
-                            Some(b.clone())
-                        } else {
-                            None
-                        };
-
-                        if let Some(b) = entry {
-                            rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b));
-                        } else {
-                            rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
-                        }
-                        pos += 1;
-                    }
-                }
-                s => {
-                    warn!("Unknown operation occurred: {:?}", s);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(skip(self, ops))]
+    #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
     fn handle_response(
         &self,
         rooms_count: u32,
         ops: &Vec<v4::SyncOp>,
         ranges: &Vec<(usize, usize)>,
+        rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
+        let current_rooms_count = self.rooms_count.get();
+        if current_rooms_count.is_none()
+            || current_rooms_count == Some(0)
+            || self.is_cold.load(Ordering::SeqCst)
+        {
+            debug!("first run, replacing roomslist");
+            // first response, we do that slightly differentely
+            let rooms_list =
+                MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
+            // then we apply it
+            let mut locked = rooms_list.lock_mut();
+            room_ops(&mut locked, ops, ranges)?;
+            self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
+            self.rooms_count.set(Some(rooms_count));
+            self.is_cold.store(false, Ordering::SeqCst);
+            return Ok(true);
+        }
+
+        debug!("regular update");
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         let mut changed = false;
@@ -1542,14 +1788,35 @@ impl SlidingSyncView {
             changed = true;
         }
 
-        if !ops.is_empty() {
-            self.room_ops(ops, ranges)?;
-            changed = true;
+        {
+            // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
+            let mut rooms_list = self.rooms_list.lock_mut();
+            let _rooms_map = self.rooms.lock_mut();
+
+            if !ops.is_empty() {
+                room_ops(&mut rooms_list, ops, ranges)?;
+                changed = true;
+            } else {
+                debug!("no rooms operations found");
+            }
         }
 
         if self.rooms_count.get() != Some(rooms_count) {
             self.rooms_count.set(Some(rooms_count));
             changed = true;
+        }
+
+        if self.send_updates_for_items && !rooms.is_empty() {
+            let found_views = self.find_rooms_in_view(rooms);
+            if !found_views.is_empty() {
+                debug!("room details found");
+                let mut rooms_list = self.rooms_list.lock_mut();
+                for (pos, room_id) in found_views {
+                    // trigger an `UpdatedAt` update
+                    rooms_list.set_cloned(pos, RoomListEntry::Filled(room_id));
+                    changed = true;
+                }
+            }
         }
 
         if changed {
@@ -1561,15 +1828,15 @@ impl SlidingSyncView {
         Ok(changed)
     }
 
-    fn request_generator(&self) -> SlidingSyncViewRequestGenerator<'_> {
+    fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
         match self.sync_mode.read_only().get_cloned() {
             SlidingSyncMode::PagingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self)
+                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
             }
             SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self)
+                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
             }
-            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self),
+            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
         }
     }
 }
@@ -1589,5 +1856,74 @@ impl Client {
         debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use ruma::room_id;
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn check_find_room_in_view() -> Result<()> {
+        let view = SlidingSyncViewBuilder::default()
+            .name("testview")
+            .add_range(0u32, 9u32)
+            .build()
+            .unwrap();
+        let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
+            "op": "SYNC",
+            "range": [0, 9],
+            "room_ids": [
+                "!A00000:matrix.example",
+                "!A00001:matrix.example",
+                "!A00002:matrix.example",
+                "!A00003:matrix.example",
+                "!A00004:matrix.example",
+                "!A00005:matrix.example",
+                "!A00006:matrix.example",
+                "!A00007:matrix.example",
+                "!A00008:matrix.example",
+                "!A00009:matrix.example"
+            ],
+        }))
+        .unwrap();
+
+        view.handle_response(10u32, &vec![full_window_update], &vec![(0, 9)], &vec![]).unwrap();
+
+        let a02 = room_id!("!A00002:matrix.example").to_owned();
+        let a05 = room_id!("!A00005:matrix.example").to_owned();
+        let a09 = room_id!("!A00009:matrix.example").to_owned();
+
+        assert_eq!(view.find_room_in_view(&a02), Some(2));
+        assert_eq!(view.find_room_in_view(&a05), Some(5));
+        assert_eq!(view.find_room_in_view(&a09), Some(9));
+
+        assert_eq!(
+            view.find_rooms_in_view(&[a02.clone(), a05.clone(), a09.clone()]),
+            vec![(2, a02.clone()), (5, a05.clone()), (9, a09.clone())]
+        );
+
+        // we invalidate a few in the center
+        let update: v4::SyncOp = serde_json::from_value(json! ({
+            "op": "INVALIDATE",
+            "range": [4, 7],
+        }))
+        .unwrap();
+
+        view.handle_response(10u32, &vec![update], &vec![(0, 3), (8, 9)], &vec![]).unwrap();
+
+        assert_eq!(view.find_room_in_view(room_id!("!A00002:matrix.example")), Some(2));
+        assert_eq!(view.find_room_in_view(room_id!("!A00005:matrix.example")), None);
+        assert_eq!(view.find_room_in_view(room_id!("!A00009:matrix.example")), Some(9));
+
+        assert_eq!(
+            view.find_rooms_in_view(&[a02.clone(), a05, a09.clone()]),
+            vec![(2, a02), (9, a09)]
+        );
+
+        Ok(())
     }
 }

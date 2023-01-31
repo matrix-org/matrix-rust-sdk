@@ -1,24 +1,27 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, RwLock,
+};
 
 use futures_signals::{
     signal::SignalExt,
     signal_vec::{SignalVecExt, VecDiff},
 };
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId,
+    assign, IdParseError, OwnedRoomId, UInt,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
     Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
-use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
+use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
+use tracing::{debug, error, trace, warn};
 
 use super::{Client, Room, RUNTIME};
 use crate::{
@@ -29,13 +32,16 @@ use crate::{
 type StoppableSpawnCallback = Box<dyn FnOnce() + Send + Sync>;
 
 pub struct StoppableSpawn {
-    handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
     callback: RwLock<Option<StoppableSpawnCallback>>,
 }
 
 impl StoppableSpawn {
     fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
-        StoppableSpawn { handle, callback: Default::default() }
+        StoppableSpawn { handle: Some(handle), callback: Default::default() }
+    }
+    fn with_callback(callback: StoppableSpawnCallback) -> StoppableSpawn {
+        StoppableSpawn { handle: Default::default(), callback: RwLock::new(Some(callback)) }
     }
 
     fn set_callback(&mut self, f: StoppableSpawnCallback) {
@@ -53,13 +59,15 @@ impl From<JoinHandle<()>> for StoppableSpawn {
 impl StoppableSpawn {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
-        self.handle.abort();
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
         if let Some(callback) = self.callback.write().unwrap().take() {
             callback();
         }
     }
     pub fn is_finished(&self) -> bool {
-        self.handle.is_finished()
+        self.handle.as_ref().map(|h| h.is_finished()).unwrap_or_default()
     }
 }
 
@@ -178,8 +186,8 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> Option<StoppableSpawn> {
         let mut timeline_lock = self.timeline.write().unwrap();
-        let timeline_signal = match &*timeline_lock {
-            Some(timeline) => timeline.signal(),
+        let timeline = match &*timeline_lock {
+            Some(timeline) => timeline,
             None => {
                 let Some(timeline) = RUNTIME.block_on(self.inner.timeline()) else {
                     warn!(
@@ -188,12 +196,13 @@ impl SlidingSyncRoom {
                     );
                     return None;
                 };
-                timeline_lock.insert(Arc::new(timeline)).signal()
+                timeline_lock.insert(Arc::new(timeline))
             }
         };
+        let timeline_signal = timeline.signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
-        Some(StoppableSpawn::with_handle(RUNTIME.spawn(timeline_signal.for_each(move |diff| {
+        let handle_events = timeline_signal.for_each(move |diff| {
             let listener = listener.clone();
             let fut = RUNTIME
                 .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
@@ -203,7 +212,22 @@ impl SlidingSyncRoom {
                     error!("Timeline listener error: {e}");
                 }
             }
-        }))))
+        });
+
+        let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
+        let timeline = timeline.clone();
+        let handle_sliding_sync_reset = async move {
+            loop {
+                match reset_broadcast_rx.recv().await {
+                    Err(RecvError::Closed) => break,
+                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
+                }
+            }
+        };
+
+        Some(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+            join(handle_events, handle_sliding_sync_reset).await;
+        })))
     }
 }
 
@@ -370,6 +394,12 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
+    pub fn send_updates_for_items(self: Arc<Self>, enable: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.send_updates_for_items(enable);
+        Arc::new(builder)
+    }
+
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.ranges(ranges);
@@ -530,13 +560,11 @@ impl SlidingSyncView {
 
 #[uniffi::export]
 impl SlidingSyncView {
+    /// Get the current list of rooms
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
         self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
     }
-}
 
-#[uniffi::export]
-impl SlidingSyncView {
     /// Reset the ranges to a particular set
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
@@ -553,12 +581,29 @@ impl SlidingSyncView {
         self.inner.add_range(start, end);
     }
 
+    /// Reset the ranges
     pub fn reset_ranges(&self) {
         self.inner.reset_ranges();
     }
 
+    /// Total of rooms matching the filter
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
+    }
+
+    /// The current timeline limit
+    pub fn get_timeline_limit(&self) -> Option<u32> {
+        self.inner.timeline_limit.get_cloned().map(|limit| u32::try_from(limit).unwrap_or_default())
+    }
+
+    /// The current timeline limit
+    pub fn set_timeline_limit(&self, value: u32) {
+        self.inner.timeline_limit.set(Some(UInt::try_from(value).unwrap()))
+    }
+
+    /// Unset the current timeline limit
+    pub fn unset_timeline_limit(&self) {
+        self.inner.timeline_limit.set(None)
     }
 }
 
@@ -640,47 +685,59 @@ impl SlidingSync {
         self.inner.view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
-    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<u32> {
-        self.inner.add_view(view.inner.clone()).map(|u| u as u32)
+    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<Arc<SlidingSyncView>> {
+        self.inner.add_view(view.inner.clone()).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
     pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
         self.inner.pop_view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
+    pub fn add_common_extensions(&self) {
+        self.inner.add_common_extensions();
+    }
+
     pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
         let client = self.client.clone();
         let observer = self.observer.clone();
+        let stop_loop = Arc::new(AtomicBool::new(false));
+        let remote_stopper = stop_loop.clone();
 
-        Arc::new(
-            RUNTIME
-                .spawn(async move {
-                    let stream = inner.stream().await.unwrap();
-                    pin_mut!(stream);
-                    loop {
-                        let update = match stream.next().await {
-                            Some(Ok(u)) => u,
-                            Some(Err(e)) => {
-                                if client.process_sync_error(e) == LoopCtrl::Break {
-                                    warn!("loop was stopped by client error processing");
-                                    break;
-                                } else {
-                                    continue;
-                                }
-                            }
-                            None => {
-                                warn!("Inner streaming loop ended unexpectedly");
-                                break;
-                            }
-                        };
-                        if let Some(ref observer) = *observer.read().unwrap() {
-                            observer.did_receive_sync_update(update.into());
+        let stoppable = Arc::new(StoppableSpawn::with_callback(Box::new(move || {
+            remote_stopper.store(true, Ordering::Relaxed);
+        })));
+
+        RUNTIME.spawn(async move {
+            let stream = inner.stream();
+            pin_mut!(stream);
+            loop {
+                let update = match stream.next().await {
+                    Some(Ok(u)) => u,
+                    Some(Err(e)) => {
+                        if client.process_sync_error(e) == LoopCtrl::Break {
+                            warn!("loop was stopped by client error processing");
+                            break;
+                        } else {
+                            continue;
                         }
                     }
-                })
-                .into(),
-        )
+                    None => {
+                        warn!("Inner streaming loop ended unexpectedly");
+                        break;
+                    }
+                };
+                if let Some(ref observer) = *observer.read().unwrap() {
+                    observer.did_receive_sync_update(update.into());
+                }
+                if stop_loop.load(Ordering::Relaxed) {
+                    trace!("stopped sync loop after cancellation");
+                    break;
+                }
+            }
+        });
+
+        stoppable
     }
 }
 
@@ -735,6 +792,42 @@ impl SlidingSyncBuilder {
     pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.with_common_extensions();
+        Arc::new(builder)
+    }
+
+    pub fn without_e2ee_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_e2ee_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_to_device_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_to_device_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_account_data_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_account_data_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_receipt_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_receipt_extension();
+        Arc::new(builder)
+    }
+
+    pub fn without_typing_extension(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.without_typing_extension();
+        Arc::new(builder)
+    }
+
+    pub fn with_all_extensions(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.with_all_extensions();
         Arc::new(builder)
     }
 }

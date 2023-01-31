@@ -12,22 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::MilliSecondsSinceUnixEpoch;
+
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
 #[derive(Clone, Debug)]
 pub enum VirtualTimelineItem {
     /// A divider between messages of two days.
-    DayDivider {
-        /// The year.
-        year: i32,
-        /// The month of the year.
-        ///
-        /// A value between 1 and 12.
-        month: u32,
-        /// The day of the month.
-        ///
-        /// A value between 1 and 31.
-        day: u32,
-    },
+    ///
+    /// The value is a timestamp in milliseconds since Unix Epoch on the given
+    /// day in local time.
+    DayDivider(MilliSecondsSinceUnixEpoch),
 
     /// The user's own read marker.
     ReadMarker,
