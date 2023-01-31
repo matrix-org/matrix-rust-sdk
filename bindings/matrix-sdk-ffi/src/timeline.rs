@@ -213,6 +213,10 @@ impl EventTimelineItem {
         matches!(self.0, Remote(_))
     }
 
+    pub fn unique_identifier(&self) -> String {
+        self.0.unique_identifier()
+    }
+
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
     }

@@ -83,6 +83,22 @@ impl EventTimelineItem {
         }
     }
 
+    /// Get a unique identifier to identify the event item, either by using
+    /// transaction ID or event ID in case of a local event, or by event ID in
+    /// case of a remote event.
+    pub fn unique_identifier(&self) -> String {
+        match self {
+            Self::Local(LocalEventTimelineItem { transaction_id, event_id, .. }) => {
+                match event_id {
+                    Some(event_id) => event_id.to_string(),
+                    None => transaction_id.to_string(),
+                }
+            }
+
+            Self::Remote(RemoteEventTimelineItem { event_id, .. }) => event_id.to_string(),
+        }
+    }
+
     /// Get the transaction ID of this item.
     ///
     /// The transaction ID is only kept until the remote echo for a local event
