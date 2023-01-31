@@ -277,7 +277,7 @@ impl UserIdentity {
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
 /// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
@@ -287,10 +287,12 @@ impl PartialEq for MasterPubkey {
     }
 }
 
+impl Eq for MasterPubkey {}
+
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
 /// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
@@ -300,10 +302,12 @@ impl PartialEq for SelfSigningPubkey {
     }
 }
 
+impl Eq for SelfSigningPubkey {}
+
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
@@ -312,6 +316,8 @@ impl PartialEq for UserSigningPubkey {
         self.user_id() == other.user_id() && self.keys() == other.keys()
     }
 }
+
+impl Eq for UserSigningPubkey {}
 
 impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
