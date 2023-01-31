@@ -517,16 +517,16 @@ impl SlidingSyncBuilder {
                 .get_or_insert_with(Default::default)
                 .get_or_insert_with(Default::default);
             if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.account_data.is_none() {
                 cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
         }
         self
@@ -544,24 +544,24 @@ impl SlidingSyncBuilder {
                 .get_or_insert_with(Default::default)
                 .get_or_insert_with(Default::default);
             if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.account_data.is_none() {
                 cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.receipt.is_none() {
-                cfg.receipt = Some(assign!(ReceiptConfig::default(), {enabled : Some(true)}));
+                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.typing.is_none() {
-                cfg.typing = Some(assign!(TypingConfig::default(), {enabled : Some(true)}));
+                cfg.typing = Some(assign!(TypingConfig::default(), { enabled: Some(true) }));
             }
         }
         self
@@ -801,15 +801,15 @@ impl SlidingSync {
         let mut lock = self.extensions.lock().unwrap();
         let mut cfg = lock.get_or_insert_with(Default::default);
         if cfg.to_device.is_none() {
-            cfg.to_device = Some(assign!(ToDeviceConfig::default(), {enabled : Some(true)}));
+            cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
         }
 
         if cfg.e2ee.is_none() {
-            cfg.e2ee = Some(assign!(E2EEConfig::default(), {enabled : Some(true)}));
+            cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
         }
 
         if cfg.account_data.is_none() {
-            cfg.account_data = Some(assign!(AccountDataConfig::default(), {enabled : Some(true)}));
+            cfg.account_data = Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
         }
     }
 
@@ -869,7 +869,7 @@ impl SlidingSync {
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
-    #[instrument(skip_all, fields(views=views.len()))]
+    #[instrument(skip_all, fields(views = views.len()))]
     async fn handle_response(
         &self,
         resp: v4::Response,
@@ -941,7 +941,7 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub fn stream<'a>(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         let mut views = {
             let mut views = BTreeMap::new();
             let views_lock = self.views.lock_ref();
@@ -1340,7 +1340,7 @@ impl SlidingSyncViewRequestGenerator {
         self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
-    #[instrument(skip(self), fields(name=self.view.name))]
+    #[instrument(skip(self), fields(name = self.view.name))]
     fn make_request_for_ranges(&mut self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
@@ -1374,7 +1374,7 @@ impl SlidingSyncViewRequestGenerator {
         self.make_request_for_ranges(ranges)
     }
 
-    #[instrument(skip_all, fields(name=self.view.name, rooms_count, has_ops=!ops.is_empty()))]
+    #[instrument(skip_all, fields(name = self.view.name, rooms_count, has_ops = !ops.is_empty()))]
     fn handle_response(
         &mut self,
         rooms_count: u32,
@@ -1382,7 +1382,7 @@ impl SlidingSyncViewRequestGenerator {
         rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
         let res = self.view.handle_response(rooms_count, ops, &self.ranges, rooms)?;
-        self.update_state(rooms_count.checked_sub(1).unwrap_or_default()); // index is 0 based, count is 1 based
+        self.update_state(rooms_count.saturating_sub(1)); // index is 0 based, count is 1 based
         Ok(res)
     }
 
