@@ -525,43 +525,38 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         self.result.item_added = true;
 
         let NewEventTimelineItem { content } = item;
+        let sender = self.meta.sender.to_owned();
+        let sender_profile = self.meta.sender_profile.clone();
+        let mut reactions = self.pending_reactions().unwrap_or_default();
 
-        let item = {
-            let sender = self.meta.sender.to_owned();
-            let sender_profile = self.meta.sender_profile.clone();
-            let mut reactions = self.pending_reactions().unwrap_or_default();
-
-            match &self.flow {
-                Flow::Local { txn_id, timestamp } => {
-                    EventTimelineItem::Local(LocalEventTimelineItem {
-                        send_state: EventSendState::NotSentYet,
-                        transaction_id: txn_id.to_owned(),
-                        sender,
-                        sender_profile,
-                        timestamp: *timestamp,
-                        content,
-                    })
-                }
-                Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
-                    // Drop pending reactions if the message is redacted.
-                    if let TimelineItemContent::RedactedMessage = content {
-                        if !reactions.is_empty() {
-                            reactions = BundledReactions::default();
-                        }
+        let item = match &self.flow {
+            Flow::Local { txn_id, timestamp } => EventTimelineItem::Local(LocalEventTimelineItem {
+                send_state: EventSendState::NotSentYet,
+                transaction_id: txn_id.to_owned(),
+                sender,
+                sender_profile,
+                timestamp: *timestamp,
+                content,
+            }),
+            Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
+                // Drop pending reactions if the message is redacted.
+                if let TimelineItemContent::RedactedMessage = content {
+                    if !reactions.is_empty() {
+                        reactions = BundledReactions::default();
                     }
-
-                    EventTimelineItem::Remote(RemoteEventTimelineItem {
-                        event_id: event_id.clone(),
-                        sender,
-                        sender_profile,
-                        timestamp: *origin_server_ts,
-                        content,
-                        reactions,
-                        is_own: self.meta.is_own_event,
-                        encryption_info: self.meta.encryption_info.clone(),
-                        raw: raw_event.clone(),
-                    })
                 }
+
+                EventTimelineItem::Remote(RemoteEventTimelineItem {
+                    event_id: event_id.clone(),
+                    sender,
+                    sender_profile,
+                    timestamp: *origin_server_ts,
+                    content,
+                    reactions,
+                    is_own: self.meta.is_own_event,
+                    encryption_info: self.meta.encryption_info.clone(),
+                    raw: raw_event.clone(),
+                })
             }
         };
 
