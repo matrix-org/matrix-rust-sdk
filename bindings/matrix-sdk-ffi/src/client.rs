@@ -19,6 +19,8 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use tokio::sync::broadcast;
+use tracing::{debug, warn};
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
@@ -44,6 +46,7 @@ pub struct Client {
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+    pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
 }
 
 impl Client {
@@ -59,18 +62,19 @@ impl Client {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
                     session_verification_controller.process_to_device_message(ev).await;
                 } else {
-                    tracing::debug!(
-                        "received to-device message, but verification controller isn't ready"
-                    );
+                    debug!("received to-device message, but verification controller isn't ready");
                 }
             }
         });
+
+        let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
 
         Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
+            sliding_sync_reset_broadcast_tx,
         }
     }
 
@@ -319,17 +323,25 @@ impl Client {
 
     /// Process a sync error and return loop control accordingly
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        if let Some(ErrorKind::UnknownToken { soft_logout }) = sync_error.client_api_error_kind() {
-            self.state.write().unwrap().is_soft_logout = *soft_logout;
-            if let Some(delegate) = &*self.delegate.read().unwrap() {
-                delegate.did_update_restore_token();
-                delegate.did_receive_auth_error(*soft_logout);
+        let client_api_error_kind = sync_error.client_api_error_kind();
+        match client_api_error_kind {
+            Some(ErrorKind::UnknownToken { soft_logout }) => {
+                self.state.write().unwrap().is_soft_logout = *soft_logout;
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_update_restore_token();
+                    delegate.did_receive_auth_error(*soft_logout);
+                }
+                LoopCtrl::Break
             }
-            return LoopCtrl::Break;
+            Some(ErrorKind::UnknownPos) => {
+                let _ = self.sliding_sync_reset_broadcast_tx.send(());
+                LoopCtrl::Continue
+            }
+            _ => {
+                warn!("Ignoring sync error: {sync_error:?}");
+                LoopCtrl::Continue
+            }
         }
-
-        tracing::warn!("Ignoring sync error: {:?}", sync_error);
-        LoopCtrl::Continue
     }
 }
 

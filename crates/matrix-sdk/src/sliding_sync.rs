@@ -860,15 +860,13 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub async fn stream<'a>(
-        &self,
-    ) -> Result<impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_> {
+    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         let views = self.views.lock_ref().to_vec();
         let client = self.client.clone();
 
         debug!(?self.extensions, "Setting view stream going");
 
-        Ok(async_stream::stream! {
+        async_stream::stream! {
             let mut remaining_views = views.clone();
             let mut remaining_generators: Vec<SlidingSyncViewRequestGenerator<'_>> = views
                 .iter()
@@ -969,8 +967,6 @@ impl SlidingSync {
                             *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
 
                             debug!(?self.extensions, "Resetting view stream");
-
-                            continue
                         }
                         yield Err(e.into());
                         continue
@@ -989,7 +985,7 @@ impl SlidingSync {
                 debug!("handled");
                 yield Ok(updates);
             }
-        })
+        }
     }
 }
 
@@ -1042,7 +1038,7 @@ pub struct SlidingSyncView {
 
     /// The maximum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
-    timeline_limit: Option<UInt>,
+    pub timeline_limit: Mutable<Option<UInt>>,
 
     // ----- Public state
     /// Name of this view to easily recognise them
@@ -1189,7 +1185,7 @@ impl SlidingSyncViewBuilder {
 
     /// Set the limit of regular events to fetch for the timeline.
     pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
-        self.timeline_limit = Some(Some(timeline_limit.into()));
+        self.timeline_limit = Some(Mutable::new(Some(timeline_limit.into())));
         self
     }
 
@@ -1265,7 +1261,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     ) -> (v4::SyncRequestList, Vec<(usize, usize)>) {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
-        let timeline_limit = self.view.timeline_limit;
+        let timeline_limit = self.view.timeline_limit.get_cloned();
         let filters = self.view.filters.clone();
 
         (
