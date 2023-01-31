@@ -127,13 +127,17 @@ mod ios {
         otlp_endpoint: String,
     ) -> anyhow::Result<()> {
         let otlp_tracer =
-            setup_remote_jaeger(user, password, otlp_endpoint, "element-x-ios".to_owned())?;
+            super::create_otlp_tracer(user, password, otlp_endpoint, "element-x-ios".to_owned())?;
+
+        let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
 
         tracing_subscriber::registry()
             .with(EnvFilter::new(configuration))
             .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
-            .with(otlp_tracer)
+            .with(otlp_layer)
             .init();
+
+        Ok(())
     }
 }
 
