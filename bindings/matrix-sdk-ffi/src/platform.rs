@@ -43,7 +43,7 @@ mod ios {
 
         let runtime = RUNTIME.handle().to_owned();
 
-        let tracer = create_rageshake_tracer(path.into(), &client_name, runtime);
+        let tracer = crate::rageshake::create_rageshake_tracer(path.into(), &client_name, runtime);
         let layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
         tracing_subscriber::registry()
