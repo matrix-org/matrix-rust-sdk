@@ -277,23 +277,41 @@ impl UserIdentity {
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
 /// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
+
+impl PartialEq for MasterPubkey {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id() == other.user_id() && self.keys() == other.keys()
+    }
+}
 
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
 /// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
+
+impl PartialEq for SelfSigningPubkey {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id() == other.user_id() && self.keys() == other.keys()
+    }
+}
 
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
+
+impl PartialEq for UserSigningPubkey {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id() == other.user_id() && self.keys() == other.keys()
+    }
+}
 
 impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
@@ -1009,8 +1027,9 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::user_id;
+    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
     use serde_json::{json, Value};
+    use vodozemac::Ed25519Signature;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
@@ -1156,5 +1175,43 @@ pub(crate) mod tests {
         assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json), Err(_));
         assert_matches!(serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json), Err(_));
         assert_matches!(serde_json::from_value::<UserSigningPubkey>(user_signing_key_json), Err(_));
+    }
+
+    #[test]
+    fn partial_eq_cross_signing_keys() {
+        macro_rules! partial_eq {
+            ($key_type: ty, $field: ident, $usage: expr) => {
+                let user_id = user_id!("@example:localhost");
+                let response = own_key_query();
+                let raw = response.$field.get(user_id).unwrap();
+                let key: $key_type = raw.deserialize_as().unwrap();
+
+                // Let's add another usage to the key.
+                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
+                other_key.usage.push($usage);
+                let other_key = other_key.try_into().unwrap();
+                // Additional usage is fine, the keys are still the same.
+                assert_eq!(key, other_key);
+
+                // Let's add another signature to the key.
+                let signature = Ed25519Signature::from_base64(
+                    "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+                ).expect("The signature can always be decoded");
+                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
+                other_key.signatures.add_signature(
+                    user_id.to_owned(),
+                    DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, "DEVICEID".into()),
+                    signature,
+                );
+                let other_key = other_key.try_into().unwrap();
+
+                // Additional signatures are fine, the keys are still the same.
+                assert_eq!(key, other_key);
+            };
+        }
+
+        partial_eq!(MasterPubkey, master_keys, KeyUsage::SelfSigning);
+        partial_eq!(SelfSigningPubkey, self_signing_keys, KeyUsage::Master);
+        partial_eq!(UserSigningPubkey, user_signing_keys, KeyUsage::Master);
     }
 }
