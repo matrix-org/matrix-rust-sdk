@@ -1226,7 +1226,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn partial_eq_cross_signing_keys() {
         macro_rules! partial_eq {
-            ($key_type: ty, $key_struct: ident, $key_field: ident, $field: ident, $usage: expr) => {
+            ($key_type:ident, $key_field:ident, $field:ident, $usage:expr) => {
                 let user_id = user_id!("@example:localhost");
                 let response = own_key_query();
                 let raw = response.$field.get(user_id).unwrap();
@@ -1262,27 +1262,15 @@ pub(crate) mod tests {
                 // However changing the usage results in a different key.
                 let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
                 other_key.usage.push($usage);
-                let other_key = $key_struct{0: Arc::new(other_key)};
+                let other_key = $key_type { 0: other_key.into() };
                 assert_ne!(key, other_key);
             };
         }
 
         // The last argument is deliberately some usage which is *not* correct for the
         // type.
-        partial_eq!(MasterPubkey, MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
-        partial_eq!(
-            SelfSigningPubkey,
-            SelfSigningPubkey,
-            self_signing_key,
-            self_signing_keys,
-            KeyUsage::Master
-        );
-        partial_eq!(
-            UserSigningPubkey,
-            UserSigningPubkey,
-            user_signing_key,
-            user_signing_keys,
-            KeyUsage::Master
-        );
+        partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
+        partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
+        partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);
     }
 }
