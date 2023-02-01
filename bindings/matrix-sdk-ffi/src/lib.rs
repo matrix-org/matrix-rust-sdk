@@ -57,6 +57,7 @@ pub struct ClientState {
     is_syncing: bool,
     should_stop_syncing: bool,
     is_soft_logout: bool,
+    sliding_sync_proxy: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
