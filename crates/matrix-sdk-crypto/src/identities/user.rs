@@ -284,12 +284,14 @@ pub struct MasterPubkey(Arc<CrossSigningKey>);
 macro_rules! impl_partial_eq {
     ($key_type: ty) => {
         impl PartialEq for $key_type {
-            /// The `PartialEq` implementation compares the user_id and keys,
-            /// ignoring signatures and the usage.
+            /// The `PartialEq` implementation compares the user ID, the usage and the
+            /// key material, ignoring signatures.
             ///
-            /// The usage can safely be ignored since the type guarantees it has the
-            /// correct usage by construction -- it is impossible to construct
-            /// the type with an incorrect usage.
+            /// The usage could be safely ignored since the type guarantees it has the
+            /// correct usage by construction -- it is impossible to construct a
+            /// value of a particular key type with an incorrect usage. However, we
+            /// check it anyway, to codify the notion that the same key material
+            /// with a different usage results in a logically different key.
             ///
             /// The signatures are provided by other devices and don't alter the
             /// identity of the key itself.
