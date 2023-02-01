@@ -270,7 +270,6 @@ impl Client {
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all)]
     pub(crate) async fn claim_one_time_keys(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -882,7 +881,7 @@ mod tests {
             .await;
 
         Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m\.reaction/.*".to_owned()))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event_id": event_id,
             })))

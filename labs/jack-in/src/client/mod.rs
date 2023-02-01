@@ -5,7 +5,10 @@ use tracing::{error, info, warn};
 
 pub mod state;
 
-use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
+use matrix_sdk::{
+    ruma::{api::client::error::ErrorKind, OwnedRoomId},
+    Client, SlidingSyncState, SlidingSyncViewBuilder,
+};
 
 pub async fn run_client(
     client: Client,
@@ -37,8 +40,8 @@ pub async fn run_client(
         .cold_cache("jack-in-default")
         .build()
         .await?;
-    let stream = syncer.stream().await.expect("we can build the stream");
-    let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
+    let stream = syncer.stream();
+    let view = syncer.view("full-sync").expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
     tx.send(ssync_state.clone()).await?;
@@ -47,7 +50,7 @@ pub async fn run_client(
 
     pin_mut!(stream);
     if let Some(Err(e)) = stream.next().await {
-        error!("Stopped: Initial Query on sliding sync failed: {:?}", e);
+        error!("Stopped: Initial Query on sliding sync failed: {e:?}");
         return Ok(());
     }
 
@@ -71,8 +74,10 @@ pub async fn run_client(
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
-                error!("Error: {:}", e);
-                break;
+                if e.client_api_error_kind() != Some(&ErrorKind::UnknownPos) {
+                    error!("Error: {e}");
+                    break;
+                }
             }
             None => {
                 error!("Never reached live state");
@@ -107,12 +112,12 @@ pub async fn run_client(
         }
         match update {
             Ok(update) => {
-                info!("Live update received: {:?}", update);
+                info!("Live update received: {update:?}");
                 tx.send(ssync_state.clone()).await?;
                 err_counter = 0;
             }
             Err(e) => {
-                warn!("Live update error: {:?}", e);
+                warn!("Live update error: {e:?}");
                 err_counter += 1;
                 if err_counter > 3 {
                     error!("Received 3 errors in a row. stopping.");

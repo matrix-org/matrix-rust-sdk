@@ -62,6 +62,10 @@ async fn retry_decryption(
     };
 
     inner
-        .retry_event_decryption(&room_id, olm_machine, iter::once(session_id.as_str()).collect())
+        .retry_event_decryption(
+            &room_id,
+            olm_machine,
+            Some(iter::once(session_id.as_str()).collect()),
+        )
         .await;
 }

@@ -79,7 +79,7 @@ section aims at listing all the scopes used inside this project:
       <td>About the <code>matrix-sdk-test</code> and <code>matrix-sdk-test-macros</code> crate.</td>
     </tr>
     <tr>
-      <td rowspan="4">Bindings</td>
+      <td rowspan="5">Bindings</td>
       <td><code>apple</code></td>
       <td>About the <code>matrix-rust-components-swift</code> binding.</td>
     </tr>
@@ -94,6 +94,10 @@ section aims at listing all the scopes used inside this project:
     <tr>
       <td><code>crypto-ffi</code></td>
       <td>About the <code>matrix-sdk-crypto-ffi</code> binding.</td>
+    </tr>
+    <tr>
+      <td><code>ffi</code></td>
+      <td>About the <code>matrix-sdk-ffi</code> binding.</td>
     </tr>
     <tr>
       <td>Labs</td>

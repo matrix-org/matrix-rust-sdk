@@ -91,7 +91,7 @@ impl SecretInfo {
     pub fn as_key(&self) -> String {
         match &self {
             SecretInfo::KeyRequest(info) => format!(
-                "keyRequest:{:}:{:}:{:}",
+                "keyRequest:{}:{}:{}",
                 info.room_id().as_str(),
                 info.session_id(),
                 &info.algorithm(),

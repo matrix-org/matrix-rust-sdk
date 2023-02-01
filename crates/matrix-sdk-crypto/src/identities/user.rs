@@ -277,54 +277,66 @@ impl UserIdentity {
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
 /// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "CrossSigningKey")]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
 /// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "CrossSigningKey")]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "CrossSigningKey")]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
-impl PartialEq for MasterPubkey {
-    fn eq(&self, other: &MasterPubkey) -> bool {
-        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+impl TryFrom<CrossSigningKey> for MasterPubkey {
+    type Error = serde_json::Error;
+
+    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
+        if key.usage.contains(&KeyUsage::Master) {
+            Ok(Self(key.into()))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Expected cross signing key usage {} was not found",
+                KeyUsage::Master
+            )))
+        }
     }
 }
 
-impl PartialEq for SelfSigningPubkey {
-    fn eq(&self, other: &SelfSigningPubkey) -> bool {
-        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+impl TryFrom<CrossSigningKey> for SelfSigningPubkey {
+    type Error = serde_json::Error;
+
+    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
+        if key.usage.contains(&KeyUsage::SelfSigning) {
+            Ok(Self(key.into()))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Expected cross signing key usage {} was not found",
+                KeyUsage::SelfSigning
+            )))
+        }
     }
 }
 
-impl PartialEq for UserSigningPubkey {
-    fn eq(&self, other: &UserSigningPubkey) -> bool {
-        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
-    }
-}
+impl TryFrom<CrossSigningKey> for UserSigningPubkey {
+    type Error = serde_json::Error;
 
-impl From<CrossSigningKey> for MasterPubkey {
-    fn from(key: CrossSigningKey) -> Self {
-        Self(key.into())
-    }
-}
-
-impl From<CrossSigningKey> for SelfSigningPubkey {
-    fn from(key: CrossSigningKey) -> Self {
-        Self(key.into())
-    }
-}
-
-impl From<CrossSigningKey> for UserSigningPubkey {
-    fn from(key: CrossSigningKey) -> Self {
-        Self(key.into())
+    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
+        if key.usage.contains(&KeyUsage::UserSigning) {
+            Ok(Self(key.into()))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Expected cross signing key usage {} was not found",
+                KeyUsage::UserSigning
+            )))
+        }
     }
 }
 
@@ -431,7 +443,7 @@ impl MasterPubkey {
     /// **Note**: Use this method with caution, the `canonical_json` needs to be
     /// correctly canonicalized and make sure that the object you are checking
     /// the signature for is allowed to be signed by a master key.
-    #[cfg(feature = "backups_v1")]
+    #[cfg(any(feature = "backups_v1", test))]
     pub(crate) fn has_signed_raw(
         &self,
         signatures: &Signatures,
@@ -456,10 +468,6 @@ impl MasterPubkey {
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
     ) -> Result<(), SignatureError> {
-        // FIXME `KeyUsage is missing PartialEq.
-        // if self.0.usage.contains(&KeyUsage::Master) {
-        //     return Err(SignatureError::MissingSigningKey);
-        // }
         let subkey: CrossSigningSubKeys<'_> = subkey.into();
 
         if self.0.user_id != subkey.user_id() {
@@ -489,6 +497,11 @@ impl UserSigningPubkey {
         &self.0.user_id
     }
 
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
+    }
+
     /// Get the keys map of containing the user signing keys.
     pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
@@ -507,8 +520,6 @@ impl UserSigningPubkey {
         &self,
         master_key: &MasterPubkey,
     ) -> Result<(), SignatureError> {
-        // TODO check that the usage is OK.
-
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
             key.verify_json(&self.0.user_id, key_id, master_key.0.as_ref())
         } else {
@@ -537,9 +548,12 @@ impl SelfSigningPubkey {
         &self.0.keys
     }
 
-    fn verify_device_keys(&self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
-        // TODO check that the usage is OK.
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
+    }
 
+    fn verify_device_keys(&self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
             key.verify_json(&self.0.user_id, key_id, device_keys)
         } else {
@@ -960,8 +974,12 @@ pub(crate) mod testing {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
-            .unwrap()
+        ReadOnlyOwnUserIdentity::new(
+            master_key.try_into().unwrap(),
+            self_signing.try_into().unwrap(),
+            user_signing.try_into().unwrap(),
+        )
+        .unwrap()
     }
 
     /// Generate default own identity for tests
@@ -979,7 +997,8 @@ pub(crate) mod testing {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
+        ReadOnlyUserIdentity::new(master_key.try_into().unwrap(), self_signing.try_into().unwrap())
+            .unwrap()
     }
 }
 
@@ -987,16 +1006,21 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::user_id;
+    use serde_json::{json, Value};
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
         ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
     };
     use crate::{
-        identities::{manager::testing::own_key_query, Device},
+        identities::{
+            manager::testing::own_key_query, Device, MasterPubkey, SelfSigningPubkey,
+            UserSigningPubkey,
+        },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
         types::CrossSigningKey,
@@ -1015,8 +1039,12 @@ pub(crate) mod tests {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
-            .unwrap();
+        ReadOnlyOwnUserIdentity::new(
+            master_key.try_into().unwrap(),
+            self_signing.try_into().unwrap(),
+            user_signing.try_into().unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1098,5 +1126,35 @@ pub(crate) mod tests {
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.is_verified());
+    }
+
+    /// Test that `CrossSigningKey` instances without a correct `usage` cannot
+    /// be deserialized into high-level structs representing the MSK, SSK
+    /// and USK.
+    #[test]
+    fn cannot_instantiate_keys_with_incorrect_usage() {
+        let user_id = user_id!("@example:localhost");
+        let response = own_key_query();
+
+        let master_key = response.master_keys.get(user_id).unwrap();
+        let mut master_key_json: Value = master_key.deserialize_as().unwrap();
+        let self_signing_key = response.self_signing_keys.get(user_id).unwrap();
+        let mut self_signing_key_json: Value = self_signing_key.deserialize_as().unwrap();
+        let user_signing_key = response.user_signing_keys.get(user_id).unwrap();
+        let mut user_signing_key_json: Value = user_signing_key.deserialize_as().unwrap();
+
+        // Delete the usages.
+        let usage = master_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+        let usage = self_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+        let usage = user_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!([]);
+
+        // It should now be impossible to deserialize the keys into their corresponding
+        // high-level cross-signing key structs.
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<UserSigningPubkey>(user_signing_key_json), Err(_));
     }
 }

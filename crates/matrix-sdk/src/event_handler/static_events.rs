@@ -21,9 +21,10 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
-        GlobalAccountDataEventContent, MessageLikeEventContent, OriginalStateEventContent,
+        GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StateEventContent, StaticEventContent, ToDeviceEventContent,
+        RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
+        ToDeviceEventContent,
     },
     serde::Raw,
 };
@@ -99,7 +100,7 @@ impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
 
 impl<C> SyncEvent for events::SyncStateEvent<C>
 where
-    C: StaticEventContent + OriginalStateEventContent,
+    C: StaticEventContent + StaticStateEventContent + RedactContent,
     C::Redacted: RedactedStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::State;
@@ -108,7 +109,7 @@ where
 
 impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
 where
-    C: StaticEventContent + OriginalStateEventContent,
+    C: StaticEventContent + StaticStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::OriginalState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
@@ -124,7 +125,7 @@ where
 
 impl<C> SyncEvent for events::StrippedStateEvent<C>
 where
-    C: StaticEventContent + StateEventContent,
+    C: StaticEventContent + PossiblyRedactedStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);

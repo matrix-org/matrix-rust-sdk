@@ -33,15 +33,21 @@ async fn random_setup_with_rooms_opt_store(
     let (client, sliding_sync_builder) = setup(namespace.clone(), use_sled_store).await?;
 
     for room_num in 0..number_of_rooms {
-        let mut request = CreateRoomRequest::new();
-        request.name = Some(format!("{namespace}-{room_num}"));
-        let _event_id = client.create_room(request).await?;
+        make_room(&client, format!("{namespace}-{room_num}")).await?
     }
 
     Ok((client, sliding_sync_builder))
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[allow(dead_code)]
+async fn make_room(client: &Client, room_name: String) -> anyhow::Result<()> {
+    let mut request = CreateRoomRequest::new();
+    request.name = Some(room_name);
+    let _event_id = client.create_room(request).await?;
+    Ok(())
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 enum RoomListEntryEasy {
     Empty,
     Invalid,
@@ -60,13 +66,20 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        iter::repeat,
+        time::{Duration, Instant},
+    };
 
     use anyhow::{bail, Context};
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
-        ruma::events::room::message::RoomMessageEventContent, SlidingSyncMode, SlidingSyncState,
-        SlidingSyncViewBuilder,
+        ruma::{
+            api::client::error::ErrorKind as RumaError,
+            events::room::message::RoomMessageEventContent,
+        },
+        test_utils::force_sliding_sync_pos,
+        SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
     };
 
     use super::*;
@@ -75,7 +88,7 @@ mod tests {
     async fn it_works_smoke_test() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = setup("odo".to_owned(), false).await?;
         let sync_proxy = sync_proxy_builder.add_fullsync_view().build().await?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -109,7 +122,7 @@ mod tests {
 
         assert!(sync_proxy.view(view_name_3).is_none());
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -120,7 +133,7 @@ mod tests {
         assert!(sync_proxy.add_view(build_view(view_name_3)?).is_none());
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
 
         let mut saw_update = false;
@@ -137,7 +150,7 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         // and let's update the order of all views again
         let Some(RoomListEntry::Filled(room_id)) = view1
@@ -169,7 +182,7 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         Ok(())
     }
@@ -178,7 +191,6 @@ mod tests {
     // update later.
     //
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "removing and re-adding views isn't supported by the protocol yet"]
     async fn live_views() -> anyhow::Result<()> {
         let view_name_1 = "sliding1";
         let view_name_2 = "sliding2";
@@ -210,7 +222,7 @@ mod tests {
             bail!("but we just added that view!");
         };
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
         let Some(room_summary ) = stream.next().await else {
             bail!("No room summary found, loop ended unsuccessfully");
@@ -219,12 +231,12 @@ mod tests {
         // we only heard about the ones we had asked for
         assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
 
-        let Some(view_2) = sync_proxy.pop_view(view_name_2) else {
+        let Some(view_2) = sync_proxy.pop_view(&view_name_2.to_owned()) else {
             bail!("Room exists");
         };
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
 
         // Let's trigger an update by sending a message to room pos=3, making it move to
@@ -244,7 +256,7 @@ mod tests {
 
         let content = RoomMessageEventContent::text_plain("Hello world");
 
-        room.send(content, None).await?; // this should put our room up to the  most recent
+        room.send(content, None).await?; // this should put our room up to the most recent
 
         let mut saw_update = false;
         for _n in 0..2 {
@@ -261,31 +273,13 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         assert!(sync_proxy.add_view(view_2).is_none());
 
         // we need to restart the stream after every view listing update
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
-
-        let mut saw_update = false;
-        for _n in 0..2 {
-            let Some(room_summary ) = stream.next().await else {
-                bail!("sync has closed unexpectedly");
-            };
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
-                // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_2]);
-                // we didn't update the other views, so only no 2 should se an update
-                saw_update = true;
-                break;
-            }
-        }
-
-        assert!(saw_update, "We didn't see the updae come through the pipe");
 
         // and let's update the order of all views again
         let Some(RoomListEntry::Filled(room_id)) = view1
@@ -313,13 +307,13 @@ mod tests {
             // we only heard about the ones we had asked for
             if !summary.views.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_1, view_name_3, view_name_2]); // notice that our view 2 is now the lastview, but all have seen updates
+                assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]); // all views are visible again
                 saw_update = true;
                 break;
             }
         }
 
-        assert!(saw_update, "We didn't see the updae come through the pipe");
+        assert!(saw_update, "We didn't see the update come through the pipe");
 
         Ok(())
     }
@@ -348,7 +342,7 @@ mod tests {
         assert_eq!(view.state.get_cloned(), SlidingSyncState::Cold, "view isn't cold");
         assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Cold, "full isn't cold");
 
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
 
         // exactly one poll!
@@ -368,11 +362,6 @@ mod tests {
         let _room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
-        let _room_summary = stream.next().await.context(
-            "No room summary found, loop ended
-        unsuccessfully",
-        )??;
-
         let rooms_list = full_view
             .rooms_list
             .lock_ref()
@@ -380,33 +369,8 @@ mod tests {
             .map(Into::<RoomListEntryEasy>::into)
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            rooms_list,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-            ]
-        );
+        assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
+
         assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Live, "full isn't live yet");
         Ok(())
     }
@@ -422,7 +386,7 @@ mod tests {
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
         let view = sync_proxy.view("sliding").context("but we just added that view!")?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -437,28 +401,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         let _signal = view.rooms_list.signal_vec_cloned();
@@ -485,28 +431,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(1)
+                .chain(repeat(RoomListEntryEasy::Filled).take(10))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         view.set_range(5, 10);
@@ -528,28 +457,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(5)
+                .chain(repeat(RoomListEntryEasy::Filled).take(6))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         // let's move the window
@@ -573,28 +485,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(5)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(4))
+                .collect::<Vec<_>>()
         );
         Ok(())
     }
@@ -610,7 +505,7 @@ mod tests {
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
         let view = sync_proxy.view("sliding").context("but we just added that view!")?;
-        let stream = sync_proxy.stream().await?;
+        let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
@@ -625,28 +520,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Empty)
+                .take(1)
+                .chain(repeat(RoomListEntryEasy::Filled).take(10))
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         let _signal = view.rooms_list.signal_vec_cloned();
@@ -672,28 +550,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
         );
 
         // let's move the window again
@@ -717,28 +577,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(2)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // now we "move" the room of pos 3 to pos 0;
@@ -777,28 +620,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Invalid)
+                .take(2)
+                .chain(repeat(RoomListEntryEasy::Filled).take(11))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // items has moved, thus we shouldn't find it where it was
@@ -825,28 +651,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            [
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Filled,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Invalid,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-                RoomListEntryEasy::Empty,
-            ]
+            repeat(RoomListEntryEasy::Filled)
+                .take(11)
+                .chain(repeat(RoomListEntryEasy::Invalid).take(2))
+                .chain(repeat(RoomListEntryEasy::Empty).take(7))
+                .collect::<Vec<_>>()
         );
 
         // and check that our room move has been accepted properly, too.
@@ -893,7 +702,7 @@ mod tests {
                 .await?;
             let growing_sync =
                 sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
-            let stream = sync_proxy.stream().await?;
+            let stream = sync_proxy.stream();
             pin_mut!(stream);
             while growing_sync.state.get_cloned() != SlidingSyncState::Live {
                 // we wait until growing sync is all done, too
@@ -921,6 +730,308 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(duration < Duration::from_micros(10), "cold recovery was too slow: {duration:?}");
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn growing_sync_keeps_going() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .batch_size(10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        // we have 50 and catch up in batches of 10. so let's get over to 20.
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            repeat(RoomListEntryEasy::Filled)
+                .take(21)
+                .chain(repeat(RoomListEntryEasy::Empty).take(29))
+                .collect::<Vec<_>>()
+        );
+
+        // we have 50 and catch up in batches of 10. let's go two more, see it grow.
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple,
+            repeat(RoomListEntryEasy::Filled)
+                .take(41)
+                .chain(repeat(RoomListEntryEasy::Empty).take(9))
+                .collect::<Vec<_>>()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .batch_size(10u32)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        // we have 50 and catch up in batches of 10. so let's get over to 20.
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            21
+        );
+
+        // we have 50 and catch up in batches of 10. Let's make sure the restart
+        // continues
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let _summary = room_summary?;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            41
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn continue_on_reset() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        print!("setup took its time");
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .limit(100)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        println!("starting the sliding sync setup");
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(growing_sync)
+            .build()
+            .await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        for _n in 0..2 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let summary = room_summary?;
+            if summary.views.iter().any(|s| s == "growing") {
+                break;
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            21
+        );
+
+        // force the pos to be invalid and thus this being reset internally
+        force_sliding_sync_pos(&sync_proxy, "100".to_owned());
+        let mut error_seen = false;
+
+        for _n in 0..2 {
+            let summary = match stream.next().await {
+                Some(Ok(e)) => e,
+                Some(Err(e)) => {
+                    match e.client_api_error_kind() {
+                        Some(RumaError::UnknownPos) => {
+                            // we expect this to come through.
+                            error_seen = true;
+                            continue;
+                        }
+                        _ => Err(e)?,
+                    }
+                }
+                None => anyhow::bail!("Stream ended unexpectedly."),
+            };
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "growing") {
+                break;
+            }
+        }
+
+        assert!(error_seen, "We have not seen the UnknownPos error");
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            30
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
+        let (client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        print!("setup took its time");
+        let growing_sync = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .limit(100)
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .name("growing")
+            .build()?;
+
+        println!("starting the sliding sync setup");
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(growing_sync)
+            .build()
+            .await?;
+        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+        while view.state.get_cloned() != SlidingSyncState::Live {
+            // we wait until growing sync is all done, too
+            println!("awaiting");
+            let _room_summary = stream
+                .next()
+                .await
+                .context("No room summary found, loop ended unsuccessfully")??;
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            30
+        );
+        // all found. let's add two more.
+
+        make_room(&client, "one-more".to_owned()).await?;
+        make_room(&client, "two-more".to_owned()).await?;
+
+        let mut seen = false;
+
+        for _n in 0..4 {
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+            let summary = room_summary?;
+            // we only heard about the ones we had asked for
+            if summary.views.iter().any(|s| s == "growing")
+                && view.rooms_count.get_cloned().unwrap_or_default() == 32
+            {
+                if seen {
+                    // once we saw 32, we give it another loop to catch up!
+                    break;
+                } else {
+                    seen = true;
+                }
+            }
+        }
+
+        let collection_simple = view
+            .rooms_list
+            .lock_ref()
+            .iter()
+            .map(Into::<RoomListEntryEasy>::into)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
+                acc + 1
+            } else {
+                acc
+            }),
+            32
+        );
 
         Ok(())
     }
