@@ -2,4 +2,4 @@
 
 use crate::*;
 
-uniffi_macros::include_scaffolding!("api");
+uniffi::include_scaffolding!("api");

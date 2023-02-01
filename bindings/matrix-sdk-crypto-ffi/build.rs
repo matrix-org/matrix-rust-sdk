@@ -1,3 +1,3 @@
 fn main() {
-    uniffi_build::generate_scaffolding("./src/olm.udl").unwrap();
+    uniffi::generate_scaffolding("./src/olm.udl").unwrap();
 }

@@ -16,8 +16,6 @@ env:
   CARGO_TERM_COLOR: always
   MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
   MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
-  # keep in sync with uniffi dependency in root Cargo.toml
-  UNIFFI_REV: 249a78b6f3f35661f1530e53811134e1bf012608
 
 jobs:
   xtask-linux:
@@ -83,12 +81,6 @@ jobs:
         with:
           path: target/debug/xtask
           key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
-
-      - name: Install Uniffi
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: uniffi_bindgen --git https://github.com/mozilla/uniffi-rs --rev ${{ env.UNIFFI_REV }}
 
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings

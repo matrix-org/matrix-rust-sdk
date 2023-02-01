@@ -2,4 +2,4 @@
 
 use crate::*;
 
-uniffi_macros::include_scaffolding!("olm");
+uniffi::include_scaffolding!("olm");
