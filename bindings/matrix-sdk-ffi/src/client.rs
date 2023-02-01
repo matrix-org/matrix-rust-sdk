@@ -108,10 +108,13 @@ impl Client {
             device_id,
             homeserver_url: _,
             is_soft_logout,
+            sliding_sync_proxy,
         } = session;
 
-        // update soft logout state
-        self.state.write().unwrap().is_soft_logout = is_soft_logout;
+        // update the client state
+        let mut lock = self.state.write().unwrap();
+        lock.is_soft_logout = is_soft_logout;
+        lock.sliding_sync_proxy = sliding_sync_proxy;
 
         let session = matrix_sdk::Session {
             access_token,
@@ -146,8 +149,17 @@ impl Client {
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
     /// not configured.
-    pub async fn sliding_sync_proxy(&self) -> Option<String> {
-        self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+    pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
+        RUNTIME.block_on(async move {
+            self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+        })
+    }
+
+    /// The sliding sync proxy that the client is configured to use by default.
+    /// If this value is `Some`, it will be automatically added to the builder
+    /// when calling `sliding_sync()`.
+    pub fn sliding_sync_proxy(&self) -> Option<String> {
+        self.state.read().unwrap().sliding_sync_proxy.clone()
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
@@ -171,7 +183,9 @@ impl Client {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
             let homeserver_url = self.client.homeserver().await.into();
-            let is_soft_logout = self.state.read().unwrap().is_soft_logout;
+            let state = self.state.read().unwrap();
+            let is_soft_logout = state.is_soft_logout;
+            let sliding_sync_proxy = state.sliding_sync_proxy.clone();
 
             Ok(Session {
                 access_token,
@@ -180,6 +194,7 @@ impl Client {
                 device_id: device_id.to_string(),
                 homeserver_url,
                 is_soft_logout,
+                sliding_sync_proxy,
             })
         })
     }
@@ -446,6 +461,7 @@ pub struct Session {
     // FFI-only fields (for now)
     pub homeserver_url: String,
     pub is_soft_logout: bool,
+    pub sliding_sync_proxy: Option<String>,
 }
 
 #[uniffi::export]

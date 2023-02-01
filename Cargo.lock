@@ -2929,6 +2929,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uniffi",
+ "url",
  "zeroize",
 ]
 

@@ -211,6 +211,7 @@ dictionary Session {
     string device_id;
     string homeserver_url;
     boolean is_soft_logout;
+    string? sliding_sync_proxy;
 };
 
 enum MembershipState {
@@ -307,7 +308,7 @@ interface MediaSource {
 };
 
 interface AuthenticationService {
-    constructor(string base_path, string? passphrase);
+    constructor(string base_path, string? passphrase, string? custom_sync_proxy);
 };
 
 interface SessionVerificationEmoji {};
