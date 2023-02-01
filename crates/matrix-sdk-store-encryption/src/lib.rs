@@ -745,10 +745,9 @@ mod tests {
 
         // Can't use assert matches here since we don't have a Debug implementation for
         // StoreCipher.
-        if let Err(Error::KdfMismatch) = StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
-            ();
-        } else {
-            panic!("Invalid error when importing a KDF based store-cipher")
+        match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
+            Err(Error::KdfMismatch) => {}
+            _ => panic!("Invalid error when importing a KDF based store-cipher"),
         }
 
         let store_cipher = StoreCipher::new()?;
@@ -761,10 +760,9 @@ mod tests {
         assert_eq!(value, decrypted_value);
 
         // Same as above, can't use assert_matches.
-        if let Err(Error::KdfMismatch) = StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
-            ();
-        } else {
-            panic!("Invalid error when importing a key based store-cipher")
+        match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
+            Err(Error::KdfMismatch) => {}
+            _ => panic!("Invalid error when importing a key based store-cipher"),
         }
 
         let old_export = json!({
