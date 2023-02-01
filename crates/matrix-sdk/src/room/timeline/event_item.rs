@@ -57,8 +57,8 @@ use crate::Error;
 /// An item in the timeline that represents at least one event.
 ///
 /// There is always one main event that gives the `EventTimelineItem` its
-/// identity (see [key](Self::key)) but in many cases, additional events like
-/// reactions and edits are also part of the item.
+/// identity but in many cases, additional events like reactions and edits are
+/// also part of the item.
 #[derive(Debug, Clone)]
 pub enum EventTimelineItem {
     /// An event item that has been sent, but not yet acknowledged by the
@@ -119,10 +119,10 @@ impl EventTimelineItem {
     /// If this returns `Some(_)`, the event was successfully created by the
     /// server.
     ///
-    /// Even if the [`key()`](Self::key) of this timeline item holds a
-    /// transaction ID, this can be `Some(_)` as the event ID can be known not
-    /// just from the remote echo via `sync_events`, but also from the response
-    /// of the send request that created the event.
+    /// Even if this is a [`Local`](Self::Local) event,, this can be `Some(_)`
+    /// as the event ID can be known not just from the remote echo via
+    /// `sync_events`, but also from the response of the send request that
+    /// created the event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
             Self::Local(local_event) => local_event.event_id(),
