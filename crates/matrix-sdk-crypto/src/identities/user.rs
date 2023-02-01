@@ -294,7 +294,9 @@ macro_rules! impl_partial_eq {
             /// The signatures are provided by other devices and don't alter the
             /// identity of the key itself.
             fn eq(&self, other: &Self) -> bool {
-                self.user_id() == other.user_id() && self.keys() == other.keys()
+                self.user_id() == other.user_id()
+                    && self.keys() == other.keys()
+                    && self.usage() == other.usage()
             }
         }
         impl Eq for $key_type {}
@@ -1191,13 +1193,6 @@ pub(crate) mod tests {
                 let response = own_key_query();
                 let raw = response.$field.get(user_id).unwrap();
                 let key: $key_type = raw.deserialize_as().unwrap();
-
-                // Let's add another usage to the key.
-                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
-                other_key.usage.push($usage);
-                let other_key = other_key.try_into().unwrap();
-                // Additional usage is fine, the keys are still the same.
-                assert_eq!(key, other_key);
 
                 // Let's add another signature to the key.
                 let signature = Ed25519Signature::from_base64(
