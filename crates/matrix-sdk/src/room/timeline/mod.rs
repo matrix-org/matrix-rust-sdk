@@ -351,6 +351,9 @@ impl Timeline {
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
+    /// If sending the message fails, the local echo item will change its
+    /// `send_state` to [`EventSendState::SendingFailed`].
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
