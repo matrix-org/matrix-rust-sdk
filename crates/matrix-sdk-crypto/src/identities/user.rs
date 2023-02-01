@@ -1035,7 +1035,7 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
+    use ruma::{user_id, DeviceKeyId};
     use serde_json::{json, Value};
     use vodozemac::Ed25519Signature;
 
@@ -1214,7 +1214,7 @@ pub(crate) mod tests {
     #[test]
     fn partial_eq_cross_signing_keys() {
         macro_rules! partial_eq {
-            ($key_type: ty, $field: ident, $usage: expr) => {
+            ($key_type: ty, $field: ident) => {
                 let user_id = user_id!("@example:localhost");
                 let response = own_key_query();
                 let raw = response.$field.get(user_id).unwrap();
@@ -1237,8 +1237,8 @@ pub(crate) mod tests {
             };
         }
 
-        partial_eq!(MasterPubkey, master_keys, KeyUsage::SelfSigning);
-        partial_eq!(SelfSigningPubkey, self_signing_keys, KeyUsage::Master);
-        partial_eq!(UserSigningPubkey, user_signing_keys, KeyUsage::Master);
+        partial_eq!(MasterPubkey, master_keys);
+        partial_eq!(SelfSigningPubkey, self_signing_keys);
+        partial_eq!(UserSigningPubkey, user_signing_keys);
     }
 }
