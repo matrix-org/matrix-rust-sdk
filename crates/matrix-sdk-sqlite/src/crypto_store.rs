@@ -277,6 +277,11 @@ async fn run_migrations(conn: &SqliteConn) -> Result<(), CryptoStoreError> {
     }
 
     if version < 1 {
+        // First turn on WAL mode, this can't be done in the transaction, it fails with
+        // the error message: "cannot change into wal mode from within a transaction".
+        conn.execute_batch("PRAGMA journal_mode = wal;")
+            .await
+            .map_err(CryptoStoreError::backend)?;
         conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
             .await
             .map_err(CryptoStoreError::backend)?;
