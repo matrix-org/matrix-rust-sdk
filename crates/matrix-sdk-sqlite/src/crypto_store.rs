@@ -150,18 +150,25 @@ impl SqliteCryptoStore {
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
+        let serialized = rmp_serde::to_vec_named(value).map_err(CryptoStoreError::backend)?;
+
         if let Some(key) = &self.store_cipher {
-            key.encrypt_value(value).map_err(CryptoStoreError::backend)
+            let encrypted =
+                key.encrypt_value_data(serialized).map_err(CryptoStoreError::backend)?;
+            rmp_serde::to_vec_named(&encrypted).map_err(CryptoStoreError::backend)
         } else {
-            Ok(serde_json::to_vec(value)?)
+            Ok(serialized)
         }
     }
 
     fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, CryptoStoreError> {
         if let Some(key) = &self.store_cipher {
-            key.decrypt_value(value).map_err(CryptoStoreError::backend)
+            let encrypted = rmp_serde::from_slice(value).map_err(CryptoStoreError::backend)?;
+            let decrypted = key.decrypt_value_data(encrypted).map_err(CryptoStoreError::backend)?;
+
+            rmp_serde::from_slice(&decrypted).map_err(CryptoStoreError::backend)
         } else {
-            Ok(serde_json::from_slice(value)?)
+            rmp_serde::from_slice(value).map_err(CryptoStoreError::backend)
         }
     }
 
