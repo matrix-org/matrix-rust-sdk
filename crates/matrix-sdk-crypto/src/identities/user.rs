@@ -325,7 +325,7 @@ impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::Master) {
+        if key.usage.contains(&KeyUsage::Master) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -340,7 +340,7 @@ impl TryFrom<CrossSigningKey> for SelfSigningPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::SelfSigning) {
+        if key.usage.contains(&KeyUsage::SelfSigning) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -355,7 +355,7 @@ impl TryFrom<CrossSigningKey> for UserSigningPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::UserSigning) {
+        if key.usage.contains(&KeyUsage::UserSigning) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -1180,9 +1180,35 @@ pub(crate) mod tests {
 
         // It should now be impossible to deserialize the keys into their corresponding
         // high-level cross-signing key structs.
-        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json), Err(_));
-        assert_matches!(serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json), Err(_));
-        assert_matches!(serde_json::from_value::<UserSigningPubkey>(user_signing_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
+        assert_matches!(
+            serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
+            Err(_)
+        );
+        assert_matches!(
+            serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
+            Err(_)
+        );
+
+        // Add additional usages.
+        let usage = master_key_json.get_mut("usage").unwrap();
+        *usage = json!(["master", "user_signing"]);
+        let usage = self_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!(["self_signing", "user_signing"]);
+        let usage = user_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!(["user_signing", "self_signing"]);
+
+        // It should still be impossible to deserialize the keys into their
+        // corresponding high-level cross-signing key structs.
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
+        assert_matches!(
+            serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
+            Err(_)
+        );
+        assert_matches!(
+            serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
+            Err(_)
+        );
     }
 
     #[test]
