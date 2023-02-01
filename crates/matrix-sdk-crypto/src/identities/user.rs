@@ -1225,7 +1225,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn partial_eq_cross_signing_keys() {
-        macro_rules! partial_eq {
+        macro_rules! test_partial_eq {
             ($key_type:ident, $key_field:ident, $field:ident, $usage:expr) => {
                 let user_id = user_id!("@example:localhost");
                 let response = own_key_query();
@@ -1269,8 +1269,8 @@ pub(crate) mod tests {
 
         // The last argument is deliberately some usage which is *not* correct for the
         // type.
-        partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
-        partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
-        partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);
+        test_partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
+        test_partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
+        test_partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);
     }
 }
