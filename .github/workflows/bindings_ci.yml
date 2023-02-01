@@ -26,6 +26,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v2
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+
       - name: Check xtask cache
         uses: actions/cache@v3
         id: xtask-cache
@@ -57,6 +60,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -204,6 +210,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v2
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+
       - name: Check xtask cache
         uses: actions/cache@v3
         id: xtask-cache
@@ -235,6 +244,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
