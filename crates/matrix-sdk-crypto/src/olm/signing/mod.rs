@@ -581,7 +581,7 @@ impl PrivateCrossSigningIdentity {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing helper to reset this CrossSigning with a fresh one using the
-    /// local ideniy
+    /// local identity
     pub async fn reset(&mut self) {
         let new = Self::new(self.user_id().to_owned()).await;
         *self = new

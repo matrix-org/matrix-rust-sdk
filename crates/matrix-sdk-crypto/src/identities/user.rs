@@ -277,21 +277,49 @@ impl UserIdentity {
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
 /// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
+
+macro_rules! impl_partial_eq {
+    ($key_type: ty) => {
+        impl PartialEq for $key_type {
+            /// The `PartialEq` implementation compares the user ID, the usage and the
+            /// key material, ignoring signatures.
+            ///
+            /// The usage could be safely ignored since the type guarantees it has the
+            /// correct usage by construction -- it is impossible to construct a
+            /// value of a particular key type with an incorrect usage. However, we
+            /// check it anyway, to codify the notion that the same key material
+            /// with a different usage results in a logically different key.
+            ///
+            /// The signatures are provided by other devices and don't alter the
+            /// identity of the key itself.
+            fn eq(&self, other: &Self) -> bool {
+                self.user_id() == other.user_id()
+                    && self.keys() == other.keys()
+                    && self.usage() == other.usage()
+            }
+        }
+        impl Eq for $key_type {}
+    };
+}
+
+impl_partial_eq!(MasterPubkey);
+impl_partial_eq!(SelfSigningPubkey);
+impl_partial_eq!(UserSigningPubkey);
 
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
 /// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
@@ -299,7 +327,7 @@ impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::Master) {
+        if key.usage.contains(&KeyUsage::Master) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -314,7 +342,7 @@ impl TryFrom<CrossSigningKey> for SelfSigningPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::SelfSigning) {
+        if key.usage.contains(&KeyUsage::SelfSigning) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -329,7 +357,7 @@ impl TryFrom<CrossSigningKey> for UserSigningPubkey {
     type Error = serde_json::Error;
 
     fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::UserSigning) {
+        if key.usage.contains(&KeyUsage::UserSigning) && key.usage.len() == 1 {
             Ok(Self(key.into()))
         } else {
             Err(serde::de::Error::custom(format!(
@@ -945,6 +973,8 @@ pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
+    #[cfg(test)]
+    use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
         identities::{
             manager::testing::{other_key_query, own_key_query},
@@ -987,6 +1017,13 @@ pub(crate) mod testing {
         own_identity(&own_key_query())
     }
 
+    /// Generate default other "own" identity for tests
+    #[cfg(test)]
+    pub async fn get_other_own_identity() -> ReadOnlyOwnUserIdentity {
+        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into()).await;
+        ReadOnlyOwnUserIdentity::from_private(&private_identity).await
+    }
+
     /// Generate default other identify for tests
     pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
@@ -1009,8 +1046,9 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::user_id;
+    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
     use serde_json::{json, Value};
+    use vodozemac::Ed25519Signature;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
@@ -1018,8 +1056,9 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{
-            manager::testing::own_key_query, Device, MasterPubkey, SelfSigningPubkey,
-            UserSigningPubkey,
+            manager::testing::{own_key_query, own_key_query_with_user_id},
+            user::testing::get_other_own_identity,
+            Device, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
         },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
@@ -1153,8 +1192,85 @@ pub(crate) mod tests {
 
         // It should now be impossible to deserialize the keys into their corresponding
         // high-level cross-signing key structs.
-        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json), Err(_));
-        assert_matches!(serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json), Err(_));
-        assert_matches!(serde_json::from_value::<UserSigningPubkey>(user_signing_key_json), Err(_));
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
+        assert_matches!(
+            serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
+            Err(_)
+        );
+        assert_matches!(
+            serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
+            Err(_)
+        );
+
+        // Add additional usages.
+        let usage = master_key_json.get_mut("usage").unwrap();
+        *usage = json!(["master", "user_signing"]);
+        let usage = self_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!(["self_signing", "user_signing"]);
+        let usage = user_signing_key_json.get_mut("usage").unwrap();
+        *usage = json!(["user_signing", "self_signing"]);
+
+        // It should still be impossible to deserialize the keys into their
+        // corresponding high-level cross-signing key structs.
+        assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
+        assert_matches!(
+            serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
+            Err(_)
+        );
+        assert_matches!(
+            serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
+            Err(_)
+        );
+    }
+
+    #[async_test]
+    async fn partial_eq_cross_signing_keys() {
+        macro_rules! test_partial_eq {
+            ($key_type:ident, $key_field:ident, $field:ident, $usage:expr) => {
+                let user_id = user_id!("@example:localhost");
+                let response = own_key_query();
+                let raw = response.$field.get(user_id).unwrap();
+                let key: $key_type = raw.deserialize_as().unwrap();
+
+                // A different key is naturally not the same as our key.
+                let other_identity = get_other_own_identity().await;
+                let other_key = other_identity.$key_field;
+                assert_ne!(key, other_key);
+
+                // However, not even our own key material with another user ID is the same.
+                let other_user_id = user_id!("@example2:localhost");
+                let other_response = own_key_query_with_user_id(&other_user_id);
+                let other_raw = other_response.$field.get(other_user_id).unwrap();
+                let other_key: $key_type = other_raw.deserialize_as().unwrap();
+                assert_ne!(key, other_key);
+
+                // Now let's add another signature to our key.
+                let signature = Ed25519Signature::from_base64(
+                    "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+                ).expect("The signature can always be decoded");
+                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
+                other_key.signatures.add_signature(
+                    user_id.to_owned(),
+                    DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, "DEVICEID".into()),
+                    signature,
+                );
+                let other_key = other_key.try_into().unwrap();
+
+                // Additional signatures are fine, adding more does not change the key's identity.
+                assert_eq!(key, other_key);
+
+                // However changing the usage results in a different key.
+                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
+                other_key.usage.push($usage);
+                let other_key = $key_type { 0: other_key.into() };
+                assert_ne!(key, other_key);
+            };
+        }
+
+        // The last argument is deliberately some usage which is *not* correct for the
+        // type.
+        test_partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
+        test_partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
+        test_partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);
     }
 }
