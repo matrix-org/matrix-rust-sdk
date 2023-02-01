@@ -973,6 +973,8 @@ pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
+    #[cfg(test)]
+    use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
         identities::{
             manager::testing::{other_key_query, own_key_query},
@@ -1015,6 +1017,13 @@ pub(crate) mod testing {
         own_identity(&own_key_query())
     }
 
+    /// Generate default other "own" identity for tests
+    #[cfg(test)]
+    pub async fn get_other_own_identity() -> ReadOnlyOwnUserIdentity {
+        let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into()).await;
+        ReadOnlyOwnUserIdentity::from_private(&private_identity).await
+    }
+
     /// Generate default other identify for tests
     pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
@@ -1037,7 +1046,7 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{user_id, DeviceKeyId};
+    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
     use serde_json::{json, Value};
     use vodozemac::Ed25519Signature;
 
@@ -1047,8 +1056,9 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{
-            manager::testing::own_key_query, Device, MasterPubkey, SelfSigningPubkey,
-            UserSigningPubkey,
+            manager::testing::{own_key_query, own_key_query_with_user_id},
+            user::testing::get_other_own_identity,
+            Device, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
         },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
@@ -1213,16 +1223,28 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn partial_eq_cross_signing_keys() {
+    #[async_test]
+    async fn partial_eq_cross_signing_keys() {
         macro_rules! partial_eq {
-            ($key_type: ty, $field: ident) => {
+            ($key_type: ty, $key_struct: ident, $key_field: ident, $field: ident, $usage: expr) => {
                 let user_id = user_id!("@example:localhost");
                 let response = own_key_query();
                 let raw = response.$field.get(user_id).unwrap();
                 let key: $key_type = raw.deserialize_as().unwrap();
 
-                // Let's add another signature to the key.
+                // A different key is naturally not the same as our key.
+                let other_identity = get_other_own_identity().await;
+                let other_key = other_identity.$key_field;
+                assert_ne!(key, other_key);
+
+                // However, not even our own key material with another user ID is the same.
+                let other_user_id = user_id!("@example2:localhost");
+                let other_response = own_key_query_with_user_id(&other_user_id);
+                let other_raw = other_response.$field.get(other_user_id).unwrap();
+                let other_key: $key_type = other_raw.deserialize_as().unwrap();
+                assert_ne!(key, other_key);
+
+                // Now let's add another signature to our key.
                 let signature = Ed25519Signature::from_base64(
                     "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
                 ).expect("The signature can always be decoded");
@@ -1234,13 +1256,33 @@ pub(crate) mod tests {
                 );
                 let other_key = other_key.try_into().unwrap();
 
-                // Additional signatures are fine, the keys are still the same.
+                // Additional signatures are fine, adding more does not change the key's identity.
                 assert_eq!(key, other_key);
+
+                // However changing the usage results in a different key.
+                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
+                other_key.usage.push($usage);
+                let other_key = $key_struct{0: Arc::new(other_key)};
+                assert_ne!(key, other_key);
             };
         }
 
-        partial_eq!(MasterPubkey, master_keys);
-        partial_eq!(SelfSigningPubkey, self_signing_keys);
-        partial_eq!(UserSigningPubkey, user_signing_keys);
+        // The last argument is deliberately some usage which is *not* correct for the
+        // type.
+        partial_eq!(MasterPubkey, MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
+        partial_eq!(
+            SelfSigningPubkey,
+            SelfSigningPubkey,
+            self_signing_key,
+            self_signing_keys,
+            KeyUsage::Master
+        );
+        partial_eq!(
+            UserSigningPubkey,
+            UserSigningPubkey,
+            user_signing_key,
+            user_signing_keys,
+            KeyUsage::Master
+        );
     }
 }

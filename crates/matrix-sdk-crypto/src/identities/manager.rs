@@ -756,105 +756,111 @@ pub(crate) mod testing {
             .expect("Can't parse the keys upload response")
     }
 
+    pub fn own_key_query_with_user_id(user_id: &UserId) -> KeyQueryResponse {
+        {
+            let data = response_from_file(&json!({
+              "device_keys": {
+                user_id: {
+                  "WSKKLTJZCL": {
+                    "algorithms": [
+                      "m.olm.v1.curve25519-aes-sha2",
+                      "m.megolm.v1.aes-sha2"
+                    ],
+                    "device_id": "WSKKLTJZCL",
+                    "keys": {
+                      "curve25519:WSKKLTJZCL": "wnip2tbJBJxrFayC88NNJpm61TeSNgYcqBH4T9yEDhU",
+                      "ed25519:WSKKLTJZCL": "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
+                    },
+                    "signatures": {
+                      user_id: {
+                        "ed25519:WSKKLTJZCL": "SKpIUnq7QK0xleav0PrIQyKjVm+TgZr7Yi8cKjLeZDtkgyToE2d4/e3Aj79dqOlLB92jFVE4d1cM/Ry04wFwCA",
+                        "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "9UGu1iC5YhFCdELGfB29YaV+QE0t/X5UDSsPf4QcdZyXIwyp9zBbHX2lh9vWudNQ+akZpaq7ZRaaM+4TCnw/Ag"
+                      }
+                    },
+                    "user_id": user_id,
+                    "unsigned": {
+                      "device_display_name": "Cross signing capable"
+                    }
+                  },
+                  "LVWOVGOXME": {
+                    "algorithms": [
+                      "m.olm.v1.curve25519-aes-sha2",
+                      "m.megolm.v1.aes-sha2"
+                    ],
+                    "device_id": "LVWOVGOXME",
+                    "keys": {
+                      "curve25519:LVWOVGOXME": "KMfWKUhnDW1D11hNzATs/Ax1FQRsJxKCWzq0NyGtIiI",
+                      "ed25519:LVWOVGOXME": "k+NC3L7CBD6fBClcHBrKLOkqCyGNSKhWXiH5Q2STRnA"
+                    },
+                    "signatures": {
+                      user_id: {
+                        "ed25519:LVWOVGOXME": "39Ir5Bttpc5+bQwzLj7rkjm5E5/cp/JTbMJ/t0enj6J5w9MXVBFOUqqM2hpaRaRwILMMpwYbJ8IOGjl0Y/MGAw"
+                      }
+                    },
+                    "user_id": user_id,
+                    "unsigned": {
+                      "device_display_name": "Non-cross signing"
+                    }
+                  }
+                }
+              },
+              "failures": {},
+              "master_keys": {
+                user_id: {
+                  "user_id": user_id,
+                  "usage": [
+                    "master"
+                  ],
+                  "keys": {
+                    "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
+                  },
+                  "signatures": {
+                    user_id: {
+                      "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
+                    }
+                  }
+                }
+              },
+              "self_signing_keys": {
+                user_id: {
+                  "user_id": user_id,
+                  "usage": [
+                    "self_signing"
+                  ],
+                  "keys": {
+                    "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
+                  },
+                  "signatures": {
+                    user_id: {
+                      "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
+                    }
+                  }
+                }
+              },
+              "user_signing_keys": {
+                user_id: {
+                  "user_id": user_id,
+                  "usage": [
+                    "user_signing"
+                  ],
+                  "keys": {
+                    "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
+                  },
+                  "signatures": {
+                    user_id: {
+                      "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
+                    }
+                  }
+                }
+              }
+            }));
+            KeyQueryResponse::try_from_http_response(data)
+                .expect("Can't parse the keys upload response")
+        }
+    }
+
     pub fn own_key_query() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
-          "device_keys": {
-            "@example:localhost": {
-              "WSKKLTJZCL": {
-                "algorithms": [
-                  "m.olm.v1.curve25519-aes-sha2",
-                  "m.megolm.v1.aes-sha2"
-                ],
-                "device_id": "WSKKLTJZCL",
-                "keys": {
-                  "curve25519:WSKKLTJZCL": "wnip2tbJBJxrFayC88NNJpm61TeSNgYcqBH4T9yEDhU",
-                  "ed25519:WSKKLTJZCL": "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
-                },
-                "signatures": {
-                  "@example:localhost": {
-                    "ed25519:WSKKLTJZCL": "SKpIUnq7QK0xleav0PrIQyKjVm+TgZr7Yi8cKjLeZDtkgyToE2d4/e3Aj79dqOlLB92jFVE4d1cM/Ry04wFwCA",
-                    "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "9UGu1iC5YhFCdELGfB29YaV+QE0t/X5UDSsPf4QcdZyXIwyp9zBbHX2lh9vWudNQ+akZpaq7ZRaaM+4TCnw/Ag"
-                  }
-                },
-                "user_id": "@example:localhost",
-                "unsigned": {
-                  "device_display_name": "Cross signing capable"
-                }
-              },
-              "LVWOVGOXME": {
-                "algorithms": [
-                  "m.olm.v1.curve25519-aes-sha2",
-                  "m.megolm.v1.aes-sha2"
-                ],
-                "device_id": "LVWOVGOXME",
-                "keys": {
-                  "curve25519:LVWOVGOXME": "KMfWKUhnDW1D11hNzATs/Ax1FQRsJxKCWzq0NyGtIiI",
-                  "ed25519:LVWOVGOXME": "k+NC3L7CBD6fBClcHBrKLOkqCyGNSKhWXiH5Q2STRnA"
-                },
-                "signatures": {
-                  "@example:localhost": {
-                    "ed25519:LVWOVGOXME": "39Ir5Bttpc5+bQwzLj7rkjm5E5/cp/JTbMJ/t0enj6J5w9MXVBFOUqqM2hpaRaRwILMMpwYbJ8IOGjl0Y/MGAw"
-                  }
-                },
-                "user_id": "@example:localhost",
-                "unsigned": {
-                  "device_display_name": "Non-cross signing"
-                }
-              }
-            }
-          },
-          "failures": {},
-          "master_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "master"
-              ],
-              "keys": {
-                "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
-                }
-              }
-            }
-          },
-          "self_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "self_signing"
-              ],
-              "keys": {
-                "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
-                }
-              }
-            }
-          },
-          "user_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "user_signing"
-              ],
-              "keys": {
-                "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
-                }
-              }
-            }
-          }
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+        own_key_query_with_user_id(user_id())
     }
 
     pub fn key_query(
