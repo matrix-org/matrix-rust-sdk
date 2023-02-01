@@ -55,6 +55,7 @@ impl opentelemetry::runtime::Runtime for TracingRuntime {
     }
 
     fn spawn(&self, future: BoxFuture<'static, ()>) {
+        #[allow(clippy::let_underscore_future)]
         let _ = self.runtime.spawn(future);
     }
 
