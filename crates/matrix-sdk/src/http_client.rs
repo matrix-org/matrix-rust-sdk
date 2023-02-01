@@ -14,6 +14,7 @@
 
 use std::{
     any::type_name,
+    collections::HashMap,
     fmt::Debug,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -25,7 +26,9 @@ use std::{
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
+use http::header::HeaderName;
 use matrix_sdk_common::AsyncTraitDeps;
+use opentelemetry::{propagation::TextMapPropagator, sdk::propagation::TraceContextPropagator};
 use ruma::{
     api::{
         error::{FromHttpResponseError, IntoHttpError},
@@ -34,7 +37,8 @@ use ruma::{
     },
     UserId,
 };
-use tracing::{debug, field::debug, instrument, trace};
+use tracing::{debug, field::debug, instrument, trace, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{config::RequestConfig, error::HttpError};
 
@@ -309,7 +313,7 @@ impl HttpClient {
             return Err(HttpError::NotClientRequest);
         }
 
-        let request = self.serialize_request(
+        let mut request = self.serialize_request(
             request,
             config,
             homeserver,
@@ -317,6 +321,19 @@ impl HttpClient {
             user_id,
             server_versions,
         )?;
+
+        let context = span.context();
+        let propagator = TraceContextPropagator::new();
+
+        let mut headers = HashMap::new();
+
+        propagator.inject_context(&context, &mut headers);
+
+        for (key, value) in headers {
+            request
+                .headers_mut()
+                .insert(HeaderName::from_bytes(key.as_bytes()).unwrap(), value.parse().unwrap());
+        }
 
         let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
         span.record("request_size", request_size.to_string_as(true));
