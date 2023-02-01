@@ -21,6 +21,7 @@ getrandom = { version = "0.2.6", optional = true }
 hmac = "0.12.1"
 pbkdf2 = "0.11.0"
 rand = "0.8.5"
+rmp-serde = "1.1.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = "0.10.2"
