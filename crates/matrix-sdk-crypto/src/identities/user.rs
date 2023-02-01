@@ -281,13 +281,29 @@ impl UserIdentity {
 #[serde(try_from = "CrossSigningKey")]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
-impl PartialEq for MasterPubkey {
-    fn eq(&self, other: &Self) -> bool {
-        self.user_id() == other.user_id() && self.keys() == other.keys()
-    }
+macro_rules! impl_partial_eq {
+    ($key_type: ty) => {
+        impl PartialEq for $key_type {
+            /// The `PartialEq` implementation compares the user_id and keys,
+            /// ignoring signatures and the usage.
+            ///
+            /// The usage can safely be ignored since the type guarantees it has the
+            /// correct usage by construction -- it is impossible to construct
+            /// the type with an incorrect usage.
+            ///
+            /// The signatures are provided by other devices and don't alter the
+            /// identity of the key itself.
+            fn eq(&self, other: &Self) -> bool {
+                self.user_id() == other.user_id() && self.keys() == other.keys()
+            }
+        }
+        impl Eq for $key_type {}
+    };
 }
 
-impl Eq for MasterPubkey {}
+impl_partial_eq!(MasterPubkey);
+impl_partial_eq!(SelfSigningPubkey);
+impl_partial_eq!(UserSigningPubkey);
 
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
@@ -296,28 +312,12 @@ impl Eq for MasterPubkey {}
 #[serde(try_from = "CrossSigningKey")]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
-impl PartialEq for SelfSigningPubkey {
-    fn eq(&self, other: &Self) -> bool {
-        self.user_id() == other.user_id() && self.keys() == other.keys()
-    }
-}
-
-impl Eq for SelfSigningPubkey {}
-
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "CrossSigningKey")]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
-
-impl PartialEq for UserSigningPubkey {
-    fn eq(&self, other: &Self) -> bool {
-        self.user_id() == other.user_id() && self.keys() == other.keys()
-    }
-}
-
-impl Eq for UserSigningPubkey {}
 
 impl TryFrom<CrossSigningKey> for MasterPubkey {
     type Error = serde_json::Error;
