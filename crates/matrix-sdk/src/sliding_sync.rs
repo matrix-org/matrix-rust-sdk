@@ -1126,15 +1126,14 @@ pub struct SlidingSyncView {
     /// The state this view is in
     #[builder(private, default)]
     pub state: ViewState,
+
     /// The total known number of rooms,
     #[builder(private, default)]
     pub rooms_count: RoomsCount,
+
     /// The rooms in order
     #[builder(private, default)]
     pub rooms_list: RoomsList,
-    /// The rooms details
-    #[builder(private, default)]
-    pub rooms: RoomsMap,
 
     /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
@@ -1675,28 +1674,7 @@ impl SlidingSyncView {
         self
     }
 
-    /// Return the subset of rooms, starting at offset (default 0) returning
-    /// count (or to the end) items
-    pub fn get_rooms(
-        &self,
-        offset: Option<usize>,
-        count: Option<usize>,
-    ) -> Vec<v4::SlidingSyncRoom> {
-        let start = offset.unwrap_or(0);
-        let rooms = self.rooms.lock_ref();
-        let listing = self.rooms_list.lock_ref();
-        let count = count.unwrap_or(listing.len() - start);
-        listing
-            .iter()
-            .skip(start)
-            .filter_map(|id| id.as_room_id())
-            .filter_map(|id| rooms.get(id))
-            .map(|r| r.inner.clone())
-            .take(count)
-            .collect()
-    }
-
-    /// Find the current valid position of the room in the vies room_list.
+    /// Find the current valid position of the room in the view room_list.
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the item was
@@ -1799,7 +1777,6 @@ impl SlidingSyncView {
         {
             // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
             let mut rooms_list = self.rooms_list.lock_mut();
-            let _rooms_map = self.rooms.lock_mut();
 
             if !ops.is_empty() {
                 room_ops(&mut rooms_list, ops, ranges)?;
