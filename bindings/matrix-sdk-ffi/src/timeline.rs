@@ -463,7 +463,7 @@ impl Message {
 
     // This event ID string will be replaced by something more useful later.
     pub fn in_reply_to(&self) -> Option<String> {
-        self.0.in_reply_to().map(ToString::to_string)
+        self.0.in_reply_to().map(|r| r.event_id.to_string())
     }
 
     pub fn is_edited(&self) -> bool {

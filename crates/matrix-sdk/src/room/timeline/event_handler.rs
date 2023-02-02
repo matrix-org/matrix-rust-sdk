@@ -46,8 +46,9 @@ use super::{
         MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
         Sticker,
     },
-    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, Message,
-    ReactionGroup, TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails,
+    Message, ReactionGroup, TimelineInnerMetadata, TimelineItem, TimelineItemContent,
+    VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
 
@@ -821,10 +822,7 @@ impl NewEventTimelineItem {
         let edited = relations.replace.is_some();
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(|rel| match rel {
-                message::Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
-                _ => None,
-            }),
+            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
             edited,
         });
 
