@@ -136,7 +136,7 @@ impl SlidingSyncState {
     }
 
     pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.syncer.get_room(room_id.to_owned())
+        self.syncer.get_room(room_id)
     }
 
     pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
