@@ -158,6 +158,20 @@ impl Room {
             timeline.retry_decryption(&session_ids).await;
         });
     }
+
+    pub fn fetch_members(&self) {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't fetch members");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            timeline.fetch_members().await;
+        });
+    }
 }
 
 impl Room {
