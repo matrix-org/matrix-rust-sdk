@@ -90,12 +90,12 @@ mod uniffi_types {
             SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
-            EmoteMessageContent, EncryptedMessage, EventTimelineItem, FileInfo, FileMessageContent,
-            FormattedBody, ImageInfo, ImageMessageContent, InsertAtData, MembershipChange, Message,
-            MessageFormat, MessageType, NoticeMessageContent, OtherState, Profile, Reaction,
-            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, TimelineKey, UpdateAtData, VideoInfo,
-            VideoMessageContent, VirtualTimelineItem,
+            EmoteMessageContent, EncryptedMessage, EventSendState, EventTimelineItem, FileInfo,
+            FileMessageContent, FormattedBody, ImageInfo, ImageMessageContent, InsertAtData,
+            MembershipChange, Message, MessageFormat, MessageType, NoticeMessageContent,
+            OtherState, Profile, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
+            TimelineDiff, TimelineItem, TimelineItemContent, TimelineItemContentKind, UpdateAtData,
+            VideoInfo, VideoMessageContent, VirtualTimelineItem,
         },
     };
 }

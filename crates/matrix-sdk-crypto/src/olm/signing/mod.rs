@@ -513,17 +513,17 @@ impl PrivateCrossSigningIdentity {
     pub(crate) async fn with_account(
         account: &ReadOnlyAccount,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let master = Signing::new();
-
-        let mut public_key =
-            master.cross_signing_key(account.user_id().to_owned(), KeyUsage::Master);
+        let mut master = MasterSigning::new(account.user_id().into());
+        let mut public_key = master.public_key.as_ref().to_owned();
 
         account
             .sign_cross_signing_key(&mut public_key)
             .await
             .expect("Can't sign our freshly created master key with our account");
 
-        let master = MasterSigning { inner: master, public_key: public_key.into() };
+        master.public_key = public_key
+            .try_into()
+            .expect("We can always convert our own CrossSignigKey into a MasterPubkey");
 
         let identity = Self::new_helper(account.user_id(), master).await;
         let signature_request = identity
@@ -541,14 +541,24 @@ impl PrivateCrossSigningIdentity {
         let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
         master.sign_subkey(&mut public_key);
 
-        let user = UserSigning { inner: user, public_key: public_key.into() };
+        let user = UserSigning {
+            inner: user,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random UserSigningPubkey"),
+        };
 
         let self_signing = Signing::new();
         let mut public_key =
             self_signing.cross_signing_key(user_id.to_owned(), KeyUsage::SelfSigning);
         master.sign_subkey(&mut public_key);
 
-        let self_signing = SelfSigning { inner: self_signing, public_key: public_key.into() };
+        let self_signing = SelfSigning {
+            inner: self_signing,
+            public_key: public_key
+                .try_into()
+                .expect("We can always create a new random SelfSigningPubkey"),
+        };
 
         Self {
             user_id: user_id.into(),
@@ -564,18 +574,14 @@ impl PrivateCrossSigningIdentity {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub async fn new(user_id: OwnedUserId) -> Self {
-        let master = Signing::new();
-
-        let public_key = master.cross_signing_key(user_id.clone(), KeyUsage::Master);
-        let master = MasterSigning { inner: master, public_key: public_key.into() };
-
+        let master = MasterSigning::new(user_id.to_owned());
         Self::new_helper(&user_id, master).await
     }
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing helper to reset this CrossSigning with a fresh one using the
-    /// local ideniy
+    /// local identity
     pub async fn reset(&mut self) {
         let new = Self::new(self.user_id().to_owned()).await;
         *self = new
@@ -666,7 +672,7 @@ mod tests {
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
         identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
-        olm::{ReadOnlyAccount, VerifyJson},
+        olm::{ReadOnlyAccount, SignedJsonObject, VerifyJson},
         types::Signatures,
     };
 
@@ -753,6 +759,19 @@ mod tests {
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
+        let public_key = master.public_key.as_ref();
+        let signatures = &public_key.signatures;
+        let canonical_json = public_key.to_canonical_json().unwrap();
+
+        account
+            .has_signed_raw(signatures, &canonical_json)
+            .expect("The account should have signed the master key");
+
+        master
+            .public_key
+            .has_signed_raw(signatures, &canonical_json)
+            .expect("The master key should have self-signed");
+
         assert!(!master.public_key.signatures().is_empty());
     }
 
@@ -793,7 +812,7 @@ mod tests {
             "We're only uploading our own signature"
         );
 
-        bob_public.master_key = master.into();
+        bob_public.master_key = master.try_into().unwrap();
 
         user_signing.public_key.verify_master_key(bob_public.master_key()).unwrap();
     }

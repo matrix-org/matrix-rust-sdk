@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
-        AnyOtherFullStateEventContent, PaginationOptions, TimelineDetails, TimelineItemContent,
-        TimelineKey, VirtualTimelineItem,
+        AnyOtherFullStateEventContent, EventSendState, PaginationOptions, TimelineItemContent,
+        VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
 };
@@ -186,28 +186,22 @@ async fn echo() {
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let local_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let item = local_echo.as_event().unwrap();
-    assert!(item.event_id().is_none());
-    assert!(item.is_own());
-    assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_matches!(item.raw(), None);
+    let item = local_echo.as_event().unwrap().as_local().unwrap();
+    assert_matches!(&item.send_state, EventSendState::NotSentYet);
 
-    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
-    send_hdl.await.unwrap().unwrap();
+    send_hdl.await.unwrap();
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
-    let item = sent_confirmation.as_event().unwrap();
-    assert!(item.event_id().is_some());
-    assert!(item.is_own());
-    assert_matches!(item.key(), TimelineKey::TransactionId(_));
-    assert_matches!(item.raw(), None);
+    let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
+    assert_matches!(&item.send_state, EventSendState::Sent { .. });
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -236,12 +230,9 @@ async fn echo() {
 
     let remote_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let item = remote_echo.as_event().unwrap();
-    assert!(item.event_id().is_some());
-    assert!(item.is_own());
-    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
-    assert_matches!(item.key(), TimelineKey::EventId(_));
-    assert_matches!(item.raw(), Some(_));
+    let item = remote_echo.as_event().unwrap().as_remote().unwrap();
+    assert!(item.is_own);
+    assert_eq!(item.timestamp, MilliSecondsSinceUnixEpoch(uint!(152038280)));
 }
 
 #[async_test]
@@ -415,14 +406,14 @@ async fn reaction() {
         timeline_stream.next().await,
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
-    let event_item = updated_message.as_event().unwrap();
-    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
+    let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
+    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
-    let details = &event_item.reactions()["👍"];
-    assert_eq!(details.count, uint!(1));
-    let senders = assert_matches!(&details.senders, TimelineDetails::Ready(s) => s);
-    assert_eq!(*senders, vec![user_id!("@bob:example.org").to_owned()]);
+    let group = &event_item.reactions()["👍"];
+    assert_eq!(group.len(), 1);
+    let senders: Vec<_> = group.senders().collect();
+    assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
 
     // TODO: After adding raw timeline items, check for one here
 
@@ -445,8 +436,8 @@ async fn reaction() {
         timeline_stream.next().await,
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
-    let event_item = updated_message.as_event().unwrap();
-    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
+    let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
+    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 0);
 }

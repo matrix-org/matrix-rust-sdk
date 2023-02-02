@@ -1,0 +1,55 @@
+[package]
+name = "matrix-sdk-sqlite"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Sqlite storage backend for matrix-sdk"
+license = "Apache-2.0"
+rust-version = { workspace = true }
+
+[features]
+default = []
+
+crypto-store = [
+    "dep:matrix-sdk-base",
+    "dep:matrix-sdk-crypto",
+    "matrix-sdk-base?/e2e-encryption",
+]
+
+[dependencies]
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
+deadpool-sqlite = "0.5.0"
+fs_extra = "1.2.0"
+futures-core = "0.3.21"
+futures-util = { version = "0.3.21", default-features = false }
+matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", optional = true }
+matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
+matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
+matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
+rmp-serde = "1.1.1"
+ruma = { workspace = true }
+rusqlite = { version = "0.28.0", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1.23.1", default-features = false, features = [
+    "sync",
+    "fs",
+] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+ctor = { workspace = true }
+glob = "0.3.0"
+matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
+matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
+once_cell = { workspace = true }
+tempfile = "3.3.0"
+tokio = { version = "1.23.1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

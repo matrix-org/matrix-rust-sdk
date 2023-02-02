@@ -369,7 +369,7 @@ async fn room_permalink() {
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=localhost"
+        "https://matrix.to/#/!test_room:127.0.0.1?via=notarealhs&via=localhost"
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
@@ -395,7 +395,7 @@ async fn room_permalink() {
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%23alias%3Alocalhost"
+        "https://matrix.to/#/%23alias:localhost"
     );
     assert_eq!(room.matrix_permalink(false).await.unwrap().to_string(), "matrix:r/alias:localhost");
 
@@ -418,7 +418,7 @@ async fn room_permalink() {
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%23canonical%3Alocalhost"
+        "https://matrix.to/#/%23canonical:localhost"
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
@@ -459,7 +459,7 @@ async fn room_event_permalink() {
 
     assert_eq!(
         room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=notarealhs&via=localhost"
+        "https://matrix.to/#/!test_room:127.0.0.1/$15139375512JaHAW?via=notarealhs&via=localhost"
     );
     assert_eq!(
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),
@@ -485,7 +485,7 @@ async fn room_event_permalink() {
 
     assert_eq!(
         room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=notarealhs&via=localhost"
+        "https://matrix.to/#/!test_room:127.0.0.1/$15139375512JaHAW?via=notarealhs&via=localhost"
     );
     assert_eq!(
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),

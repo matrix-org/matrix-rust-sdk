@@ -215,11 +215,7 @@ impl Update<Msg> for Model {
                     if let Some(tl) = self.sliding_sync.room_timeline.lock_ref().deref() {
                         block_on(async move {
                             // fire and forget
-                            match tl.send(RoomMessageEventContent::text_plain(m).into(), None).await
-                            {
-                                Ok(_r) => tracing::info!("Message send"),
-                                Err(e) => tracing::error!("Sending message failed: {:}", e),
-                            }
+                            tl.send(RoomMessageEventContent::text_plain(m).into(), None).await;
                         });
                     } else {
                         warn!("asked to send message, but no room is selected");

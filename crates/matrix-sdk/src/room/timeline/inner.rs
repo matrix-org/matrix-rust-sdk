@@ -5,9 +5,12 @@ use std::{
 
 use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use indexmap::IndexSet;
+#[cfg(any(test, feature = "experimental-sliding-sync"))]
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
@@ -16,10 +19,10 @@ use ruma::{
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, field::debug, info, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -28,9 +31,12 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    find_event_by_txn_id, Profile, TimelineItem, TimelineKey,
+    rfind_event_item, EventSendState, EventTimelineItem, Profile, TimelineItem,
 };
-use crate::{events::SyncTimelineEventWithoutContent, room};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    room::{self, timeline::event_item::RemoteEventTimelineItem},
+};
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
@@ -42,9 +48,15 @@ pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
 /// Non-signalling parts of `TimelineInner`.
 #[derive(Debug, Default)]
 pub(super) struct TimelineInnerMetadata {
-    // Reaction event / txn ID => sender and reaction data
-    pub(super) reaction_map: HashMap<TimelineKey, (OwnedUserId, Annotation)>,
+    /// Reaction event / txn ID => sender and reaction data.
+    pub(super) reaction_map:
+        HashMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), (OwnedUserId, Annotation)>,
+    /// ID of event that is not in the timeline yet => List of reaction event
+    /// IDs.
+    pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     pub(super) fully_read_event: Option<OwnedEventId>,
+    /// Whether the event that the fully-ready event _refers to_ is part of the
+    /// timeline.
     pub(super) fully_read_event_in_timeline: bool,
 }
 
@@ -61,6 +73,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.signal_vec_cloned()
     }
 
+    #[cfg(any(test, feature = "experimental-sliding-sync"))]
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
@@ -83,6 +96,17 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    pub(super) async fn clear(&self) {
+        let mut timeline_meta = self.metadata.lock().await;
+        let mut timeline_items = self.items.lock_mut();
+
+        timeline_meta.reaction_map.clear();
+        timeline_meta.fully_read_event = None;
+        timeline_meta.fully_read_event_in_timeline = false;
+
+        timeline_items.clear();
+    }
+
     pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
@@ -100,6 +124,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         .await;
     }
 
+    /// Handle the creation of a new local event.
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
@@ -125,6 +150,50 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .handle_event(kind);
     }
 
+    /// Update the send state of a local event represented by a transaction ID.
+    ///
+    /// If no local event is found, a warning is raised.
+    pub(super) fn update_event_send_state(
+        &self,
+        txn_id: &TransactionId,
+        send_state: EventSendState,
+    ) {
+        let mut lock = self.items.lock_mut();
+
+        let new_event_id: Option<&EventId> = match &send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
+        };
+
+        // Look for the local event by the transaction ID or event ID.
+        let result = rfind_event_item(&lock, |it| {
+            it.transaction_id() == Some(txn_id)
+                || new_event_id.is_some() && it.event_id() == new_event_id
+        });
+
+        let Some((idx, item)) = result else {
+            // Event isn't found at all.
+            warn!(?txn_id, "Timeline item not found, can't add event ID");
+            return;
+        };
+
+        let EventTimelineItem::Local(item) = item else {
+            // Remote echo already received. This is very unlikely.
+            trace!(?txn_id, "Remote echo received before send-event response");
+            return;
+        };
+
+        // The event was already marked as sent, that's a broken state, let's
+        // emit an error but also override to the given sent state.
+        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+            let new_event_id = new_event_id.map(debug);
+            error!(?existing_event_id, ?new_event_id, ?txn_id, "Local echo already marked as sent");
+        }
+
+        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        lock.set_cloned(idx, Arc::new(new_item));
+    }
+
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
@@ -142,19 +211,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
             &self.profile_provider,
         )
         .await
-    }
-
-    pub(super) fn add_event_id(&self, txn_id: &TransactionId, event_id: OwnedEventId) {
-        let mut lock = self.items.lock_mut();
-        if let Some((idx, item)) = find_event_by_txn_id(&lock, txn_id) {
-            if item.event_id.as_ref().map_or(false, |ev_id| *ev_id != event_id) {
-                error!("remote echo and send-event response disagree on the event ID");
-            }
-
-            lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(Some(event_id)))));
-        } else {
-            warn!(?txn_id, "Timeline item not found, can't add event ID");
-        }
     }
 
     #[instrument(skip_all)]
@@ -184,7 +240,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
-        let fully_read_event = match raw.deserialize() {
+        let fully_read_event_id = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
             Err(error) => {
                 error!(?error, "Failed to deserialize `m.fully_read` account data");
@@ -192,12 +248,13 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         };
 
-        self.set_fully_read_event(fully_read_event).await;
+        self.set_fully_read_event(fully_read_event_id).await;
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         let mut metadata_lock = self.metadata.lock().await;
 
+        // A similar event has been handled already. We can ignore it.
         if metadata_lock.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
             return;
         }
@@ -213,46 +270,67 @@ impl<P: ProfileProvider> TimelineInner<P> {
         );
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip(self, olm_machine))]
-    pub(super) async fn retry_event_decryption(
+    /// Collect events and their metadata that are unable-to-decrypt (UTD)
+    /// events in the timeline.
+    fn collect_utds(
         &self,
-        room_id: &RoomId,
-        olm_machine: &OlmMachine,
-        session_ids: BTreeSet<&str>,
-    ) {
+        session_ids: Option<BTreeSet<&str>>,
+    ) -> Vec<(usize, OwnedEventId, String, Raw<AnySyncTimelineEvent>)> {
         use super::EncryptedMessage;
 
-        let utds_for_session: Vec<_> = self
-            .items
+        let should_retry = |session_id: &str| {
+            let session_ids = &session_ids;
+
+            if let Some(session_ids) = session_ids {
+                session_ids.contains(session_id)
+            } else {
+                true
+            }
+        };
+
+        self.items
             .lock_ref()
             .iter()
             .enumerate()
             .filter_map(|(idx, item)| {
                 let event_item = &item.as_event()?;
-                let utd = event_item.content.as_unable_to_decrypt()?;
+                let utd = event_item.content().as_unable_to_decrypt()?;
 
                 match utd {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                        if session_ids.contains(session_id.as_str()) =>
+                        if should_retry(session_id) =>
                     {
-                        let TimelineKey::EventId(event_id) = &event_item.key else {
+                        let EventTimelineItem::Remote(RemoteEventTimelineItem { event_id, raw, .. }) = event_item else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
                             return None;
                         };
-                        let Some(raw) = event_item.raw.clone() else {
-                            error!("No raw event in unable-to-decrypt timeline item");
-                            return None;
-                        };
 
-                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw))
+                        Some((
+                            idx,
+                            event_id.to_owned(),
+                            session_id.to_owned(),
+                            raw.clone(),
+                        ))
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
                     | EncryptedMessage::Unknown => None,
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip(self, olm_machine))]
+    pub(super) async fn retry_event_decryption(
+        &self,
+        room_id: &RoomId,
+        olm_machine: &OlmMachine,
+        session_ids: Option<BTreeSet<&str>>,
+    ) {
+        debug!("Retrying decryption");
+
+        let utds_for_session = self.collect_utds(session_ids);
 
         if utds_for_session.is_empty() {
             trace!("Found no events to retry decryption for");

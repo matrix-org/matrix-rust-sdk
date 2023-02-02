@@ -29,7 +29,6 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true }
-uniffi_macros = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
@@ -46,9 +45,9 @@ path = "../../crates/matrix-sdk-crypto"
 version = "0.6.0"
 features = ["qrcode", "backups_v1"]
 
-[dependencies.matrix-sdk-sled]
-path = "../../crates/matrix-sdk-sled"
-version = "0.2.0"
+[dependencies.matrix-sdk-sqlite]
+path = "../../crates/matrix-sdk-sqlite"
+version = "0.1.0"
 default_features = false
 features = ["crypto-store"]
 
@@ -58,7 +57,7 @@ default_features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-uniffi_build = { workspace = true, features = ["builtin-bindgen"] }
+uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 tempfile = "3.3.0"

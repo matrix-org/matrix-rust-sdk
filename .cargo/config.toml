@@ -10,6 +10,7 @@ target-applies-to-host = false
 
 [alias]
 xtask = "run --package xtask --"
+uniffi-bindgen = "run --package uniffi-bindgen --"
 
 [doc.extern-map.registries]
 crates-io = "https://docs.rs/"

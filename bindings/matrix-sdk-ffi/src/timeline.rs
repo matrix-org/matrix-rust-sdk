@@ -4,8 +4,6 @@ use extension_trait::extension_trait;
 use futures_signals::signal_vec::VecDiff;
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
-use crate::MembershipState;
-
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
@@ -172,13 +170,49 @@ impl TimelineItem {
     }
 }
 
+/// This type represents the “send state” of a local event timeline item.
+#[derive(Clone, uniffi::Enum)]
+pub enum EventSendState {
+    /// The local event has not been sent yet.
+    NotSendYet,
+    /// The local event has been sent to the server, but unsuccessfully: The
+    /// sending has failed.
+    SendingFailed { error: String },
+    /// The local event has been sent successfully to the server.
+    Sent { event_id: String },
+}
+
+impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
+    fn from(value: &matrix_sdk::room::timeline::EventSendState) -> Self {
+        use matrix_sdk::room::timeline::EventSendState::*;
+
+        match value {
+            NotSentYet => Self::NotSendYet,
+            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
 
 #[uniffi::export]
 impl EventTimelineItem {
-    pub fn key(&self) -> TimelineKey {
-        self.0.key().into()
+    pub fn is_local(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Local(_))
+    }
+
+    pub fn is_remote(&self) -> bool {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        matches!(self.0, Remote(_))
+    }
+
+    pub fn unique_identifier(&self) -> String {
+        self.0.unique_identifier()
     }
 
     pub fn event_id(&self) -> Option<String> {
@@ -209,16 +243,35 @@ impl EventTimelineItem {
         self.0.timestamp().0.into()
     }
 
-    pub fn reactions(&self) -> Vec<Reaction> {
-        self.0
-            .reactions()
-            .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.count.into() })
-            .collect()
+    pub fn reactions(&self) -> Option<Vec<Reaction>> {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        match &self.0 {
+            Local(_) => None,
+            Remote(remote_event_item) => Some(
+                remote_event_item
+                    .reactions()
+                    .iter()
+                    .map(|(k, v)| Reaction {
+                        key: k.to_owned(),
+                        count: v.len().try_into().unwrap(),
+                    })
+                    .collect(),
+            ),
+        }
     }
 
     pub fn raw(&self) -> Option<String> {
         self.0.raw().map(|r| r.json().get().to_owned())
+    }
+
+    pub fn local_send_state(&self) -> Option<EventSendState> {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        match &self.0 {
+            Local(local_event) => Some((&local_event.send_state).into()),
+            Remote(_) => None,
+        }
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -265,10 +318,31 @@ impl TimelineItemContent {
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
-            Content::RoomMember(room_member) => TimelineItemContentKind::RoomMembership {
-                user_id: room_member.user_id().to_string(),
-                change: room_member.into(),
+            Content::MembershipChange(membership) => TimelineItemContentKind::RoomMembership {
+                user_id: membership.user_id().to_string(),
+                change: membership.change().map(Into::into),
             },
+            Content::ProfileChange(profile) => {
+                let (display_name, prev_display_name) = profile
+                    .displayname_change()
+                    .map(|change| (change.new.clone(), change.old.clone()))
+                    .unzip();
+                let (avatar_url, prev_avatar_url) = profile
+                    .avatar_url_change()
+                    .map(|change| {
+                        (
+                            change.new.as_ref().map(ToString::to_string),
+                            change.old.as_ref().map(ToString::to_string),
+                        )
+                    })
+                    .unzip();
+                TimelineItemContentKind::ProfileChange {
+                    display_name: display_name.flatten(),
+                    prev_display_name: prev_display_name.flatten(),
+                    avatar_url: avatar_url.flatten(),
+                    prev_avatar_url: prev_avatar_url.flatten(),
+                }
+            }
             Content::OtherState(state) => TimelineItemContentKind::State {
                 state_key: state.state_key().to_owned(),
                 content: state.content().into(),
@@ -299,12 +373,37 @@ impl TimelineItemContent {
 pub enum TimelineItemContentKind {
     Message,
     RedactedMessage,
-    Sticker { body: String, info: ImageInfo, url: String },
-    UnableToDecrypt { msg: EncryptedMessage },
-    RoomMembership { user_id: String, change: MembershipChange },
-    State { state_key: String, content: OtherState },
-    FailedToParseMessageLike { event_type: String, error: String },
-    FailedToParseState { event_type: String, state_key: String, error: String },
+    Sticker {
+        body: String,
+        info: ImageInfo,
+        url: String,
+    },
+    UnableToDecrypt {
+        msg: EncryptedMessage,
+    },
+    RoomMembership {
+        user_id: String,
+        change: Option<MembershipChange>,
+    },
+    ProfileChange {
+        display_name: Option<String>,
+        prev_display_name: Option<String>,
+        avatar_url: Option<String>,
+        prev_avatar_url: Option<String>,
+    },
+    State {
+        state_key: String,
+        content: OtherState,
+    },
+    FailedToParseMessageLike {
+        event_type: String,
+        error: String,
+    },
+    FailedToParseState {
+        event_type: String,
+        state_key: String,
+        error: String,
+    },
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -587,25 +686,8 @@ pub struct Reaction {
 
 #[derive(Clone)]
 pub struct ReactionDetails {
-    pub id: TimelineKey,
+    pub id: String,
     pub sender: String,
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum TimelineKey {
-    TransactionId { txn_id: String },
-    EventId { event_id: String },
-}
-
-impl From<&matrix_sdk::room::timeline::TimelineKey> for TimelineKey {
-    fn from(timeline_key: &matrix_sdk::room::timeline::TimelineKey) -> Self {
-        use matrix_sdk::room::timeline::TimelineKey::*;
-
-        match timeline_key {
-            TransactionId(txn_id) => TimelineKey::TransactionId { txn_id: txn_id.to_string() },
-            EventId(event_id) => TimelineKey::EventId { event_id: event_id.to_string() },
-        }
-    }
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
@@ -659,67 +741,30 @@ pub enum MembershipChange {
     KnockAccepted,
     KnockRetracted,
     KnockDenied,
-    ProfileChanged {
-        display_name: Option<String>,
-        prev_display_name: Option<String>,
-        avatar_url: Option<String>,
-        prev_avatar_url: Option<String>,
-    },
     NotImplemented,
-    Unknown {
-        membership: MembershipState,
-        display_name: Option<String>,
-        avatar_url: Option<String>,
-    },
 }
 
-impl From<&matrix_sdk::room::timeline::RoomMember> for MembershipChange {
-    fn from(member: &matrix_sdk::room::timeline::RoomMember) -> Self {
-        use matrix_sdk::ruma::events::{
-            room::member::MembershipChange as Change, FullStateEventContent as FullContent,
-        };
-        if let Some(change) = member.membership_change() {
-            match change {
-                Change::None => Self::None,
-                Change::Error => Self::Error,
-                Change::Joined => Self::Joined,
-                Change::Left => Self::Left,
-                Change::Banned => Self::Banned,
-                Change::Unbanned => Self::Unbanned,
-                Change::Kicked => Self::Kicked,
-                Change::Invited => Self::Invited,
-                Change::KickedAndBanned => Self::KickedAndBanned,
-                Change::InvitationAccepted => Self::InvitationAccepted,
-                Change::InvitationRejected => Self::InvitationRejected,
-                Change::InvitationRevoked => Self::InvitationRevoked,
-                Change::Knocked => Self::Knocked,
-                Change::KnockAccepted => Self::KnockAccepted,
-                Change::KnockRetracted => Self::KnockRetracted,
-                Change::KnockDenied => Self::KnockDenied,
-                Change::ProfileChanged { displayname_change, avatar_url_change } => {
-                    let (display_name, prev_display_name) =
-                        displayname_change.map(|change| (change.new, change.old)).unzip();
-                    let (avatar_url, prev_avatar_url) =
-                        avatar_url_change.map(|change| (change.new, change.old)).unzip();
-                    Self::ProfileChanged {
-                        display_name: display_name.flatten().map(ToOwned::to_owned),
-                        prev_display_name: prev_display_name.flatten().map(ToOwned::to_owned),
-                        avatar_url: avatar_url.flatten().map(ToString::to_string),
-                        prev_avatar_url: prev_avatar_url.flatten().map(ToString::to_string),
-                    }
-                }
-                _ => Self::NotImplemented,
-            }
-        } else {
-            let (membership, display_name, avatar_url) = match member.content() {
-                FullContent::Original { content, .. } => (
-                    content.membership.clone().into(),
-                    content.displayname.clone(),
-                    content.avatar_url.as_ref().map(ToString::to_string),
-                ),
-                FullContent::Redacted(content) => (content.membership.clone().into(), None, None),
-            };
-            Self::Unknown { membership, display_name, avatar_url }
+impl From<matrix_sdk::room::timeline::MembershipChange> for MembershipChange {
+    fn from(membership_change: matrix_sdk::room::timeline::MembershipChange) -> Self {
+        use matrix_sdk::room::timeline::MembershipChange as Change;
+        match membership_change {
+            Change::None => Self::None,
+            Change::Error => Self::Error,
+            Change::Joined => Self::Joined,
+            Change::Left => Self::Left,
+            Change::Banned => Self::Banned,
+            Change::Unbanned => Self::Unbanned,
+            Change::Kicked => Self::Kicked,
+            Change::Invited => Self::Invited,
+            Change::KickedAndBanned => Self::KickedAndBanned,
+            Change::InvitationAccepted => Self::InvitationAccepted,
+            Change::InvitationRejected => Self::InvitationRejected,
+            Change::InvitationRevoked => Self::InvitationRevoked,
+            Change::Knocked => Self::Knocked,
+            Change::KnockAccepted => Self::KnockAccepted,
+            Change::KnockRetracted => Self::KnockRetracted,
+            Change::KnockDenied => Self::KnockDenied,
+            Change::NotImplemented => Self::NotImplemented,
         }
     }
 }

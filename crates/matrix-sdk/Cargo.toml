@@ -21,6 +21,7 @@ default = [
     "sled",
     "native-tls",
 ]
+testing = []
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
@@ -47,6 +48,7 @@ experimental-timeline = ["ruma/unstable-msc2677", "dep:chrono"]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "experimental-timeline",
+    "reqwest/gzip",
     "dep:derive_builder",
 ]
 

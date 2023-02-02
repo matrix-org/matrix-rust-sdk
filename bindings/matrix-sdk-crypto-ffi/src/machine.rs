@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     io::Cursor,
+    mem::ManuallyDrop,
     ops::Deref,
     sync::Arc,
     time::Duration,
@@ -59,8 +60,21 @@ use crate::{
 
 /// A high level state machine that handles E2EE for Matrix.
 pub struct OlmMachine {
-    pub(crate) inner: InnerMachine,
+    pub(crate) inner: ManuallyDrop<InnerMachine>,
     pub(crate) runtime: Runtime,
+}
+
+impl Drop for OlmMachine {
+    fn drop(&mut self) {
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::take to be used safely.
+        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
+        let _guard = self.runtime.enter();
+        // Dropping the inner OlmMachine must happen within a tokio context
+        // because deadpool drops sqlite connections in the DB pool on tokio's
+        // blocking threadpool to avoid blocking async worker threads.
+        drop(inner);
+    }
 }
 
 /// A pair of outgoing room key requests, both of those are sendToDevice
@@ -160,14 +174,14 @@ impl OlmMachine {
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
-            .block_on(matrix_sdk_sled::SledCryptoStore::open(path, passphrase.as_deref()))
+            .block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(path, passphrase.as_deref()))
             .map_err(|e| match e {
                 // This is a bit of an error in the sled store, the
                 // CryptoStore returns an `OpenStoreError` which has a
                 // variant for the state store. Not sure what to do about
                 // this.
-                matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
+                matrix_sdk_sqlite::OpenStoreError::Crypto(r) => r.into(),
+                matrix_sdk_sqlite::OpenStoreError::Sqlite(s) => CryptoStoreError::CryptoStore(
                     matrix_sdk_crypto::store::CryptoStoreError::backend(s),
                 ),
                 _ => unreachable!(),
@@ -178,7 +192,7 @@ impl OlmMachine {
         let inner =
             runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
 
-        Ok(OlmMachine { inner, runtime })
+        Ok(OlmMachine { inner: ManuallyDrop::new(inner), runtime })
     }
 
     /// Get the display name of our own device.

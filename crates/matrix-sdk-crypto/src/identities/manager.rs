@@ -39,7 +39,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::{CrossSigningKey, DeviceKeys},
+    types::DeviceKeys,
     utilities::FailuresCache,
     LocalTrust,
 };
@@ -432,17 +432,13 @@ impl IdentityManager {
         // TODO: this is a bit chunky, refactor this into smaller methods.
 
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize_as::<CrossSigningKey>() {
+            match master_key.deserialize_as::<MasterPubkey>() {
                 Ok(master_key) => {
-                    let master_key = MasterPubkey::from(master_key);
-
-                    let self_signing = if let Some(s) = response
+                    let Some(self_signing) = response
                         .self_signing_keys
                         .get(user_id)
-                        .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                    {
-                        SelfSigningPubkey::from(s)
-                    } else {
+                        .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
+                    else {
                         warn!(
                             user_id = user_id.as_str(),
                             "A user identity didn't contain a self signing pubkey \
@@ -454,13 +450,11 @@ impl IdentityManager {
                     let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                         match &mut i {
                             ReadOnlyUserIdentities::Own(identity) => {
-                                let user_signing = if let Some(s) = response
+                                let Some(user_signing) = response
                                     .user_signing_keys
                                     .get(user_id)
-                                    .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
-                                {
-                                    UserSigningPubkey::from(s)
-                                } else {
+                                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+                                else {
                                     warn!(
                                         user_id = user_id.as_str(),
                                         "User identity for our own user didn't \
@@ -478,13 +472,11 @@ impl IdentityManager {
                             }
                         }
                     } else if user_id == self.user_id() {
-                        if let Some(s) = response
+                        if let Some(user_signing) = response
                             .user_signing_keys
                             .get(user_id)
-                            .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
+                            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
                         {
-                            let user_signing = UserSigningPubkey::from(s);
-
                             if master_key.user_id() != user_id
                                 || self_signing.user_id() != user_id
                                 || user_signing.user_id() != user_id
@@ -764,10 +756,10 @@ pub(crate) mod testing {
             .expect("Can't parse the keys upload response")
     }
 
-    pub fn own_key_query() -> KeyQueryResponse {
+    pub fn own_key_query_with_user_id(user_id: &UserId) -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
-            "@example:localhost": {
+            user_id: {
               "WSKKLTJZCL": {
                 "algorithms": [
                   "m.olm.v1.curve25519-aes-sha2",
@@ -779,12 +771,12 @@ pub(crate) mod testing {
                   "ed25519:WSKKLTJZCL": "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
                 },
                 "signatures": {
-                  "@example:localhost": {
+                  user_id: {
                     "ed25519:WSKKLTJZCL": "SKpIUnq7QK0xleav0PrIQyKjVm+TgZr7Yi8cKjLeZDtkgyToE2d4/e3Aj79dqOlLB92jFVE4d1cM/Ry04wFwCA",
                     "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "9UGu1iC5YhFCdELGfB29YaV+QE0t/X5UDSsPf4QcdZyXIwyp9zBbHX2lh9vWudNQ+akZpaq7ZRaaM+4TCnw/Ag"
                   }
                 },
-                "user_id": "@example:localhost",
+                "user_id": user_id,
                 "unsigned": {
                   "device_display_name": "Cross signing capable"
                 }
@@ -800,11 +792,11 @@ pub(crate) mod testing {
                   "ed25519:LVWOVGOXME": "k+NC3L7CBD6fBClcHBrKLOkqCyGNSKhWXiH5Q2STRnA"
                 },
                 "signatures": {
-                  "@example:localhost": {
+                  user_id: {
                     "ed25519:LVWOVGOXME": "39Ir5Bttpc5+bQwzLj7rkjm5E5/cp/JTbMJ/t0enj6J5w9MXVBFOUqqM2hpaRaRwILMMpwYbJ8IOGjl0Y/MGAw"
                   }
                 },
-                "user_id": "@example:localhost",
+                "user_id": user_id,
                 "unsigned": {
                   "device_display_name": "Non-cross signing"
                 }
@@ -813,8 +805,8 @@ pub(crate) mod testing {
           },
           "failures": {},
           "master_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
+            user_id: {
+              "user_id": user_id,
               "usage": [
                 "master"
               ],
@@ -822,15 +814,15 @@ pub(crate) mod testing {
                 "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
               },
               "signatures": {
-                "@example:localhost": {
+                user_id: {
                   "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
                 }
               }
             }
           },
           "self_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
+            user_id: {
+              "user_id": user_id,
               "usage": [
                 "self_signing"
               ],
@@ -838,15 +830,15 @@ pub(crate) mod testing {
                 "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
               },
               "signatures": {
-                "@example:localhost": {
+                user_id: {
                   "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
                 }
               }
             }
           },
           "user_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
+            user_id: {
+              "user_id": user_id,
               "usage": [
                 "user_signing"
               ],
@@ -854,7 +846,7 @@ pub(crate) mod testing {
                 "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
               },
               "signatures": {
-                "@example:localhost": {
+                user_id: {
                   "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
                 }
               }
@@ -863,6 +855,10 @@ pub(crate) mod testing {
         }));
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
+    }
+
+    pub fn own_key_query() -> KeyQueryResponse {
+        own_key_query_with_user_id(user_id())
     }
 
     pub fn key_query(

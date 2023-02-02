@@ -61,8 +61,8 @@ pub use sliding_sync::{
     SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
 };
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, feature = "testing"))]
+pub mod test_utils;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[ctor::ctor]

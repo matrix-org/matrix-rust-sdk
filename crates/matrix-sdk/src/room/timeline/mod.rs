@@ -20,10 +20,9 @@ use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    locks::Mutex,
-};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
@@ -50,9 +49,9 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, EncryptedMessage, EventTimelineItem, Message, OtherState,
-        Profile, ReactionDetails, RoomMember, Sticker, TimelineDetails, TimelineItemContent,
-        TimelineKey,
+        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
+        EventTimelineItem, MemberProfileChange, MembershipChange, Message, OtherState, Profile,
+        ReactionGroup, RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
@@ -88,6 +87,7 @@ impl Timeline {
         Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) async fn with_events(
         room: &room::Common,
         prev_token: Option<String>,
@@ -95,7 +95,20 @@ impl Timeline {
     ) -> Self {
         let mut inner = TimelineInner::new(room.to_owned());
         inner.add_initial_events(events).await;
-        Self::from_inner(Arc::new(inner), prev_token)
+
+        let timeline = Self::from_inner(Arc::new(inner), prev_token);
+
+        // The events we're injecting might be encrypted events, but we might
+        // have received the room key to decrypt them while nobody was listening to the
+        // `m.room_key` event, let's retry now.
+        //
+        // TODO: We could spawn a task here and put this into the background, though it
+        // might not be worth it depending on the number of events we injected.
+        // Some measuring needs to be done.
+        #[cfg(feature = "e2e-encryption")]
+        timeline.retry_decryption_for_all_events().await;
+
+        timeline
     }
 
     fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
@@ -169,6 +182,18 @@ impl Timeline {
         self.event_handler_handles.push(fully_read_handle);
 
         self
+    }
+
+    /// Clear all timeline items, and reset pagination parameters.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub async fn clear(&self) {
+        let mut start_lock = self.start_token.lock().await;
+        let mut end_lock = self._end_token.lock().await;
+
+        *start_lock = None;
+        *end_lock = None;
+
+        self.inner.clear().await;
     }
 
     /// Add more events to the start of the timeline.
@@ -279,7 +304,18 @@ impl Timeline {
             .retry_event_decryption(
                 self.room().room_id(),
                 self.room().client.olm_machine().expect("Olm machine wasn't started"),
-                session_ids.into_iter().map(AsRef::as_ref).collect(),
+                Some(session_ids.into_iter().map(AsRef::as_ref).collect()),
+            )
+            .await;
+    }
+
+    #[cfg(all(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
+    async fn retry_decryption_for_all_events(&self) {
+        self.inner
+            .retry_event_decryption(
+                self.room().room_id(),
+                self.room().client.olm_machine().expect("Olm machine wasn't started"),
+                None,
             )
             .await;
     }
@@ -315,6 +351,9 @@ impl Timeline {
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
+    /// If sending the message fails, the local echo item will change its
+    /// `send_state` to [`EventSendState::SendingFailed`].
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
@@ -334,11 +373,7 @@ impl Timeline {
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(
-        &self,
-        content: AnyMessageLikeEventContent,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<()> {
+    pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
@@ -346,10 +381,13 @@ impl Timeline {
         // Not ideal, but works for now.
         let room = Joined { inner: self.room().clone() };
 
-        let response = room.send(content, Some(&txn_id)).await?;
-        self.inner.add_event_id(&txn_id, response.event_id);
+        let response = room.send(content, Some(&txn_id)).await;
 
-        Ok(())
+        let send_state = match response {
+            Ok(response) => EventSendState::Sent { event_id: response.event_id },
+            Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+        };
+        self.inner.update_event_send_state(&txn_id, send_state);
     }
 }
 
@@ -414,26 +452,22 @@ impl TimelineItem {
 
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
-fn find_event_by_id<'a>(
+fn rfind_event_item(
+    items: &[Arc<TimelineItem>],
+    mut f: impl FnMut(&EventTimelineItem) -> bool,
+) -> Option<(usize, &EventTimelineItem)> {
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+        .rfind(|(_, it)| f(it))
+}
+
+fn rfind_event_by_id<'a>(
     items: &'a [Arc<TimelineItem>],
     event_id: &EventId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| it.event_id() == Some(event_id))
-}
-
-fn find_event_by_txn_id<'a>(
-    items: &'a [Arc<TimelineItem>],
-    txn_id: &TransactionId,
-) -> Option<(usize, &'a EventTimelineItem)> {
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| it.key == *txn_id)
+    rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
 fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {

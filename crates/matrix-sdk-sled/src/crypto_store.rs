@@ -844,7 +844,7 @@ impl CryptoStore for SledCryptoStore {
         self.reset_backup_state().await
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
