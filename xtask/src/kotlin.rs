@@ -133,7 +133,7 @@ fn build_android_library(
     build_android_aar(profile, &kotlin_dir, &gradle_build_dir, aar_path, &package_values)?;
 
     println!("-- Cleaning up temporary files");
-    remove_dir_all(gradle_build_dir.as_path())?;
+    //remove_dir_all(gradle_build_dir.as_path())?;
     remove_dir_all(gradle_target_dir.as_path())?;
 
     println!("-- All done and hunky dory. Enjoy!");
