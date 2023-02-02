@@ -209,6 +209,18 @@ impl EventTimelineItem {
             }
         }
     }
+
+    /// Clone the current event item, and update its `sender_profile`.
+    pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
+        match self {
+            EventTimelineItem::Local(item) => {
+                Self::Local(LocalEventTimelineItem { sender_profile, ..item.clone() })
+            }
+            EventTimelineItem::Remote(item) => {
+                Self::Remote(RemoteEventTimelineItem { sender_profile, ..item.clone() })
+            }
+        }
+    }
 }
 
 /// This type represents the "send state" of a local event timeline item.
@@ -342,7 +354,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
 }
 
 /// The display name and avatar URL of a room member.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
@@ -381,6 +393,17 @@ impl<T> TimelineDetails<T> {
             Some(v) => Self::Ready(v),
             None => Self::Unavailable,
         }
+    }
+
+    pub(crate) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+
+    pub(crate) fn contains<U>(&self, value: &U) -> bool
+    where
+        T: PartialEq<U>,
+    {
+        matches!(self, Self::Ready(v) if v == value)
     }
 }
 

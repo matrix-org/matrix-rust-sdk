@@ -390,7 +390,7 @@ impl Common {
         }
     }
 
-    async fn ensure_members(&self) -> Result<()> {
+    pub(crate) async fn ensure_members(&self) -> Result<()> {
         if !self.are_events_visible() {
             return Ok(());
         }

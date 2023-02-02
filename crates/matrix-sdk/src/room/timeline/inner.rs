@@ -37,7 +37,7 @@ use super::{
 use crate::{
     events::SyncTimelineEventWithoutContent,
     room::{self, timeline::event_item::RemoteEventTimelineItem},
-    Result,
+    Error, Result,
 };
 
 #[derive(Debug)]
@@ -369,6 +369,66 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 &self.profile_provider,
             )
             .await;
+        }
+    }
+
+    pub(super) fn set_sender_profiles_pending(&self) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Pending);
+    }
+
+    pub(super) fn set_sender_profiles_error(&self, error: Arc<Error>) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Error(error));
+    }
+
+    fn set_non_ready_sender_profiles(&self, state: TimelineDetails<Profile>) {
+        let mut timeline_items = self.items.lock_mut();
+        for idx in 0..timeline_items.len() {
+            let Some(event_item) = timeline_items[idx].as_event() else { continue };
+            if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
+                timeline_items.set_cloned(
+                    idx,
+                    Arc::new(TimelineItem::Event(event_item.with_sender_profile(state.clone()))),
+                );
+            }
+        }
+    }
+
+    pub(super) async fn update_sender_profiles(&self) {
+        // Can't lock the timeline items across .await points without making the
+        // resulting future `!Send`. As a (brittle) hack around that, lock the
+        // timeline items in each loop iteration but keep a lock of the metadata
+        // so no event handler runs in parallel and assert the number of items
+        // doesn't change between iterations.
+        let _guard = self.metadata.lock().await;
+        let num_items = self.items().len();
+
+        for idx in 0..num_items {
+            let sender = match self.items()[idx].as_event() {
+                Some(event_item) => event_item.sender().to_owned(),
+                None => continue,
+            };
+            let maybe_profile = self.profile_provider.profile(&sender).await;
+
+            let mut timeline_items = self.items.lock_mut();
+            assert_eq!(timeline_items.len(), num_items);
+
+            let event_item = timeline_items[idx].as_event().unwrap();
+            match maybe_profile {
+                Some(profile) => {
+                    if !event_item.sender_profile().contains(&profile) {
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
+                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                    }
+                }
+                None => {
+                    if !event_item.sender_profile().is_unavailable() {
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Unavailable);
+                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                    }
+                }
+            }
         }
     }
 
