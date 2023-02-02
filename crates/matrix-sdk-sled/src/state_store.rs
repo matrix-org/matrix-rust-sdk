@@ -44,6 +44,7 @@ use ruma::{
     RoomVersionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
@@ -115,7 +116,7 @@ impl From<SledStoreError> for StoreError {
         }
     }
 }
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 const VERSION_KEY: &str = "state-store-version";
 
@@ -438,17 +439,17 @@ impl SledStateStore {
 
         debug!(old_version, new_version = DATABASE_VERSION, "Upgrading the Sled state store");
 
-        if old_version == 1 {
-            if self.store_cipher.is_some() {
-                // we stored some fields un-encrypted. Drop them to force re-creation
-                return Err(SledStoreError::MigrationConflict {
-                    path: self.path.take().expect("Path must exist for a migration to fail"),
-                    old_version: old_version.into(),
-                    new_version: DATABASE_VERSION.into(),
-                });
-            }
-            // no migration to handle
-            self.set_db_version(2u8)?;
+        if old_version == 1 && self.store_cipher.is_some() {
+            // we stored some fields un-encrypted. Drop them to force re-creation
+            return Err(SledStoreError::MigrationConflict {
+                path: self.path.take().expect("Path must exist for a migration to fail"),
+                old_version: old_version.into(),
+                new_version: DATABASE_VERSION.into(),
+            });
+        }
+
+        if old_version < 3 {
+            self.migrate_to_v3()?;
             return Ok(());
         }
 
@@ -460,6 +461,54 @@ impl SledStateStore {
             old_version: old_version.into(),
             new_version: DATABASE_VERSION.into(),
         })
+    }
+
+    fn v3_fix_tree(&self, tree: &Tree, batch: &mut sled::Batch) -> Result<()> {
+        fn maybe_fix_json(raw_json: &RawJsonValue) -> Result<Option<JsonValue>> {
+            let json = raw_json.get();
+
+            if json.contains(r#""content":null"#) {
+                let mut value: JsonValue = serde_json::from_str(json)?;
+                if let Some(content) = value.get_mut("content") {
+                    if matches!(content, JsonValue::Null) {
+                        *content = JsonValue::Object(Default::default());
+                        return Ok(Some(value));
+                    }
+                }
+            }
+
+            Ok(None)
+        }
+
+        for entry in tree.iter() {
+            let (key, value) = entry?;
+            let raw_json: Box<RawJsonValue> = self.deserialize_value(&value)?;
+
+            if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
+                batch.insert(key, self.serialize_value(&fixed_json)?);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn migrate_to_v3(&self) -> Result<()> {
+        let mut room_info_batch = sled::Batch::default();
+        self.v3_fix_tree(&self.room_info, &mut room_info_batch)?;
+
+        let mut room_state_batch = sled::Batch::default();
+        self.v3_fix_tree(&self.room_state, &mut room_state_batch)?;
+
+        let ret: Result<(), TransactionError<SledStoreError>> = (&self.room_info, &self.room_state)
+            .transaction(|(room_info, room_state)| {
+                room_info.apply_batch(&room_info_batch)?;
+                room_state.apply_batch(&room_state_batch)?;
+
+                Ok(())
+            });
+        ret?;
+
+        self.set_db_version(3u8)
     }
 
     /// Open a `SledCryptoStore` that uses the same database as this store.
@@ -1551,9 +1600,15 @@ mod encrypted_tests {
 #[cfg(test)]
 mod migration {
     use matrix_sdk_test::async_test;
+    use ruma::{
+        events::{AnySyncStateEvent, StateEventType},
+        room_id,
+    };
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::{MigrationConflictStrategy, Result, SledStateStore, SledStoreError};
+    use crate::state_store::ROOM_STATE;
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
@@ -1637,5 +1692,59 @@ mod migration {
         }
         assert_eq!(std::fs::read_dir(folder.path())?.count(), 1);
         Ok(())
+    }
+
+    #[async_test]
+    pub async fn migrating_v2_to_v3() {
+        // An event that fails to deserialize.
+        let wrong_redacted_state_event = json!({
+            "content": null,
+            "event_id": "$wrongevent",
+            "origin_server_ts": 1673887516047_u64,
+            "sender": "@example:localhost",
+            "state_key": "",
+            "type": "m.room.topic",
+            "unsigned": {
+                "redacted_because": {
+                    "type": "m.room.redaction",
+                    "sender": "@example:localhost",
+                    "content": {},
+                    "redacts": "$wrongevent",
+                    "origin_server_ts": 1673893816047_u64,
+                    "unsigned": {},
+                    "event_id": "$redactionevent",
+                },
+            },
+        });
+        serde_json::from_value::<AnySyncStateEvent>(wrong_redacted_state_event.clone())
+            .unwrap_err();
+
+        let room_id = room_id!("!some_room:localhost");
+        let folder = TempDir::new().unwrap();
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        store
+            .room_state
+            .insert(
+                store.encode_key(ROOM_STATE, (room_id, StateEventType::RoomTopic, "")),
+                store.serialize_value(&wrong_redacted_state_event).unwrap(),
+            )
+            .unwrap();
+        store.set_db_version(2u8).unwrap();
+        drop(store);
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+        let event =
+            store.get_state_event(room_id, StateEventType::RoomTopic, "").await.unwrap().unwrap();
+        event.deserialize().unwrap();
     }
 }
