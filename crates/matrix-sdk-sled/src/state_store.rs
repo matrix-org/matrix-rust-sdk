@@ -794,7 +794,7 @@ impl SledStateStore {
 
             let make_room_version = |room_id| {
                 self.room_info
-                    .get(self.encode_key(ROOM_INFO, room_id))
+                    .get(self.encode_key(ROOM, room_id))
                     .ok()
                     .flatten()
                     .map(|r| self.deserialize_value::<RoomInfo>(&r))
