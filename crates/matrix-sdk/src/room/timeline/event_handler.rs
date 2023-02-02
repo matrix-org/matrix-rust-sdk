@@ -312,6 +312,12 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         }
 
         if !self.result.item_added {
+            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
+                // If add was not called, that means the UTD event is one that
+                // wouldn't normally be visible. Remove it.
+                self.timeline_items.remove(idx);
+            }
+
             // TODO: Add event as raw
         }
 
