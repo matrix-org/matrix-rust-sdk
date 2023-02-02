@@ -867,8 +867,8 @@ impl ProfileProvider for TestProfileProvider {
         &ALICE
     }
 
-    async fn profile(&self, _user_id: &UserId) -> Profile {
-        Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
+    async fn profile(&self, _user_id: &UserId) -> Option<Profile> {
+        None
     }
 }
 

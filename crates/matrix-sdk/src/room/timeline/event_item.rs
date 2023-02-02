@@ -140,7 +140,7 @@ impl EventTimelineItem {
     }
 
     /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &Profile {
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         match self {
             Self::Local(local_event) => &local_event.sender_profile,
             Self::Remote(remote_event) => &remote_event.sender_profile,
@@ -238,7 +238,7 @@ pub struct LocalEventTimelineItem {
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -275,7 +275,7 @@ pub struct RemoteEventTimelineItem {
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -373,6 +373,15 @@ pub enum TimelineDetails<T> {
 
     /// An error occurred when fetching the details.
     Error(Arc<Error>),
+}
+
+impl<T> TimelineDetails<T> {
+    pub(crate) fn from_initial_value(value: Option<T>) -> Self {
+        match value {
+            Some(v) => Self::Ready(v),
+            None => Self::Unavailable,
+        }
+    }
 }
 
 /// The content of an [`EventTimelineItem`].
@@ -518,7 +527,7 @@ impl InReplyToDetails {
 pub struct RepliedToEvent {
     pub(super) message: Message,
     pub(super) sender: OwnedUserId,
-    pub(super) sender_profile: Profile,
+    pub(super) sender_profile: TimelineDetails<Profile>,
 }
 
 impl RepliedToEvent {
@@ -533,7 +542,7 @@ impl RepliedToEvent {
     }
 
     /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &Profile {
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         &self.sender_profile
     }
 
@@ -558,7 +567,8 @@ impl RepliedToEvent {
             edited: event.relations().replace.is_some(),
         };
         let sender = event.sender().to_owned();
-        let sender_profile = profile_provider.profile(&sender).await;
+        let sender_profile =
+            TimelineDetails::from_initial_value(profile_provider.profile(&sender).await);
 
         Ok(Self { message, sender, sender_profile })
     }

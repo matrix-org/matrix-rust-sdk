@@ -93,9 +93,10 @@ mod uniffi_types {
             EmoteMessageContent, EncryptedMessage, EventSendState, EventTimelineItem, FileInfo,
             FileMessageContent, FormattedBody, ImageInfo, ImageMessageContent, InsertAtData,
             MembershipChange, Message, MessageFormat, MessageType, NoticeMessageContent,
-            OtherState, Profile, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
-            TimelineDiff, TimelineItem, TimelineItemContent, TimelineItemContentKind, UpdateAtData,
-            VideoInfo, VideoMessageContent, VirtualTimelineItem,
+            OtherState, ProfileTimelineDetails, Reaction, TextMessageContent, ThumbnailInfo,
+            TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent,
+            TimelineItemContentKind, UpdateAtData, VideoInfo, VideoMessageContent,
+            VirtualTimelineItem,
         },
     };
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use extension_trait::extension_trait;
 use futures_signals::signal_vec::VecDiff;
+use matrix_sdk::room::timeline::{Profile, TimelineDetails};
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
 #[uniffi::export]
@@ -223,7 +224,7 @@ impl EventTimelineItem {
         self.0.sender().to_string()
     }
 
-    pub fn sender_profile(&self) -> Profile {
+    pub fn sender_profile(&self) -> ProfileTimelineDetails {
         self.0.sender_profile().into()
     }
 
@@ -279,19 +280,25 @@ impl EventTimelineItem {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct Profile {
-    display_name: Option<String>,
-    display_name_ambiguous: bool,
-    avatar_url: Option<String>,
+#[derive(uniffi::Enum)]
+pub enum ProfileTimelineDetails {
+    Unavailable,
+    Pending,
+    Ready { display_name: Option<String>, display_name_ambiguous: bool, avatar_url: Option<String> },
+    Error { message: String },
 }
 
-impl From<&matrix_sdk::room::timeline::Profile> for Profile {
-    fn from(p: &matrix_sdk::room::timeline::Profile) -> Self {
-        Self {
-            display_name: p.display_name.clone(),
-            display_name_ambiguous: p.display_name_ambiguous,
-            avatar_url: p.avatar_url.as_ref().map(ToString::to_string),
+impl From<&TimelineDetails<Profile>> for ProfileTimelineDetails {
+    fn from(details: &TimelineDetails<Profile>) -> Self {
+        match details {
+            TimelineDetails::Unavailable => Self::Unavailable,
+            TimelineDetails::Pending => Self::Pending,
+            TimelineDetails::Ready(profile) => Self::Ready {
+                display_name: profile.display_name.clone(),
+                display_name_ambiguous: profile.display_name_ambiguous,
+                avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+            },
+            TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
     }
 }
