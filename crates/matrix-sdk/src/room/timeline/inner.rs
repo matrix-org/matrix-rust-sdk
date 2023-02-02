@@ -352,7 +352,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
 
         let mut metadata_lock = self.metadata.lock().await;
-        for (idx, event_id, session_id, utd) in utds_for_session.iter().rev() {
+        for (idx, event_id, session_id, utd) in utds_for_session {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
                 Err(e) => {
@@ -374,7 +374,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
-                TimelineItemPosition::Update(*idx),
+                TimelineItemPosition::Update(idx),
                 &self.items,
                 &mut metadata_lock,
                 &self.profile_provider,
