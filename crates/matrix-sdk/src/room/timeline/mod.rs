@@ -411,7 +411,7 @@ impl Timeline {
     /// Returns an error if the identifier doesn't match any event with a remote
     /// echo in the timeline, or if the event is removed from the timeline
     /// before all requests are handled.
-    #[instrument(fields(room_id = ?self.room().room_id()))]
+    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
         let (index, item) = rfind_event_by_id(&self.inner.items(), event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
