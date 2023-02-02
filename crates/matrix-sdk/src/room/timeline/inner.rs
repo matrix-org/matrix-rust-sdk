@@ -417,18 +417,18 @@ impl TimelineInner {
         in_reply_to: &EventId,
     ) -> TimelineDetails<Box<RepliedToEvent>> {
         if let Some((_, item)) = rfind_event_by_id(&self.items(), in_reply_to) {
-            match item.content() {
+            let details = match item.content() {
                 TimelineItemContent::Message(message) => {
-                    return TimelineDetails::Ready(Box::new(RepliedToEvent {
+                    TimelineDetails::Ready(Box::new(RepliedToEvent {
                         message: message.clone(),
                         sender: item.sender().to_owned(),
                         sender_profile: item.sender_profile().clone(),
-                    }));
+                    }))
                 }
-                _ => {
-                    return TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into()))
-                }
-            }
+                _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
+            };
+
+            return details;
         };
 
         self.update_event_item(
