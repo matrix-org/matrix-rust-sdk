@@ -46,6 +46,10 @@ pub struct Client {
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+    /// The sliding sync proxy that the client is configured to use by default.
+    /// If this value is `Some`, it will be automatically added to the builder
+    /// when calling `sliding_sync()`.
+    pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
     pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
 }
 
@@ -74,6 +78,7 @@ impl Client {
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
+            sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx,
         }
     }
@@ -112,9 +117,8 @@ impl Client {
         } = session;
 
         // update the client state
-        let mut lock = self.state.write().unwrap();
-        lock.is_soft_logout = is_soft_logout;
-        lock.sliding_sync_proxy = sliding_sync_proxy;
+        self.state.write().unwrap().is_soft_logout = is_soft_logout;
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
 
         let session = matrix_sdk::Session {
             access_token,
@@ -155,11 +159,8 @@ impl Client {
         })
     }
 
-    /// The sliding sync proxy that the client is configured to use by default.
-    /// If this value is `Some`, it will be automatically added to the builder
-    /// when calling `sliding_sync()`.
-    pub fn sliding_sync_proxy(&self) -> Option<String> {
-        self.state.read().unwrap().sliding_sync_proxy.clone()
+    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<String>) {
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
@@ -185,7 +186,7 @@ impl Client {
             let homeserver_url = self.client.homeserver().await.into();
             let state = self.state.read().unwrap();
             let is_soft_logout = state.is_soft_logout;
-            let sliding_sync_proxy = state.sliding_sync_proxy.clone();
+            let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
 
             Ok(Session {
                 access_token,

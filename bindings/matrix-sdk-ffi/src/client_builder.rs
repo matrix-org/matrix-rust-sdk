@@ -135,11 +135,8 @@ impl ClientBuilder {
 
         RUNTIME.block_on(async move {
             let client = inner_builder.build().await?;
-            let mut state = ClientState::default();
-            if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
-                state.sliding_sync_proxy = Some(sliding_sync_proxy);
-            }
-            let c = Client::new(client, state);
+            let c = Client::new(client, ClientState::default());
+            c.set_sliding_sync_proxy(builder.sliding_sync_proxy);
             Ok(Arc::new(c))
         })
     }

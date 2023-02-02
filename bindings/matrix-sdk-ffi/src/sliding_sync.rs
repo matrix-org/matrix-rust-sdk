@@ -849,8 +849,12 @@ impl Client {
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
         RUNTIME.block_on(async move {
             let mut inner = self.client.sliding_sync().await;
-            if let Some(sliding_sync_proxy) =
-                self.sliding_sync_proxy().map(|p| Url::parse(p.as_str()).ok()).flatten()
+            if let Some(sliding_sync_proxy) = self
+                .sliding_sync_proxy
+                .read()
+                .unwrap()
+                .clone()
+                .and_then(|p| Url::parse(p.as_str()).ok())
             {
                 inner = inner.homeserver(sliding_sync_proxy);
             }
