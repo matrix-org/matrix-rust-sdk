@@ -384,9 +384,9 @@ impl TimelineInner {
     pub(super) async fn fetch_in_reply_to_details(
         &self,
         index: usize,
-        mut item: EventTimelineItem,
-    ) -> Result<EventTimelineItem> {
-        let TimelineItemContent::Message(message) = item.content().clone() else {
+        mut item: RemoteEventTimelineItem,
+    ) -> Result<RemoteEventTimelineItem> {
+        let TimelineItemContent::Message(message) = item.content.clone() else {
             return Ok(item);
         };
         let Some(in_reply_to) = message.in_reply_to() else {
@@ -398,18 +398,13 @@ impl TimelineInner {
 
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
-        let txn_id = item.transaction_id();
-        let event_id = item.event_id();
-        let (index, _) = rfind_event_item(&self.items(), |it| {
-            txn_id.is_some() && it.transaction_id() == txn_id
-                || event_id.is_some() && it.event_id() == event_id
-        })
-        .ok_or(super::Error::EventNotInTimeline)?;
+        let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
+            .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         item = item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
             InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
         )));
-        self.update_event_item(index, item.clone());
+        self.update_event_item(index, item.clone().into());
 
         Ok(item)
     }
@@ -417,7 +412,7 @@ impl TimelineInner {
     async fn fetch_replied_to_event(
         &self,
         index: usize,
-        item: &EventTimelineItem,
+        item: &RemoteEventTimelineItem,
         message: &Message,
         in_reply_to: &EventId,
     ) -> TimelineDetails<Box<RepliedToEvent>> {
@@ -443,7 +438,8 @@ impl TimelineInner {
                     event_id: in_reply_to.to_owned(),
                     details: TimelineDetails::Pending,
                 },
-            ))),
+            )))
+            .into(),
         );
 
         match self.room().event(in_reply_to).await {

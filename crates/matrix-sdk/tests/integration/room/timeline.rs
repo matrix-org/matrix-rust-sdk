@@ -574,8 +574,8 @@ async fn in_reply_to_details() {
 
     // The event doesn't exist.
     assert_matches!(
-        timeline.fetch_event_details(None, Some(event_id!("$fakeevent"))).await,
-        Err(Error::Timeline(TimelineError::EventNotInTimeline))
+        timeline.fetch_event_details(event_id!("$fakeevent")).await,
+        Err(Error::Timeline(TimelineError::RemoteEventNotInTimeline))
     );
 
     ev_builder.add_joined_room(
@@ -626,7 +626,7 @@ async fn in_reply_to_details() {
     assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
 
     // Fetch details locally first.
-    timeline.fetch_event_details(None, Some(&second_event.event_id)).await.unwrap();
+    timeline.fetch_event_details(&second_event.event_id).await.unwrap();
 
     let second = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 2, value }) => value);
     let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
@@ -675,7 +675,7 @@ async fn in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_event_details(None, Some(&third_event.event_id)).await.unwrap();
+    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
     server.reset().await;
 
     let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
@@ -704,7 +704,7 @@ async fn in_reply_to_details() {
         .mount(&server)
         .await;
 
-    timeline.fetch_event_details(None, Some(&third_event.event_id)).await.unwrap();
+    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
 
     let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);

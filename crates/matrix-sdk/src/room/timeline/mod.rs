@@ -394,36 +394,28 @@ impl Timeline {
 
     /// Fetch unavailable details about the event with the given ID.
     ///
+    /// This method only works for IDs of [`RemoteEventTimelineItem`]s, to
+    /// prevent losing details when a local echo is replaced by its remote
+    /// echo.
+    ///
     /// This method tries to make all the requests it can. If an error is
     /// encountered for a given request, it is forwarded with the
     /// [`TimelineDetails::Error`] variant.
     ///
     /// # Arguments
     ///
-    /// * `txn_id` - The transaction ID of the event to fetch details for, if
-    ///   any.
-    ///
-    /// * `event_id` - The event ID of the event to fetch details for, if any.
-    ///
-    /// At least one of those two arguments should be `Some(_)`.
+    /// * `event_id` - The event ID of the event to fetch details for.
     ///
     /// # Errors
     ///
-    /// Returns an error if the identifiers don't match any event in the
-    /// timeline, or if the event is removed from the timeline before all
-    /// requests are handled.
+    /// Returns an error if the identifier doesn't match any event with a remote
+    /// echo in the timeline, or if the event is removed from the timeline
+    /// before all requests are handled.
     #[instrument(fields(room_id = ?self.room().room_id()))]
-    pub async fn fetch_event_details(
-        &self,
-        txn_id: Option<&TransactionId>,
-        event_id: Option<&EventId>,
-    ) -> Result<()> {
-        let (index, item) = rfind_event_item(&self.inner.items(), |it| {
-            txn_id.is_some() && it.transaction_id() == txn_id
-                || event_id.is_some() && it.event_id() == event_id
-        })
-        .map(|(pos, item)| (pos, item.clone()))
-        .ok_or(Error::EventNotInTimeline)?;
+    pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
+        let (index, item) = rfind_event_by_id(&self.inner.items(), event_id)
+            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
+            .ok_or(Error::RemoteEventNotInTimeline)?;
 
         self.inner.fetch_in_reply_to_details(index, item).await?;
 
@@ -518,9 +510,9 @@ fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// The requested event is not in the timeline.
-    #[error("Event not found in timeline")]
-    EventNotInTimeline,
+    /// The requested event with a remote echo is not in the timeline.
+    #[error("Event with remote echo not found in timeline")]
+    RemoteEventNotInTimeline,
 
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]

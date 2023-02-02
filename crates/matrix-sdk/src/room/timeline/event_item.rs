@@ -296,6 +296,11 @@ impl RemoteEventTimelineItem {
         Self { reactions, ..self.clone() }
     }
 
+    /// Clone the current event item, and update its `content`.
+    pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
+        Self { content, ..self.clone() }
+    }
+
     /// Clone the current event item, change its `content` to
     /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
     pub(super) fn to_redacted(&self) -> Self {
