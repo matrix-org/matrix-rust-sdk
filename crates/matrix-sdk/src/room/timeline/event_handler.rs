@@ -47,8 +47,8 @@ use super::{
         Sticker,
     },
     find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails,
-    Message, ReactionGroup, TimelineInnerMetadata, TimelineItem, TimelineItemContent,
-    VirtualTimelineItem,
+    Message, ReactionGroup, TimelineDetails, TimelineInnerMetadata, TimelineItem,
+    TimelineItemContent, VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
 
@@ -68,7 +68,7 @@ pub(super) enum Flow {
 
 pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
-    pub(super) sender_profile: Profile,
+    pub(super) sender_profile: Option<Profile>,
     pub(super) is_own_event: bool,
     pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
@@ -526,7 +526,7 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         let NewEventTimelineItem { content } = item;
         let sender = self.meta.sender.to_owned();
-        let sender_profile = self.meta.sender_profile.clone();
+        let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let item = match &self.flow {
