@@ -23,7 +23,7 @@ use ruma::{
         reaction::ReactionEventContent,
         relation::{Annotation, Replacement},
         room::{
-            encrypted::{self, RoomEncryptedEventContent},
+            encrypted::RoomEncryptedEventContent,
             member::{Change, RoomMemberEventContent},
             message::{self, MessageType, RoomMessageEventContent},
             redaction::{
@@ -439,16 +439,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
     #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
-        match c.relates_to {
-            Some(encrypted::Relation::Replacement(_) | encrypted::Relation::Annotation(_)) => {
-                // Do nothing for these, as they would not produce a new
-                // timeline item when decrypted either
-                debug!("Ignoring aggregating event that failed to decrypt");
-            }
-            _ => {
-                self.add(NewEventTimelineItem::unable_to_decrypt(c));
-            }
-        }
+        // TODO: Handle replacements if the replaced event is also UTD
+        self.add(NewEventTimelineItem::unable_to_decrypt(c));
     }
 
     // Redacted redactions are no-ops (unfortunately)
