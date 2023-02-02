@@ -434,6 +434,12 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
+    pub fn cold_cache(self: Arc<Self>, cold_cache: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.cold_cache(cold_cache);
+        Arc::new(builder)
+    }
+
     pub fn no_filters(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.filters(None);

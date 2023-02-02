@@ -402,6 +402,9 @@ impl SlidingSyncConfig {
             trace!(storage_key, "trying to load from cold");
 
             for (name, view) in views.iter_mut() {
+                if !view.cold_cache {
+                    continue;
+                }
                 if let Some(frozen_view) = client
                     .store()
                     .get_custom_value(format!("{storage_key}::{name}").as_bytes())
@@ -499,9 +502,9 @@ impl SlidingSyncBuilder {
     /// Add the given view to the views.
     ///
     /// Replace any view with the name.
-    pub fn add_view(mut self, v: SlidingSyncView) -> Self {
+    pub fn add_view(mut self, view: SlidingSyncView) -> Self {
         let views = self.views.get_or_insert_with(Default::default);
-        views.insert(v.name.clone(), v);
+        views.insert(view.name.clone(), view);
         self
     }
 
@@ -734,8 +737,12 @@ impl SlidingSync {
             self.views
                 .lock_ref()
                 .iter()
-                .map(|(name, view)| {
-                    (name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock))
+                .filter_map(|(name, view)| {
+                    if view.cold_cache {
+                        Some((name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock)))
+                    } else {
+                        None
+                    }
                 })
                 .collect::<Vec<_>>()
         };
@@ -851,7 +858,7 @@ impl SlidingSync {
     ///
     /// As views need to have a unique `.name`, if a view with the same name
     /// is found the new view will replace the old one and the return it or
-    /// `None`.
+    /// `None`. Views added at this time are not recovered from cache.
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
@@ -1113,6 +1120,11 @@ pub struct SlidingSyncView {
     /// Any filters to apply to the query
     #[builder(default)]
     filters: Option<v4::SyncRequestListFilters>,
+
+    /// Whether or not to store this view in cold_cache and
+    /// try recover it from cold_cache.
+    #[builder(default = "true")]
+    cold_cache: bool,
 
     /// The maximum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]

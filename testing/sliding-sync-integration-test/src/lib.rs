@@ -735,6 +735,95 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn selective_unfreeze_with_add() -> anyhow::Result<()> {
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(10).await?;
+        print!("setup took its time");
+        let build_views = |growing_cached: bool| {
+            let sliding_window_view = SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::Selective)
+                .set_range(1u32, 10u32)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .name("sliding")
+                .build()?;
+            let growing_sync_view = SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::GrowingFullSync)
+                .limit(100)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .cold_cache(growing_cached)
+                .name("growing")
+                .build()?;
+            let later_window_view = SlidingSyncViewBuilder::default()
+                .sync_mode(SlidingSyncMode::Selective)
+                .set_range(1u32, 10u32)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .name("later")
+                .build()?;
+            anyhow::Ok((sliding_window_view, growing_sync_view, later_window_view))
+        };
+
+        println!("starting the sliding sync setup");
+
+        {
+            // SETUP
+            let (sliding_window_view, growing_sync_view, later_window_view) = build_views(false)?;
+            let sync_proxy = sync_proxy_builder
+                .clone()
+                .cold_cache("sliding_sync")
+                .add_view(sliding_window_view)
+                .add_view(growing_sync_view)
+                .add_view(later_window_view)
+                .build()
+                .await?;
+            let growing_sync_view =
+                sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+            let stream = sync_proxy.stream();
+            pin_mut!(stream);
+            while growing_sync_view.state.get_cloned() != SlidingSyncState::Live {
+                // we wait until growing sync is all done, too
+                println!("awaiting");
+                let _room_summary = stream
+                    .next()
+                    .await
+                    .context("No room summary found, loop ended unsuccessfully")??;
+            }
+        }
+
+        println!("starting from cold");
+        // recover from frozen state.
+        let (sliding_window_view, growing_sync_view, later_window_view) = build_views(true)?;
+        // we recover only the window. this should be quick!
+
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .cold_cache("sliding_sync")
+            .add_view(sliding_window_view)
+            .add_view(growing_sync_view) // even activated, nothing was stored before
+            .build()
+            .await?;
+
+        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+        let full_view = sync_proxy.view("growing").context("but we just added that view!")?;
+        assert_eq!(view.state.get_cloned(), SlidingSyncState::Preload, "view isn't preloaded");
+        assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Cold, "full isn't cold");
+
+        assert_eq!(
+            later_window_view.state.get_cloned(),
+            SlidingSyncState::Cold,
+            "later isn't cold"
+        );
+
+        sync_proxy.add_view(later_window_view);
+        let later_window_view = sync_proxy.view("later").context("but we just added that view!")?;
+        assert_eq!(
+            later_window_view.state.get_cloned(),
+            SlidingSyncState::Cold,
+            "later wasn't cold after adding"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn growing_sync_keeps_going() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
         let growing_sync = SlidingSyncViewBuilder::default()
