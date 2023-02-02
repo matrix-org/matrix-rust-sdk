@@ -14,16 +14,15 @@ use matrix_sdk_base::{
     locks::Mutex,
 };
 use ruma::{
-    api::client::message::send_message_event::v3::Response as SendMessageEventResponse,
     events::{
         fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, field::debug, info, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -32,11 +31,13 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    rfind_event_item, EventTimelineItem, Profile, TimelineItem,
+    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
+    Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
     room::{self, timeline::event_item::RemoteEventTimelineItem},
+    Result,
 };
 
 #[derive(Debug)]
@@ -151,45 +152,25 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .handle_event(kind);
     }
 
-    /// Handle the response returned by the server when a local event has been
-    /// sent.
-    pub(super) fn handle_local_event_send_response(
-        &self,
-        txn_id: &TransactionId,
-        response: crate::error::Result<SendMessageEventResponse>,
-    ) -> crate::error::Result<()> {
-        match response {
-            Ok(response) => {
-                self.update_event_id_of_local_event(txn_id, Some(response.event_id));
-
-                Ok(())
-            }
-            Err(error) => {
-                self.update_event_id_of_local_event(txn_id, None);
-
-                Err(error)
-            }
-        }
-    }
-
-    /// Update the event ID of a local event represented by a transaction ID.
-    ///
-    /// If the event ID is `None`, it means there is no event ID returned by the
-    /// server, so the sending has failed. If the event ID is `Some(_)`, it
-    /// means the sending has been successful.
+    /// Update the send state of a local event represented by a transaction ID.
     ///
     /// If no local event is found, a warning is raised.
-    pub(super) fn update_event_id_of_local_event(
+    pub(super) fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
-        event_id: Option<OwnedEventId>,
+        send_state: EventSendState,
     ) {
         let mut lock = self.items.lock_mut();
+
+        let new_event_id: Option<&EventId> = match &send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
+        };
 
         // Look for the local event by the transaction ID or event ID.
         let result = rfind_event_item(&lock, |it| {
             it.transaction_id() == Some(txn_id)
-                || event_id.is_some() && it.event_id() == event_id.as_deref()
+                || new_event_id.is_some() && it.event_id() == new_event_id
         });
 
         let Some((idx, item)) = result else {
@@ -204,16 +185,15 @@ impl<P: ProfileProvider> TimelineInner<P> {
             return;
         };
 
-        // An event ID already exists, that's a broken state, let's emit an
-        // error but also override to the given event ID.
-        if let Some(existing_event_id) = &item.event_id {
-            error!(
-                ?existing_event_id, new_event_id = ?event_id, ?txn_id,
-                "Local echo already has an event ID"
-            );
+        // The event was already marked as sent, that's a broken state, let's
+        // emit an error but also override to the given sent state.
+        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+            let new_event_id = new_event_id.map(debug);
+            error!(?existing_event_id, ?new_event_id, ?txn_id, "Local echo already marked as sent");
         }
 
-        lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(event_id).into())));
+        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        lock.set_cloned(idx, Arc::new(new_item));
     }
 
     /// Handle a back-paginated event.
@@ -390,11 +370,92 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .await;
         }
     }
+
+    fn update_event_item(&self, index: usize, event_item: EventTimelineItem) {
+        self.items.lock_mut().set_cloned(index, Arc::new(TimelineItem::Event(event_item)))
+    }
 }
 
 impl TimelineInner {
     pub(super) fn room(&self) -> &room::Common {
         &self.profile_provider
+    }
+
+    pub(super) async fn fetch_in_reply_to_details(
+        &self,
+        index: usize,
+        mut item: RemoteEventTimelineItem,
+    ) -> Result<RemoteEventTimelineItem> {
+        let TimelineItemContent::Message(message) = item.content.clone() else {
+            return Ok(item);
+        };
+        let Some(in_reply_to) = message.in_reply_to() else {
+            return Ok(item);
+        };
+
+        let details =
+            self.fetch_replied_to_event(index, &item, &message, &in_reply_to.event_id).await;
+
+        // We need to be sure to have the latest position of the event as it might have
+        // changed while waiting for the request.
+        let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
+            .ok_or(super::Error::RemoteEventNotInTimeline)?;
+
+        item = item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
+        )));
+        self.update_event_item(index, item.clone().into());
+
+        Ok(item)
+    }
+
+    async fn fetch_replied_to_event(
+        &self,
+        index: usize,
+        item: &RemoteEventTimelineItem,
+        message: &Message,
+        in_reply_to: &EventId,
+    ) -> TimelineDetails<Box<RepliedToEvent>> {
+        if let Some((_, item)) = rfind_event_by_id(&self.items(), in_reply_to) {
+            let details = match item.content() {
+                TimelineItemContent::Message(message) => {
+                    TimelineDetails::Ready(Box::new(RepliedToEvent {
+                        message: message.clone(),
+                        sender: item.sender().to_owned(),
+                        sender_profile: item.sender_profile().clone(),
+                    }))
+                }
+                _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
+            };
+
+            return details;
+        };
+
+        self.update_event_item(
+            index,
+            item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+                InReplyToDetails {
+                    event_id: in_reply_to.to_owned(),
+                    details: TimelineDetails::Pending,
+                },
+            )))
+            .into(),
+        );
+
+        match self.room().event(in_reply_to).await {
+            Ok(timeline_event) => {
+                match RepliedToEvent::try_from_timeline_event(
+                    timeline_event,
+                    &self.profile_provider,
+                )
+                .await
+                {
+                    Ok(event) => TimelineDetails::Ready(Box::new(event)),
+                    Err(e) => TimelineDetails::Error(Arc::new(e)),
+                }
+            }
+            Err(e) => TimelineDetails::Error(Arc::new(e)),
+        }
     }
 }
 

@@ -270,7 +270,6 @@ impl Client {
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all)]
     pub(crate) async fn claim_one_time_keys(
         &self,
         users: impl Iterator<Item = &UserId>,

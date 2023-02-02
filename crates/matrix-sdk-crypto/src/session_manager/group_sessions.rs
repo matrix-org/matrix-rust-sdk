@@ -68,7 +68,7 @@ impl GroupSessionCache {
         // and put it in the cache.
         if let Some(s) = self.sessions.get(room_id) {
             Ok(Some(s.clone()))
-        } else if let Some(s) = self.store.get_outbound_group_sessions(room_id).await? {
+        } else if let Some(s) = self.store.get_outbound_group_session(room_id).await? {
             for request_id in s.pending_request_ids() {
                 self.sessions_being_shared.insert(request_id, s.clone());
             }

@@ -5,7 +5,6 @@ This project and build scripts demonstrate how to create an aar and how to impor
 ## Prerequisites
 
 * the Rust toolchain
-* UniFFI - `cargo install uniffi_bindgen`
 * cargo-ndk < 2.12.0 `cargo install cargo-ndk --version 2.11.0`
 * android targets (e.g. `rustup target add \
   aarch64-linux-android \

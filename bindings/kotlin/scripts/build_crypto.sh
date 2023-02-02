@@ -45,12 +45,12 @@ cargo ndk --target i686-linux-android -o ${SDK_TARGET_DIR}/ build "${RELEASE_FLA
 
 # Generate uniffi files
 echo -e "Generate uniffi kotlin file"
-uniffi-bindgen generate "${SRC_ROOT}/bindings/${TARGET_CRATE}/src/olm.udl" \
+cargo uniffi-bindgen generate "${SRC_ROOT}/bindings/${TARGET_CRATE}/src/olm.udl" \
   --language kotlin \
   --config "${SRC_ROOT}/bindings/${TARGET_CRATE}/uniffi.toml" \
   --out-dir ${GENERATED_DIR} \
   --lib-file "${BASE_TARGET_DIR}/x86_64-linux-android/${RELEASE_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a"
-  
+
 # Create android library
 cd "${KOTLIN_ROOT}"
 ./gradlew :crypto:crypto-android:assemble
@@ -64,4 +64,3 @@ echo -e "Cleaning up temporary files"
 
 rm -r "${BUILD_DIR}"
 rm -r "${SDK_TARGET_DIR}"
-

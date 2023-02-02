@@ -172,26 +172,24 @@ impl TimelineItem {
 
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
-pub enum LocalEventTimelineItemSendState {
+pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSendYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed,
+    SendingFailed { error: String },
     /// The local event has been sent successfully to the server.
-    Sent,
+    Sent { event_id: String },
 }
 
-impl From<matrix_sdk::room::timeline::LocalEventTimelineItemSendState>
-    for LocalEventTimelineItemSendState
-{
-    fn from(value: matrix_sdk::room::timeline::LocalEventTimelineItemSendState) -> Self {
-        use matrix_sdk::room::timeline::LocalEventTimelineItemSendState::*;
+impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
+    fn from(value: &matrix_sdk::room::timeline::EventSendState) -> Self {
+        use matrix_sdk::room::timeline::EventSendState::*;
 
         match value {
             NotSentYet => Self::NotSendYet,
-            SendingFailed => Self::SendingFailed,
-            Sent => Self::Sent,
+            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }
 }
@@ -267,11 +265,11 @@ impl EventTimelineItem {
         self.0.raw().map(|r| r.json().get().to_owned())
     }
 
-    pub fn local_send_state(&self) -> Option<LocalEventTimelineItemSendState> {
+    pub fn local_send_state(&self) -> Option<EventSendState> {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
-            Local(local_event) => Some(local_event.send_state.into()),
+            Local(local_event) => Some((&local_event.send_state).into()),
             Remote(_) => None,
         }
     }
@@ -465,7 +463,7 @@ impl Message {
 
     // This event ID string will be replaced by something more useful later.
     pub fn in_reply_to(&self) -> Option<String> {
-        self.0.in_reply_to().map(ToString::to_string)
+        self.0.in_reply_to().map(|r| r.event_id.to_string())
     }
 
     pub fn is_edited(&self) -> bool {

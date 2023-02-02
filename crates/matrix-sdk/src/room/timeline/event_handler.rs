@@ -42,12 +42,13 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, LocalEventTimelineItem,
-        LocalEventTimelineItemSendState, MemberProfileChange, OtherState, Profile,
-        RemoteEventTimelineItem, RoomMembershipChange, Sticker,
+        AnyOtherFullStateEventContent, BundledReactions, EventSendState, LocalEventTimelineItem,
+        MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
+        Sticker,
     },
-    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, Message,
-    ReactionGroup, TimelineInnerMetadata, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails,
+    Message, ReactionGroup, TimelineInnerMetadata, TimelineItem, TimelineItemContent,
+    VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
 
@@ -533,9 +534,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             match &self.flow {
                 Flow::Local { txn_id, timestamp } => {
                     EventTimelineItem::Local(LocalEventTimelineItem {
-                        send_state: LocalEventTimelineItemSendState::NotSentYet,
+                        send_state: EventSendState::NotSentYet,
                         transaction_id: txn_id.to_owned(),
-                        event_id: None,
                         sender,
                         sender_profile,
                         timestamp: *timestamp,
@@ -822,10 +822,7 @@ impl NewEventTimelineItem {
         let edited = relations.replace.is_some();
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(|rel| match rel {
-                message::Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
-                _ => None,
-            }),
+            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
             edited,
         });
 
