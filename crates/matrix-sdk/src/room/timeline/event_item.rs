@@ -15,7 +15,7 @@
 use std::{fmt, ops::Deref, sync::Arc};
 
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, TimelineEvent};
 use ruma::{
     events::{
         policy::rule::{
@@ -33,7 +33,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::MessageType,
+            message::{self, MessageType, Relation},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -44,15 +44,16 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
-        MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyTimelineEvent, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
     OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 
-use crate::Error;
+use super::inner::ProfileProvider;
+use crate::{Error, Result};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -295,6 +296,11 @@ impl RemoteEventTimelineItem {
         Self { reactions, ..self.clone() }
     }
 
+    /// Clone the current event item, and update its `content`.
+    pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
+        Self { content, ..self.clone() }
+    }
+
     /// Clone the current event item, change its `content` to
     /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
     pub(super) fn to_redacted(&self) -> Self {
@@ -364,6 +370,9 @@ pub enum TimelineDetails<T> {
 
     /// The details are available.
     Ready(T),
+
+    /// An error occurred when fetching the details.
+    Error(Arc<Error>),
 }
 
 /// The content of an [`EventTimelineItem`].
@@ -436,10 +445,7 @@ impl TimelineItemContent {
 #[derive(Clone)]
 pub struct Message {
     pub(super) msgtype: MessageType,
-    // TODO: Add everything required to display the replied-to event, plus a
-    // 'loading' state that is entered at first, until the user requests the
-    // reply to be loaded.
-    pub(super) in_reply_to: Option<OwnedEventId>,
+    pub(super) in_reply_to: Option<InReplyToDetails>,
     pub(super) edited: bool,
 }
 
@@ -456,14 +462,18 @@ impl Message {
         self.msgtype.body()
     }
 
-    /// Get the event ID of the event this message is replying to, if any.
-    pub fn in_reply_to(&self) -> Option<&EventId> {
-        self.in_reply_to.as_deref()
+    /// Get the event this message is replying to, if any.
+    pub fn in_reply_to(&self) -> Option<&InReplyToDetails> {
+        self.in_reply_to.as_ref()
     }
 
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+
+    pub(super) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
+        Self { in_reply_to: Some(in_reply_to), ..self.clone() }
     }
 }
 
@@ -472,6 +482,85 @@ impl fmt::Debug for Message {
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
+    }
+}
+
+/// Details about an event being replied to.
+#[derive(Clone, Debug)]
+pub struct InReplyToDetails {
+    /// The ID of the event.
+    pub event_id: OwnedEventId,
+
+    /// The details of the event.
+    ///
+    /// Use [`Timeline::fetch_item_details`] to fetch the data if it is
+    /// unavailable. The `replies_nesting_level` field in
+    /// [`TimelineDetailsSettings`] decides if this should be fetched.
+    ///
+    /// [`Timeline::fetch_item_details`]: super::Timeline::fetch_item_details
+    /// [`TimelineDetailsSettings`]: super::TimelineDetailsSettings
+    pub details: TimelineDetails<Box<RepliedToEvent>>,
+}
+
+impl InReplyToDetails {
+    pub(super) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
+        match relation {
+            message::Relation::Reply { in_reply_to } => {
+                Some(Self { event_id: in_reply_to.event_id, details: TimelineDetails::Unavailable })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// An event that is replied to.
+#[derive(Clone, Debug)]
+pub struct RepliedToEvent {
+    pub(super) message: Message,
+    pub(super) sender: OwnedUserId,
+    pub(super) sender_profile: Profile,
+}
+
+impl RepliedToEvent {
+    /// Get the message of this event.
+    pub fn message(&self) -> &Message {
+        &self.message
+    }
+
+    /// Get the sender of this event.
+    pub fn sender(&self) -> &UserId {
+        &self.sender
+    }
+
+    /// Get the profile of the sender.
+    pub fn sender_profile(&self) -> &Profile {
+        &self.sender_profile
+    }
+
+    pub(super) async fn try_from_timeline_event<P: ProfileProvider>(
+        timeline_event: TimelineEvent,
+        profile_provider: &P,
+    ) -> Result<Self> {
+        let event = match timeline_event.event.deserialize() {
+            Ok(AnyTimelineEvent::MessageLike(event)) => event,
+            _ => {
+                return Err(super::Error::UnsupportedEvent.into());
+            }
+        };
+
+        let Some(AnyMessageLikeEventContent::RoomMessage(c)) = event.original_content() else {
+            return Err(super::Error::UnsupportedEvent.into());
+        };
+
+        let message = Message {
+            msgtype: c.msgtype,
+            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
+            edited: event.relations().replace.is_some(),
+        };
+        let sender = event.sender().to_owned();
+        let sender_profile = profile_provider.profile(&sender).await;
+
+        Ok(Self { message, sender, sender_profile })
     }
 }
 

@@ -31,11 +31,13 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    rfind_event_item, EventSendState, EventTimelineItem, Profile, TimelineItem,
+    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
+    Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
     room::{self, timeline::event_item::RemoteEventTimelineItem},
+    Result,
 };
 
 #[derive(Debug)]
@@ -368,11 +370,92 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .await;
         }
     }
+
+    fn update_event_item(&self, index: usize, event_item: EventTimelineItem) {
+        self.items.lock_mut().set_cloned(index, Arc::new(TimelineItem::Event(event_item)))
+    }
 }
 
 impl TimelineInner {
     pub(super) fn room(&self) -> &room::Common {
         &self.profile_provider
+    }
+
+    pub(super) async fn fetch_in_reply_to_details(
+        &self,
+        index: usize,
+        mut item: RemoteEventTimelineItem,
+    ) -> Result<RemoteEventTimelineItem> {
+        let TimelineItemContent::Message(message) = item.content.clone() else {
+            return Ok(item);
+        };
+        let Some(in_reply_to) = message.in_reply_to() else {
+            return Ok(item);
+        };
+
+        let details =
+            self.fetch_replied_to_event(index, &item, &message, &in_reply_to.event_id).await;
+
+        // We need to be sure to have the latest position of the event as it might have
+        // changed while waiting for the request.
+        let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
+            .ok_or(super::Error::RemoteEventNotInTimeline)?;
+
+        item = item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
+        )));
+        self.update_event_item(index, item.clone().into());
+
+        Ok(item)
+    }
+
+    async fn fetch_replied_to_event(
+        &self,
+        index: usize,
+        item: &RemoteEventTimelineItem,
+        message: &Message,
+        in_reply_to: &EventId,
+    ) -> TimelineDetails<Box<RepliedToEvent>> {
+        if let Some((_, item)) = rfind_event_by_id(&self.items(), in_reply_to) {
+            let details = match item.content() {
+                TimelineItemContent::Message(message) => {
+                    TimelineDetails::Ready(Box::new(RepliedToEvent {
+                        message: message.clone(),
+                        sender: item.sender().to_owned(),
+                        sender_profile: item.sender_profile().clone(),
+                    }))
+                }
+                _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
+            };
+
+            return details;
+        };
+
+        self.update_event_item(
+            index,
+            item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+                InReplyToDetails {
+                    event_id: in_reply_to.to_owned(),
+                    details: TimelineDetails::Pending,
+                },
+            )))
+            .into(),
+        );
+
+        match self.room().event(in_reply_to).await {
+            Ok(timeline_event) => {
+                match RepliedToEvent::try_from_timeline_event(
+                    timeline_event,
+                    &self.profile_provider,
+                )
+                .await
+                {
+                    Ok(event) => TimelineDetails::Ready(Box::new(event)),
+                    Err(e) => TimelineDetails::Error(Arc::new(e)),
+                }
+            }
+            Err(e) => TimelineDetails::Error(Arc::new(e)),
+        }
     }
 }
 
