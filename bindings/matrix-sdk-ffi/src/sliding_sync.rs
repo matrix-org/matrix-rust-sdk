@@ -13,7 +13,7 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId, UInt,
+    assign, IdParseError, OwnedRoomId, RoomId, UInt,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
@@ -643,7 +643,7 @@ impl SlidingSync {
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
         let runner = self.inner.clone();
 
-        Ok(self.inner.get_room(&OwnedRoomId::try_from(room_id)?).map(|inner| {
+        Ok(self.inner.get_room(<&RoomId>::try_from(room_id.as_str())?).map(|inner| {
             Arc::new(SlidingSyncRoom {
                 inner,
                 runner,
