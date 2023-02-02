@@ -421,6 +421,26 @@ impl Timeline {
 
         Ok(())
     }
+
+    /// Fetch all member events for the room this timeline is displaying.
+    ///
+    /// If the full member list is not known, sender profiles are currently
+    /// likely not going to be available. This will be fixed in the future.
+    ///
+    /// If fetching the members fails, any affected timeline items will have
+    /// the `sender_profile` set to [`TimelineDetails::Error`].
+    #[instrument(skip_all)]
+    pub async fn fetch_members(&self) {
+        self.inner.set_sender_profiles_pending();
+        match self.room().ensure_members().await {
+            Ok(_) => {
+                self.inner.update_sender_profiles().await;
+            }
+            Err(e) => {
+                self.inner.set_sender_profiles_error(Arc::new(e));
+            }
+        }
+    }
 }
 
 /// A single entry in timeline.
