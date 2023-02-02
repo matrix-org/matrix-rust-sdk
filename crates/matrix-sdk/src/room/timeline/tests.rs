@@ -14,9 +14,12 @@
 
 //! Unit tests (based on private methods) for the timeline API.
 
-use std::sync::{
-    atomic::{AtomicU32, Ordering::SeqCst},
-    Arc,
+use std::{
+    io,
+    sync::{
+        atomic::{AtomicU32, Ordering::SeqCst},
+        Arc,
+    },
 };
 
 use assert_matches::assert_matches;
@@ -58,7 +61,7 @@ use super::{
     EventTimelineItem, MembershipChange, Profile, TimelineInner, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
-use crate::room::timeline::event_item::LocalEventTimelineItemSendState;
+use crate::{room::timeline::event_item::EventSendState, Error};
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
@@ -388,19 +391,24 @@ async fn remote_echo_full_trip() {
     {
         let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::NotSentYet);
+        assert_matches!(event.send_state, EventSendState::NotSentYet);
     }
 
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
     {
-        let event_id = None;
+        let some_io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "this is a test"));
+        timeline.inner.update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error: Arc::new(some_io_error) },
+        );
 
-        timeline.inner.update_event_id_of_local_event(&txn_id, event_id);
-
-        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let item = assert_matches!(
+            stream.next().await,
+            Some(VecDiff::UpdateAt { value, index: 1 }) => value
+        );
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::SendingFailed);
+        assert_matches!(event.send_state, EventSendState::SendingFailed { .. });
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an
@@ -408,11 +416,17 @@ async fn remote_echo_full_trip() {
     let event_id = {
         let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
 
-        timeline.inner.update_event_id_of_local_event(&txn_id, Some(event_id.to_owned()));
+        timeline.inner.update_event_send_state(
+            &txn_id,
+            EventSendState::Sent { event_id: event_id.to_owned() },
+        );
 
-        let item = assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { value, index: 1 }) => value);
+        let item = assert_matches!(
+            stream.next().await,
+            Some(VecDiff::UpdateAt { value, index: 1 }) => value
+        );
         let event = item.as_event().unwrap().as_local().unwrap();
-        assert_eq!(event.send_state, LocalEventTimelineItemSendState::Sent);
+        assert_matches!(event.send_state, EventSendState::Sent { .. });
 
         event_id
     };

@@ -202,7 +202,7 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "load_outbound_group_session";
                 let (account, store) = get_loaded_store(dir.clone()).await;
                 let room_id = room_id!("!test:localhost");
-                assert!(store.get_outbound_group_sessions(&room_id).await.unwrap().is_none());
+                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_none());
 
                 let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
 
@@ -219,7 +219,7 @@ macro_rules! cryptostore_integration_tests {
 
                 store.load_account().await.unwrap();
 
-                assert!(store.get_outbound_group_sessions(&room_id).await.unwrap().is_some());
+                assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_some());
             }
 
             #[async_test]

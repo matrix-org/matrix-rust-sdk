@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
-        AnyOtherFullStateEventContent, Error as TimelineError, PaginationOptions, TimelineDetails,
-        TimelineItemContent, VirtualTimelineItem,
+        AnyOtherFullStateEventContent, Error as TimelineError, EventSendState, PaginationOptions,
+        TimelineDetails, TimelineItemContent, VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
     Error,
@@ -188,21 +188,21 @@ async fn echo() {
     let local_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = local_echo.as_event().unwrap().as_local().unwrap();
-    assert!(item.event_id.is_none());
+    assert_matches!(&item.send_state, EventSendState::NotSentYet);
 
     let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
-    send_hdl.await.unwrap().unwrap();
+    send_hdl.await.unwrap();
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
-    assert!(item.event_id.is_some());
+    assert_matches!(&item.send_state, EventSendState::Sent { .. });
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({

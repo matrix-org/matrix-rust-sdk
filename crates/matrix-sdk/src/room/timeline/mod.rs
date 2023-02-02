@@ -50,9 +50,9 @@ mod virtual_item;
 
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventTimelineItem,
-        InReplyToDetails, LocalEventTimelineItemSendState, MemberProfileChange, MembershipChange,
-        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
+        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
+        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
@@ -353,6 +353,9 @@ impl Timeline {
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
+    /// If sending the message fails, the local echo item will change its
+    /// `send_state` to [`EventSendState::SendingFailed`].
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
@@ -372,11 +375,7 @@ impl Timeline {
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(
-        &self,
-        content: AnyMessageLikeEventContent,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<()> {
+    pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
@@ -385,7 +384,12 @@ impl Timeline {
         let room = Joined { inner: self.room().clone() };
 
         let response = room.send(content, Some(&txn_id)).await;
-        self.inner.handle_local_event_send_response(&txn_id, response)
+
+        let send_state = match response {
+            Ok(response) => EventSendState::Sent { event_id: response.event_id },
+            Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+        };
+        self.inner.update_event_send_state(&txn_id, send_state);
     }
 
     /// Fetch unavailable details about the event with the given ID.

@@ -188,10 +188,7 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_outbound_group_sessions(
-        &self,
-        _: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
+    async fn get_outbound_group_session(&self, _: &RoomId) -> Result<Option<OutboundGroupSession>> {
         Ok(None)
     }
 

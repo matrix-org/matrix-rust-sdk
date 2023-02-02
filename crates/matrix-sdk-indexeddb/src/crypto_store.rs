@@ -963,7 +963,7 @@ impl CryptoStore for IndexeddbCryptoStore {
         self.get_inbound_group_sessions().await.map_err(|e| e.into())
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>, CryptoStoreError> {

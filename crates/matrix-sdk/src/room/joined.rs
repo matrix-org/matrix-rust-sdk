@@ -328,8 +328,9 @@ impl Joined {
     ///
     /// Does nothing if no room key needs to be shared.
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
-        // TODO expose this publicly so people can pre-share a group session if
+        // TODO: expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
         if let Some(mutex) =
             self.client.inner.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
@@ -379,8 +380,8 @@ impl Joined {
     /// # Panics
     ///
     /// Panics if the client isn't logged in.
-    #[instrument]
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip_all)]
     async fn share_room_key(&self) -> Result<()> {
         let requests = self.client.base_client().share_room_key(self.inner.room_id()).await?;
 

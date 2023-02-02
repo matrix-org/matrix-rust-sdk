@@ -32,7 +32,7 @@ use vodozemac::{Ed25519PublicKey, KeyError};
 use super::{Signatures, SigningKeys};
 
 /// A cross signing key.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CrossSigningKey {
     /// The ID of the user the key belongs to.
     pub user_id: OwnedUserId,

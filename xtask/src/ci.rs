@@ -127,7 +127,7 @@ fn check_bindings() -> Result<()> {
     cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
     cmd!(
         "
-        uniffi-bindgen generate
+        rustup run stable cargo run -p uniffi-bindgen -- generate
             --language kotlin
             --language swift
             --lib-file target/debug/libmatrix_sdk_ffi.a
@@ -138,7 +138,7 @@ fn check_bindings() -> Result<()> {
     .run()?;
     cmd!(
         "
-        uniffi-bindgen generate
+        rustup run stable cargo run -p uniffi-bindgen -- generate
             --language kotlin
             --language swift
             --lib-file target/debug/libmatrix_sdk_crypto_ffi.a
@@ -248,6 +248,9 @@ fn run_crypto_tests() -> Result<()> {
     .run()?;
 
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
+
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store")
+        .run()?;
 
     Ok(())
 }

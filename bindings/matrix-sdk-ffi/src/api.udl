@@ -259,14 +259,13 @@ interface Room {
     // Raises an exception if there are no timeline listeners.
     [Throws=ClientError]
     void paginate_backwards(PaginationOptions opts);
-    
+
     [Throws=ClientError]
     void send_read_receipt(string event_id);
-    
+
     [Throws=ClientError]
     void send_read_marker(string fully_read_event_id, string? read_receipt_event_id);
 
-    [Throws=ClientError]
     void send(RoomMessageEventContent msg, string? txn_id);
 
     [Throws=ClientError]

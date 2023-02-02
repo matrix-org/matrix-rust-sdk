@@ -58,8 +58,8 @@ use crate::{Error, Result};
 /// An item in the timeline that represents at least one event.
 ///
 /// There is always one main event that gives the `EventTimelineItem` its
-/// identity (see [key](Self::key)) but in many cases, additional events like
-/// reactions and edits are also part of the item.
+/// identity but in many cases, additional events like reactions and edits are
+/// also part of the item.
 #[derive(Debug, Clone)]
 pub enum EventTimelineItem {
     /// An event item that has been sent, but not yet acknowledged by the
@@ -91,10 +91,10 @@ impl EventTimelineItem {
     /// case of a remote event.
     pub fn unique_identifier(&self) -> String {
         match self {
-            Self::Local(LocalEventTimelineItem { transaction_id, event_id, .. }) => {
-                match event_id {
-                    Some(event_id) => event_id.to_string(),
-                    None => transaction_id.to_string(),
+            Self::Local(LocalEventTimelineItem { transaction_id, send_state, .. }) => {
+                match send_state {
+                    EventSendState::Sent { event_id } => event_id.to_string(),
+                    _ => transaction_id.to_string(),
                 }
             }
 
@@ -120,13 +120,13 @@ impl EventTimelineItem {
     /// If this returns `Some(_)`, the event was successfully created by the
     /// server.
     ///
-    /// Even if the [`key()`](Self::key) of this timeline item holds a
-    /// transaction ID, this can be `Some(_)` as the event ID can be known not
-    /// just from the remote echo via `sync_events`, but also from the response
-    /// of the send request that created the event.
+    /// Even if this is a [`Local`](Self::Local) event,, this can be `Some(_)`
+    /// as the event ID can be known not just from the remote echo via
+    /// `sync_events`, but also from the response of the send request that
+    /// created the event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            Self::Local(local_event) => local_event.event_id.as_deref(),
+            Self::Local(local_event) => local_event.event_id(),
             Self::Remote(remote_event) => Some(&remote_event.event_id),
         }
     }
@@ -211,26 +211,30 @@ impl EventTimelineItem {
     }
 }
 
-/// This type represents the “send state” of a local event timeline item.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LocalEventTimelineItemSendState {
+/// This type represents the "send state" of a local event timeline item.
+#[derive(Clone, Debug)]
+pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed,
+    SendingFailed {
+        /// Details about how sending the event failed.
+        error: Arc<Error>,
+    },
     /// The local event has been sent successfully to the server.
-    Sent,
+    Sent {
+        /// The event ID assigned by the server.
+        event_id: OwnedEventId,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct LocalEventTimelineItem {
     /// The send state of this local event.
-    pub send_state: LocalEventTimelineItemSendState,
+    pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
-    /// The event ID received from the server in the event-sending response.
-    pub event_id: Option<OwnedEventId>,
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
@@ -242,24 +246,19 @@ pub struct LocalEventTimelineItem {
 }
 
 impl LocalEventTimelineItem {
-    /// Clone the current event item, and update its `event_id`.
+    /// Get the event ID of this item.
     ///
-    /// `event_id` is optional:
-    ///   * `Some(_)` means the local event has been sent successfully to the
-    ///     server, its send state will be moved to
-    ///     [`LocalEventTimelineItemSendState::Sent`].
-    ///   * `None` means the local event has been failed to be sent to the
-    ///     server, its send state will be moved to
-    ///     [`LocalEventTimelineItemSendState::SendingFailed`].
-    pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
-        Self {
-            send_state: match &event_id {
-                Some(_) => LocalEventTimelineItemSendState::Sent,
-                None => LocalEventTimelineItemSendState::SendingFailed,
-            },
-            event_id,
-            ..self.clone()
+    /// Will be `Some` if and only if `send_state` is `EventSendState::Sent`.
+    pub fn event_id(&self) -> Option<&EventId> {
+        match &self.send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
         }
+    }
+
+    /// Clone the current event item, and update its `send_state`.
+    pub(super) fn with_send_state(&self, send_state: EventSendState) -> Self {
+        Self { send_state, ..self.clone() }
     }
 }
 
