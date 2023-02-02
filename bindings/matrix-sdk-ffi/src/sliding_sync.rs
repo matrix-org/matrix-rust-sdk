@@ -642,7 +642,8 @@ impl SlidingSync {
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
         let runner = self.inner.clone();
-        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|inner| {
+
+        Ok(self.inner.get_room(&OwnedRoomId::try_from(room_id)?).map(|inner| {
             Arc::new(SlidingSyncRoom {
                 inner,
                 runner,

@@ -814,8 +814,8 @@ impl SlidingSync {
     }
 
     /// Lookup a specific room
-    pub fn get_room(&self, room_id: OwnedRoomId) -> Option<SlidingSyncRoom> {
-        self.rooms.lock_ref().get(&room_id).cloned()
+    pub fn get_room(&self, room_id: &OwnedRoomId) -> Option<SlidingSyncRoom> {
+        self.rooms.lock_ref().get(room_id).cloned()
     }
 
     fn update_to_device_since(&self, since: String) {
