@@ -43,7 +43,7 @@ pub async fn run_client(
     let stream = syncer.stream();
     let view = syncer.view("full-sync").expect("we have the full syncer there").clone();
     let state = view.state.clone();
-    let mut ssync_state = state::SlidingSyncState::new(view);
+    let mut ssync_state = state::SlidingSyncState::new(syncer.clone(), view);
     tx.send(ssync_state.clone()).await?;
 
     info!("starting polling");

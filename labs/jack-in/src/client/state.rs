@@ -10,8 +10,8 @@ use futures_signals::{
 };
 use matrix_sdk::{
     room::timeline::{Timeline, TimelineItem},
-    ruma::OwnedRoomId,
-    SlidingSyncState as ViewState, SlidingSyncView,
+    ruma::{OwnedRoomId, RoomId},
+    SlidingSync, SlidingSyncRoom, SlidingSyncState as ViewState, SlidingSyncView,
 };
 use tokio::task::JoinHandle;
 
@@ -25,6 +25,7 @@ pub struct CurrentRoomSummary {
 #[derive(Clone, Debug)]
 pub struct SlidingSyncState {
     started: Instant,
+    syncer: SlidingSync,
     view: SlidingSyncView,
     /// the current list selector for the room
     first_render: Option<Duration>,
@@ -37,9 +38,10 @@ pub struct SlidingSyncState {
 }
 
 impl SlidingSyncState {
-    pub fn new(view: SlidingSyncView) -> Self {
+    pub fn new(syncer: SlidingSync, view: SlidingSyncView) -> Self {
         Self {
             started: Instant::now(),
+            syncer,
             view,
             first_render: None,
             full_sync: None,
@@ -64,9 +66,7 @@ impl SlidingSyncState {
         if let Some(c) = self.tl_handle.lock_mut().take() {
             c.abort();
         }
-        if let Some(room) =
-            r.as_ref().and_then(|room_id| self.view.rooms.lock_ref().get(room_id).cloned())
-        {
+        if let Some(room) = r.as_ref().and_then(|room_id| self.get_room(room_id)) {
             let current_timeline = self.current_timeline.clone();
             let room_timeline = self.room_timeline.clone();
             let handle = tokio::spawn(async move {
@@ -120,7 +120,7 @@ impl SlidingSyncState {
     }
 
     pub fn loaded_rooms_count(&self) -> usize {
-        self.view.rooms.lock_ref().len()
+        self.syncer.get_number_of_rooms()
     }
 
     pub fn total_rooms_count(&self) -> Option<u32> {
@@ -133,6 +133,14 @@ impl SlidingSyncState {
 
     pub fn view(&self) -> &SlidingSyncView {
         &self.view
+    }
+
+    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
+        self.syncer.get_room(room_id.to_owned())
+    }
+
+    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.syncer.get_all_rooms()
     }
 
     pub fn set_full_sync_now(&mut self) {

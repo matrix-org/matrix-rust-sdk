@@ -818,6 +818,11 @@ impl SlidingSync {
         self.rooms.lock_ref().get(&room_id).cloned()
     }
 
+    /// Check the number of rooms.
+    pub fn get_number_of_rooms(&self) -> usize {
+        self.rooms.lock_ref().len()
+    }
+
     fn update_to_device_since(&self, since: String) {
         self.extensions
             .lock()
@@ -867,6 +872,11 @@ impl SlidingSync {
     ) -> Vec<Option<SlidingSyncRoom>> {
         let rooms = self.rooms.lock_ref();
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
+    }
+
+    /// Get all rooms.
+    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.rooms.lock_ref().iter().map(|(_, room)| room.clone()).collect()
     }
 
     #[instrument(skip_all, fields(views = views.len()))]
