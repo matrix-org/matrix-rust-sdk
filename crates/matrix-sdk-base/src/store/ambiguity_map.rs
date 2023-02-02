@@ -21,9 +21,9 @@ use ruma::{
     events::room::member::{MembershipState, SyncRoomMemberEvent},
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tracing::trace;
+use tracing::{info, trace};
 
-use super::{Result, StateChanges};
+use super::StateChanges;
 use crate::{
     deserialized_responses::{AmbiguityChange, RawMemberEvent},
     StateStore,
@@ -81,7 +81,7 @@ impl AmbiguityCache {
         changes: &StateChanges,
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
-    ) -> Result<()> {
+    ) {
         // Synapse seems to have a bug where it puts the same event into the
         // state and the timeline sometimes.
         //
@@ -97,10 +97,10 @@ impl AmbiguityCache {
             .map(|c| c.contains_key(member_event.event_id()))
             .unwrap_or(false)
         {
-            return Ok(());
+            return;
         }
 
-        let (mut old_map, mut new_map) = self.get(changes, room_id, member_event).await?;
+        let (mut old_map, mut new_map) = self.get(changes, room_id, member_event).await;
 
         let display_names_same = match (&old_map, &new_map) {
             (Some(a), Some(b)) => a.display_name == b.display_name,
@@ -108,7 +108,7 @@ impl AmbiguityCache {
         };
 
         if display_names_same {
-            return Ok(());
+            return;
         }
 
         let disambiguated_member =
@@ -128,8 +128,6 @@ impl AmbiguityCache {
         trace!(user_id = ?member_event.state_key(), "Handling display name ambiguity: {change:#?}");
 
         self.add_change(room_id, member_event.event_id().to_owned(), change);
-
-        Ok(())
     }
 
     fn update(
@@ -158,7 +156,7 @@ impl AmbiguityCache {
         changes: &StateChanges,
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
-    ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
+    ) -> (Option<AmbiguityMap>, Option<AmbiguityMap>) {
         use MembershipState::*;
 
         let old_event = if let Some(m) =
@@ -166,7 +164,13 @@ impl AmbiguityCache {
         {
             Some(RawMemberEvent::Sync(m.clone()))
         } else {
-            self.store.get_member_event(room_id, member_event.state_key()).await?
+            match self.store.get_member_event(room_id, member_event.state_key()).await {
+                Ok(event) => event,
+                Err(e) => {
+                    info!("Failed to get member event: {e}");
+                    None
+                }
+            }
         };
 
         // FIXME: Use let chains once stable
@@ -183,9 +187,12 @@ impl AmbiguityCache {
                 } else if let Some(d) = self
                     .store
                     .get_profile(room_id, member_event.state_key())
-                    .await?
-                    .and_then(|p| p.into_original())
-                    .and_then(|p| p.content.displayname)
+                    .await
+                    .unwrap_or_else(|e| {
+                        info!("Failed to get profile: {e}");
+                        None
+                    })
+                    .and_then(|p| p.into_original()?.content.displayname)
                 {
                     Some(d)
                 } else {
@@ -203,12 +210,19 @@ impl AmbiguityCache {
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
             let old_display_name_map =
                 if let Some(u) = self.cache.entry(room_id.to_owned()).or_default().get(old_name) {
-                    u.clone()
+                    Some(u.clone())
                 } else {
-                    self.store.get_users_with_display_name(room_id, old_name).await?
+                    self.store.get_users_with_display_name(room_id, old_name).await.map_or_else(
+                        |e| {
+                            info!("Failed to get users with display name: {e}");
+                            None
+                        },
+                        Some,
+                    )
                 };
 
-            Some(AmbiguityMap { display_name: old_name.to_owned(), users: old_display_name_map })
+            old_display_name_map
+                .map(|users| AmbiguityMap { display_name: old_name.to_owned(), users })
         } else {
             None
         };
@@ -233,19 +247,23 @@ impl AmbiguityCache {
             let new_display_name_map = if let Some(u) =
                 self.cache.entry(room_id.to_owned()).or_default().get(new_display_name)
             {
-                u.clone()
+                Some(u.clone())
             } else {
-                self.store.get_users_with_display_name(room_id, new_display_name).await?
+                self.store.get_users_with_display_name(room_id, new_display_name).await.map_or_else(
+                    |e| {
+                        info!("Failed to get users with display name: {e}");
+                        None
+                    },
+                    Some,
+                )
             };
 
-            Some(AmbiguityMap {
-                display_name: new_display_name.to_owned(),
-                users: new_display_name_map,
-            })
+            new_display_name_map
+                .map(|users| AmbiguityMap { display_name: new_display_name.to_owned(), users })
         } else {
             None
         };
 
-        Ok((old_map, new_map))
+        (old_map, new_map)
     }
 }

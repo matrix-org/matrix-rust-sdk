@@ -317,7 +317,7 @@ impl BaseClient {
                     match &e {
                         AnySyncTimelineEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(member) => {
-                                ambiguity_cache.handle_event(changes, room_id, member).await?;
+                                ambiguity_cache.handle_event(changes, room_id, member).await;
 
                                 match member.membership() {
                                     MembershipState::Join | MembershipState::Invite => {
@@ -500,7 +500,7 @@ impl BaseClient {
             room_info.handle_state_event(&event);
 
             if let AnySyncStateEvent::RoomMember(member) = event {
-                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
+                ambiguity_cache.handle_event(changes, &room_id, &member).await;
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
@@ -965,7 +965,7 @@ impl BaseClient {
 
                 let sync_member: SyncRoomMemberEvent = member.clone().into();
 
-                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await?;
+                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await;
 
                 if member.state_key() == member.sender() {
                     changes
