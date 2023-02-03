@@ -1099,9 +1099,10 @@ impl SlidingSync {
 /// # block_on(async {
 /// # let homeserver = Url::parse("http://example.com")?;
 /// let client = Client::new(homeserver).await?;
-/// let sliding_sync = client.sliding_sync().default_with_fullsync().build()?;
+/// let sliding_sync =
+///     client.sliding_sync().await.add_fullsync_view().build().await?;
 ///
-/// # })
+/// # anyhow::Ok(()) });
 /// ```
 #[derive(Clone, Debug, Builder)]
 #[builder(build_fn(name = "finish_build"), pattern = "owned", derive(Clone, Debug))]
