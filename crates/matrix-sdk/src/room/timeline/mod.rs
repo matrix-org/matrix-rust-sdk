@@ -162,14 +162,14 @@ impl Timeline {
         match self.room().account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
                 Ok(fully_read) => {
-                    self.inner.set_fully_read_event(fully_read.content.event_id).await
+                    self.inner.set_fully_read_event(fully_read.content.event_id).await;
                 }
-                Err(error) => {
-                    error!(?error, "Failed to deserialize `m.fully_read` account data")
+                Err(e) => {
+                    error!("Failed to deserialize fully-read account data: {e}");
                 }
             },
-            Err(error) => {
-                error!(?error, "Failed to get `m.fully_read` account data from the store")
+            Err(e) => {
+                error!("Failed to get fully-read account data from the store: {e}");
             }
             _ => {}
         }

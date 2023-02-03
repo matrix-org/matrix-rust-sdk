@@ -646,7 +646,9 @@ impl IndexeddbStateStore {
                     let event = match raw_event.deserialize() {
                         Ok(ev) => ev,
                         Err(e) => {
-                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            let event_id: Option<String> =
+                                raw_event.get_field("event_id").ok().flatten();
+                            debug!(event_id, "Failed to deserialize stripped member event: {e}");
                             continue;
                         }
                     };
@@ -712,7 +714,9 @@ impl IndexeddbStateStore {
                     let event = match raw_event.deserialize() {
                         Ok(ev) => ev,
                         Err(e) => {
-                            debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                            let event_id: Option<String> =
+                                raw_event.get_field("event_id").ok().flatten();
+                            debug!(event_id, "Failed to deserialize member event: {e}");
                             continue;
                         }
                     };
