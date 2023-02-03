@@ -69,7 +69,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, field::display, info, instrument, Span};
+use tracing::{debug, field::display, info, instrument, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -2350,9 +2350,11 @@ impl Client {
             sync_settings.token = self.sync_token().await;
         }
 
+        let parent_span = Span::current();
+
         async_stream::stream! {
             loop {
-                yield self.sync_loop_helper(&mut sync_settings).await;
+                yield self.sync_loop_helper(&mut sync_settings).instrument(parent_span.clone()).await;
 
                 Client::delay_sync(&mut last_sync_time).await
             }
