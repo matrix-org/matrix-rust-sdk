@@ -245,8 +245,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
         let fully_read_event_id = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
-            Err(error) => {
-                error!(?error, "Failed to deserialize `m.fully_read` account data");
+            Err(e) => {
+                error!("Failed to deserialize fully-read account data: {e}");
                 return;
             }
         };
@@ -586,7 +586,9 @@ async fn handle_remote_event<P: ProfileProvider>(
                     TimelineEventKind::failed_to_parse(event, e),
                 ),
                 Err(e) => {
-                    warn!("Failed to deserialize timeline event: {e}");
+                    let event_type: Option<String> = raw.get_field("type").ok().flatten();
+                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
                     return HandleEventResult::default();
                 }
             },

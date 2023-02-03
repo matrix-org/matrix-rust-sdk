@@ -557,7 +557,8 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(error = ?e, "Failed to deserialize a global account data event");
+                    let event_type: Option<String> = raw_event.get_field("type").ok().flatten();
+                    warn!(event_type, "Failed to deserialize a global account data event: {e}");
                     continue;
                 }
             };
@@ -938,7 +939,9 @@ impl BaseClient {
                 let member = match raw_event.deserialize() {
                     Ok(ev) => ev,
                     Err(e) => {
-                        debug!(event = ?raw_event, "Failed to deserialize m.room.member event: {e}");
+                        let event_id: Option<String> =
+                            raw_event.get_field("event_id").ok().flatten();
+                        debug!(event_id, "Failed to deserialize member event: {e}");
                         continue;
                     }
                 };
