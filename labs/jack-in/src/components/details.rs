@@ -47,7 +47,7 @@ impl Details {
 
     pub fn refresh_data(&mut self) {
         let Some(room_id) = self.sstate.selected_room.lock_ref().clone() else { return };
-        let Some(room_data) = self.sstate.view().rooms.lock_ref().get(&room_id).cloned() else {
+        let Some(room_data) = self.sstate.get_room(&room_id) else {
             return;
         };
 

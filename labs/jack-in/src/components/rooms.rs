@@ -30,7 +30,7 @@ impl Rooms {
     }
 
     pub fn select_dir(&mut self, count: i32) {
-        let rooms_count = self.sstate.view().get_rooms(None, None).len() as i32;
+        let rooms_count = self.sstate.loaded_rooms_count() as i32;
         let current = self.tablestate.selected().unwrap_or_default() as i32;
         let next = {
             let next = current + count;
@@ -63,8 +63,9 @@ impl MockComponent for Rooms {
 
         let mut paras = vec![];
 
-        for r in self.sstate.view().get_rooms(None, None) {
-            let mut cells = vec![Cell::from(r.name.unwrap_or_else(|| "unknown".to_owned()))];
+        for r in self.sstate.get_all_rooms() {
+            let mut cells =
+                vec![Cell::from(r.name.clone().unwrap_or_else(|| "unknown".to_owned()))];
             if let Some(c) = r.unread_notifications.notification_count {
                 let count: u32 = c.try_into().unwrap_or_default();
                 if count > 0 {
