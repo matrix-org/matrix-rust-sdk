@@ -11,7 +11,7 @@ test = false
 [dependencies]
 anyhow = "1"
 dirs = "4.0.0"
-tokio = { version = "1.23.1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
 
 [dependencies.matrix-sdk]
