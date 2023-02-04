@@ -52,7 +52,7 @@ default_features = false
 features = ["crypto-store"]
 
 [dependencies.tokio]
-version = "1.23.1"
+version = "1.24.2"
 default_features = false
 features = ["rt-multi-thread"]
 
