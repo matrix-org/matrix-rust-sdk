@@ -725,6 +725,19 @@ pub enum CryptoStoreError {
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
 
+    /// The store doesn't support multiple accounts and data from another device
+    /// was discovered.
+    #[error(
+        "the account in the store doesn't match the account in the constructor: \
+        expected {}:{}, got {}:{}", .expected.0, .expected.1, .got.0, .got.1
+    )]
+    MismatchedAccount {
+        /// The expected user/device id pair.
+        expected: (OwnedUserId, OwnedDeviceId),
+        /// The user/device id pair that was loaded from the store.
+        got: (OwnedUserId, OwnedDeviceId),
+    },
+
     /// An IO error occurred.
     #[error(transparent)]
     Io(#[from] IoError),
