@@ -42,7 +42,11 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tracing::{debug, error, field::debug, info, instrument, warn};
+use tracing::{
+    debug, error,
+    field::{debug, display},
+    info, instrument, warn, Span,
+};
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
@@ -227,40 +231,45 @@ impl OlmMachine {
     /// the encryption keys.
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
+    #[instrument(skip(store), fields(ed25519_key, curve25519_key))]
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
         store: Arc<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
-            Some(a) => {
-                if user_id != a.user_id() || device_id != a.device_id() {
+            Some(account) => {
+                if user_id != account.user_id() || device_id != account.device_id() {
                     return Err(CryptoStoreError::MismatchedAccount {
-                        expected: (a.user_id().to_owned(), a.device_id().to_owned()),
+                        expected: (account.user_id().to_owned(), account.device_id().to_owned()),
                         got: (user_id.to_owned(), device_id.to_owned()),
                     });
                 } else {
-                    debug!(
-                        ed25519_key = a.identity_keys().ed25519.to_base64().as_str(),
-                        "Restored an Olm account"
-                    );
-                    a
+                    Span::current()
+                        .record("ed25519_key", display(account.identity_keys().ed25519))
+                        .record("curve25519_key", display(account.identity_keys().curve25519));
+                    debug!("Restored an Olm account");
+
+                    account
                 }
             }
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
                 let device = ReadOnlyDevice::from_account(&account).await;
 
-                debug!(
-                    ed25519_key = account.identity_keys().ed25519.to_base64().as_str(),
-                    "Created a new Olm account"
-                );
+                Span::current()
+                    .record("ed25519_key", display(account.identity_keys().ed25519))
+                    .record("curve25519_key", display(account.identity_keys().curve25519));
+
+                debug!("Created a new Olm account");
+
                 let changes = Changes {
                     account: Some(account.clone()),
                     devices: DeviceChanges { new: vec![device], ..Default::default() },
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
+
                 account
             }
         };
