@@ -78,7 +78,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, ReadOnlyDevice, RoomKeyImportResult, SignatureError,
+    ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -233,11 +234,18 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
-                debug!(
-                    ed25519_key = a.identity_keys().ed25519.to_base64().as_str(),
-                    "Restored an Olm account"
-                );
-                a
+                if user_id != a.user_id() || device_id != a.device_id() {
+                    return Err(CryptoStoreError::MismatchedAccount {
+                        expected: (a.user_id().to_owned(), a.device_id().to_owned()),
+                        got: (user_id.to_owned(), device_id.to_owned()),
+                    });
+                } else {
+                    debug!(
+                        ed25519_key = a.identity_keys().ed25519.to_base64().as_str(),
+                        "Restored an Olm account"
+                    );
+                    a
+                }
             }
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
