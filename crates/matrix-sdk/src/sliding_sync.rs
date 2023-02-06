@@ -241,14 +241,7 @@ impl SlidingSyncRoom {
         if let Some(room) = self.client.get_room(&self.room_id) {
             let current_timeline = &self.timeline;
             let prev_batch = self.prev_batch.lock_ref().clone();
-            Some(
-                Timeline::with_events(
-                    &room,
-                    prev_batch,
-                    current_timeline.iter().cloned().collect(),
-                )
-                .await,
-            )
+            Some(Timeline::with_events(&room, prev_batch, current_timeline.clone()).await)
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::with_events(&invited_room, None, vec![]).await)
         } else {
