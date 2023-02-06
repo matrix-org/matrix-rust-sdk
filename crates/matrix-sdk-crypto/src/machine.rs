@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
@@ -510,6 +510,50 @@ impl OlmMachine {
         self.session_manager.get_missing_sessions(users).await
     }
 
+    /// TODO: docs
+    pub async fn get_encryption_settings(
+        &self,
+        room_id: &RoomId,
+    ) -> StoreResult<Option<EncryptionSettings>> {
+        let settings = self.store.load_encryption_settings(room_id).await?;
+        Ok(settings)
+    }
+
+    /// TODO: docs
+    pub async fn set_encryption_settings(
+        &self,
+        room_id: &RoomId,
+        settings: EncryptionSettings,
+    ) -> StoreResult<()> {
+        self.store
+            .save_changes(Changes {
+                encryption_settings: HashMap::from([(room_id.into(), settings)]),
+                ..Default::default()
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// TODO: docs
+    pub async fn set_block_untrusted_devices_globally(
+        &self,
+        block_untrusted_devices: bool,
+    ) -> StoreResult<()> {
+        self.store
+            .save_changes(Changes {
+                block_untrusted_devices_globally: Some(block_untrusted_devices),
+                ..Default::default()
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// TODO: docs
+    pub async fn get_block_untrusted_devices_globally(&self) -> StoreResult<bool> {
+        let block = self.store.block_untrusted_devices_globally().await?;
+        Ok(block)
+    }
+
     /// Receive a successful key claim response and create new Olm sessions with
     /// the claimed keys.
     ///
@@ -754,9 +798,18 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
-        encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.group_session_manager.share_room_key(room_id, users, encryption_settings).await
+        self.group_session_manager.share_room_key(room_id, users).await
+    }
+
+    /// TODO: docs
+    pub async fn share_room_key_with_settings(
+        &self,
+        room_id: &RoomId,
+        users: impl Iterator<Item = &UserId>,
+        settings: impl Into<EncryptionSettings>,
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        self.group_session_manager.share_room_key_with_settings(room_id, users, settings).await
     }
 
     /// Receive an unencrypted verification event.

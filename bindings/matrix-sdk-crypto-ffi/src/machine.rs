@@ -53,9 +53,9 @@ use crate::{
     responses::{response_from_string, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
     CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
-    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, Request, RequestType,
-    RequestVerificationResult, RoomKeyCounts, Sas, SignatureUploadRequest, StartSasResult,
-    UserIdentity, Verification, VerificationRequest,
+    EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
+    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, Sas,
+    SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -563,6 +563,65 @@ impl OlmMachine {
             .map(|r| r.into()))
     }
 
+    /// TODO: docs
+    pub fn get_encryption_settings(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<EncryptionSettings>, CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        let settings =
+            self.runtime.block_on(self.inner.get_encryption_settings(&room_id))?.map(|v| v.into());
+        Ok(settings)
+    }
+
+    /// TODO: docs
+    pub fn set_event_encryption_algorithm(
+        &self,
+        room_id: &str,
+        algorithm: EventEncryptionAlgorithm,
+    ) -> Result<(), CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.runtime.block_on(async move {
+            let mut settings =
+                self.inner.get_encryption_settings(&room_id).await?.unwrap_or_default();
+            settings.algorithm = algorithm.into();
+            self.inner.set_encryption_settings(&room_id, settings).await?;
+            Ok(())
+        })
+    }
+
+    /// TODO: docs
+    pub fn set_block_untrusted_devices_per_room(
+        &self,
+        room_id: &str,
+        block_untrusted_devices: bool,
+    ) -> Result<(), CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.runtime.block_on(async move {
+            let mut settings =
+                self.inner.get_encryption_settings(&room_id).await?.unwrap_or_default();
+            settings.only_allow_trusted_devices = block_untrusted_devices;
+            self.inner.set_encryption_settings(&room_id, settings).await?;
+            Ok(())
+        })
+    }
+
+    /// TODO: docs
+    pub fn set_block_untrusted_devices_globally(
+        &self,
+        block_untrusted_devices: bool,
+    ) -> Result<(), CryptoStoreError> {
+        self.runtime
+            .block_on(self.inner.set_block_untrusted_devices_globally(block_untrusted_devices))?;
+        Ok(())
+    }
+
+    /// TODO: docs
+    pub fn is_blocking_untrusted_devices_globally(&self) -> Result<bool, CryptoStoreError> {
+        let block = self.runtime.block_on(self.inner.get_block_untrusted_devices_globally())?;
+        Ok(block)
+    }
+
     /// Share a room key with the given list of users for the given room.
     ///
     /// After the request was sent out and a successful response was received
@@ -586,17 +645,14 @@ impl OlmMachine {
         &self,
         room_id: String,
         users: Vec<String>,
-        settings: EncryptionSettings,
     ) -> Result<Vec<Request>, CryptoStoreError> {
         let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;
-        let requests = self.runtime.block_on(self.inner.share_room_key(
-            &room_id,
-            users.iter().map(Deref::deref),
-            settings,
-        ))?;
+        let requests = self
+            .runtime
+            .block_on(self.inner.share_room_key(&room_id, users.iter().map(Deref::deref)))?;
 
         Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
     }

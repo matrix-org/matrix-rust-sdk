@@ -441,6 +441,34 @@ impl GroupSessionManager {
         self.sessions.clone()
     }
 
+    pub async fn share_room_key(
+        &self,
+        room_id: &RoomId,
+        users: impl Iterator<Item = &UserId>,
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        // Load settings from store or create new
+        let mut encryption_settings =
+            if let Some(settings) = self.store.load_encryption_settings(room_id).await? {
+                settings
+            } else {
+                let settings = EncryptionSettings::default();
+                let changes = Changes {
+                    encryption_settings: HashMap::from([(room_id.into(), settings.clone())]),
+                    ..Default::default()
+                };
+                self.store.save_changes(changes).await?;
+                settings
+            };
+
+        // Combine per-room and global unverified devices block
+        if !encryption_settings.only_allow_trusted_devices {
+            encryption_settings.only_allow_trusted_devices =
+                self.store.block_untrusted_devices_globally().await?;
+        }
+
+        self.share_room_key_with_settings(room_id, users, encryption_settings).await
+    }
+
     /// Get to-device requests to share a room key with users in a room.
     ///
     /// # Arguments
@@ -451,7 +479,7 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
-    pub async fn share_room_key(
+    pub async fn share_room_key_with_settings(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,

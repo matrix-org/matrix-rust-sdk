@@ -500,12 +500,18 @@ pub enum EventEncryptionAlgorithm {
 impl From<EventEncryptionAlgorithm> for RustEventEncryptionAlgorithm {
     fn from(a: EventEncryptionAlgorithm) -> Self {
         match a {
-            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
-                RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2
-            }
-            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                RustEventEncryptionAlgorithm::MegolmV1AesSha2
-            }
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+        }
+    }
+}
+
+impl From<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
+    fn from(value: RustEventEncryptionAlgorithm) -> Self {
+        match value {
+            RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
+            RustEventEncryptionAlgorithm::MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+            _ => todo!(),
         }
     }
 }
@@ -540,10 +546,22 @@ pub enum HistoryVisibility {
 impl From<HistoryVisibility> for RustHistoryVisibility {
     fn from(h: HistoryVisibility) -> Self {
         match h {
-            HistoryVisibility::Invited => RustHistoryVisibility::Invited,
-            HistoryVisibility::Joined => RustHistoryVisibility::Joined,
-            HistoryVisibility::Shared => RustHistoryVisibility::Shared,
-            HistoryVisibility::WorldReadable => RustHistoryVisibility::Shared,
+            HistoryVisibility::Invited => Self::Invited,
+            HistoryVisibility::Joined => Self::Joined,
+            HistoryVisibility::Shared => Self::Shared,
+            HistoryVisibility::WorldReadable => Self::Shared,
+        }
+    }
+}
+
+impl From<RustHistoryVisibility> for HistoryVisibility {
+    fn from(h: RustHistoryVisibility) -> Self {
+        match h {
+            RustHistoryVisibility::Invited => Self::Invited,
+            RustHistoryVisibility::Joined => Self::Joined,
+            RustHistoryVisibility::Shared => Self::Shared,
+            RustHistoryVisibility::WorldReadable => Self::WorldReadable,
+            _ => todo!(),
         }
     }
 }
@@ -579,6 +597,18 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
             only_allow_trusted_devices: v.only_allow_trusted_devices,
+        }
+    }
+}
+
+impl From<RustEncryptionSettings> for EncryptionSettings {
+    fn from(value: RustEncryptionSettings) -> Self {
+        EncryptionSettings {
+            algorithm: value.algorithm.into(),
+            rotation_period: value.rotation_period.as_secs(),
+            rotation_period_msgs: value.rotation_period_msgs,
+            history_visibility: value.history_visibility.into(),
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
         }
     }
 }

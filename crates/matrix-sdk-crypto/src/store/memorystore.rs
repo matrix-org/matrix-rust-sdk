@@ -29,7 +29,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
-    TrackedUser,
+    EncryptionSettings, TrackedUser,
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
