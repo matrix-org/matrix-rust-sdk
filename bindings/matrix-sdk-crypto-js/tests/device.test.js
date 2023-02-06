@@ -69,7 +69,39 @@ describe(OlmMachine.name, () => {
 
     test('can read a user device', async () => {
         const m = await machine();
-        const dev = await m.getDevice(user, device);
+
+        const hypothetical_response = JSON.stringify({
+            "device_keys": {
+                "@alice:example.org": {
+                    "JLAFKJWSCS": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "JLAFKJWSCS",
+                        "keys": {
+                            "curve25519:JLAFKJWSCS": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
+                            "ed25519:JLAFKJWSCS": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+                        },
+                        "signatures": {
+                            "@alice:example.org": {
+                                "ed25519:JLAFKJWSCS": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
+                            }
+                        },
+                        "unsigned": {
+                            "device_display_name": "Alice's mobile phone"
+                        },
+                        "user_id": "@alice:example.org"
+                    }
+                }
+            },
+            "failures": {}
+        });
+        // Insert another device into the store
+        await m.markRequestAsSent("ID", RequestType.KeysQuery, hypothetical_response);
+
+        const secondDeviceId = new DeviceId("JLAFKJWSCS");
+        const dev = await m.getDevice(user, secondDeviceId);
 
         expect(dev).toBeInstanceOf(Device);
         expect(dev.isVerified()).toStrictEqual(false);
@@ -82,7 +114,7 @@ describe(OlmMachine.name, () => {
         expect(dev.isLocallyTrusted()).toStrictEqual(true);
 
         expect(dev.userId.toString()).toStrictEqual(user.toString());
-        expect(dev.deviceId.toString()).toStrictEqual(device.toString());
+        expect(dev.deviceId.toString()).toStrictEqual(secondDeviceId.toString());
         expect(dev.deviceName).toBeUndefined();
 
         const deviceKey = dev.getKey(DeviceKeyAlgorithmName.Ed25519);

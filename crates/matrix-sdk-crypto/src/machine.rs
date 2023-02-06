@@ -82,8 +82,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, ReadOnlyDevice, RoomKeyImportResult, SignatureError,
-    ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
+    SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -255,6 +255,11 @@ impl OlmMachine {
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
                 let device = ReadOnlyDevice::from_account(&account).await;
+
+                // We just created this device from our own Olm `Account`. Since we are the
+                // owners of the private keys of this device we can safely mark
+                // the device as verified.
+                device.set_trust_state(LocalTrust::Verified);
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -1773,6 +1778,14 @@ pub(crate) mod tests {
     async fn create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         assert!(!machine.account().shared());
+
+        let own_device = machine
+            .get_device(machine.user_id(), machine.device_id(), None)
+            .await
+            .unwrap()
+            .expect("We should always have our own device in the store");
+
+        assert!(own_device.is_locally_trusted(), "Our own device should always be locally trusted");
     }
 
     #[async_test]
