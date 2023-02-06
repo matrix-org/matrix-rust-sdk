@@ -48,7 +48,7 @@ use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptEventContent, ReceiptType},
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         room::{
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
             redaction::OriginalSyncRoomRedactionEvent,
@@ -289,11 +289,14 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipt.
     ///
+    /// * `thread` - The thread containing this receipt.
+    ///
     /// * `user_id` - The id of the user for who the receipt should be fetched.
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>>;
 
@@ -306,12 +309,15 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipts.
     ///
+    /// * `thread` - The thread containing this receipt.
+    ///
     /// * `event_id` - The id of the event for which the receipts should be
     ///   fetched.
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>>;
 
