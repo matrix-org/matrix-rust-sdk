@@ -34,7 +34,7 @@ use ruma::{
     canonical_json::redact,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptType},
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
@@ -845,11 +845,18 @@ impl SledStateStore {
                             for (receipt_type, receipts) in receipts {
                                 for (user_id, receipt) in receipts {
                                     // Add the receipt to the room user receipts
-                                    if let Some(old) = room_user_receipts.insert(
-                                        self.encode_key(
+                                    let key = match receipt.thread.as_str() {
+                                        Some(thread_id) => self.encode_key(
+                                            ROOM_USER_RECEIPT,
+                                            (room, receipt_type, thread_id, user_id),
+                                        ),
+                                        None => self.encode_key(
                                             ROOM_USER_RECEIPT,
                                             (room, receipt_type, user_id),
                                         ),
+                                    };
+                                    if let Some(old) = room_user_receipts.insert(
+                                        key,
                                         self.serialize_value(&(event_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
@@ -857,18 +864,32 @@ impl SledStateStore {
                                         let (old_event, _): (OwnedEventId, Receipt) = self
                                             .deserialize_value(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
-                                        room_event_receipts.remove(self.encode_key(
-                                            ROOM_EVENT_RECEIPT,
-                                            (room, receipt_type, old_event, user_id),
-                                        ))?;
+                                        let key = match receipt.thread.as_str() {
+                                            Some(thread_id) => self.encode_key(
+                                                ROOM_EVENT_RECEIPT,
+                                                (room, receipt_type, thread_id, old_event, user_id),
+                                            ),
+                                            None => self.encode_key(
+                                                ROOM_EVENT_RECEIPT,
+                                                (room, receipt_type, old_event, user_id),
+                                            ),
+                                        };
+                                        room_event_receipts.remove(key)?;
                                     }
 
                                     // Add the receipt to the room event receipts
-                                    room_event_receipts.insert(
-                                        self.encode_key(
+                                    let key = match receipt.thread.as_str() {
+                                        Some(thread_id) => self.encode_key(
+                                            ROOM_EVENT_RECEIPT,
+                                            (room, receipt_type, thread_id, event_id, user_id),
+                                        ),
+                                        None => self.encode_key(
                                             ROOM_EVENT_RECEIPT,
                                             (room, receipt_type, event_id, user_id),
                                         ),
+                                    };
+                                    room_event_receipts.insert(
+                                        key,
                                         self.serialize_value(&(user_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
@@ -1144,10 +1165,16 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let db = self.clone();
-        let key = self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, user_id));
+        let key = match thread.as_str() {
+            Some(thread_id) => {
+                self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, thread_id, user_id))
+            }
+            None => self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, user_id)),
+        };
         spawn_blocking(move || {
             db.room_user_receipts.get(key)?.map(|m| db.deserialize_value(&m)).transpose()
         })
@@ -1158,10 +1185,16 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         let db = self.clone();
-        let key = self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, event_id));
+        let key = match thread.as_str() {
+            Some(thread_id) => {
+                self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, thread_id, event_id))
+            }
+            None => self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, event_id)),
+        };
         spawn_blocking(move || {
             db.room_event_receipts
                 .scan_prefix(key)
@@ -1526,18 +1559,22 @@ impl StateStore for SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(Into::into)
+        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
             .await
             .map_err(Into::into)
     }

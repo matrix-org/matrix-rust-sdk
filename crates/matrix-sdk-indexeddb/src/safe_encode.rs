@@ -203,6 +203,62 @@ where
     }
 }
 
+/// Implement SafeEncode for tuple of five elements, separating the escaped
+/// values with with `KEY_SEPARATOR`.
+impl<A, B, C, D, E> SafeEncode for (A, B, C, D, E)
+where
+    A: SafeEncode,
+    B: SafeEncode,
+    C: SafeEncode,
+    D: SafeEncode,
+    E: SafeEncode,
+{
+    fn as_encoded_string(&self) -> String {
+        [
+            &self.0.as_encoded_string(),
+            KEY_SEPARATOR,
+            &self.1.as_encoded_string(),
+            KEY_SEPARATOR,
+            &self.2.as_encoded_string(),
+            KEY_SEPARATOR,
+            &self.3.as_encoded_string(),
+            KEY_SEPARATOR,
+            &self.4.as_encoded_string(),
+        ]
+        .concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                &STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                &STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
+                &STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
+                &STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.4.as_encoded_string().as_bytes()),
+                &STANDARD_NO_PAD,
+            ),
+        ]
+        .concat()
+    }
+}
+
 impl SafeEncode for String {
     fn as_encoded_string(&self) -> String {
         self.replace(KEY_SEPARATOR, ESCAPED)

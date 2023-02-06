@@ -134,7 +134,7 @@ macro_rules! statestore_integration_tests {
             event_id,
             events::{
                 presence::PresenceEvent,
-                receipt::ReceiptType,
+                receipt::{ReceiptType, ReceiptThread},
                 room::{
                     member::{
                         MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
@@ -475,7 +475,12 @@ macro_rules! statestore_integration_tests {
                 .await?
                 .is_some());
             assert!(store
-                .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id
+                )
                 .await?
                 .is_some());
             assert_eq!(
@@ -483,6 +488,7 @@ macro_rules! statestore_integration_tests {
                     .get_event_room_receipt_events(
                         room_id,
                         ReceiptType::Read,
+                        ReceiptThread::Unthreaded,
                         first_receipt_event_id()
                     )
                     .await?
@@ -613,17 +619,32 @@ macro_rules! statestore_integration_tests {
             .expect("json creation failed");
 
             assert!(store
-                .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id()
+                )
                 .await
                 .expect("failed to read user room receipt")
                 .is_none());
             assert!(store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &first_event_id
+                )
                 .await
                 .expect("failed to read user room receipt for 1")
                 .is_empty());
             assert!(store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &second_event_id
+                )
                 .await
                 .expect("failed to read user room receipt for 2")
                 .is_empty());
@@ -633,13 +654,23 @@ macro_rules! statestore_integration_tests {
 
             store.save_changes(&changes).await.expect("writing changes fauked");
             assert!(store
-                .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id()
+                )
                 .await
                 .expect("failed to read user room receipt after save")
                 .is_some());
             assert_eq!(
                 store
-                    .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+                    .get_event_room_receipt_events(
+                        room_id,
+                        ReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                        &first_event_id
+                    )
                     .await
                     .expect("failed to read user room receipt for 1 after save")
                     .len(),
@@ -647,7 +678,12 @@ macro_rules! statestore_integration_tests {
                 "Found a wrong number of receipts for 1 after save"
             );
             assert!(store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &second_event_id
+                )
                 .await
                 .expect("failed to read user room receipt for 2 after save")
                 .is_empty());
@@ -657,18 +693,33 @@ macro_rules! statestore_integration_tests {
 
             store.save_changes(&changes).await.expect("Saving works");
             assert!(store
-                .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id()
+                )
                 .await
                 .expect("Getting user room receipts failed")
                 .is_some());
             assert!(store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &first_event_id
+                )
                 .await
                 .expect("Getting event room receipt events for first event failed")
                 .is_empty());
             assert_eq!(
                 store
-                    .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+                    .get_event_room_receipt_events(
+                        room_id,
+                        ReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                        &second_event_id
+                    )
                     .await
                     .expect("Getting event room receipt events for second event failed")
                     .len(),
@@ -803,7 +854,12 @@ macro_rules! statestore_integration_tests {
                 .await?
                 .is_none());
             assert!(store
-                .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id
+                )
                 .await?
                 .is_none());
             assert!(
@@ -811,6 +867,7 @@ macro_rules! statestore_integration_tests {
                     .get_event_room_receipt_events(
                         room_id,
                         ReceiptType::Read,
+                        ReceiptThread::Unthreaded,
                         first_receipt_event_id()
                     )
                     .await?

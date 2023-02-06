@@ -37,7 +37,7 @@ use ruma::{
     canonical_json::redact,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptType},
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
@@ -839,33 +839,51 @@ impl IndexeddbStateStore {
                 for (event_id, receipts) in &content.0 {
                     for (receipt_type, receipts) in receipts {
                         for (user_id, receipt) in receipts {
-                            let key = self.encode_key(
-                                KEYS::ROOM_USER_RECEIPTS,
-                                (room, receipt_type, user_id),
-                            );
+                            let key = match receipt.thread.as_str() {
+                                Some(thread_id) => self.encode_key(
+                                    KEYS::ROOM_USER_RECEIPTS,
+                                    (room, receipt_type, thread_id, user_id),
+                                ),
+                                None => self.encode_key(
+                                    KEYS::ROOM_USER_RECEIPTS,
+                                    (room, receipt_type, user_id),
+                                ),
+                            };
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
                                     self.deserialize_event::<(OwnedEventId, Receipt)>(f).ok()
                                 })
                             {
-                                room_event_receipts.delete(&self.encode_key(
-                                    KEYS::ROOM_EVENT_RECEIPTS,
-                                    (room, receipt_type, &old_event, user_id),
-                                ))?;
+                                let key = match receipt.thread.as_str() {
+                                    Some(thread_id) => self.encode_key(
+                                        KEYS::ROOM_EVENT_RECEIPTS,
+                                        (room, receipt_type, thread_id, old_event, user_id),
+                                    ),
+                                    None => self.encode_key(
+                                        KEYS::ROOM_EVENT_RECEIPTS,
+                                        (room, receipt_type, old_event, user_id),
+                                    ),
+                                };
+                                room_event_receipts.delete(&key)?;
                             }
 
                             room_user_receipts
                                 .put_key_val(&key, &self.serialize_event(&(event_id, receipt))?)?;
 
                             // Add the receipt to the room event receipts
-                            room_event_receipts.put_key_val(
-                                &self.encode_key(
+                            let key = match receipt.thread.as_str() {
+                                Some(thread_id) => self.encode_key(
+                                    KEYS::ROOM_EVENT_RECEIPTS,
+                                    (room, receipt_type, thread_id, event_id, user_id),
+                                ),
+                                None => self.encode_key(
                                     KEYS::ROOM_EVENT_RECEIPTS,
                                     (room, receipt_type, event_id, user_id),
                                 ),
-                                &self.serialize_event(&(user_id, receipt))?,
-                            )?;
+                            };
+                            room_event_receipts
+                                .put_key_val(&key, &self.serialize_event(&(user_id, receipt))?)?;
                         }
                     }
                 }
@@ -1159,12 +1177,18 @@ impl IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
+        let key = match thread.as_str() {
+            Some(thread_id) => self
+                .encode_key(KEYS::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
+            None => self.encode_key(KEYS::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)),
+        };
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_USER_RECEIPTS)?
-            .get(&self.encode_key(KEYS::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)))?
+            .get(&key)?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -1174,10 +1198,18 @@ impl IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        let range =
-            self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id))?;
+        let range = match thread.as_str() {
+            Some(thread_id) => self.encode_to_range(
+                KEYS::ROOM_EVENT_RECEIPTS,
+                (room_id, receipt_type, thread_id, event_id),
+            ),
+            None => {
+                self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, receipt_type, event_id))
+            }
+        }?;
         let tx = self.inner.transaction_on_one_with_mode(
             KEYS::ROOM_EVENT_RECEIPTS,
             IdbTransactionMode::Readonly,
@@ -1429,18 +1461,22 @@ impl StateStore for IndexeddbStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(|e| e.into())
+        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
             .await
             .map_err(|e| e.into())
     }
