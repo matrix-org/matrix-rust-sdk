@@ -1426,9 +1426,7 @@ impl SlidingSyncViewRequestGenerator {
             | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position, live, limit, ..
             } => {
-                let max = limit
-                    .map(|limit| if limit > max_index { max_index } else { limit })
-                    .unwrap_or(max_index);
+                let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
                 trace!(end, max, name = self.view.name, "updating state");
                 if end >= max {
                     trace!(name = self.view.name, "going live");
