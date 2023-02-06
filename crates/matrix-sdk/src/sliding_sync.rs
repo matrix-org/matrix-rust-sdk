@@ -137,8 +137,6 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
-
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
@@ -148,7 +146,7 @@ pub struct SlidingSyncRoom {
     is_loading_more: Mutable<bool>,
     is_cold: Arc<AtomicBool>,
     prev_batch: Mutable<Option<String>>,
-    timeline: AliveRoomTimeline,
+    timeline: Vec<SyncTimelineEvent>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -161,17 +159,17 @@ struct FrozenSlidingSyncRoom {
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
-        let locked_tl = value.timeline.lock_ref();
-        let tl_len = locked_tl.len();
+        let timeline = &value.timeline;
+        let timeline_length = timeline.len();
         // To not overflow the database, we only freeze the newest 10 items. on doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
         // create a gap between what we have loaded and where the
         // prev_batch-key will start loading when paginating backwards.
-        let (prev_batch, timeline) = if tl_len > 10 {
-            let pos = tl_len - 10;
-            (None, locked_tl.iter().skip(pos).cloned().collect())
+        let (prev_batch, timeline) = if timeline_length > 10 {
+            let pos = timeline_length - 10;
+            (None, timeline.iter().skip(pos).cloned().collect())
         } else {
-            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
+            (value.prev_batch.lock_ref().clone(), timeline.to_vec())
         };
         FrozenSlidingSyncRoom {
             prev_batch,
@@ -185,14 +183,15 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 impl SlidingSyncRoom {
     fn from_frozen(val: FrozenSlidingSyncRoom, client: Client) -> Self {
         let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline } = val;
-        SlidingSyncRoom {
+
+        Self {
             client,
             room_id,
             inner,
             is_loading_more: Mutable::new(false),
             is_cold: Arc::new(AtomicBool::new(true)),
             prev_batch: Mutable::new(prev_batch),
-            timeline: Arc::new(MutableVec::new_with_values(timeline)),
+            timeline,
         }
     }
 }
@@ -206,13 +205,14 @@ impl SlidingSyncRoom {
     ) -> Self {
         // we overwrite to only keep one copy
         inner.timeline = vec![];
+
         Self {
             client,
             room_id,
             is_loading_more: Mutable::new(false),
             is_cold: Arc::new(AtomicBool::new(false)),
             prev_batch: Mutable::new(inner.prev_batch.clone()),
-            timeline: Arc::new(MutableVec::new_with_values(timeline)),
+            timeline,
             inner,
         }
     }
@@ -232,23 +232,23 @@ impl SlidingSyncRoom {
         self.prev_batch.lock_ref().clone()
     }
 
-    /// `AliveTimeline` of this room
-    #[cfg(not(feature = "experimental-timeline"))]
-    pub fn timeline(&self) -> AliveRoomTimeline {
-        self.timeline.clone()
-    }
-
     /// `Timeline` of this room
-    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Option<Timeline> {
         Some(self.timeline_no_fully_read_tracking().await?.with_fully_read_tracking().await)
     }
 
     async fn timeline_no_fully_read_tracking(&self) -> Option<Timeline> {
         if let Some(room) = self.client.get_room(&self.room_id) {
-            let current_timeline = self.timeline.lock_ref().to_vec();
+            let current_timeline = &self.timeline;
             let prev_batch = self.prev_batch.lock_ref().clone();
-            Some(Timeline::with_events(&room, prev_batch, current_timeline).await)
+            Some(
+                Timeline::with_events(
+                    &room,
+                    prev_batch,
+                    current_timeline.iter().cloned().collect(),
+                )
+                .await,
+            )
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::with_events(&invited_room, None, vec![]).await)
         } else {
@@ -312,20 +312,19 @@ impl SlidingSyncRoom {
         if !timeline.is_empty() {
             if self.is_cold.load(Ordering::SeqCst) {
                 // if we come from cold storage, we hard overwrite
-                self.timeline.lock_mut().replace_cloned(timeline);
+                self.timeline = timeline;
                 self.is_cold.store(false, Ordering::SeqCst);
             } else if *limited {
                 // the server alerted us that we missed items in between
-                self.timeline.lock_mut().replace_cloned(timeline);
+                self.timeline = timeline;
             } else {
-                let mut ref_timeline = self.timeline.lock_mut();
                 for e in timeline {
-                    ref_timeline.push_cloned(e);
+                    self.timeline.push(e);
                 }
             }
         } else if *limited {
-            // notihing but we were alerted that we are stale. clear up
-            self.timeline.lock_mut().clear();
+            // nothing but we were alerted that we are stale. clear up
+            self.timeline.clear();
         }
     }
 }
