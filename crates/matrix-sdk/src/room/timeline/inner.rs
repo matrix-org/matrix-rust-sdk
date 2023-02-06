@@ -58,9 +58,9 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
+pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
     state: Mutex<TimelineInnerState>,
-    profile_provider: P,
+    room_data_provider: P,
 }
 
 #[derive(Debug, Default)]
@@ -78,8 +78,8 @@ pub(super) struct TimelineInnerState {
     pub(super) fully_read_event_in_timeline: bool,
 }
 
-impl<P: ProfileProvider> TimelineInner<P> {
-    pub(super) fn new(profile_provider: P) -> Self {
+impl<P: RoomDataProvider> TimelineInner<P> {
+    pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState {
             // Upstream default capacity is currently 16, which is making
             // sliding-sync tests with 20 events lag. This should still be
@@ -87,7 +87,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             items: ObservableVector::with_capacity(32),
             ..Default::default()
         };
-        Self { state: Mutex::new(state), profile_provider }
+        Self { state: Mutex::new(state), room_data_provider }
     }
 
     /// Get a copy of the current items in the list.
@@ -123,7 +123,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 event.encryption_info,
                 TimelineItemPosition::End,
                 state,
-                &self.profile_provider,
+                &self.room_data_provider,
             )
             .await;
         }
@@ -152,7 +152,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             encryption_info,
             TimelineItemPosition::End,
             &mut state,
-            &self.profile_provider,
+            &self.room_data_provider,
         )
         .await;
     }
@@ -164,8 +164,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
     ) {
-        let sender = self.profile_provider.own_user_id().to_owned();
-        let sender_profile = self.profile_provider.profile(&sender).await;
+        let sender = self.room_data_provider.own_user_id().to_owned();
+        let sender_profile = self.room_data_provider.profile(&sender).await;
         let event_meta = TimelineEventMetadata {
             sender,
             sender_profile,
@@ -241,7 +241,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             event.encryption_info,
             TimelineItemPosition::Start,
             &mut state,
-            &self.profile_provider,
+            &self.room_data_provider,
         )
         .await
     }
@@ -387,7 +387,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 event.encryption_info,
                 TimelineItemPosition::Update(idx),
                 &mut state,
-                &self.profile_provider,
+                &self.room_data_provider,
             )
             .await;
 
@@ -431,7 +431,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 Some(event_item) => event_item.sender().to_owned(),
                 None => continue,
             };
-            let maybe_profile = self.profile_provider.profile(&sender).await;
+            let maybe_profile = self.room_data_provider.profile(&sender).await;
 
             assert_eq!(state.items.len(), num_items);
 
@@ -458,7 +458,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
 impl TimelineInner {
     pub(super) fn room(&self) -> &room::Common {
-        &self.profile_provider
+        &self.room_data_provider
     }
 
     pub(super) async fn fetch_in_reply_to_details(
@@ -559,13 +559,13 @@ async fn fetch_replied_to_event(
 }
 
 #[async_trait]
-pub(super) trait ProfileProvider {
+pub(super) trait RoomDataProvider {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
 }
 
 #[async_trait]
-impl ProfileProvider for room::Common {
+impl RoomDataProvider for room::Common {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }
@@ -594,12 +594,12 @@ impl ProfileProvider for room::Common {
 /// Handle a remote event.
 ///
 /// Returns the number of timeline updates that were made.
-async fn handle_remote_event<P: ProfileProvider>(
+async fn handle_remote_event<P: RoomDataProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
     timeline_state: &mut TimelineInnerState,
-    profile_provider: &P,
+    room_data_provider: &P,
 ) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
@@ -629,8 +629,8 @@ async fn handle_remote_event<P: ProfileProvider>(
             },
         };
 
-    let is_own_event = sender == profile_provider.own_user_id();
-    let sender_profile = profile_provider.profile(&sender).await;
+    let is_own_event = sender == room_data_provider.own_user_id();
+    let sender_profile = room_data_provider.profile(&sender).await;
     let event_meta =
         TimelineEventMetadata { sender, sender_profile, is_own_event, relations, encryption_info };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };

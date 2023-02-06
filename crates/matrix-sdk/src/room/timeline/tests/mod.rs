@@ -36,7 +36,7 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{inner::ProfileProvider, Profile, TimelineInner, TimelineItem};
+use super::{inner::RoomDataProvider, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
@@ -48,13 +48,13 @@ static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 
 struct TestTimeline {
-    inner: TimelineInner<TestProfileProvider>,
+    inner: TimelineInner<TestRoomDataProvider>,
     next_ts: AtomicU64,
 }
 
 impl TestTimeline {
     fn new() -> Self {
-        Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU64::new(0) }
+        Self { inner: TimelineInner::new(TestRoomDataProvider), next_ts: AtomicU64::new(0) }
     }
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
@@ -255,10 +255,10 @@ impl TestTimeline {
     }
 }
 
-struct TestProfileProvider;
+struct TestRoomDataProvider;
 
 #[async_trait]
-impl ProfileProvider for TestProfileProvider {
+impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
         &ALICE
     }
