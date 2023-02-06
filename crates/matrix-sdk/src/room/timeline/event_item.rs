@@ -52,7 +52,7 @@ use ruma::{
     OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 
-use super::inner::ProfileProvider;
+use super::inner::RoomDataProvider;
 use crate::{Error, Result};
 
 /// An item in the timeline that represents at least one event.
@@ -571,9 +571,9 @@ impl RepliedToEvent {
         &self.sender_profile
     }
 
-    pub(super) async fn try_from_timeline_event<P: ProfileProvider>(
+    pub(super) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
-        profile_provider: &P,
+        room_data_provider: &P,
     ) -> Result<Self> {
         let event = match timeline_event.event.deserialize() {
             Ok(AnyTimelineEvent::MessageLike(event)) => event,
@@ -593,7 +593,7 @@ impl RepliedToEvent {
         };
         let sender = event.sender().to_owned();
         let sender_profile =
-            TimelineDetails::from_initial_value(profile_provider.profile(&sender).await);
+            TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);
 
         Ok(Self { message, sender, sender_profile })
     }
