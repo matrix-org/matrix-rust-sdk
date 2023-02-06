@@ -14,6 +14,7 @@
 
 use std::{
     collections::HashMap,
+    fmt,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -102,12 +103,12 @@ pub struct SqliteCryptoStore {
     session_cache: SessionStore,
 }
 
-impl std::fmt::Debug for SqliteCryptoStore {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SqliteCryptoStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(path) = &self.path {
-            f.debug_struct("SledCryptoStore").field("path", &path).finish()
+            f.debug_struct("SqliteCryptoStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SledCryptoStore").field("path", &"memory store").finish()
+            f.debug_struct("SqliteCryptoStore").field("path", &"memory store").finish()
         }
     }
 }
