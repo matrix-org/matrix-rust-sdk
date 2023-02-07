@@ -20,9 +20,10 @@ use std::sync::Arc;
 
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
-#[cfg(feature = "experimental-sliding-sync")]
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    locks::Mutex,
+};
 use ruma::{
     assign,
     events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
@@ -85,105 +86,8 @@ impl Drop for Timeline {
 }
 
 impl Timeline {
-    pub(super) fn new(room: &room::Common) -> Self {
-        Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
-    }
-
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) async fn with_events(
-        room: &room::Common,
-        prev_token: Option<String>,
-        events: Vec<SyncTimelineEvent>,
-    ) -> Self {
-        let mut inner = TimelineInner::new(room.to_owned());
-        inner.add_initial_events(events).await;
-
-        let timeline = Self::from_inner(Arc::new(inner), prev_token);
-
-        // The events we're injecting might be encrypted events, but we might
-        // have received the room key to decrypt them while nobody was listening to the
-        // `m.room_key` event, let's retry now.
-        //
-        // TODO: We could spawn a task here and put this into the background, though it
-        // might not be worth it depending on the number of events we injected.
-        // Some measuring needs to be done.
-        #[cfg(feature = "e2e-encryption")]
-        timeline.retry_decryption_for_all_events().await;
-
-        timeline
-    }
-
-    fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
-        let room = inner.room();
-
-        let timeline_event_handle = room.add_event_handler({
-            let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_live_event(event, encryption_info).await;
-                }
-            }
-        });
-
-        // Not using room.add_event_handler here because RoomKey events are
-        // to-device events that are not received in the context of a room.
-        #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = room
-            .client
-            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
-        #[cfg(feature = "e2e-encryption")]
-        let forwarded_room_key_handle = room.client.add_event_handler(
-            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
-        );
-
-        let event_handler_handles = vec![
-            timeline_event_handle,
-            #[cfg(feature = "e2e-encryption")]
-            room_key_handle,
-            #[cfg(feature = "e2e-encryption")]
-            forwarded_room_key_handle,
-        ];
-
-        Timeline {
-            inner,
-            start_token: Mutex::new(prev_token),
-            _end_token: Mutex::new(None),
-            event_handler_handles,
-        }
-    }
-
     fn room(&self) -> &room::Common {
         self.inner.room()
-    }
-
-    /// Enable tracking of the fully-read marker on this `Timeline`.
-    pub async fn with_fully_read_tracking(mut self) -> Self {
-        match self.room().account_data_static::<FullyReadEventContent>().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => {
-                    self.inner.set_fully_read_event(fully_read.content.event_id).await;
-                }
-                Err(e) => {
-                    error!("Failed to deserialize fully-read account data: {e}");
-                }
-            },
-            Err(e) => {
-                error!("Failed to get fully-read account data from the store: {e}");
-            }
-            _ => {}
-        }
-
-        let inner = self.inner.clone();
-        let fully_read_handle = self.room().add_event_handler(move |event| {
-            let inner = inner.clone();
-            async move {
-                inner.handle_fully_read(event).await;
-            }
-        });
-        self.event_handler_handles.push(fully_read_handle);
-
-        self
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -311,7 +215,7 @@ impl Timeline {
             .await;
     }
 
-    #[cfg(all(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
+    #[cfg(feature = "e2e-encryption")]
     async fn retry_decryption_for_all_events(&self) {
         self.inner
             .retry_event_decryption(
@@ -440,6 +344,136 @@ impl Timeline {
                 self.inner.set_sender_profiles_error(Arc::new(e));
             }
         }
+    }
+}
+
+/// Builder that allows creating and configuring various parts of a
+/// [`Timeline`].
+#[must_use]
+#[derive(Debug)]
+pub(crate) struct TimelineBuilder {
+    room: room::Common,
+    prev_token: Option<String>,
+    events: Vec<SyncTimelineEvent>,
+    track_fully_read: bool,
+}
+
+impl TimelineBuilder {
+    pub(super) fn new(room: &room::Common) -> Self {
+        Self {
+            room: room.clone(),
+            prev_token: None,
+            events: Vec::default(),
+            track_fully_read: false,
+        }
+    }
+
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn with_events(
+        room: &room::Common,
+        prev_token: Option<String>,
+        events: Vec<SyncTimelineEvent>,
+    ) -> Self {
+        Self { room: room.clone(), prev_token, events, track_fully_read: false }
+    }
+
+    /// Enable tracking of the fully-read marker on the timeline.
+    pub fn track_fully_read(mut self) -> Self {
+        self.track_fully_read = true;
+        self
+    }
+
+    /// Create a [`Timeline`] with the options set on this builder.
+    pub async fn build(self) -> Timeline {
+        let Self { room, prev_token, events, track_fully_read } = self;
+        let has_events = !events.is_empty();
+
+        let mut inner = TimelineInner::new(room);
+
+        if has_events {
+            inner.add_initial_events(events).await;
+        }
+
+        let inner = Arc::new(inner);
+        let room = inner.room();
+
+        let timeline_event_handle = room.add_event_handler({
+            let inner = inner.clone();
+            move |event, encryption_info: Option<EncryptionInfo>| {
+                let inner = inner.clone();
+                async move {
+                    inner.handle_live_event(event, encryption_info).await;
+                }
+            }
+        });
+
+        // Not using room.add_event_handler here because RoomKey events are
+        // to-device events that are not received in the context of a room.
+        #[cfg(feature = "e2e-encryption")]
+        let room_key_handle = room
+            .client
+            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
+        #[cfg(feature = "e2e-encryption")]
+        let forwarded_room_key_handle = room.client.add_event_handler(
+            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
+        );
+
+        let mut event_handler_handles = vec![
+            timeline_event_handle,
+            #[cfg(feature = "e2e-encryption")]
+            room_key_handle,
+            #[cfg(feature = "e2e-encryption")]
+            forwarded_room_key_handle,
+        ];
+
+        if track_fully_read {
+            match room.account_data_static::<FullyReadEventContent>().await {
+                Ok(Some(fully_read)) => match fully_read.deserialize() {
+                    Ok(fully_read) => {
+                        inner.set_fully_read_event(fully_read.content.event_id).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to deserialize fully-read account data: {e}");
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to get fully-read account data from the store: {e}");
+                }
+                _ => {}
+            }
+
+            let fully_read_handle = room.add_event_handler({
+                let inner = inner.clone();
+                move |event| {
+                    let inner = inner.clone();
+                    async move {
+                        inner.handle_fully_read(event).await;
+                    }
+                }
+            });
+            event_handler_handles.push(fully_read_handle);
+        }
+
+        let timeline = Timeline {
+            inner,
+            start_token: Mutex::new(prev_token),
+            _end_token: Mutex::new(None),
+            event_handler_handles,
+        };
+
+        #[cfg(feature = "e2e-encryption")]
+        if has_events {
+            // The events we're injecting might be encrypted events, but we might
+            // have received the room key to decrypt them while nobody was listening to the
+            // `m.room_key` event, let's retry now.
+            //
+            // TODO: We could spawn a task here and put this into the background, though it
+            // might not be worth it depending on the number of events we injected.
+            // Some measuring needs to be done.
+            timeline.retry_decryption_for_all_events().await;
+        }
+
+        timeline
     }
 }
 
