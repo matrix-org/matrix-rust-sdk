@@ -174,7 +174,7 @@ pub trait IntoCryptoStore {
 
 impl<T> IntoCryptoStore for T
 where
-    T: CryptoStore + Sized + 'static,
+    T: CryptoStore + 'static,
 {
     fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
         Arc::new(self)
