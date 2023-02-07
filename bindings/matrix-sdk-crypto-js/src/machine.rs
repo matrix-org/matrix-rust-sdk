@@ -70,16 +70,7 @@ impl OlmMachine {
 
         future_to_promise(async move {
             let store = match (store_name, store_passphrase) {
-                // We need this `#[cfg]` because `IndexeddbCryptoStore`
-                // implements `CryptoStore` only on `target_arch =
-                // "wasm32"`. Without that, we could have a compilation
-                // error when checking the entire workspace. In
-                // practise, it doesn't impact this crate because it's
-                // always compiled for `wasm32`.
-                #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
-                    use std::sync::Arc;
-
                     use zeroize::Zeroize;
 
                     let store = Some(
@@ -87,8 +78,7 @@ impl OlmMachine {
                             &store_name,
                             &store_passphrase,
                         )
-                        .await
-                        .map(Arc::new)?,
+                        .await?,
                     );
 
                     store_passphrase.zeroize();
@@ -96,15 +86,9 @@ impl OlmMachine {
                     store
                 }
 
-                #[cfg(target_arch = "wasm32")]
-                (Some(store_name), None) => {
-                    use std::sync::Arc;
-                    Some(
-                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_name(&store_name)
-                            .await
-                            .map(Arc::new)?,
-                    )
-                }
+                (Some(store_name), None) => Some(
+                    matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_name(&store_name).await?,
+                ),
 
                 (None, Some(_)) => {
                     return Err(anyhow::Error::msg(
@@ -113,11 +97,18 @@ impl OlmMachine {
                     ))
                 }
 
-                _ => None,
+                (None, None) => None,
             };
 
             Ok(OlmMachine {
                 inner: match store {
+                    // We need this `#[cfg]` because `IndexeddbCryptoStore`
+                    // implements `CryptoStore` only on `target_arch =
+                    // "wasm32"`. Without that, we could have a compilation
+                    // error when checking the entire workspace. In practice,
+                    // it doesn't impact this crate because it's always
+                    // compiled for `wasm32`.
+                    #[cfg(target_arch = "wasm32")]
                     Some(store) => {
                         matrix_sdk_crypto::OlmMachine::with_store(
                             user_id.as_ref(),
@@ -126,7 +117,7 @@ impl OlmMachine {
                         )
                         .await?
                     }
-                    None => {
+                    _ => {
                         matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
                             .await
                     }
