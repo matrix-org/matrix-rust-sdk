@@ -41,7 +41,6 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    io::Error as IoError,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
 };
@@ -49,27 +48,12 @@ use std::{
 use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
-use ruma::{
-    events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId, UserId,
-};
+use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
-use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
-
-pub mod caches;
-mod memorystore;
-mod traits;
-
-#[cfg(any(test, feature = "testing"))]
-#[macro_use]
-#[allow(missing_docs)]
-pub mod integration_tests;
-
-pub use memorystore::MemoryStore;
-pub use traits::{CryptoStore, IntoCryptoStore};
 
 use crate::{
     identities::{
@@ -78,15 +62,26 @@ use crate::{
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session, SessionCreationError,
+        ReadOnlyAccount, Session,
     },
     utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
 };
 
-/// A `CryptoStore` specific result type.
-pub type Result<T, E = CryptoStoreError> = std::result::Result<T, E>;
+pub mod caches;
+mod error;
+mod memorystore;
+mod traits;
+
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+#[allow(missing_docs)]
+pub mod integration_tests;
+
+pub use error::{CryptoStoreError, Result};
+pub use memorystore::MemoryStore;
+pub use traits::{CryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
@@ -707,75 +702,5 @@ impl Deref for Store {
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
-    }
-}
-
-/// The crypto store's error type.
-#[derive(Debug, Error)]
-pub enum CryptoStoreError {
-    /// The account that owns the sessions, group sessions, and devices wasn't
-    /// found.
-    #[error("can't save/load sessions or group sessions in the store before an account is stored")]
-    AccountUnset,
-
-    /// The store doesn't support multiple accounts and data from another device
-    /// was discovered.
-    #[error(
-        "the account in the store doesn't match the account in the constructor: \
-        expected {}:{}, got {}:{}", .expected.0, .expected.1, .got.0, .got.1
-    )]
-    MismatchedAccount {
-        /// The expected user/device id pair.
-        expected: (OwnedUserId, OwnedDeviceId),
-        /// The user/device id pair that was loaded from the store.
-        got: (OwnedUserId, OwnedDeviceId),
-    },
-
-    /// An IO error occurred.
-    #[error(transparent)]
-    Io(#[from] IoError),
-
-    /// Failed to decrypt an pickled object.
-    #[error("An object failed to be decrypted while unpickling")]
-    UnpicklingError,
-
-    /// Failed to decrypt an pickled object.
-    #[error(transparent)]
-    Pickle(#[from] vodozemac::PickleError),
-
-    /// The received room key couldn't be converted into a valid Megolm session.
-    #[error(transparent)]
-    SessionCreation(#[from] SessionCreationError),
-
-    /// A Matrix identifier failed to be validated.
-    #[error(transparent)]
-    IdentifierValidation(#[from] IdParseError),
-
-    /// The store failed to (de)serialize a data type.
-    #[error(transparent)]
-    Serialization(#[from] SerdeError),
-
-    /// The database format has changed in a backwards incompatible way.
-    #[error(
-        "The database format changed in an incompatible way, current \
-        version: {0}, latest version: {1}"
-    )]
-    UnsupportedDatabaseVersion(usize, usize),
-
-    /// A problem with the underlying database backend
-    #[error(transparent)]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl CryptoStoreError {
-    /// Create a new [`Backend`][Self::Backend] error.
-    ///
-    /// Shorthand for `StoreError::Backend(Box::new(error))`.
-    #[inline]
-    pub fn backend<E>(error: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        Self::Backend(Box::new(error))
     }
 }
