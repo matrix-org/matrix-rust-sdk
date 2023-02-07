@@ -35,7 +35,7 @@ macro_rules! statestore_integration_tests {
             use ruma::{
                 api::client::media::get_content_thumbnail::v3::Method,
                 events::room::MediaSource,
-                mxc_uri, uint,
+                mxc_uri,
             };
 
             use $crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize};
@@ -150,7 +150,7 @@ macro_rules! statestore_integration_tests {
             },
             room_id,
             serde::Raw,
-            user_id, EventId,  OwnedEventId, RoomId, UserId,
+            uint, user_id, EventId,  OwnedEventId, RoomId, UserId,
         };
         use serde_json::{json, Value as JsonValue};
 
@@ -596,11 +596,15 @@ macro_rules! statestore_integration_tests {
             let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
             let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
 
+            let first_receipt_ts = uint!(1436451550);
+            let second_receipt_ts = uint!(1436451653);
+            let third_receipt_ts = uint!(1436474532);
+
             let first_receipt_event = serde_json::from_value(json!({
                 first_event_id: {
                     "m.read": {
                         user_id(): {
-                            "ts": 1436451550453u64
+                            "ts": first_receipt_ts,
                         }
                     }
                 }
@@ -611,7 +615,19 @@ macro_rules! statestore_integration_tests {
                 second_event_id: {
                     "m.read": {
                         user_id(): {
-                            "ts": 1436451551453u64
+                            "ts": second_receipt_ts,
+                        }
+                    }
+                }
+            }))
+            .expect("json creation failed");
+
+            let third_receipt_event = serde_json::from_value(json!({
+                second_event_id: {
+                    "m.read": {
+                        user_id(): {
+                            "ts": third_receipt_ts,
+                            "thread_id": "main",
                         }
                     }
                 }
@@ -626,7 +642,7 @@ macro_rules! statestore_integration_tests {
                     user_id()
                 )
                 .await
-                .expect("failed to read user room receipt")
+                .expect("failed to read unthreaded user room receipt")
                 .is_none());
             assert!(store
                 .get_event_room_receipt_events(
@@ -636,7 +652,7 @@ macro_rules! statestore_integration_tests {
                     &first_event_id
                 )
                 .await
-                .expect("failed to read user room receipt for 1")
+                .expect("failed to read unthreaded event room receipt for 1")
                 .is_empty());
             assert!(store
                 .get_event_room_receipt_events(
@@ -646,14 +662,14 @@ macro_rules! statestore_integration_tests {
                     &second_event_id
                 )
                 .await
-                .expect("failed to read user room receipt for 2")
+                .expect("failed to read unthreaded event room receipt for 2")
                 .is_empty());
 
             let mut changes = StateChanges::default();
             changes.add_receipts(room_id, first_receipt_event);
 
             store.save_changes(&changes).await.expect("writing changes fauked");
-            assert!(store
+            let (unthreaded_user_receipt_event_id, unthreaded_user_receipt) = store
                 .get_user_room_receipt_event(
                     room_id,
                     ReceiptType::Read,
@@ -661,22 +677,26 @@ macro_rules! statestore_integration_tests {
                     user_id()
                 )
                 .await
-                .expect("failed to read user room receipt after save")
-                .is_some());
+                .expect("failed to read unthreaded user room receipt after save")
+                .unwrap();
+            assert_eq!(unthreaded_user_receipt_event_id, first_event_id);
+            assert_eq!(unthreaded_user_receipt.ts.unwrap().0, first_receipt_ts);
+            let first_event_unthreaded_receipts = store
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &first_event_id
+                )
+                .await
+                .expect("failed to read unthreaded event room receipt for 1 after save");
             assert_eq!(
-                store
-                    .get_event_room_receipt_events(
-                        room_id,
-                        ReceiptType::Read,
-                        ReceiptThread::Unthreaded,
-                        &first_event_id
-                    )
-                    .await
-                    .expect("failed to read user room receipt for 1 after save")
-                    .len(),
+                first_event_unthreaded_receipts.len(),
                 1,
-                "Found a wrong number of receipts for 1 after save"
+                "Found a wrong number of unthreaded receipts for 1 after save"
             );
+            assert_eq!(first_event_unthreaded_receipts[0].0, user_id());
+            assert_eq!(first_event_unthreaded_receipts[0].1.ts.unwrap().0, first_receipt_ts);
             assert!(store
                 .get_event_room_receipt_events(
                     room_id,
@@ -685,14 +705,14 @@ macro_rules! statestore_integration_tests {
                     &second_event_id
                 )
                 .await
-                .expect("failed to read user room receipt for 2 after save")
+                .expect("failed to read unthreaded event room receipt for 2 after save")
                 .is_empty());
 
             let mut changes = StateChanges::default();
             changes.add_receipts(room_id, second_receipt_event);
 
             store.save_changes(&changes).await.expect("Saving works");
-            assert!(store
+            let (unthreaded_user_receipt_event_id, unthreaded_user_receipt) = store
                 .get_user_room_receipt_event(
                     room_id,
                     ReceiptType::Read,
@@ -700,8 +720,10 @@ macro_rules! statestore_integration_tests {
                     user_id()
                 )
                 .await
-                .expect("Getting user room receipts failed")
-                .is_some());
+                .expect("Getting unthreaded user room receipt after save failed")
+                .unwrap();
+            assert_eq!(unthreaded_user_receipt_event_id, second_event_id);
+            assert_eq!(unthreaded_user_receipt.ts.unwrap().0, second_receipt_ts);
             assert!(store
                 .get_event_room_receipt_events(
                     room_id,
@@ -710,22 +732,108 @@ macro_rules! statestore_integration_tests {
                     &first_event_id
                 )
                 .await
-                .expect("Getting event room receipt events for first event failed")
+                .expect("Getting unthreaded event room receipt events for first event failed")
                 .is_empty());
+            let second_event_unthreaded_receipts = store
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &second_event_id
+                )
+                .await
+                .expect("Getting unthreaded event room receipt events for second event failed");
             assert_eq!(
-                store
-                    .get_event_room_receipt_events(
-                        room_id,
-                        ReceiptType::Read,
-                        ReceiptThread::Unthreaded,
-                        &second_event_id
-                    )
-                    .await
-                    .expect("Getting event room receipt events for second event failed")
-                    .len(),
+                second_event_unthreaded_receipts.len(),
                 1,
-                "Found a wrong number of receipts for second event after save"
+                "Found a wrong number of unthreaded receipts for second event after save"
             );
+            assert_eq!(second_event_unthreaded_receipts[0].0, user_id());
+            assert_eq!(second_event_unthreaded_receipts[0].1.ts.unwrap().0, second_receipt_ts);
+
+            assert!(store
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Main,
+                    user_id()
+                )
+                .await
+                .expect("failed to read threaded user room receipt")
+                .is_none());
+            assert!(store
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Main,
+                    &second_event_id
+                )
+                .await
+                .expect("Getting threaded event room receipts for 2 failed")
+                .is_empty());
+
+            let mut changes = StateChanges::default();
+            changes.add_receipts(room_id, third_receipt_event);
+
+            store.save_changes(&changes).await.expect("Saving works");
+            // Unthreaded receipts should not have changed.
+            let (unthreaded_user_receipt_event_id, unthreaded_user_receipt) = store
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    user_id()
+                )
+                .await
+                .expect("Getting unthreaded user room receipt after save failed")
+                .unwrap();
+            assert_eq!(unthreaded_user_receipt_event_id, second_event_id);
+            assert_eq!(unthreaded_user_receipt.ts.unwrap().0, second_receipt_ts);
+            let second_event_unthreaded_receipts = store
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    &second_event_id
+                )
+                .await
+                .expect("Getting unthreaded event room receipt events for second event failed");
+            assert_eq!(
+                second_event_unthreaded_receipts.len(),
+                1,
+                "Found a wrong number of unthreaded receipts for second event after save"
+            );
+            assert_eq!(second_event_unthreaded_receipts[0].0, user_id());
+            assert_eq!(second_event_unthreaded_receipts[0].1.ts.unwrap().0, second_receipt_ts);
+            // Threaded receipts should have changed
+            let (threaded_user_receipt_event_id, threaded_user_receipt) = store
+                .get_user_room_receipt_event(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Main,
+                    user_id()
+                )
+                .await
+                .expect("Getting threaded user room receipt after save failed")
+                .unwrap();
+            assert_eq!(threaded_user_receipt_event_id, second_event_id);
+            assert_eq!(threaded_user_receipt.ts.unwrap().0, third_receipt_ts);
+            let second_event_threaded_receipts = store
+                .get_event_room_receipt_events(
+                    room_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Main,
+                    &second_event_id
+                )
+                .await
+                .expect("Getting threaded event room receipt events for second event failed");
+            assert_eq!(
+                second_event_threaded_receipts.len(),
+                1,
+                "Found a wrong number of threaded receipts for second event after save"
+            );
+            assert_eq!(second_event_threaded_receipts[0].0, user_id());
+            assert_eq!(second_event_threaded_receipts[0].1.ts.unwrap().0, third_receipt_ts);
         }
 
         #[async_test]
