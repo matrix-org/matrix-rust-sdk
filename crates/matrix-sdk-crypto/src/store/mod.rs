@@ -81,7 +81,7 @@ pub mod integration_tests;
 
 pub use error::{CryptoStoreError, Result};
 pub use memorystore::MemoryStore;
-pub use traits::{CryptoStore, IntoCryptoStore};
+pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
@@ -95,7 +95,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 pub(crate) struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<dyn CryptoStore>,
+    inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
     users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
@@ -281,7 +281,7 @@ impl Store {
     pub fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<dyn CryptoStore>,
+        store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self {
@@ -700,7 +700,7 @@ impl Store {
 }
 
 impl Deref for Store {
-    type Target = dyn CryptoStore;
+    type Target = DynCryptoStore;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()

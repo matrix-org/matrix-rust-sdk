@@ -525,6 +525,8 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 
 #[async_trait]
 impl CryptoStore for SqliteCryptoStore {
+    type Error = CryptoStoreError;
+
     async fn load_account(&self) -> StoreResult<Option<ReadOnlyAccount>> {
         let conn = self.acquire().await?;
         if let Some(pickle) = conn.get_kv("account").await.map_err(CryptoStoreError::backend)? {

@@ -1061,7 +1061,7 @@ pub(crate) mod tests {
             Device, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
         },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::MemoryStore,
+        store::{IntoCryptoStore, MemoryStore},
         types::CrossSigningKey,
         verification::VerificationMachine,
     };
@@ -1105,7 +1105,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity,
-            Arc::new(MemoryStore::new()),
+            MemoryStore::new().into_crypto_store(),
         );
 
         let first = Device {
@@ -1146,7 +1146,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(device.user_id(), device.device_id()),
             id.clone(),
-            Arc::new(MemoryStore::new()),
+            MemoryStore::new().into_crypto_store(),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();

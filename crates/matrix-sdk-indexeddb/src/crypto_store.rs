@@ -924,6 +924,8 @@ impl Drop for IndexeddbCryptoStore {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl CryptoStore for IndexeddbCryptoStore {
+    type Error = CryptoStoreError;
+
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
         self.load_account().await.map_err(|e| e.into())
     }

@@ -42,7 +42,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::store::{CryptoStore, IntoCryptoStore};
+use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
@@ -839,7 +839,7 @@ impl StateChanges {
 #[derive(Clone)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Arc<dyn CryptoStore>,
+    pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<dyn StateStore>,
 }
 
@@ -856,7 +856,7 @@ impl StoreConfig {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "e2e-encryption")]
-            crypto_store: Arc::new(matrix_sdk_crypto::store::MemoryStore::new()),
+            crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
         }
     }

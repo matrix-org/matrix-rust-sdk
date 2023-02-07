@@ -66,7 +66,7 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStore, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
         Result as StoreResult, SecretImportError, Store,
     },
     types::{
@@ -153,7 +153,7 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<dyn CryptoStore>,
+        store: Arc<DynCryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, io::Error as IoError};
+use std::{convert::Infallible, fmt::Debug, io::Error as IoError};
 
 use ruma::{IdParseError, OwnedDeviceId, OwnedUserId};
 use serde_json::Error as SerdeError;
@@ -90,5 +90,11 @@ impl CryptoStoreError {
         E: std::error::Error + Send + Sync + 'static,
     {
         Self::Backend(Box::new(error))
+    }
+}
+
+impl From<Infallible> for CryptoStoreError {
+    fn from(never: Infallible) -> Self {
+        match never {}
     }
 }
