@@ -683,14 +683,6 @@ impl Store {
         Ok(self.tracked_users_cache.contains(user_id))
     }
 
-    /// Are there any users that have the outdated/dirty flag set for their list
-    /// of devices?
-    pub async fn has_users_for_key_query(&self) -> Result<bool> {
-        self.load_tracked_users().await?;
-
-        Ok(!self.users_for_key_query_cache.is_empty())
-    }
-
     /// Get the set of users that has the outdate/dirty flag set for their list
     /// of devices.
     ///
