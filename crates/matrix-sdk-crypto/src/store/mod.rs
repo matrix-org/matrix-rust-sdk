@@ -97,7 +97,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub(crate) struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<dyn CryptoStore>,
