@@ -317,7 +317,38 @@ impl IndexeddbCryptoStore {
     fn get_account_info(&self) -> Option<AccountInfo> {
         self.account_info.read().unwrap().clone()
     }
+}
 
+// Small hack to have the following macro invocation act as the appropriate
+// trait impl block on wasm, but still be compiled on non-wasm as a regular
+// impl block otherwise.
+//
+// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
+// this hack allows us to still have most of rust-analyzer's IDE functionality
+// within the impl block without having to set it up to check things against
+// the wasm target (which would disable many other parts of the codebase).
+#[cfg(target_arch = "wasm32")]
+macro_rules! impl_crypto_store {
+    ( $($body:tt)* ) => {
+        #[async_trait(?Send)]
+        impl CryptoStore for IndexeddbCryptoStore {
+            type Error = IndexeddbCryptoStoreError;
+
+            $($body)*
+        }
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! impl_crypto_store {
+    ( $($body:tt)* ) => {
+        impl IndexeddbCryptoStore {
+            $($body)*
+        }
+    };
+}
+
+impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
@@ -538,7 +569,7 @@ impl IndexeddbCryptoStore {
         Ok(users)
     }
 
-    async fn load_outbound_group_session(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
@@ -565,9 +596,13 @@ impl IndexeddbCryptoStore {
             Ok(None)
         }
     }
-    async fn get_outgoing_key_request_helper(&self, key: &str) -> Result<Option<GossipRequest>> {
+
+    async fn get_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<Option<GossipRequest>> {
         // in this internal we expect key to already be escaped or encrypted
-        let jskey = JsValue::from_str(key);
+        let jskey = JsValue::from_str(request_id.as_str());
         let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS];
         let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
 
@@ -613,6 +648,11 @@ impl IndexeddbCryptoStore {
         } else {
             Ok(None)
         }
+    }
+
+    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
+        self.save_changes(Changes { account: Some(account), ..Default::default() })
+            .await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -829,7 +869,7 @@ impl IndexeddbCryptoStore {
             .await?
             .and_then(|i| i.as_string());
         if let Some(id) = id {
-            self.get_outgoing_key_request_helper(&id).await
+            self.get_outgoing_secret_requests(id.as_str().into()).await
         } else {
             Ok(None)
         }
@@ -918,136 +958,6 @@ impl Drop for IndexeddbCryptoStore {
         // Must release the database access manually as it's not done when
         // dropping it.
         self.inner.close();
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
-impl CryptoStore for IndexeddbCryptoStore {
-    type Error = CryptoStoreError;
-
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
-        self.load_account().await.map_err(|e| e.into())
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<(), CryptoStoreError> {
-        self.save_changes(Changes { account: Some(account), ..Default::default() })
-            .await
-            .map_err(|e| e.into())
-    }
-
-    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, CryptoStoreError> {
-        self.load_identity().await.map_err(|e| e.into())
-    }
-
-    async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
-        self.save_changes(changes).await.map_err(|e| e.into())
-    }
-
-    async fn get_sessions(
-        &self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
-        self.get_sessions(sender_key).await.map_err(|e| e.into())
-    }
-
-    async fn get_inbound_group_session(
-        &self,
-        room_id: &RoomId,
-        session_id: &str,
-    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        self.get_inbound_group_session(room_id, session_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_inbound_group_sessions(
-        &self,
-    ) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
-        self.get_inbound_group_sessions().await.map_err(|e| e.into())
-    }
-
-    async fn get_outbound_group_session(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>, CryptoStoreError> {
-        self.load_outbound_group_session(room_id).await.map_err(|e| e.into())
-    }
-
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, CryptoStoreError> {
-        self.inbound_group_session_counts().await.map_err(|e| e.into())
-    }
-
-    async fn inbound_group_sessions_for_backup(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
-        self.inbound_group_sessions_for_backup(limit).await.map_err(|e| e.into())
-    }
-
-    async fn reset_backup_state(&self) -> Result<(), CryptoStoreError> {
-        self.reset_backup_state().await.map_err(|e| e.into())
-    }
-
-    async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
-        self.load_backup_keys().await.map_err(|e| e.into())
-    }
-
-    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<(), CryptoStoreError> {
-        self.save_tracked_users(users).await.map_err(Into::into)
-    }
-
-    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>, CryptoStoreError> {
-        self.load_tracked_users().await.map_err(Into::into)
-    }
-
-    async fn get_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
-        self.get_device(user_id, device_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
-        self.get_user_devices(user_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_user_identity(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
-        self.get_user_identity(user_id).await.map_err(|e| e.into())
-    }
-
-    async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool, CryptoStoreError> {
-        self.is_message_known(hash).await.map_err(|e| e.into())
-    }
-
-    async fn get_outgoing_secret_requests(
-        &self,
-        request_id: &TransactionId,
-    ) -> Result<Option<GossipRequest>, CryptoStoreError> {
-        self.get_outgoing_key_request_helper(request_id.as_str()).await.map_err(|e| e.into())
-    }
-
-    async fn get_secret_request_by_info(
-        &self,
-        key_info: &SecretInfo,
-    ) -> Result<Option<GossipRequest>, CryptoStoreError> {
-        self.get_secret_request_by_info(key_info).await.map_err(|e| e.into())
-    }
-
-    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>, CryptoStoreError> {
-        self.get_unsent_secret_requests().await.map_err(|e| e.into())
-    }
-
-    async fn delete_outgoing_secret_requests(
-        &self,
-        request_id: &TransactionId,
-    ) -> Result<(), CryptoStoreError> {
-        self.delete_outgoing_secret_requests(request_id).await.map_err(|e| e.into())
     }
 }
 
