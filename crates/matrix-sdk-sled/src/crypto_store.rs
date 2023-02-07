@@ -697,6 +697,8 @@ impl SledCryptoStore {
 
 #[async_trait]
 impl CryptoStore for SledCryptoStore {
+    type Error = CryptoStoreError;
+
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         if let Some(pickle) =
             self.account.get("account".encode()).map_err(CryptoStoreError::backend)?

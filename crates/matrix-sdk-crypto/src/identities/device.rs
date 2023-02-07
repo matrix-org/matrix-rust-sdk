@@ -41,7 +41,7 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
-    store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
+    store::{Changes, DeviceChanges, DynCryptoStore, Result as StoreResult},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -570,7 +570,7 @@ impl ReadOnlyDevice {
 
     pub(crate) async fn encrypt(
         &self,
-        store: &dyn CryptoStore,
+        store: &DynCryptoStore,
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {

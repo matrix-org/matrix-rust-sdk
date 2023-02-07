@@ -667,7 +667,7 @@ pub(crate) mod testing {
         identities::IdentityManager,
         machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{CryptoStore, MemoryStore, Store},
+        store::{DynCryptoStore, IntoCryptoStore, MemoryStore, Store},
         types::DeviceKeys,
         verification::VerificationMachine,
         UploadSigningKeysRequest,
@@ -690,10 +690,14 @@ pub(crate) mod testing {
         let identity = Arc::new(Mutex::new(identity));
         let user_id = Arc::from(user_id());
         let account = ReadOnlyAccount::new(&user_id, device_id());
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let store: Arc<DynCryptoStore> = MemoryStore::new().into_crypto_store();
         let verification = VerificationMachine::new(account, identity.clone(), store);
-        let store =
-            Store::new(user_id.clone(), identity, Arc::new(MemoryStore::new()), verification);
+        let store = Store::new(
+            user_id.clone(),
+            identity,
+            MemoryStore::new().into_crypto_store(),
+            verification,
+        );
         IdentityManager::new(user_id, device_id().into(), store)
     }
 
