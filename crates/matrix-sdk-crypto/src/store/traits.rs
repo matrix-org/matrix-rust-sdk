@@ -189,3 +189,9 @@ where
         self
     }
 }
+
+impl IntoCryptoStore for Arc<dyn CryptoStore> {
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
+        self
+    }
+}

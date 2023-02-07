@@ -66,8 +66,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
-        SecretImportError, Store,
+        Changes, CryptoStore, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Result as StoreResult, SecretImportError, Store,
     },
     types::{
         events::{
@@ -145,9 +145,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-
-        OlmMachine::with_store(user_id, device_id, store)
+        OlmMachine::with_store(user_id, device_id, MemoryStore::new())
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -235,8 +233,9 @@ impl OlmMachine {
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<dyn CryptoStore>,
+        store: impl IntoCryptoStore,
     ) -> StoreResult<Self> {
+        let store = store.into_crypto_store();
         let account = match store.load_account().await? {
             Some(account) => {
                 if user_id != account.user_id() || device_id != account.device_id() {
