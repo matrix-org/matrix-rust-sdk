@@ -85,7 +85,7 @@ matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-feat
 mime = "0.3.16"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
-ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3575"] }
+ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }

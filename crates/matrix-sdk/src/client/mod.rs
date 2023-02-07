@@ -136,6 +136,7 @@ pub(crate) struct ClientInner {
     /// The OIDC Provider that is trusted by the homeserver.
     authentication_issuer: Option<RwLock<Url>>,
     /// The sliding sync proxy that is trusted by the homeserver.
+    #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: Option<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
@@ -319,6 +320,7 @@ impl Client {
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
+    #[cfg(feature = "experimental-sliding-sync")]
     pub async fn sliding_sync_proxy(&self) -> Option<Url> {
         let server = self.inner.sliding_sync_proxy.as_ref()?;
         Some(server.read().await.clone())

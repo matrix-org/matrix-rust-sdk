@@ -308,7 +308,7 @@ interface MediaSource {
 };
 
 interface AuthenticationService {
-    constructor(string base_path, string? passphrase, string? custom_sync_proxy);
+    constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
 
 interface SessionVerificationEmoji {};

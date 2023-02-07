@@ -14,7 +14,7 @@ pub struct AuthenticationService {
     passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
-    custom_sync_proxy: RwLock<Option<String>>,
+    custom_sliding_sync_proxy: RwLock<Option<String>>,
 }
 
 impl Drop for AuthenticationService {
@@ -73,14 +73,14 @@ impl AuthenticationService {
     pub fn new(
         base_path: String,
         passphrase: Option<String>,
-        custom_sync_proxy: Option<String>,
+        custom_sliding_sync_proxy: Option<String>,
     ) -> Self {
         AuthenticationService {
             base_path,
             passphrase,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
-            custom_sync_proxy: RwLock::new(custom_sync_proxy),
+            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
         }
     }
 
@@ -124,7 +124,7 @@ impl AuthenticationService {
         let client = builder.build().map_err(AuthenticationError::from)?;
 
         // Make sure there's a sliding sync proxy available one way or another.
-        if self.custom_sync_proxy.read().unwrap().is_none()
+        if self.custom_sliding_sync_proxy.read().unwrap().is_none()
             && client.discovered_sliding_sync_proxy().is_none()
         {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
@@ -164,7 +164,7 @@ impl AuthenticationService {
         let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
 
         let sliding_sync_proxy: Option<String>;
-        if let Some(custom_proxy) = self.custom_sync_proxy.read().unwrap().clone() {
+        if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
             sliding_sync_proxy = Some(custom_proxy);
         } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
             sliding_sync_proxy = Some(discovered_proxy);
