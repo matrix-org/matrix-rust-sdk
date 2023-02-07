@@ -359,6 +359,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         let mut authentication_issuer: Option<Url> = None;
+        #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
@@ -382,6 +383,7 @@ impl ClientBuilder {
                 if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
                     authentication_issuer = Url::parse(&issuer).ok();
                 }
+                #[cfg(feature = "experimental-sliding-sync")]
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
                     sliding_sync_proxy = Url::parse(&proxy).ok();
                 }
@@ -392,11 +394,13 @@ impl ClientBuilder {
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
         let authentication_issuer = authentication_issuer.map(RwLock::new);
+        #[cfg(feature = "experimental-sliding-sync")]
         let sliding_sync_proxy = sliding_sync_proxy.map(RwLock::new);
 
         let inner = Arc::new(ClientInner {
             homeserver,
             authentication_issuer,
+            #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy,
             http_client,
             base_client,
