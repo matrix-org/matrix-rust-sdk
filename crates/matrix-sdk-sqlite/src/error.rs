@@ -51,41 +51,40 @@ pub enum OpenStoreError {
     SaveCipher(#[source] rusqlite::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum Error {
-    #[cfg(feature = "crypto-store")]
-    Crypto(CryptoStoreError),
+    #[error(transparent)]
     Sqlite(rusqlite::Error),
+    #[error(transparent)]
     Pool(PoolError),
+    #[error(transparent)]
+    Encode(rmp_serde::encode::Error),
+    #[error(transparent)]
+    Decode(rmp_serde::decode::Error),
+    #[error(transparent)]
+    Encryption(matrix_sdk_store_encryption::Error),
 }
 
-#[cfg(feature = "crypto-store")]
-impl From<CryptoStoreError> for Error {
-    fn from(value: CryptoStoreError) -> Self {
-        Self::Crypto(value)
-    }
+macro_rules! impl_from {
+    ( $ty:ty => $enum:ident::$variant:ident ) => {
+        impl From<$ty> for $enum {
+            fn from(value: $ty) -> Self {
+                Self::$variant(value)
+            }
+        }
+    };
 }
 
-impl From<rusqlite::Error> for Error {
-    fn from(value: rusqlite::Error) -> Self {
-        Self::Sqlite(value)
-    }
-}
-
-impl From<PoolError> for Error {
-    fn from(value: PoolError) -> Self {
-        Self::Pool(value)
-    }
-}
+impl_from!(rusqlite::Error => Error::Sqlite);
+impl_from!(PoolError => Error::Pool);
+impl_from!(rmp_serde::encode::Error => Error::Encode);
+impl_from!(rmp_serde::decode::Error => Error::Decode);
+impl_from!(matrix_sdk_store_encryption::Error => Error::Encryption);
 
 #[cfg(feature = "crypto-store")]
 impl From<Error> for CryptoStoreError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Crypto(c) => c,
-            Error::Sqlite(b) => CryptoStoreError::backend(b),
-            Error::Pool(b) => CryptoStoreError::backend(b),
-        }
+    fn from(e: Error) -> Self {
+        CryptoStoreError::backend(e)
     }
 }
 
