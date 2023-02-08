@@ -42,6 +42,7 @@ use tokio::fs;
 use tracing::{debug, error, instrument, warn};
 
 use crate::{
+    error::{Error, Result},
     get_or_create_store_cipher,
     utils::{Key, SqliteObjectExt},
     OpenStoreError, SqliteConnectionExt as _, SqliteObjectStoreExt,
@@ -53,43 +54,6 @@ pub struct AccountInfo {
     device_id: Arc<DeviceId>,
     identity_keys: Arc<IdentityKeys>,
 }
-
-#[derive(Debug)]
-enum Error {
-    Crypto(CryptoStoreError),
-    Sqlite(rusqlite::Error),
-    Pool(deadpool_sqlite::PoolError),
-}
-
-impl From<CryptoStoreError> for Error {
-    fn from(value: CryptoStoreError) -> Self {
-        Self::Crypto(value)
-    }
-}
-
-impl From<rusqlite::Error> for Error {
-    fn from(value: rusqlite::Error) -> Self {
-        Self::Sqlite(value)
-    }
-}
-
-impl From<deadpool_sqlite::PoolError> for Error {
-    fn from(value: deadpool_sqlite::PoolError) -> Self {
-        Self::Pool(value)
-    }
-}
-
-impl From<Error> for CryptoStoreError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Crypto(c) => c,
-            Error::Sqlite(b) => CryptoStoreError::backend(b),
-            Error::Pool(b) => CryptoStoreError::backend(b),
-        }
-    }
-}
-
-type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]

@@ -14,7 +14,6 @@
 #![cfg_attr(not(feature = "crypto-store"), allow(dead_code, unused_imports))]
 
 use async_trait::async_trait;
-use deadpool_sqlite::CreatePoolError;
 #[cfg(feature = "crypto-store")]
 use deadpool_sqlite::Object as SqliteConn;
 #[cfg(feature = "crypto-store")]
@@ -23,31 +22,17 @@ use matrix_sdk_crypto::{store::Result, CryptoStoreError};
 use matrix_sdk_store_encryption::StoreCipher;
 #[cfg(feature = "crypto-store")]
 use rusqlite::OptionalExtension;
-use thiserror::Error;
-use tracing::error;
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
+mod error;
 mod utils;
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
+pub use self::error::OpenStoreError;
 #[cfg(feature = "crypto-store")]
 use self::utils::SqliteObjectExt;
-
-/// All the errors that can occur when opening a sled store.
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum OpenStoreError {
-    /// An error occurred with the crypto store implementation.
-    #[cfg(feature = "crypto-store")]
-    #[error(transparent)]
-    Crypto(#[from] CryptoStoreError),
-
-    /// An error occurred with sqlite.
-    #[error(transparent)]
-    Sqlite(#[from] CreatePoolError),
-}
 
 #[cfg(feature = "crypto-store")]
 async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Result<StoreCipher> {
