@@ -177,33 +177,6 @@ impl SqliteCryptoStore {
     async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
         Ok(self.pool.get().await?)
     }
-
-    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
-        self.acquire()
-            .await?
-            .get_tracked_users()
-            .await?
-            .iter()
-            .map(|value| Ok(self.deserialize_value(value)?))
-            .collect()
-    }
-
-    async fn save_tracked_users(
-        &self,
-        tracked_users: &[(&UserId, bool)],
-    ) -> Result<(), CryptoStoreError> {
-        let users: Vec<(Key, Vec<u8>)> = tracked_users
-            .iter()
-            .map(|(u, d)| {
-                let user_id = self.encode_key("tracked_users", u.as_bytes());
-                let data =
-                    self.serialize_value(&TrackedUser { user_id: (*u).into(), dirty: *d })?;
-                Ok((user_id, data))
-            })
-            .collect::<Result<_>>()?;
-
-        Ok(self.acquire().await?.add_tracked_users(users).await?)
-    }
 }
 
 const DATABASE_VERSION: u8 = 1;
@@ -859,11 +832,27 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn load_tracked_users(&self) -> StoreResult<Vec<TrackedUser>> {
-        Ok(self.load_tracked_users().await?)
+        self.acquire()
+            .await?
+            .get_tracked_users()
+            .await?
+            .iter()
+            .map(|value| self.deserialize_value(value))
+            .collect()
     }
 
-    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> StoreResult<()> {
-        self.save_tracked_users(users).await
+    async fn save_tracked_users(&self, tracked_users: &[(&UserId, bool)]) -> StoreResult<()> {
+        let users: Vec<(Key, Vec<u8>)> = tracked_users
+            .iter()
+            .map(|(u, d)| {
+                let user_id = self.encode_key("tracked_users", u.as_bytes());
+                let data =
+                    self.serialize_value(&TrackedUser { user_id: (*u).into(), dirty: *d })?;
+                Ok((user_id, data))
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(self.acquire().await?.add_tracked_users(users).await?)
     }
 
     async fn get_device(
