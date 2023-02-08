@@ -718,6 +718,14 @@ pub enum SlidingSyncMode {
     /// fully sync all rooms in the background, with a growing window of
     /// `batch_size`,
     GrowingFullSync,
+    /// Activate the slow get all rooms mode.
+    ///
+    /// In this mode, the server is slower in responding as it will return
+    /// all rooms matching the filters in a single request. It will ignore
+    /// sorting and ranges and not trigger any updates in the order of rooms,
+    /// room details will be tracked for all rooms. This is primarily meant for
+    /// non user interfacing clients, like bots.
+    SlowGetAllRooms,
     /// Only sync the specific windows defined
     #[default]
     Selective,
@@ -1916,6 +1924,7 @@ impl SlidingSyncViewBuilder {
 enum InnerSlidingSyncViewRequestGenerator {
     GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     PagingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
+    SlowGetAllRooms,
     Live,
 }
 
@@ -1945,6 +1954,14 @@ impl SlidingSyncViewRequestGenerator {
                 limit,
                 live: false,
             },
+        }
+    }
+
+    fn new_slow_get_all_rooms(view: SlidingSyncView) -> Self {
+        SlidingSyncViewRequestGenerator {
+            view,
+            ranges: Default::default(),
+            inner: InnerSlidingSyncViewRequestGenerator::SlowGetAllRooms,
         }
     }
 
@@ -2026,6 +2043,20 @@ impl SlidingSyncViewRequestGenerator {
         self.make_request_for_ranges(ranges)
     }
 
+    fn slow_get_all_request(&mut self) -> v4::SyncRequestList {
+        let required_state = self.view.required_state.clone();
+        let timeline_limit = self.view.timeline_limit.get_cloned();
+        let filters = self.view.filters.clone();
+        assign!(v4::SyncRequestList::default(), {
+            slow_get_all_rooms: true,
+            filters,
+            room_details: assign!(v4::RoomDetailsConfig::default(), {
+                required_state,
+                timeline_limit,
+            }),
+        })
+    }
+
     #[instrument(skip_all, fields(name = self.view.name, rooms_count, has_ops = !ops.is_empty()))]
     fn handle_response(
         &mut self,
@@ -2039,15 +2070,6 @@ impl SlidingSyncViewRequestGenerator {
     }
 
     fn update_state(&mut self, max_index: u32) {
-        let Some((_start, range_end)) = self.ranges.first() else {
-            error!("Why don't we have any ranges?");
-            return
-        };
-
-        let end = if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
-
-        trace!(end, max_index, range_end, name = self.view.name, "updating state");
-
         match &mut self.inner {
             InnerSlidingSyncViewRequestGenerator::PagingFullSync {
                 position, live, limit, ..
@@ -2055,6 +2077,16 @@ impl SlidingSyncViewRequestGenerator {
             | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
                 position, live, limit, ..
             } => {
+                let Some((_start, range_end)) = self.ranges.first() else {
+                    error!("Why don't we have any ranges?");
+                    return
+                };
+
+                let end =
+                    if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
+
+                trace!(end, max_index, range_end, name = self.view.name, "updating state");
+
                 let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
                 trace!(end, max, name = self.view.name, "updating state");
                 if end >= max {
@@ -2076,7 +2108,8 @@ impl SlidingSyncViewRequestGenerator {
                     });
                 }
             }
-            InnerSlidingSyncViewRequestGenerator::Live => {
+            InnerSlidingSyncViewRequestGenerator::Live
+            | InnerSlidingSyncViewRequestGenerator::SlowGetAllRooms => {
                 self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
                     !matches!(before, SlidingSyncState::Live)
                 });
@@ -2109,6 +2142,9 @@ impl Iterator for SlidingSyncViewRequestGenerator {
                 ..
             } => Some(self.prefetch_request(0, position + batch_size, limit)),
             InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
+            InnerSlidingSyncViewRequestGenerator::SlowGetAllRooms => {
+                Some(self.slow_get_all_request())
+            }
         }
     }
 }
@@ -2457,6 +2493,9 @@ impl SlidingSyncView {
             }
             SlidingSyncMode::GrowingFullSync => {
                 SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
+            }
+            SlidingSyncMode::SlowGetAllRooms => {
+                SlidingSyncViewRequestGenerator::new_slow_get_all_rooms(self.clone())
             }
             SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
         }

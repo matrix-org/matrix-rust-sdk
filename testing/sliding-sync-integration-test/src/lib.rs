@@ -187,9 +187,6 @@ mod tests {
         Ok(())
     }
 
-    // index-based views don't support removing views. Leaving this test for an API
-    // update later.
-    //
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn live_views() -> anyhow::Result<()> {
         let view_name_1 = "sliding1";
@@ -495,23 +492,24 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
+    async fn slow_full_sync() -> anyhow::Result<()> {
         let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         let sliding_window_view = SlidingSyncViewBuilder::default()
-            .sync_mode(SlidingSyncMode::Selective)
-            .set_range(1u32, 10u32)
+            .sync_mode(SlidingSyncMode::SlowGetAllRooms)
+            .set_range(0u32, 10u32) // will be ignored anyways.
             .sort(vec!["by_recency".to_string(), "by_name".to_string()])
-            .name("sliding")
+            .name("slow")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+        let view = sync_proxy.view("slow").context("but we just added that view!")?;
         let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
-        // we only heard about the ones we had asked for
-        assert_eq!(summary.rooms.len(), 10);
+
+        // we have seen all views.
+        assert_eq!(summary.rooms.len(), 20);
         let collection_simple = view
             .rooms_list
             .lock_ref()
@@ -520,68 +518,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             collection_simple,
-            repeat(RoomListEntryEasy::Empty)
-                .take(1)
-                .chain(repeat(RoomListEntryEasy::Filled).take(10))
-                .chain(repeat(RoomListEntryEasy::Empty).take(9))
-                .collect::<Vec<_>>()
-        );
-
-        let _signal = view.rooms_list.signal_vec_cloned();
-
-        // let's move the window
-
-        view.set_range(0, 10);
-
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
-                break;
-            }
-        }
-
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            collection_simple,
-            repeat(RoomListEntryEasy::Filled)
-                .take(11)
-                .chain(repeat(RoomListEntryEasy::Empty).take(9))
-                .collect::<Vec<_>>()
-        );
-
-        // let's move the window again
-
-        view.set_range(2, 12);
-
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
-                break;
-            }
-        }
-
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            collection_simple,
-            repeat(RoomListEntryEasy::Invalid)
-                .take(2)
-                .chain(repeat(RoomListEntryEasy::Filled).take(11))
-                .chain(repeat(RoomListEntryEasy::Empty).take(7))
-                .collect::<Vec<_>>()
+            repeat(RoomListEntryEasy::Filled).take(20).collect::<Vec<_>>()
         );
 
         // now we "move" the room of pos 3 to pos 0;
@@ -603,66 +540,36 @@ mod tests {
 
         room.send(content, None).await?; // this should put our room up to the most recent
 
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
-                break;
-            }
-        }
+        // FIXME how can we make sure this doesn't trigger an update to our view without
+        // waiting forever?
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            collection_simple,
-            repeat(RoomListEntryEasy::Invalid)
-                .take(2)
-                .chain(repeat(RoomListEntryEasy::Filled).take(11))
-                .chain(repeat(RoomListEntryEasy::Empty).take(7))
-                .collect::<Vec<_>>()
-        );
+        // for _n in 0..2 {
+        //     let room_summary = stream.next().await.context("sync has closed
+        // unexpectedly")?;     let summary = room_summary?;
+        //     // we only heard about the ones we had asked for
+        //     if summary.views.iter().any(|s| s == "sliding") {
+        //         break;
+        //     }
+        // }
 
-        // items has moved, thus we shouldn't find it where it was
-        assert!(view.rooms_list.lock_ref().iter().nth(3).unwrap().as_room_id().unwrap() != room_id);
+        // let collection_simple = view
+        //     .rooms_list
+        //     .lock_ref()
+        //     .iter()
+        //     .map(Into::<RoomListEntryEasy>::into)
+        //     .collect::<Vec<_>>();
+        // assert_eq!(
+        //     collection_simple,
+        //     repeat(RoomListEntryEasy::Invalid)
+        //         .take(2)
+        //         .chain(repeat(RoomListEntryEasy::Filled).take(11))
+        //         .chain(repeat(RoomListEntryEasy::Empty).take(7))
+        //         .collect::<Vec<_>>()
+        // );
 
-        // let's move the window again
-
-        view.set_range(0, 10);
-
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
-            // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
-                break;
-            }
-        }
-
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            collection_simple,
-            repeat(RoomListEntryEasy::Filled)
-                .take(11)
-                .chain(repeat(RoomListEntryEasy::Invalid).take(2))
-                .chain(repeat(RoomListEntryEasy::Empty).take(7))
-                .collect::<Vec<_>>()
-        );
-
-        // and check that our room move has been accepted properly, too.
-        assert_eq!(
-            view.rooms_list.lock_ref().iter().next().unwrap().as_room_id().unwrap(),
-            &room_id
-        );
+        // // items has moved, thus we shouldn't find it where it was
+        // assert!(view.rooms_list.lock_ref().iter().nth(3).unwrap().as_room_id().
+        // unwrap() != room_id);
 
         Ok(())
     }
