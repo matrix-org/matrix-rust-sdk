@@ -220,7 +220,7 @@ async fn run_migrations(conn: &SqliteConn) -> Result<(), CryptoStoreError> {
         > 0;
 
     let version = if kv_exists {
-        match conn.get_kv("version").await?.as_deref() {
+        match conn.get_kv("version").await.map_err(CryptoStoreError::backend)?.as_deref() {
             Some([v]) => *v,
             Some(_) => {
                 error!("version database field has multiple bytes");
@@ -555,7 +555,7 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 impl CryptoStore for SqliteCryptoStore {
     async fn load_account(&self) -> StoreResult<Option<ReadOnlyAccount>> {
         let conn = self.acquire().await?;
-        if let Some(pickle) = conn.get_kv("account").await? {
+        if let Some(pickle) = conn.get_kv("account").await.map_err(CryptoStoreError::backend)? {
             let pickle = self.deserialize_value(&pickle)?;
 
             let account = ReadOnlyAccount::from_pickle(pickle)?;
@@ -584,13 +584,17 @@ impl CryptoStore for SqliteCryptoStore {
 
         let pickled_account = account.pickle().await;
         let serialized_account = self.serialize_value(&pickled_account)?;
-        self.acquire().await?.set_kv("account", serialized_account).await?;
+        self.acquire()
+            .await?
+            .set_kv("account", serialized_account)
+            .await
+            .map_err(CryptoStoreError::backend)?;
         Ok(())
     }
 
     async fn load_identity(&self) -> StoreResult<Option<PrivateCrossSigningIdentity>> {
         let conn = self.acquire().await?;
-        if let Some(i) = conn.get_kv("identity").await? {
+        if let Some(i) = conn.get_kv("identity").await.map_err(CryptoStoreError::backend)? {
             let pickle = self.deserialize_value(&i)?;
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle)
@@ -822,13 +826,15 @@ impl CryptoStore for SqliteCryptoStore {
 
         let backup_version = conn
             .get_kv("backup_version_v1")
-            .await?
+            .await
+            .map_err(CryptoStoreError::backend)?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
         let recovery_key = conn
             .get_kv("recovery_key_v1")
-            .await?
+            .await
+            .map_err(CryptoStoreError::backend)?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
