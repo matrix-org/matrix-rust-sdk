@@ -3040,6 +3040,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vodozemac",
 ]
 
 [[package]]

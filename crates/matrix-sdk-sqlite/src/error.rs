@@ -52,7 +52,7 @@ pub enum OpenStoreError {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum Error {
+pub enum Error {
     #[error(transparent)]
     Sqlite(rusqlite::Error),
     #[error(transparent)]
@@ -63,6 +63,12 @@ pub(crate) enum Error {
     Decode(rmp_serde::decode::Error),
     #[error(transparent)]
     Encryption(matrix_sdk_store_encryption::Error),
+    #[error("can't save/load sessions or group sessions in the store before an account is stored")]
+    AccountUnset,
+    #[error(transparent)]
+    Pickle(#[from] vodozemac::PickleError),
+    #[error("An object failed to be decrypted while unpickling")]
+    Unpickle,
 }
 
 macro_rules! impl_from {
