@@ -85,7 +85,7 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let path = path.as_ref();
-        fs::create_dir_all(path).await.map_err(CryptoStoreError::from)?;
+        fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
         let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-crypto.sqlite3"));
         let pool = cfg.create_pool(Runtime::Tokio1)?;
 
@@ -98,8 +98,8 @@ impl SqliteCryptoStore {
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let conn = pool.get().await.map_err(CryptoStoreError::backend)?;
-        run_migrations(&conn).await?;
+        let conn = pool.get().await?;
+        run_migrations(&conn).await.map_err(OpenStoreError::Migration)?;
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
@@ -208,19 +208,18 @@ impl SqliteCryptoStore {
 
 const DATABASE_VERSION: u8 = 1;
 
-async fn run_migrations(conn: &SqliteConn) -> Result<(), CryptoStoreError> {
+async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
             (),
             |row| row.get::<_, u32>(0),
         )
-        .await
-        .map_err(CryptoStoreError::backend)?
+        .await?
         > 0;
 
     let version = if kv_exists {
-        match conn.get_kv("version").await.map_err(CryptoStoreError::backend)?.as_deref() {
+        match conn.get_kv("version").await?.as_deref() {
             Some([v]) => *v,
             Some(_) => {
                 error!("version database field has multiple bytes");
@@ -244,15 +243,12 @@ async fn run_migrations(conn: &SqliteConn) -> Result<(), CryptoStoreError> {
     if version < 1 {
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
-        conn.execute_batch("PRAGMA journal_mode = wal;")
-            .await
-            .map_err(CryptoStoreError::backend)?;
+        conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
-            .await
-            .map_err(CryptoStoreError::backend)?;
+            .await?;
     }
 
-    conn.set_kv("version", vec![DATABASE_VERSION]).await.map_err(CryptoStoreError::backend)?;
+    conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
 }
