@@ -592,7 +592,7 @@ impl CryptoStore for SqliteCryptoStore {
         };
 
         let pickled_private_identity =
-            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
+            if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let mut session_changes = Vec::new();
         for session in changes.sessions {
