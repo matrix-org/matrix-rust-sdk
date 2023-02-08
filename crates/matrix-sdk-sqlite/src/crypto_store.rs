@@ -179,7 +179,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 1;
+const DATABASE_VERSION: u8 = 2;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -219,6 +219,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
             .await?;
+    }
+
+    if version < 2 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/002_reset_olm_hash.sql"))
+        })
+        .await?;
     }
 
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
@@ -682,7 +689,7 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for hash in &changes.message_hashes {
-                    let hash = serde_json::to_vec(hash).map_err(CryptoStoreError::from)?;
+                    let hash = rmp_serde::to_vec(hash).map_err(CryptoStoreError::backend)?;
                     txn.add_olm_hash(&hash)?;
                 }
 
@@ -906,7 +913,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         message_hash: &matrix_sdk_crypto::olm::OlmMessageHash,
     ) -> StoreResult<bool> {
-        let value = serde_json::to_vec(message_hash)?;
+        let value = rmp_serde::to_vec(message_hash).map_err(CryptoStoreError::backend)?;
         Ok(self.acquire().await?.has_olm_hash(value).await?)
     }
 

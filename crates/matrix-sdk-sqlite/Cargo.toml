@@ -32,7 +32,6 @@ rmp-serde = "1.1.1"
 ruma = { workspace = true }
 rusqlite = { version = "0.28.0", features = ["bundled"] }
 serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.24.2", default-features = false, features = ["sync", "fs"] }
 tracing = { workspace = true }
