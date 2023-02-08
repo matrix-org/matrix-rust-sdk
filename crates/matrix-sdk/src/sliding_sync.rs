@@ -84,11 +84,12 @@
 //! are **inclusive**) like so:
 //!
 //! ```rust
-//! # use matrix_sdk::sliding_sync::SlidingSyncViewBuilder;
+//! # use matrix_sdk::sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode};
 //! use ruma::{assign, api::client::sync::sync_events::v4};
 //!
 //! let view_builder = SlidingSyncViewBuilder::default()
 //!     .name("main_view")
+//!     .sync_mode(SlidingSyncMode::Selective)
 //!     .filters(Some(assign!(
 //!         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
 //!      )))
@@ -271,6 +272,8 @@
 //!
 //! let active_view = SlidingSyncViewBuilder::default()
 //!     .name(&active_view_name)   // the active window
+//!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
+//!     .set_range(0u32, 9u32) // only the top 10 items
 //!     .sort(vec!["by_recency".to_owned()]) // last active
 //!     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
 //!     .required_state(vec![ // we want to know immediately:
@@ -278,7 +281,6 @@
 //!         (TimelineEventType::RoomTopic, "".to_owned()),      // any topic if known
 //!         (TimelineEventType::RoomAvatar, "".to_owned()),     // avatar if set
 //!      ])
-//!     .set_range(0u32, 9u32) // only the top 10 items
 //!     .build()?;
 //!
 //! let sliding_sync = sliding_sync_builder
@@ -422,13 +424,13 @@ pub enum SlidingSyncState {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// fully sync all rooms in the background, page by page of `batch_size`
-    #[default]
     #[serde(alias = "FullSync")]
     PagingFullSync,
     /// fully sync all rooms in the background, with a growing window of
     /// `batch_size`,
     GrowingFullSync,
     /// Only sync the specific windows defined
+    #[default]
     Selective,
 }
 
@@ -469,7 +471,7 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
+type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
@@ -562,12 +564,6 @@ impl SlidingSyncRoom {
     /// the `prev_batch` key to fetch more timeline events for this room
     pub fn prev_batch(&self) -> Option<String> {
         self.prev_batch.lock_ref().clone()
-    }
-
-    /// `AliveTimeline` of this room
-    #[cfg(not(feature = "experimental-timeline"))]
-    pub fn timeline(&self) -> AliveRoomTimeline {
-        self.timeline.clone()
     }
 
     /// `Timeline` of this room
