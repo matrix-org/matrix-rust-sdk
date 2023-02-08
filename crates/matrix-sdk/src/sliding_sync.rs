@@ -236,19 +236,11 @@ impl SlidingSyncRoom {
         self.prev_batch.lock_ref().clone()
     }
 
-    /// `AliveTimeline` of this room
-    #[cfg(not(feature = "experimental-timeline"))]
-    pub fn timeline(&self) -> AliveRoomTimeline {
-        self.timeline.clone()
-    }
-
     /// `Timeline` of this room
-    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Option<Timeline> {
         Some(self.timeline_builder()?.track_fully_read().build().await)
     }
 
-    #[cfg(feature = "experimental-timeline")]
     fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
             let current_timeline = self.timeline.lock_ref().to_vec();
@@ -269,7 +261,6 @@ impl SlidingSyncRoom {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
-    #[cfg(feature = "experimental-timeline")]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.timeline_builder()?.build().await.latest_event()
     }
