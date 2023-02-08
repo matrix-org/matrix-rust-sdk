@@ -44,8 +44,8 @@ use tracing::{debug, error, instrument, warn};
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{Key, SqliteObjectExt},
-    OpenStoreError, SqliteConnectionExt as _, SqliteObjectStoreExt,
+    utils::{Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _},
+    OpenStoreError,
 };
 
 #[derive(Clone, Debug)]
