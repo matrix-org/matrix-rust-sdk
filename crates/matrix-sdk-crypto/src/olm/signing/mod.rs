@@ -28,7 +28,6 @@ use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Error as JsonError;
 use vodozemac::Ed25519Signature;
 
 use crate::{
@@ -610,7 +609,7 @@ impl PrivateCrossSigningIdentity {
     /// # Panics
     ///
     /// This will panic if the provided pickle key isn't 32 bytes long.
-    pub async fn pickle(&self) -> Result<PickledCrossSigningIdentity, JsonError> {
+    pub async fn pickle(&self) -> PickledCrossSigningIdentity {
         let master_key = self.master_key.lock().await.as_ref().map(|m| m.pickle());
 
         let self_signing_key = self.self_signing_key.lock().await.as_ref().map(|m| m.pickle());
@@ -619,11 +618,11 @@ impl PrivateCrossSigningIdentity {
 
         let keys = PickledSignings { master_key, user_signing_key, self_signing_key };
 
-        Ok(PickledCrossSigningIdentity {
+        PickledCrossSigningIdentity {
             user_id: self.user_id.as_ref().to_owned(),
             shared: self.shared(),
             keys,
-        })
+        }
     }
 
     /// Restore the private cross signing identity from a pickle.
@@ -736,7 +735,7 @@ mod tests {
     async fn identity_pickling() {
         let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
-        let pickled = identity.pickle().await.unwrap();
+        let pickled = identity.pickle().await;
 
         let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled).await.unwrap();
 
