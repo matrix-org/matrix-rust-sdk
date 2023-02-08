@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use base64::{
-    alphabet, decode_engine, encode_engine,
-    engine::fast_portable::{self, FastPortable},
+    alphabet,
+    engine::{general_purpose, GeneralPurpose},
+    Engine,
 };
 use futures_util::{Stream, StreamExt};
 use matrix_sdk_crypto::{
@@ -16,8 +17,8 @@ use tokio::runtime::Handle;
 
 use crate::{CryptoStoreError, OutgoingVerificationRequest, SignatureUploadRequest};
 
-const STANDARD_NO_PAD: FastPortable =
-    FastPortable::from(&alphabet::STANDARD, fast_portable::NO_PAD);
+const STANDARD_NO_PAD: GeneralPurpose =
+    GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
 /// Listener that will be passed over the FFI to report changes to a SAS
 /// verification.
@@ -407,7 +408,7 @@ impl QrCode {
     /// decoded on the other side before it can be put through a QR code
     /// generator.
     pub fn generate_qr_code(&self) -> Option<String> {
-        self.inner.to_bytes().map(|data| encode_engine(data, &STANDARD_NO_PAD)).ok()
+        self.inner.to_bytes().map(|data| STANDARD_NO_PAD.encode(data)).ok()
     }
 
     /// Set a listener for changes in the QrCode verification process.
@@ -709,7 +710,7 @@ impl VerificationRequest {
     /// * `data` - The data that was extracted from the scanned QR code as an
     /// base64 encoded string, without padding.
     pub fn scan_qr_code(&self, data: &str) -> Option<ScanResult> {
-        let data = decode_engine(data, &STANDARD_NO_PAD).ok()?;
+        let data = STANDARD_NO_PAD.decode(data).ok()?;
         let data = QrVerificationData::from_bytes(data).ok()?;
 
         if let Some(qr) = self.runtime.block_on(self.inner.scan_qr_code(data)).ok()? {
