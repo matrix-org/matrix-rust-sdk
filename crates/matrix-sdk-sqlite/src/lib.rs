@@ -13,23 +13,22 @@
 // limitations under the License.
 #![cfg_attr(not(feature = "crypto-store"), allow(dead_code, unused_imports))]
 
-use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteConn;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::{store::Result, CryptoStoreError};
 use matrix_sdk_store_encryption::StoreCipher;
-use rusqlite::OptionalExtension;
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
 mod utils;
 
-use self::utils::SqliteObjectExt;
 pub use self::{crypto_store::SqliteCryptoStore, error::OpenStoreError};
 
 #[cfg(feature = "crypto-store")]
 async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Result<StoreCipher> {
+    use self::utils::SqliteObjectStoreExt;
+
     let encrypted_cipher = conn.get_kv("cipher").await.map_err(CryptoStoreError::backend)?;
 
     let cipher = if let Some(encrypted) = encrypted_cipher {
@@ -48,42 +47,6 @@ async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Resu
     };
 
     Ok(cipher)
-}
-
-trait SqliteConnectionExt {
-    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
-}
-
-impl SqliteConnectionExt for rusqlite::Connection {
-    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
-        self.execute(
-            "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
-            (key, value),
-        )?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-trait SqliteObjectStoreExt: SqliteObjectExt {
-    async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
-        let key = key.to_owned();
-        self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0))
-            .await
-            .optional()
-    }
-
-    async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
-}
-
-#[async_trait]
-impl SqliteObjectStoreExt for deadpool_sqlite::Object {
-    async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
-        let key = key.to_owned();
-        self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

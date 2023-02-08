@@ -15,7 +15,7 @@
 use std::ops::Deref;
 
 use async_trait::async_trait;
-use rusqlite::{Params, Row, Statement, Transaction};
+use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction};
 
 #[derive(Debug)]
 pub(crate) enum Key {
@@ -110,5 +110,41 @@ impl SqliteObjectExt for deadpool_sqlite::Object {
         })
         .await
         .unwrap()
+    }
+}
+
+pub(crate) trait SqliteConnectionExt {
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
+}
+
+impl SqliteConnectionExt for rusqlite::Connection {
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
+            (key, value),
+        )?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+pub(crate) trait SqliteObjectStoreExt: SqliteObjectExt {
+    async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
+        let key = key.to_owned();
+        self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0))
+            .await
+            .optional()
+    }
+
+    async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
+}
+
+#[async_trait]
+impl SqliteObjectStoreExt for deadpool_sqlite::Object {
+    async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
+        let key = key.to_owned();
+        self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
+
+        Ok(())
     }
 }
