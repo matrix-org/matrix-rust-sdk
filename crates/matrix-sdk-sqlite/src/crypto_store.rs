@@ -114,26 +114,25 @@ impl SqliteCryptoStore {
         })
     }
 
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
-        let serialized = rmp_serde::to_vec_named(value).map_err(CryptoStoreError::backend)?;
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = rmp_serde::to_vec_named(value)?;
 
         if let Some(key) = &self.store_cipher {
-            let encrypted =
-                key.encrypt_value_data(serialized).map_err(CryptoStoreError::backend)?;
-            rmp_serde::to_vec_named(&encrypted).map_err(CryptoStoreError::backend)
+            let encrypted = key.encrypt_value_data(serialized)?;
+            Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
             Ok(serialized)
         }
     }
 
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, CryptoStoreError> {
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
         if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value).map_err(CryptoStoreError::backend)?;
-            let decrypted = key.decrypt_value_data(encrypted).map_err(CryptoStoreError::backend)?;
+            let encrypted = rmp_serde::from_slice(value)?;
+            let decrypted = key.decrypt_value_data(encrypted)?;
 
-            rmp_serde::from_slice(&decrypted).map_err(CryptoStoreError::backend)
+            Ok(rmp_serde::from_slice(&decrypted)?)
         } else {
-            rmp_serde::from_slice(value).map_err(CryptoStoreError::backend)
+            Ok(rmp_serde::from_slice(value)?)
         }
     }
 
@@ -141,7 +140,7 @@ impl SqliteCryptoStore {
         &self,
         value: &[u8],
         backed_up: bool,
-    ) -> Result<PickledInboundGroupSession, CryptoStoreError> {
+    ) -> Result<PickledInboundGroupSession> {
         let mut pickle: PickledInboundGroupSession = self.deserialize_value(value)?;
         // backed_up SQL column is source of truth, backed_up field in pickle
         // needed for other stores though
@@ -149,11 +148,7 @@ impl SqliteCryptoStore {
         Ok(pickle)
     }
 
-    fn deserialize_key_request(
-        &self,
-        value: &[u8],
-        sent_out: bool,
-    ) -> Result<GossipRequest, CryptoStoreError> {
+    fn deserialize_key_request(&self, value: &[u8], sent_out: bool) -> Result<GossipRequest> {
         let mut request: GossipRequest = self.deserialize_value(value)?;
         // sent_out SQL column is source of truth, sent_out field in serialized value
         // needed for other stores though
@@ -689,7 +684,7 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for hash in &changes.message_hashes {
-                    let hash = rmp_serde::to_vec(hash).map_err(CryptoStoreError::backend)?;
+                    let hash = rmp_serde::to_vec(hash)?;
                     txn.add_olm_hash(&hash)?;
                 }
 
@@ -844,7 +839,7 @@ impl CryptoStore for SqliteCryptoStore {
             .get_tracked_users()
             .await?
             .iter()
-            .map(|value| self.deserialize_value(value))
+            .map(|value| Ok(self.deserialize_value(value)?))
             .collect()
     }
 
