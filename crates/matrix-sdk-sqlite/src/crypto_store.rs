@@ -27,10 +27,7 @@ use matrix_sdk_crypto::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
-    store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
-        Result as StoreResult, RoomKeyCounts,
-    },
+    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -525,14 +522,14 @@ impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
 
 #[async_trait]
 impl CryptoStore for SqliteCryptoStore {
-    type Error = CryptoStoreError;
+    type Error = Error;
 
-    async fn load_account(&self) -> StoreResult<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         let conn = self.acquire().await?;
-        if let Some(pickle) = conn.get_kv("account").await.map_err(CryptoStoreError::backend)? {
+        if let Some(pickle) = conn.get_kv("account").await? {
             let pickle = self.deserialize_value(&pickle)?;
 
-            let account = ReadOnlyAccount::from_pickle(pickle)?;
+            let account = ReadOnlyAccount::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -548,7 +545,7 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
-    async fn save_account(&self, account: ReadOnlyAccount) -> StoreResult<()> {
+    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
         let account_info = AccountInfo {
             user_id: account.user_id.clone(),
             device_id: account.device_id.clone(),
@@ -558,29 +555,25 @@ impl CryptoStore for SqliteCryptoStore {
 
         let pickled_account = account.pickle().await;
         let serialized_account = self.serialize_value(&pickled_account)?;
-        self.acquire()
-            .await?
-            .set_kv("account", serialized_account)
-            .await
-            .map_err(CryptoStoreError::backend)?;
+        self.acquire().await?.set_kv("account", serialized_account).await?;
         Ok(())
     }
 
-    async fn load_identity(&self) -> StoreResult<Option<PrivateCrossSigningIdentity>> {
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         let conn = self.acquire().await?;
-        if let Some(i) = conn.get_kv("identity").await.map_err(CryptoStoreError::backend)? {
+        if let Some(i) = conn.get_kv("identity").await? {
             let pickle = self.deserialize_value(&i)?;
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle)
                     .await
-                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
+                    .map_err(|_| Error::Unpickle)?,
             ))
         } else {
             Ok(None)
         }
     }
 
-    async fn save_changes(&self, changes: Changes) -> StoreResult<()> {
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
         let pickled_account = if let Some(account) = changes.account {
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -704,11 +697,8 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(())
     }
 
-    async fn get_sessions(
-        &self,
-        sender_key: &str,
-    ) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let sessions = self
@@ -739,7 +729,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> StoreResult<Option<InboundGroupSession>> {
+    ) -> Result<Option<InboundGroupSession>> {
         let session_id = self.encode_key("inbound_group_session", session_id);
         let Some((room_id_from_db, value)) =
             self.acquire().await?.get_inbound_group_session(session_id).await?
@@ -758,7 +748,7 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(Some(InboundGroupSession::from_pickle(pickle)?))
     }
 
-    async fn get_inbound_group_sessions(&self) -> StoreResult<Vec<InboundGroupSession>> {
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         self.acquire()
             .await?
             .get_inbound_group_sessions()
@@ -771,14 +761,14 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn inbound_group_session_counts(&self) -> StoreResult<RoomKeyCounts> {
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
         Ok(self.acquire().await?.get_inbound_group_session_counts().await?)
     }
 
     async fn inbound_group_sessions_for_backup(
         &self,
         limit: usize,
-    ) -> StoreResult<Vec<InboundGroupSession>> {
+    ) -> Result<Vec<InboundGroupSession>> {
         self.acquire()
             .await?
             .get_inbound_group_sessions_for_backup(limit)
@@ -791,24 +781,22 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn reset_backup_state(&self) -> StoreResult<()> {
+    async fn reset_backup_state(&self) -> Result<()> {
         Ok(self.acquire().await?.reset_inbound_group_session_backup_state().await?)
     }
 
-    async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
         let conn = self.acquire().await?;
 
         let backup_version = conn
             .get_kv("backup_version_v1")
-            .await
-            .map_err(CryptoStoreError::backend)?
+            .await?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
         let recovery_key = conn
             .get_kv("recovery_key_v1")
-            .await
-            .map_err(CryptoStoreError::backend)?
+            .await?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
@@ -818,35 +806,36 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<Option<OutboundGroupSession>> {
+    ) -> Result<Option<OutboundGroupSession>> {
         let room_id = self.encode_key("outbound_group_session", room_id.as_bytes());
         let Some(value) = self.acquire().await?.get_outbound_group_session(room_id).await? else {
             return Ok(None);
         };
 
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
 
         let pickle = self.deserialize_value(&value)?;
         let session = OutboundGroupSession::from_pickle(
             account_info.device_id,
             account_info.identity_keys,
             pickle,
-        )?;
+        )
+        .map_err(|_| Error::Unpickle)?;
 
         return Ok(Some(session));
     }
 
-    async fn load_tracked_users(&self) -> StoreResult<Vec<TrackedUser>> {
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
         self.acquire()
             .await?
             .get_tracked_users()
             .await?
             .iter()
-            .map(|value| Ok(self.deserialize_value(value)?))
+            .map(|value| self.deserialize_value(value))
             .collect()
     }
 
-    async fn save_tracked_users(&self, tracked_users: &[(&UserId, bool)]) -> StoreResult<()> {
+    async fn save_tracked_users(&self, tracked_users: &[(&UserId, bool)]) -> Result<()> {
         let users: Vec<(Key, Vec<u8>)> = tracked_users
             .iter()
             .map(|(u, d)| {
@@ -864,7 +853,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> StoreResult<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<ReadOnlyDevice>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         let device_id = self.encode_key("device", device_id.as_bytes());
         Ok(self
@@ -879,7 +868,7 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StoreResult<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         self.acquire()
             .await?
@@ -893,10 +882,7 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn get_user_identity(
-        &self,
-        user_id: &UserId,
-    ) -> StoreResult<Option<ReadOnlyUserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         let user_id = self.encode_key("identity", user_id.as_bytes());
         Ok(self
             .acquire()
@@ -910,15 +896,15 @@ impl CryptoStore for SqliteCryptoStore {
     async fn is_message_known(
         &self,
         message_hash: &matrix_sdk_crypto::olm::OlmMessageHash,
-    ) -> StoreResult<bool> {
-        let value = rmp_serde::to_vec(message_hash).map_err(CryptoStoreError::backend)?;
+    ) -> Result<bool> {
+        let value = rmp_serde::to_vec(message_hash)?;
         Ok(self.acquire().await?.has_olm_hash(value).await?)
     }
 
     async fn get_outgoing_secret_requests(
         &self,
         request_id: &TransactionId,
-    ) -> StoreResult<Option<GossipRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self
             .acquire()
@@ -932,7 +918,7 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
-    ) -> StoreResult<Option<GossipRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let requests = self.acquire().await?.get_outgoing_secret_requests().await?;
         for (request, sent_out) in requests {
             let request = self.deserialize_key_request(&request, sent_out)?;
@@ -943,7 +929,7 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(None)
     }
 
-    async fn get_unsent_secret_requests(&self) -> StoreResult<Vec<GossipRequest>> {
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         self.acquire()
             .await?
             .get_unsent_secret_requests()
@@ -956,7 +942,7 @@ impl CryptoStore for SqliteCryptoStore {
             .collect()
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> StoreResult<()> {
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }

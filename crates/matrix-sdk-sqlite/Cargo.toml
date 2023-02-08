@@ -35,6 +35,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.24.2", default-features = false, features = ["sync", "fs"] }
 tracing = { workspace = true }
+vodozemac = { workspace = true }
 
 [dev-dependencies]
 ctor = { workspace = true }
