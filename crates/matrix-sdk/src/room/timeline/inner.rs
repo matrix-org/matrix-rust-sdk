@@ -6,11 +6,9 @@ use std::{
 use async_trait::async_trait;
 use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
 use indexmap::IndexSet;
-#[cfg(any(test, feature = "experimental-sliding-sync"))]
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
@@ -75,7 +73,6 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.signal_vec_cloned()
     }
 
-    #[cfg(any(test, feature = "experimental-sliding-sync"))]
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;

@@ -270,7 +270,7 @@ impl Common {
     /// independent events.
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
-        Timeline::new(self).with_fully_read_tracking().await
+        Timeline::builder(self).track_fully_read().build().await
     }
 
     /// Fetch the event with the given `EventId` in this room.

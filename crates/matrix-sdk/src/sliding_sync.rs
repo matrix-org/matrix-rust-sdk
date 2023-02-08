@@ -49,7 +49,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
-use crate::room::timeline::{EventTimelineItem, Timeline};
+use crate::room::timeline::{EventTimelineItem, Timeline, TimelineBuilder};
 use crate::{config::RequestConfig, Client, Result};
 
 /// Internal representation of errors in Sliding Sync
@@ -241,16 +241,17 @@ impl SlidingSyncRoom {
     /// `Timeline` of this room
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Option<Timeline> {
-        Some(self.timeline_no_fully_read_tracking().await?.with_fully_read_tracking().await)
+        Some(self.timeline_builder()?.track_fully_read().build().await)
     }
 
-    async fn timeline_no_fully_read_tracking(&self) -> Option<Timeline> {
+    #[cfg(feature = "experimental-timeline")]
+    fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
             let current_timeline = self.timeline.lock_ref().to_vec();
             let prev_batch = self.prev_batch.lock_ref().clone();
-            Some(Timeline::with_events(&room, prev_batch, current_timeline).await)
+            Some(Timeline::builder(&room).events(prev_batch, current_timeline))
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
-            Some(Timeline::with_events(&invited_room, None, vec![]).await)
+            Some(Timeline::builder(&invited_room).events(None, vec![]))
         } else {
             error!(
                 room_id = ?self.room_id,
@@ -266,7 +267,7 @@ impl SlidingSyncRoom {
     /// this `SlidingSyncRoom`.
     #[cfg(feature = "experimental-timeline")]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.timeline_no_fully_read_tracking().await?.latest_event()
+        self.timeline_builder()?.build().await.latest_event()
     }
 
     /// This rooms name as calculated by the server, if any
