@@ -37,7 +37,6 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
-pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Batch, Config, Db, IVec, Transactional, Tree,
