@@ -76,7 +76,7 @@ mod tests {
     use matrix_sdk::{
         ruma::{
             api::client::error::ErrorKind as RumaError,
-            events::room::message::RoomMessageEventContent,
+            events::room::message::RoomMessageEventContent, UInt,
         },
         test_utils::force_sliding_sync_pos,
         SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
@@ -94,6 +94,167 @@ mod tests {
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         assert_eq!(summary.rooms.len(), 0);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn modifying_timeline_limit() -> anyhow::Result<()> {
+        let (client, sync_builder) = random_setup_with_rooms(1).await?;
+
+        // List one room.
+        let room_id = {
+            let sync = sync_builder
+                .clone()
+                .add_view(
+                    SlidingSyncViewBuilder::default()
+                        .sync_mode(SlidingSyncMode::Selective)
+                        .set_range(0u32, 1)
+                        .name("all_rooms")
+                        .build()?,
+                )
+                .build()
+                .await?;
+
+            // Get the sync stream.
+            let stream = sync.stream();
+            pin_mut!(stream);
+
+            // Get the view to all rooms.
+            let view = sync.view("all_rooms").context("View `all_rooms` isn't found")?;
+
+            // Send the request and wait for a response.
+            let update_summary = stream
+                .next()
+                .await
+                .context("No room summary found, loop ended unsuccessfully")??;
+
+            // One room has received an update.
+            assert_eq!(update_summary.rooms.len(), 1);
+
+            // Let's fetch the room ID then.
+            let room_id = update_summary.rooms[0].clone();
+
+            // Let's fetch the room ID from the view too.
+            let Some(RoomListEntry::Filled(same_room_id)) =
+                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
+                    panic!("Failed to read the room ID from the view");
+                };
+
+            assert_eq!(same_room_id, room_id);
+
+            room_id
+        };
+
+        // Join a room and send 20 messages.
+        {
+            // Join the room.
+            let room =
+                client.get_joined_room(&room_id).context("Failed to join room `{room_id}`")?;
+
+            // In this room, let's send 20 messages!
+            for nth in 0..20 {
+                let message = RoomMessageEventContent::text_plain(format!("Message #{nth}"));
+
+                room.send(message, None).await?;
+            }
+        }
+
+        let sync = sync_builder
+            .clone()
+            .add_view(
+                SlidingSyncViewBuilder::default()
+                    .sync_mode(SlidingSyncMode::Selective)
+                    .set_range(0u32, 1)
+                    .name("timeline_limit_x")
+                    .timeline_limit(1u32)
+                    .build()?,
+            )
+            .build()
+            .await?;
+
+        // Get the sync stream.
+        let stream = sync.stream();
+        pin_mut!(stream);
+
+        // Get the view.
+        let view = sync.view("timeline_limit_x").context("View `timeline_limit_x` isn't found")?;
+
+        // Sync to receive a message with a `timeline_limit` set to 1.
+        let timeline = {
+            let mut update_summary;
+
+            loop {
+                // Wait for a response.
+                update_summary = stream
+                    .next()
+                    .await
+                    .context("No update summary found, loop ended unsucessfully")??;
+
+                if !update_summary.rooms.is_empty() {
+                    break;
+                }
+            }
+
+            // We see that one room has received an update, and it's our room!
+            assert_eq!(update_summary.rooms.len(), 1);
+            assert_eq!(room_id, update_summary.rooms[0]);
+
+            // Let's fetch the room ID from the view too.
+            let Some(RoomListEntry::Filled(same_room_id)) =
+                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
+                    panic!("Failed to read the room ID from the view");
+                };
+
+            assert_eq!(same_room_id, room_id);
+
+            // OK, now let's read the timeline!
+            let room: matrix_sdk::SlidingSyncRoom =
+                sync.get_room(&room_id).expect("Failed to get the room");
+
+            // Test the `Timeline`.
+            let timeline = room.timeline().await.unwrap();
+
+            dbg!(&timeline);
+
+            timeline
+        };
+
+        // Sync to receive messages with a `timeline_limit` set to 20.
+        {
+            view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
+
+            let mut update_summary;
+
+            loop {
+                // Wait for a response.
+                update_summary = stream
+                    .next()
+                    .await
+                    .context("No update summary found, loop ended unsucessfully")??;
+
+                if !update_summary.rooms.is_empty() {
+                    break;
+                }
+            }
+
+            // We see that one room has received an update, and it's our room!
+            assert_eq!(update_summary.rooms.len(), 1);
+            assert_eq!(room_id, update_summary.rooms[0]);
+
+            // Let's fetch the room ID from the view too.
+            let Some(RoomListEntry::Filled(same_room_id)) =
+                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
+                    panic!("Failed to read the room ID from the view");
+                };
+
+            assert_eq!(same_room_id, room_id);
+
+            println!("right here?");
+
+            // Test the `Timeline`.
+            dbg!(&timeline);
+        }
+
         Ok(())
     }
 
