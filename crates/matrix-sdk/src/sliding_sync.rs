@@ -115,7 +115,7 @@
 //! [`state`](SlidingSyncView::state):
 //!
 //!  - `rooms_count` is the number of rooms _total_ there were found matching
-//! the filters given.
+//!    the filters given.
 //!  - `rooms_list` is a vector of `rooms_count` [`RoomListEntry`]'s at the
 //!    current its current state. `RoomListEntry`'s only hold `the room_id` if
 //!    given, the [Rooms API](#rooms) holds the actual information about each
@@ -203,11 +203,12 @@
 //! are found for the matching rooms, the server relays them to the client.
 //!
 //! All timeline events coming through sliding sync will be processed through
-//! the [`BaseClient`][`matrix_sdk_base::Client`] as in previous sync. This
+//! the [`BaseClient`][`matrix_sdk_base::BaseClient`] as in previous sync. This
 //! allows for transparent decryption as well trigger the `client_handlers`.
 //!
 //! The current and then following live room list can be queried via the
-//! [`Room::timeline`]-API. This is prefilled with already received data.
+//! [`timeline` API](`SlidingSyncRoom::timeline). This is prefilled with already
+//! received data.
 //!
 //! ### Timeline trickling
 //!
@@ -217,9 +218,180 @@
 //! `0.99.0-rc1` the [sliding sync proxy][proxy] will then "paginate back" and
 //! resent the now larger number of events. All this is handled transparently.
 //!
+//! ## Long Polling
+//!
+//! [Sliding Sync][MSC] is a long-polling API. That means that immediately after
+//! you've received data from the server, you re-open the network connection
+//! again and await for a new response. As there might not be happening much or
+//! a lot happening in short succession - from the client perspective we never
+//! know when new data is received.
+//!
+//! One principle of long-polling is, therefore, that it might also takes one
+//! or two requests before the changes you asked for will actually be applied
+//! and the results come back for that. Just assume that at the same time you
+//! add a room subscription, a new message comes in. The server might reply
+//! with that message immediately and will only kick off the process of
+//! calculating the rooms details and respond with that in the next request you
+//! do after.
+//!
+//! This is modelled as a [async `Stream`][`futures_core::stream::Stream`] in
+//! our API, that you basically want to continue polling. Once you've made your
+//! setup ready and build your sliding sync sessions, you want to acquire its
+//! [`.stream()`](`SlidingSync::stream`) and continuously poll it.
+//!
+//! While the async stream API allows for streams to end (by returning `None`)
+//! sliding sync stream items `Result<UpdateSummary, Error>`. For every
+//! successful poll, all data is applied internally, through the base client and
+//! the [reactive structs](#reactive-api) and an
+//! [`Ok(UpdateSummary)`][`UpdateSummary`] is yielded with the minimum
+//! information, which data has been refreshed _in this iteration_: names of
+//! views and room_ids of rooms. Note that, the same way that a view isn't
+//! reacting if only the room data has changed (but not its position in its
+//! list), the view won't be mentioned here either, only the `room_id`. So be
+//! sure to look at both for all objects you have subscribed to.
+//!
+//! In full this typically looks like this:
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! # use futures::{pin_mut, StreamExt};
+//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
+//! # use matrix_sdk::{
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder},
+//! #    Client,
+//! # };
+//! # use ruma::{
+//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! # };
+//! # use tracing::{debug, error, info, warn};
+//! # use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! let sliding_sync = client
+//!     .sliding_sync()
+//!     .await
+//!     // any views you want are added here.
+//!     .build()
+//!     .await?;
+//!
+//! let stream = sliding_sync.stream();
+//!
+//! // continuously poll for updates
+//! pin_mut!(stream);
+//! loop {
+//!     let update = match stream.next().await {
+//!         Some(Ok(u)) => {
+//!             info!("Received an update. Summary: {u:?}");
+//!         }
+//!         Some(Err(e)) => {
+//!             error!("loop was stopped by client error processing: {e}");
+//!         }
+//!         None => {
+//!             error!("Streaming loop ended unexpectedly");
+//!             break;
+//!         }
+//!     };
+//! }
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//! ### Quick refreshing
+//!
+//! A main purpose of [sliding sync][MSC] is provide an API for snappy end user
+//! applications. Long-polling on the other side means that we wait for the
+//! server to respond and that can take quite some time, before sending the next
+//! request with our updates, for example an update in a view's `range`.
+//!
+//! That is a bit unfortunate and leaks through the `stream` API as well. We are
+//! waiting for a `stream.next().await` call before the next request is sent.
+//! The [specification][MSC] on long polling also states, however, that if an
+//! new request is found coming in, the previous one shall be sent out. In
+//! practice that means you can just start a new stream and the old connection
+//! will return immediately - with a proper response though. You just need to
+//! make sure to not call that stream any further. Additionally, as both
+//! requests are sent with the same positional argument, the server might
+//! respond with data, the client has already processed. This isn't a problem,
+//! the [`SlidingSync`][] will only process new data and skip the processing
+//! even across restarts.
+//!
+//! To support this, in practice you probably want to wrap your `loop` in a
+//! spawn with an atomic flag that tells it to stop, which you can set upon
+//! restart. Something along the lines of:
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! # use futures::{pin_mut, StreamExt};
+//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
+//! # use matrix_sdk::{
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder, SlidingSync, Error},
+//! #    Client,
+//! # };
+//! # use ruma::{
+//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! # };
+//! # use tracing::{debug, error, info, warn};
+//! # use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! # let sliding_sync = client
+//! #    .sliding_sync()
+//! #    .await
+//! #    // any views you want are added here.
+//! #    .build()
+//! #    .await?;
+//! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+//!
+//! struct MyRunner{ lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
+//!
+//! impl MyRunner {
+//!   pub fn restart_sync(&mut self) {
+//!     self.lock.store(false, Ordering::SeqCst);
+//!     // create a new lock
+//!     self.lock = Arc::new(AtomicBool::new(false));
+//!
+//!     let stream_lock = self.lock.clone();
+//!     let sliding_sync = self.sliding_sync.clone();
+//!
+//!     // continuously poll for updates
+//!     tokio::spawn(async move {
+//!         let stream = sliding_sync.stream();
+//!         pin_mut!(stream);
+//!         loop {
+//!             match stream.next().await {
+//!                 Some(Ok(u)) => {
+//!                     info!("Received an update. Summary: {u:?}");
+//!                 }
+//!                 Some(Err(e)) => {
+//!                     error!("loop was stopped by client error processing: {e}");
+//!                 }
+//!                 None => {
+//!                     error!("Streaming loop ended unexpectedly");
+//!                     break;
+//!                 }
+//!            };
+//!             if !stream_lock.load(Ordering::SeqCst) {
+//!                 info!("Asked to stop");
+//!                 break
+//!             }
+//!         };
+//!     });
+//!   }
+//! }
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//!
+//!
 //! ## Reactive API
 //!
-//! ## Long Polling
+//! As the main source of truth is the data coming from the server, all updates
+//! must be applied transparently throughout to the data layer.
 //!
 //! ## Caching
 //!
@@ -235,7 +407,7 @@
 //! Once switched on, this mode will not trigger any updates on "list
 //! movements", ranges and sorting are ignored and all rooms matching the filter
 //! will be returned with the given room details settings. Depending on the data
-//! that is requested this will still be significantly faster   
+//! that is requested this will still be significantly faster
 //!
 //! # Full example
 //!
@@ -567,7 +739,6 @@ impl SlidingSyncRoom {
     }
 
     /// `Timeline` of this room
-    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Option<Timeline> {
         Some(self.timeline_no_fully_read_tracking().await?.with_fully_read_tracking().await)
     }
@@ -592,7 +763,6 @@ impl SlidingSyncRoom {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
-    #[cfg(feature = "experimental-timeline")]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.timeline_no_fully_read_tracking().await?.latest_event()
     }
