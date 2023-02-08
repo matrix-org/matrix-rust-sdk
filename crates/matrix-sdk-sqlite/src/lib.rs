@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![cfg_attr(not(feature = "crypto-store"), allow(dead_code, unused_imports))]
 
-#[cfg(feature = "crypto-store")]
 use async_trait::async_trait;
 use deadpool_sqlite::CreatePoolError;
 #[cfg(feature = "crypto-store")]
@@ -28,7 +28,6 @@ use tracing::error;
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
-#[cfg(feature = "crypto-store")]
 mod utils;
 
 #[cfg(feature = "crypto-store")]
@@ -70,12 +69,10 @@ async fn get_or_create_store_cipher(passphrase: &str, conn: &SqliteConn) -> Resu
     Ok(cipher)
 }
 
-#[cfg(feature = "crypto-store")]
 trait SqliteConnectionExt {
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 }
 
-#[cfg(feature = "crypto-store")]
 impl SqliteConnectionExt for rusqlite::Connection {
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
         self.execute(
