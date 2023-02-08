@@ -13,7 +13,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-//! Sliding Sync Client implementation of [MSC3575][MSC] (& Extensions)
+//! Sliding Sync Client implementation of [MSC3575][MSC] & extensions
 //!
 //! [`Sliding Sync`][MSC] is the third generation synchronization mechanism of
 //! matrix with a strong focus on bandwidth efficiency. This is made possible by
@@ -170,6 +170,33 @@
 //! user enters a room - as we want to receive the incoming new messages
 //! regardless of whether the room is pushed out of the views room list.
 //!
+//! ### Room List Entries
+//!
+//! As the room list of each view is a vec of the `rooms_count` len but a room
+//! may only know of a subset of entries for sure at any given time, these
+//! entries are wrapped in [`RoomListEntry`][]. This type, in close proximity to
+//! the [specification][MSC], can be either `Empty`, `Filled` or `Invalidated`,
+//! signaling the state of each entry position.
+//! - `Empty` should be self-explanatory: we don't know what sits here at this
+//!   position in the list
+//! - `Filled`, too is pretty clear: there is this room_id at this position;
+//! - `Invalidated` in that sense means that we _knew_ what was here before, but
+//!   can't be sure anymore this is still accurate. This occurs when we move the
+//!   sliding window (by changing the ranges) or when a room might drop out of
+//!   the window we are looking at. For the sake of displaying, this is probably
+//!   still fine to display to be at this position, but we can't be sure
+//!   anymore.
+//!
+//! Because `Invalidated` occurs whenever a room we knew about before drops out
+//! of focus, we aren't updated about its changes anymore either, there could be
+//! duplicates rooms within invalidated rooms as well as in the union of
+//! invalidated and filled rooms. Keep that in mind, as most UI frameworks don't
+//! like it when their list entries aren't unique.
+//!
+//! When [restoring from cold cache][#caching] the room list also only
+//! propagated with `Invalidated` rooms. So if you want to be able to display
+//! data quickly, ensure you are able to render `Invalidated` entries.
+//!
 //! ### Unsubscribe
 //!
 //! Don't forget to [unsubscribe](`SlidingSync::subscribe`) when the data isn't
@@ -206,7 +233,7 @@
 //! the [`BaseClient`][`matrix_sdk_base::BaseClient`] as in previous sync. This
 //! allows for transparent decryption as well trigger the `client_handlers`.
 //!
-//! The current and then following live room list can be queried via the
+//! The current and then following live events list can be queried via the
 //! [`timeline` API](`SlidingSyncRoom::timeline). This is prefilled with already
 //! received data.
 //!
@@ -387,15 +414,98 @@
 //! ```
 //!
 //!
-//!
 //! ## Reactive API
 //!
 //! As the main source of truth is the data coming from the server, all updates
-//! must be applied transparently throughout to the data layer.
+//! must be applied transparently throughout to the data layer. The simplest
+//! way to stay up to date on what objects have changed is by checking the
+//! [`views`](`UpdateSummary.views`) and [`rooms`](`UpdateSummary.rooms`) of
+//! each `UpdateSummary` given by each stream iteration and update the local
+//! copies accordingly. Because of where the loop sits in the stack, that can
+//! be a bit tedious though, so views and rooms have an additional way of
+//! subscribing to updates via [`futures_signals`][].
+//!
+//! As already touched on in
+//! description of [views](#views), their `state`, `rooms_list` and
+//! `rooms_count` are all various forms of `futures_signals::Mutable`, a
+//! low-cost, thread-safe futures based reactive API implementation.
+//! [`SlidingSync.rooms`][], too, are of a mutable implementation, namely the
+//! [`MutableBTreeMap`](`futures_signals::signal_map::MutableBTreeMap`) updated
+//! in real time (even before the summary comes around) allowing you to
+//! subscribe to their changes with a straight forward async API through the
+//! [`SignalExt`](`futures_signals::signal::SignalExt`) you can get from each by
+//! just calling `signal_cloned()` on it. For the most common use-cases you just
+//! want to have a stream of updates of the value you can poll for changes,
+//! which you then get by calling
+//! [`to_stream()`](`futures_signals::signal::SignalExt::to_stream`). You can do
+//! a lot more on the signal itself already, like
+//! [`map`](`futures_signals::signal::SignalExt::map`),
+//! [`for_each`](`futures_signals::signal::SignalExt::for_each`) or convert it
+//! into a [`Broadcaster`](futures_signals::signal::SignalExt::broadcast)
+//! depending on your needs.
+//!
+//! The `rooms_list` is of the more specialized
+//! [`MutableVec`](`futures_signals::signal_vec::MutableVec`) type. Rather than
+//! just signaling the latest state (which can be very inefficient, especially
+//! on large lists), its
+//! [`MutableSignalVec`](`futures_signals::signal_vec::MutableSignalVec`) will
+//! share the modifications made by signalling
+//! [`VecDiff`](`futures_signals::signal_vec::VecDiff`) over the stream. This
+//! allows for easy and efficient synchronization of exactly those parts that
+//! have been changed. If you are keeping a memory copy of the
+//! `Vec<RoomListItem>` for your view for example, you can apply changes that
+//! come as `VecDiff` easily by calling
+//! [`apply_to_vec`](`futures_signals::signal_vec::VecDiff::apply_to_vec`).
+//!
+//! The `Timeline` you can receive per room by calling
+//! [`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
+//! currently cached timeline events. It itself uses the `future_signals` for
+//! reactivity, too.
+//!
+//! 👉 To learn more about [`future_signals` check out to their excellent
+//! tutorial][future-signals-tutorial].
 //!
 //! ## Caching
 //!
+//! All room data, for filled but also _invalidated_ rooms, including the entire
+//! timeline events as well as all view room_lists and rooms_count are held
+//! in memory (unless you `pop` the view out). Technically, you can access
+//! `rooms_list` and `rooms` directly and mutate them but doing so invalidates
+//! further updates received by the server - see [#1474][https://github.com/matrix-org/matrix-rust-sdk/issues/1474].
+//!
+//! This is a purely in-memory cache layer though. If you want sliding sync to
+//! persist and load from cold (storage) cache you need to set its key with
+//! [`cold_cache(name)`][`SlidingSyncBuilder::cold_cache`] and for each view
+//! present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
+//! to load their latest cached version from storage, as well as some overall
+//! information of sliding sync. If that succeeded the views `state` has been
+//! set to [`Preload`][SlidingSyncViewState::Preload]. Only room data of rooms
+//! present in one of the views is loaded from storage.
+//!
+//! Once [#1441](https://github.com/matrix-org/matrix-rust-sdk/pull/1441) is merged
+//! you can disable caching on a per-view basis by setting
+//! [`cold_cache(false)`][`SlidingSyncViewBuilder::cold_cache`] when
+//! constructing the builder.
+//!
+//! Notice that views added after sliding sync has been built **will not be
+//! loaded from cache** regardless of their settings (as this could lead to
+//! inconsistencies between views). The same goes for any extension: some
+//! extension data (like the to-device-message position) are stored to storage,
+//! but only retrieved upon `build()` of the `SlidingSyncBuilder`. So if you
+//! only add them later, they will not be reading the data from storage (to
+//! avoid inconsistencies) and might require more data to be sent in their first
+//! request than if they were loaded form cold-cache.
+//!
+//! When loading from storage `rooms_list` entries found are set to
+//! `Invalidated` - the initial setting here is communicated as a single
+//! `VecDiff::Replace` event through the [reactive API](#reactive-api).
+//!
+//! Only the latest 10 timeline items of each room are cached and they are reset
+//! whenever a new set of timeline items is received by the server.
+//!
 //! ## Bot mode
+//!
+//! _Note_: This is not yet exposed via the API. See [#1475](https://github.com/matrix-org/matrix-rust-sdk/issues/1475)
 //!
 //! Sliding Sync is modeled for faster and more efficient user-facing client
 //! applications, but offers significant speed ups even for bot cases through
@@ -407,7 +517,12 @@
 //! Once switched on, this mode will not trigger any updates on "list
 //! movements", ranges and sorting are ignored and all rooms matching the filter
 //! will be returned with the given room details settings. Depending on the data
-//! that is requested this will still be significantly faster
+//! that is requested this will still be significantly faster as the response
+//! only returns the matching rooms and states as per settings.
+//!
+//! Think about a bot that only interacts in `is_dm = true` and doesn't need
+//! room topic, room avatar and all the other state. It will be a lot faster to
+//! start up and retrieve only the data needed to actually run.
 //!
 //! # Full example
 //!
@@ -429,7 +544,7 @@
 //!     .await
 //!     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
 //!     .with_common_extensions() // we want the e2ee and to-device enabled, please
-//!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent cache
+//!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 //!
 //! let full_sync_view = SlidingSyncViewBuilder::default()
 //!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
@@ -517,6 +632,8 @@
 //! [proxy]: https://github.com/matrix-org/sliding-sync
 //! [futures_signals]: https://docs.rs/futures-signals/latest/futures_signals/index.html
 //! [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
+//! [future-signals-tutorial]: https://docs.rs/futures-signals/latest/futures_signals/tutorial/index.html
+
 use std::{
     collections::BTreeMap,
     fmt::Debug,
