@@ -8,7 +8,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS"P BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for that specific language governing permissions and
 // limitations under the License.
@@ -18,7 +18,7 @@
 //! [`Sliding Sync`][MSC] is the third generation synchronization mechanism of
 //! matrix with a strong focus on bandwidth efficiency. This is made possible by
 //! allowing the client to filter the content very specifically in its request
-//! which as a a result allows the server to reduce the data sent to the
+//! which as a result allows the server to reduce the data sent to the
 //! absolute necessary minimum needed. The API is modeled after common patterns
 //! and UI components end user messenger client typically offer. By allowing a
 //! tight coupling of what the client shows and synchronizing that state over
@@ -64,13 +64,13 @@
 //! # });
 //! ```
 //!
-//! After the general configuration, you typically want to add a views via the
+//! After the general configuration, you typically want to add a view via the
 //! [`add_view`][`SlidingSyncBuilder::add_view`] function.
 //!
-//!
 //! ## Views
-//! A view defines the subset of matching rooms you want to filter for.and be
-//! kept up about. The [`v4::SyncRequestListFilters`][] allow for a granular
+//!
+//! A view defines the subset of matching rooms you want to filter for, and be
+//! kept up about. The [`v4::SyncRequestListFilters`][] allows for a granular
 //! specification of the exact rooms you want the server to select and the way
 //! you want them to be ordered before receiving. Secondly each view has a set
 //! of `ranges`: the subset of indexes of the entire list you are interested in
@@ -97,7 +97,7 @@
 //!     .set_range(0u32, 9u32);
 //! ```
 //!
-//! Please refer to the [specification][MSC], the [ruma Types][ruma-types],
+//! Please refer to the [specification][MSC], the [Ruma types][ruma-types],
 //! specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
 //! [`SlidingSyncViewBuilder`] for details on the filters, sort-order and
 //! range-options and data you request to be sent. Once your view is fully
@@ -106,7 +106,7 @@
 //! [`add_view`][`SlidingSyncBuilder::add_view`].
 //!
 //! Views are inherently stateful and all updates are applied on the shared
-//! view-object. Once a room has been added to [`SlidingSync`] a cloned shared
+//! view-object. Once a view has been added to [`SlidingSync`] a cloned shared
 //! copy can be retrieved by calls `SlidingSync::view()` providing the name of
 //! the view. Next to the configuration settings (like name and
 //! `timeline_limit`), the view provides the stateful
@@ -221,7 +221,7 @@
 //! ## Timeline events
 //!
 //! Both the view configuration as well as the [room subscription
-//! settings](`v4::RoomSubscription`)  allow to specify a `timeline_limit` to
+//! settings](`v4::RoomSubscription`) allow to specify a `timeline_limit` to
 //! receive timeline events. If that is unset or set to 0, no events are sent by
 //! the server (which is the default), if multiple limits are found, the highest
 //! takes precedence. Any positive number indicates that on the first request a
