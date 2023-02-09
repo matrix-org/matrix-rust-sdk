@@ -51,7 +51,7 @@ impl Details {
             return;
         };
 
-        let name = room_data.name().unwrap_or_else(|| "unknown").to_owned();
+        let name = room_data.name().unwrap_or("unknown").to_owned();
 
         let state_events = room_data
             .required_state()
