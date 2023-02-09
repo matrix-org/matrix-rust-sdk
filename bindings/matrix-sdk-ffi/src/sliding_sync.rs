@@ -134,7 +134,7 @@ impl SlidingSyncRoom {
     }
 
     pub fn is_initial(&self) -> Option<bool> {
-        self.inner.is_an_initial_response()
+        self.inner.is_initial_response()
     }
 
     pub fn is_loading_more(&self) -> bool {
