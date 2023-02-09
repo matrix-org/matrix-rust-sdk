@@ -284,7 +284,7 @@ impl SlidingSyncRoom {
     }
 
     /// Was this an initial response.
-    pub fn is_an_initial_response(&self) -> Option<bool> {
+    pub fn is_initial_response(&self) -> Option<bool> {
         self.inner.initial
     }
 
