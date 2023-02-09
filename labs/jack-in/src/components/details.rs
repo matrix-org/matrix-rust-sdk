@@ -51,10 +51,10 @@ impl Details {
             return;
         };
 
-        let name = room_data.name.clone().unwrap_or_else(|| "unknown".to_owned());
+        let name = room_data.name().unwrap_or_else(|| "unknown").to_owned();
 
         let state_events = room_data
-            .required_state
+            .required_state()
             .iter()
             .filter_map(|r| r.deserialize().ok())
             .fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {
