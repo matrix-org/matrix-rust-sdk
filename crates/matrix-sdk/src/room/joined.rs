@@ -687,12 +687,26 @@ impl Joined {
             #[cfg(feature = "image-proc")]
             let data_slot;
             #[cfg(feature = "image-proc")]
-            let thumbnail = if config.generate_thumbnail {
-                match generate_image_thumbnail(
-                    content_type,
-                    Cursor::new(&data),
-                    config.thumbnail_size,
-                ) {
+            let (data, thumbnail) = if config.generate_thumbnail {
+                let content_type = content_type.clone();
+                let make_thumbnail = move |data| {
+                    let res = generate_image_thumbnail(
+                        &content_type,
+                        Cursor::new(&data),
+                        config.thumbnail_size,
+                    );
+                    (data, res)
+                };
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let (data, res) = tokio::task::spawn_blocking(move || make_thumbnail(data))
+                    .await
+                    .expect("Task join error");
+
+                #[cfg(target_arch = "wasm32")]
+                let (data, res) = make_thumbnail(data);
+
+                let thumbnail = match res {
                     Ok((thumbnail_data, thumbnail_info)) => {
                         data_slot = thumbnail_data;
                         Some(Thumbnail {
@@ -705,9 +719,11 @@ impl Joined {
                         ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
                     ) => None,
                     Err(error) => return Err(error.into()),
-                }
+                };
+
+                (data, thumbnail)
             } else {
-                None
+                (data, None)
             };
 
             let config = AttachmentConfig {
