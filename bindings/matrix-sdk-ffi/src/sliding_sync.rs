@@ -130,22 +130,23 @@ impl SlidingSyncRoom {
     }
 
     pub fn is_dm(&self) -> Option<bool> {
-        self.inner.is_dm
+        self.inner.is_dm()
     }
 
     pub fn is_initial(&self) -> Option<bool> {
-        self.inner.initial
+        self.inner.is_an_initial_response()
     }
+
     pub fn is_loading_more(&self) -> bool {
         self.inner.is_loading_more()
     }
 
     pub fn has_unread_notifications(&self) -> bool {
-        !self.inner.unread_notifications.is_empty()
+        self.inner.has_unread_notifications()
     }
 
     pub fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications.clone().into())
+        Arc::new(self.inner.unread_notifications().clone().into())
     }
 
     pub fn full_room(&self) -> Option<Arc<Room>> {

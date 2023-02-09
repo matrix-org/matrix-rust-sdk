@@ -16,7 +16,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    ops::Deref,
+    ops::{Deref, Not},
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
@@ -34,9 +34,12 @@ use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sync::SyncRespo
 use ruma::{
     api::client::{
         error::ErrorKind,
-        sync::sync_events::v4::{
-            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
-            TypingConfig,
+        sync::sync_events::{
+            v4::{
+                self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig,
+                ToDeviceConfig, TypingConfig,
+            },
+            UnreadNotificationsCount,
         },
     },
     assign,
@@ -275,6 +278,26 @@ impl SlidingSyncRoom {
         self.inner.name.as_deref()
     }
 
+    /// Is this a direct message?
+    pub fn is_dm(&self) -> Option<bool> {
+        self.inner.is_dm
+    }
+
+    /// Was this an initial response.
+    pub fn is_an_initial_response(&self) -> Option<bool> {
+        self.inner.initial
+    }
+
+    /// Is there any unread notifications?
+    pub fn has_unread_notifications(&self) -> bool {
+        self.inner.unread_notifications.is_empty().not()
+    }
+
+    /// Get unread notifications.
+    pub fn unread_notifications(&self) -> &UnreadNotificationsCount {
+        &self.inner.unread_notifications
+    }
+
     fn update(&mut self, room_data: &v4::SlidingSyncRoom, timeline: Vec<SyncTimelineEvent>) {
         let v4::SlidingSyncRoom {
             name,
@@ -328,13 +351,6 @@ impl SlidingSyncRoom {
             // notihing but we were alerted that we are stale. clear up
             self.timeline.lock_mut().clear();
         }
-    }
-}
-
-impl Deref for SlidingSyncRoom {
-    type Target = v4::SlidingSyncRoom;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
     }
 }
 
