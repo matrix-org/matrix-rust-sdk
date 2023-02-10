@@ -22,11 +22,7 @@ jobs:
         ref: ${{ github.event.pull_request.head.sha }}
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      uses: dtolnay/rust-toolchain@stable
 
     - name: Load cache
       uses: Swatinem/rust-cache@v2
