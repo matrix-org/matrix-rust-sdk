@@ -331,11 +331,15 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>, HashMap<WithheldCode, Vec<Device>>)>
-    {
+    ) -> OlmResult<(
+        bool,
+        HashMap<OwnedUserId, Vec<Device>>,
+        HashMap<OwnedUserId, Vec<(Device, WithheldCode)>>,
+    )> {
         let users: HashSet<&UserId> = users.collect();
         let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
-        let mut withheld_devices: HashMap<WithheldCode, Vec<Device>> = HashMap::new();
+        let mut withheld_devices: HashMap<OwnedUserId, Vec<(Device, WithheldCode)>> =
+            HashMap::new();
 
         trace!(
             ?users,
@@ -382,14 +386,29 @@ impl GroupSessionManager {
                 })
                 .collect();
 
+            user_devices.devices().for_each(|d| {
+                if d.is_blacklisted() {
+                    withheld_devices
+                        .entry(user_id.to_owned())
+                        .or_default()
+                        .push((d, WithheldCode::Blacklisted))
+                } else if settings.only_allow_trusted_devices && !d.is_verified() {
+                    withheld_devices
+                        .entry(user_id.to_owned())
+                        .or_default()
+                        .push((d, WithheldCode::Unverified))
+                }
+            });
+
+            /*let withheld_blacklist: Vec<Device> =
+                user_devices.devices().filter(|d| d.is_blacklisted()).collect();
+
             let withheld_unverified: Vec<Device> = if settings.only_allow_trusted_devices {
-                user_devices.devices().filter(|d| !d.is_verified()).collect()
+                // do not re-add blacklisted even if they are unverified
+                user_devices.devices().filter(|d| !d.is_blacklisted() && !d.is_verified()).collect()
             } else {
                 Vec::with_capacity(0)
-            };
-
-            let withheld_blacklist: Vec<Device> =
-                user_devices.devices().filter(|d| d.is_blacklisted()).collect();
+            };*/
 
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
@@ -424,7 +443,7 @@ impl GroupSessionManager {
 
             devices.entry(user_id.to_owned()).or_default().extend(non_blacklisted_devices);
 
-            if !withheld_unverified.is_empty() {
+            /*if !withheld_unverified.is_empty() {
                 withheld_devices
                     .entry(WithheldCode::Unverified)
                     .or_default()
@@ -435,7 +454,7 @@ impl GroupSessionManager {
                     .entry(WithheldCode::Blacklisted)
                     .or_default()
                     .extend(withheld_blacklist);
-            }
+            }*/
         }
 
         trace!(
@@ -588,32 +607,24 @@ impl GroupSessionManager {
         }
 
         // Handle unverified and blacklisted withhelds
-        let unverified_devices: Vec<Device> = withheld_devices
-            .into_iter()
-            .filter(|(code, _)| match code {
-                WithheldCode::Unverified => true,
-                _ => false,
-            })
-            .flat_map(|(_, d)| d.into_iter())
-            .collect();
+        let flat_with_code: Vec<(Device, WithheldCode)> =
+            withheld_devices.into_iter().flat_map(|(_, list)| list.into_iter()).collect();
 
-        let unverified_requests: Vec<Arc<ToDeviceRequest>> = unverified_devices
+        let withheld_to_device_request: Vec<Arc<ToDeviceRequest>> = flat_with_code
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
                 let mut messages = BTreeMap::new();
-                // help: how can I dynamically know which alg to use?
-                // Is that what's the helper is for?
-                let content = MegolmV1AesSha2WithheldContent::new(
-                    room_id.to_owned(),
-                    Some(outbound.session_id().to_owned()),
-                    // help: can't access it from the outbound, should I get it from Inbound?
-                    self.account.identity_keys.curve25519,
-                    WithheldCode::Unverified,
-                    // help: can't access it from the outbound, should I get it from Inbound?
-                    Some(self.account.device_id.deref().to_owned()),
-                );
 
-                chunk.into_iter().for_each(|d| {
+                chunk.into_iter().for_each(|(d, code)| {
+                    let content = MegolmV1AesSha2WithheldContent::new(
+                        room_id.to_owned(),
+                        Some(outbound.session_id().to_owned()),
+                        // help: can't access it from the outbound, should I get it from Inbound?
+                        self.account.identity_keys.curve25519,
+                        code.to_owned(),
+                        // help: can't access it from the outbound, should I get it from Inbound?
+                        Some(self.account.device_id.deref().to_owned()),
+                    );
                     let content = Raw::new(&content)
                         .expect("We can always serialize a withheld content info")
                         .cast();
@@ -629,23 +640,21 @@ impl GroupSessionManager {
                     txn_id: TransactionId::new(),
                     messages,
                 })
-
-                //outbound.add_request(request.txn_id, request, message)
             })
             .collect();
 
-        if unverified_requests.is_empty() {
+        if withheld_to_device_request.is_empty() {
             debug!(
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
-                "The room key is not withheld"
+                "The room key is not withheld to anyone"
             );
         } else {
             let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
                 BTreeMap::new();
 
             // We're just collecting the recipients for logging reasons.
-            for request in &unverified_requests {
+            for request in &withheld_to_device_request {
                 for (user_id, device_map) in &request.messages {
                     let devices = device_map.keys();
                     recipients.entry(user_id).or_default().extend(devices)
@@ -653,11 +662,11 @@ impl GroupSessionManager {
             }
 
             let transaction_ids: Vec<_> =
-                unverified_requests.iter().map(|r| r.txn_id.clone()).collect();
+                withheld_to_device_request.iter().map(|r| r.txn_id.clone()).collect();
             info!(
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
-                request_count = unverified_requests.len(),
+                request_count = withheld_to_device_request.len(),
                 ?transaction_ids,
                 ?recipients,
                 "Created withheld to device requests"
@@ -719,7 +728,7 @@ impl GroupSessionManager {
         }
 
         let mut all_requests = requests;
-        all_requests.extend(unverified_requests.into_iter());
+        all_requests.extend(withheld_to_device_request.into_iter());
 
         Ok(all_requests)
     }
@@ -740,13 +749,18 @@ mod tests {
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
-        room_id, user_id, DeviceId, TransactionId, UserId,
+        room_id,
+        to_device::DeviceIdOrAllDevices,
+        user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::{json, Value};
 
     use crate::{
-        types::{events::room_key_withheld::WithheldCode, EventEncryptionAlgorithm},
-        EncryptionSettings, LocalTrust, OlmMachine,
+        types::{
+            events::room_key_withheld::{MegolmV1AesSha2WithheldContent, WithheldCode},
+            EventEncryptionAlgorithm,
+        },
+        Device, EncryptionSettings, LocalTrust, OlmMachine,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1018,11 +1032,6 @@ mod tests {
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
 
-        assert!(withheld.contains_key(&WithheldCode::Unverified));
-        assert!(!withheld.contains_key(&WithheldCode::Blacklisted));
-
-        let unverified_withheld = &withheld[&WithheldCode::Unverified];
-
         for u in [user_id].into_iter() {
             // users.for_each(|u| {
             let devices = machine.get_user_devices(u, None).await.unwrap();
@@ -1031,20 +1040,27 @@ mod tests {
                 // Ignore our own device
                 .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
                 .for_each(|d| {
-                    if d.device_id() == device_id {
-                        return;
-                    }
-                    println!("{:?}", d);
-                    if !d.is_verified() {
+                    if d.is_blacklisted() {
+                        assert!(withheld[u].iter().any(|(dev, w)| {
+                            dev.device_id() == d.device_id() && w == &WithheldCode::Blacklisted
+                        }));
+                    } else if !d.is_verified() {
                         // the device should then be in the list of withhelds
-                        assert!(unverified_withheld.iter().any(|f| f.device_id() == d.device_id()))
-                    } else {
-                        assert!(!unverified_withheld.iter().any(|f| f.device_id() == d.device_id()))
+                        assert!(withheld[u].iter().any(|(dev, w)| {
+                            dev.device_id() == d.device_id() && w == &WithheldCode::Unverified
+                        }));
                     }
                 })
         }
 
-        assert_eq!(149, unverified_withheld.len());
+        assert_eq!(
+            149,
+            withheld
+                .into_iter()
+                .flat_map(|(_, list)| { list.into_iter().map(|(d, _)| d) })
+                .collect::<Vec<Device>>()
+                .len()
+        );
     }
 
     #[async_test]
@@ -1062,6 +1078,14 @@ mod tests {
         let device_id = "MWFXPINOAO".into();
         let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
+        machine
+            .get_device(user_id, "MWVTUXDNNM".into(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .set_local_trust(LocalTrust::BlackListed)
+            .await
+            .unwrap();
 
         let requests = machine.share_room_key(room_id, users, settings).await.unwrap();
 
@@ -1073,7 +1097,6 @@ mod tests {
 
         let withheld_count =
             requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
-
         // Can be send in one batch
         assert_eq!(1, withheld_count);
 
@@ -1085,5 +1108,17 @@ mod tests {
 
         // withhelds are sent in clear so all device should be counted (even if no OTK)
         assert_eq!(event_count, 149);
+
+        // One should be blacklisted
+        let has_blacklist =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
+                let device_key = DeviceIdOrAllDevices::from(device_id!("MWVTUXDNNM").to_owned());
+                let content = &r.messages[user_id][&device_key];
+                let withheld: MegolmV1AesSha2WithheldContent =
+                    content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
+                withheld.code == WithheldCode::Blacklisted
+            });
+
+        assert!(has_blacklist)
     }
 }
