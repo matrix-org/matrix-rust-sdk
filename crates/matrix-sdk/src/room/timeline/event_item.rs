@@ -338,6 +338,7 @@ impl From<RemoteEventTimelineItem> for EventTimelineItem {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteEventTimelineItem")
@@ -509,6 +510,7 @@ impl Message {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // since timeline items are logged, don't include all fields here so

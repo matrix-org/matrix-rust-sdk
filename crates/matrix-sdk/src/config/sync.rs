@@ -34,6 +34,7 @@ impl Default for SyncSettings {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct("SyncSettings");
