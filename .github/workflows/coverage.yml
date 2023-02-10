@@ -45,10 +45,8 @@ jobs:
         serverName: "matrix-sdk.rs"
 
     - name: Run tarpaulin
-      uses: actions-rs/cargo@v1
-      with:
-        command: tarpaulin
-        args: --out Xml -e sliding-sync-integration-test
+      run: |
+        cargo tarpaulin --out Xml -e sliding-sync-integration-test
 
     - name: Upload to codecov.io
       uses: codecov/codecov-action@v3

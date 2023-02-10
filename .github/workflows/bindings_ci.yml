@@ -42,10 +42,8 @@ jobs:
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xtask
+        run: |
+          cargo build -p xtask
 
   test-uniffi-codegen:
     name: Test UniFFI bindings generation
@@ -209,10 +207,8 @@ jobs:
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xtask
+        run: |
+          cargo build -p xtask
 
   test-apple:
     name: matrix-rust-components-swift
