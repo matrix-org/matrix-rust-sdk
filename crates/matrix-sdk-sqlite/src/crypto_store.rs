@@ -67,6 +67,7 @@ pub struct SqliteCryptoStore {
     session_cache: SessionStore,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SqliteCryptoStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(path) = &self.path {

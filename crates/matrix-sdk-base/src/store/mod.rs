@@ -642,6 +642,7 @@ impl Store {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Store {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Store")

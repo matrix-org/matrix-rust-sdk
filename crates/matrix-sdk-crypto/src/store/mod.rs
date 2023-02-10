@@ -195,6 +195,7 @@ impl RecoveryKey {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Debug for RecoveryKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RecoveryKey").finish()
@@ -245,6 +246,7 @@ pub struct CrossSigningKeyExport {
     pub user_signing_key: Option<String>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Debug for CrossSigningKeyExport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CrossSigningKeyExport")
