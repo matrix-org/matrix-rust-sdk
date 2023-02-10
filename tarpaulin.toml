@@ -25,5 +25,6 @@ exclude = [
     "jack-in",
     "sled-state-inspector",
     # repo automation (ci, codegen)
+    "uniffi-bindgen",
     "xtask",
 ]
