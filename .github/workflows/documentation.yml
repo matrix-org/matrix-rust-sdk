@@ -28,7 +28,7 @@ jobs:
           node-version: 18
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       # Keep in sync with xtask docs
       - name: Build rust documentation

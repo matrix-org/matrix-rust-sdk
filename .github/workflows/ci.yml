@@ -80,7 +80,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -115,7 +115,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -150,7 +150,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -205,7 +205,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -279,7 +279,7 @@ jobs:
           version: v0.10.3
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -330,7 +330,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -406,7 +406,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
         uses: actions/cache@v3
@@ -438,7 +438,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -500,7 +500,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
