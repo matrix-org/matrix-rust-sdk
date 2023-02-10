@@ -28,10 +28,9 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Install tarpaulin
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-tarpaulin
+        tool: cargo-tarpaulin
 
     # set up backend for integration tests
     - uses: actions/setup-python@v4
