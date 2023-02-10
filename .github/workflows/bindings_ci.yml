@@ -74,7 +74,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
         uses: actions/cache@v3
@@ -118,7 +118,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -177,7 +177,7 @@ jobs:
           override: true
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -259,7 +259,7 @@ jobs:
         run: rustup target install aarch64-apple-ios
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
         uses: actions/cache@v3
