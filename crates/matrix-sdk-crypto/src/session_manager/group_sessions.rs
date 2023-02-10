@@ -35,7 +35,11 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
-    types::events::{room::encrypted::RoomEncryptedEventContent, EventType},
+    types::events::{
+        room::encrypted::RoomEncryptedEventContent,
+        room_key_withheld::{MegolmV1AesSha2WithheldContent, WithheldCode},
+        EventType,
+    },
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -327,9 +331,11 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>)> {
+    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>, HashMap<WithheldCode, Vec<Device>>)>
+    {
         let users: HashSet<&UserId> = users.collect();
         let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
+        let mut withheld_devices: HashMap<WithheldCode, Vec<Device>> = HashMap::new();
 
         trace!(
             ?users,
@@ -376,6 +382,15 @@ impl GroupSessionManager {
                 })
                 .collect();
 
+            let withheld_unverified: Vec<Device> = if settings.only_allow_trusted_devices {
+                user_devices.devices().filter(|d| !d.is_verified()).collect()
+            } else {
+                Vec::with_capacity(0)
+            };
+
+            let withheld_blacklist: Vec<Device> =
+                user_devices.devices().filter(|d| d.is_blacklisted()).collect();
+
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
             // of the devices in the session got deleted or blacklisted in the
@@ -408,6 +423,19 @@ impl GroupSessionManager {
             }
 
             devices.entry(user_id.to_owned()).or_default().extend(non_blacklisted_devices);
+
+            if !withheld_unverified.is_empty() {
+                withheld_devices
+                    .entry(WithheldCode::Unverified)
+                    .or_default()
+                    .extend(withheld_unverified);
+            }
+            if !withheld_blacklist.is_empty() {
+                withheld_devices
+                    .entry(WithheldCode::Blacklisted)
+                    .or_default()
+                    .extend(withheld_blacklist);
+            }
         }
 
         trace!(
@@ -417,7 +445,7 @@ impl GroupSessionManager {
             "Done calculating group session recipients"
         );
 
-        Ok((should_rotate, devices))
+        Ok((should_rotate, devices, withheld_devices))
     }
 
     pub async fn encrypt_request(
@@ -476,7 +504,7 @@ impl GroupSessionManager {
         // Collect the recipient devices and check if either the settings
         // or the recipient list changed in a way that requires the
         // session to be rotated.
-        let (should_rotate, devices) =
+        let (should_rotate, devices, withheld_devices) =
             self.collect_session_recipients(users, &encryption_settings, &outbound).await?;
 
         let outbound = if should_rotate {
@@ -559,6 +587,82 @@ impl GroupSessionManager {
             changes.sessions.extend(used_sessions?);
         }
 
+        // Handle unverified and blacklisted withhelds
+        let unverified_devices: Vec<Device> = withheld_devices
+            .into_iter()
+            .filter(|(code, _)| match code {
+                WithheldCode::Unverified => true,
+                _ => false,
+            })
+            .flat_map(|(_, d)| d.into_iter())
+            .collect();
+
+        let unverified_requests: Vec<Arc<ToDeviceRequest>> = unverified_devices
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .map(|chunk| {
+                let mut messages = BTreeMap::new();
+                // help: how can I dynamically know which alg to use?
+                // Is that what's the helper is for?
+                let content = MegolmV1AesSha2WithheldContent::new(
+                    room_id.to_owned(),
+                    Some(outbound.session_id().to_owned()),
+                    // help: can't access it from the outbound, should I get it from Inbound?
+                    self.account.identity_keys.curve25519,
+                    WithheldCode::Unverified,
+                    // help: can't access it from the outbound, should I get it from Inbound?
+                    Some(self.account.device_id.deref().to_owned()),
+                );
+
+                chunk.into_iter().for_each(|d| {
+                    let content = Raw::new(&content)
+                        .expect("We can always serialize a withheld content info")
+                        .cast();
+                    messages
+                        .entry(d.user_id().to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(DeviceIdOrAllDevices::DeviceId(d.device_id().into()), content);
+                });
+
+                Arc::new(ToDeviceRequest {
+                    // Help: Should that be added to ruma?
+                    event_type: ToDeviceEventType::from("m.room_key.withheld"),
+                    txn_id: TransactionId::new(),
+                    messages,
+                })
+
+                //outbound.add_request(request.txn_id, request, message)
+            })
+            .collect();
+
+        if unverified_requests.is_empty() {
+            debug!(
+                room_id = room_id.as_str(),
+                session_id = outbound.session_id(),
+                "The room key is not withheld"
+            );
+        } else {
+            let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
+                BTreeMap::new();
+
+            // We're just collecting the recipients for logging reasons.
+            for request in &unverified_requests {
+                for (user_id, device_map) in &request.messages {
+                    let devices = device_map.keys();
+                    recipients.entry(user_id).or_default().extend(devices)
+                }
+            }
+
+            let transaction_ids: Vec<_> =
+                unverified_requests.iter().map(|r| r.txn_id.clone()).collect();
+            info!(
+                room_id = room_id.as_str(),
+                session_id = outbound.session_id(),
+                request_count = unverified_requests.len(),
+                ?transaction_ids,
+                ?recipients,
+                "Created withheld to device requests"
+            );
+        }
         // The to-device requests get added to the outbound group session, this
         // way we're making sure that they are persisted and scoped to the
         // session.
@@ -614,7 +718,10 @@ impl GroupSessionManager {
             );
         }
 
-        Ok(requests)
+        let mut all_requests = requests;
+        all_requests.extend(unverified_requests.into_iter());
+
+        Ok(all_requests)
     }
 }
 
@@ -637,7 +744,10 @@ mod tests {
     };
     use serde_json::{json, Value};
 
-    use crate::{types::EventEncryptionAlgorithm, EncryptionSettings, LocalTrust, OlmMachine};
+    use crate::{
+        types::{events::room_key_withheld::WithheldCode, EventEncryptionAlgorithm},
+        EncryptionSettings, LocalTrust, OlmMachine,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -813,7 +923,7 @@ mod tests {
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let (should_rotate, _) = machine
+        let (should_rotate, _, _) = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &EncryptionSettings::default(), &outbound)
             .await
@@ -826,7 +936,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _) = machine
+        let (should_rotate, _, _) = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &settings, &outbound)
             .await
@@ -839,7 +949,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _) = machine
+        let (should_rotate, _, _) = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -868,7 +978,7 @@ mod tests {
 
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
+        let (_, recipients, _) = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -885,7 +995,7 @@ mod tests {
             EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
+        let (_, recipients, _) = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -898,7 +1008,7 @@ mod tests {
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
+        let (_, recipients, withheld) = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -907,5 +1017,73 @@ mod tests {
         assert!(recipients[user_id]
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
+
+        assert!(withheld.contains_key(&WithheldCode::Unverified));
+        assert!(!withheld.contains_key(&WithheldCode::Blacklisted));
+
+        let unverified_withheld = &withheld[&WithheldCode::Unverified];
+
+        for u in [user_id].into_iter() {
+            // users.for_each(|u| {
+            let devices = machine.get_user_devices(u, None).await.unwrap();
+            devices
+                .devices()
+                // Ignore our own device
+                .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
+                .for_each(|d| {
+                    if d.device_id() == device_id {
+                        return;
+                    }
+                    println!("{:?}", d);
+                    if !d.is_verified() {
+                        // the device should then be in the list of withhelds
+                        assert!(unverified_withheld.iter().any(|f| f.device_id() == d.device_id()))
+                    } else {
+                        assert!(!unverified_withheld.iter().any(|f| f.device_id() == d.device_id()))
+                    }
+                })
+        }
+
+        assert_eq!(149, unverified_withheld.len());
+    }
+
+    #[async_test]
+    async fn test_sharing_withheld_only_trusted() {
+        let machine = machine().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let settings =
+            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+
+        // Trust only one
+        let user_id = user_id!("@example:localhost");
+        let device_id = "MWFXPINOAO".into();
+        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        device.set_local_trust(LocalTrust::Verified).await.unwrap();
+
+        let requests = machine.share_room_key(room_id, users, settings).await.unwrap();
+
+        // One room key should be sent
+        let room_key_count =
+            requests.iter().filter(|r| r.event_type == "m.room.encrypted".into()).count();
+
+        assert_eq!(1, room_key_count);
+
+        let withheld_count =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+
+        // Can be send in one batch
+        assert_eq!(1, withheld_count);
+
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| r.message_count())
+            .sum();
+
+        // withhelds are sent in clear so all device should be counted (even if no OTK)
+        assert_eq!(event_count, 149);
     }
 }
