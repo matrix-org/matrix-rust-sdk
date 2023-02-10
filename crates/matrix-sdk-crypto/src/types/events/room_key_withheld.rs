@@ -117,7 +117,9 @@ struct WithheldHelper {
 #[derive(Deserialize, Serialize)]
 pub struct MegolmV1AesSha2WithheldContent {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    /// Required if code is not m.no_olm.
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
+    pub room_id: JsOption<OwnedRoomId>,
     /// Required if code is not m.no_olm. The ID of the session.
     #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
     pub session_id: JsOption<String>,
@@ -152,7 +154,7 @@ impl MegolmV1AesSha2WithheldContent {
         from_device: Option<OwnedDeviceId>,
     ) -> Self {
         Self {
-            room_id,
+            room_id: JsOption::Some(room_id),
             session_id: JsOption::from_implicit_option(session_id),
             sender_key,
             code,

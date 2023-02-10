@@ -228,6 +228,8 @@ impl GroupSessionManager {
         ToDeviceRequest,
         BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
+        // devices with no olm
+        BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         struct EncryptResult {
@@ -235,11 +237,13 @@ impl GroupSessionManager {
             share_info: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
             message:
                 BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+            device_info: (OwnedUserId, OwnedDeviceId),
         }
 
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
         let mut share_infos = BTreeMap::new();
+        let mut no_olm: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
         let encrypt = |device: Device, session: OutboundGroupSession| async move {
             let mut message = BTreeMap::new();
@@ -280,7 +284,12 @@ impl GroupSessionManager {
                 Err(e) => return Err(e),
             };
 
-            Ok(EncryptResult { used_session, share_info, message })
+            Ok(EncryptResult {
+                used_session,
+                share_info,
+                message,
+                device_info: (device.user_id().to_owned(), device.device_id().to_owned()),
+            })
         };
 
         let tasks: Vec<_> =
@@ -289,11 +298,17 @@ impl GroupSessionManager {
         let results = join_all(tasks).await;
 
         for result in results {
-            let EncryptResult { used_session, share_info, message } =
-                result.expect("Encryption task panicked")?;
+            let EncryptResult {
+                used_session,
+                share_info,
+                message,
+                device_info: (user_id, device_id),
+            } = result.expect("Encryption task panicked")?;
 
             if let Some(session) = used_session {
                 changed_sessions.push(session);
+            } else {
+                no_olm.entry(user_id).or_default().push(device_id)
             }
 
             for (user, device_messages) in message {
@@ -318,7 +333,7 @@ impl GroupSessionManager {
             "Created a to-device request carrying a room_key"
         );
 
-        Ok((txn_id, request, share_infos, changed_sessions))
+        Ok((txn_id, request, share_infos, changed_sessions, no_olm))
     }
 
     /// Given a list of user and an outbound session, return the list of users
@@ -472,8 +487,8 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         message_index: u32,
         being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
-    ) -> OlmResult<Vec<Session>> {
-        let (id, request, share_infos, used_sessions) =
+    ) -> OlmResult<(Vec<Session>, BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>)> {
+        let (id, request, share_infos, used_sessions, no_olm) =
             Self::encrypt_session_for(outbound.clone(), chunk, message_index).await?;
 
         if !request.messages.is_empty() {
@@ -481,7 +496,7 @@ impl GroupSessionManager {
             being_shared.insert(id, outbound.clone());
         }
 
-        Ok(used_sessions)
+        Ok((used_sessions, no_olm))
     }
 
     pub(crate) fn session_cache(&self) -> GroupSessionCache {
@@ -508,6 +523,7 @@ impl GroupSessionManager {
 
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
+        let mut no_olm: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
         // Try to get an existing session or create a new one.
         let (outbound, inbound) =
@@ -601,21 +617,38 @@ impl GroupSessionManager {
         // needed because each encryption step will mutate the Olm session,
         // ratcheting its state forward.
         for result in join_all(tasks).await {
-            let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task panicked");
+            let result: OlmResult<(Vec<Session>, BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>)> =
+                result.expect("Encryption task panicked");
 
-            changes.sessions.extend(used_sessions?);
+            let (used_sessions, failed_no_olm) = result?;
+            changes.sessions.extend(used_sessions);
+
+            no_olm.extend(failed_no_olm.into_iter())
         }
 
         // Handle unverified and blacklisted withhelds
-        let flat_with_code: Vec<(Device, WithheldCode)> =
-            withheld_devices.into_iter().flat_map(|(_, list)| list.into_iter()).collect();
+        let mut flat_with_code: Vec<(OwnedUserId, OwnedDeviceId, WithheldCode)> = withheld_devices
+            .into_iter()
+            .flat_map(|(_, list)| {
+                list.into_iter().map(|(d, c)| (d.user_id().to_owned(), d.device_id().to_owned(), c))
+            })
+            .collect();
+
+        no_olm.iter().for_each(|(u, list)| {
+            list.into_iter().for_each(|d| {
+                flat_with_code.push((u.to_owned(), d.to_owned(), WithheldCode::NoOlm))
+            });
+        });
 
         let withheld_to_device_request: Vec<Arc<ToDeviceRequest>> = flat_with_code
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
                 let mut messages = BTreeMap::new();
 
-                chunk.into_iter().for_each(|(d, code)| {
+                // TODO do not resend code if already sent for that session (or target if
+                // no_olm)
+                chunk.into_iter().for_each(|(user_id, device_id, code)| {
+                    // TODO use helper to create correct content depending on alg and code
                     let content = MegolmV1AesSha2WithheldContent::new(
                         room_id.to_owned(),
                         Some(outbound.session_id().to_owned()),
@@ -629,9 +662,9 @@ impl GroupSessionManager {
                         .expect("We can always serialize a withheld content info")
                         .cast();
                     messages
-                        .entry(d.user_id().to_owned())
+                        .entry(user_id.to_owned())
                         .or_insert_with(BTreeMap::new)
-                        .insert(DeviceIdOrAllDevices::DeviceId(d.device_id().into()), content);
+                        .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), content);
                 });
 
                 Arc::new(ToDeviceRequest {
@@ -897,12 +930,23 @@ mod tests {
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
 
-        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room.encrypted".into())
+            .map(|r| r.message_count())
+            .sum();
 
         // The keys claim response has a couple of one-time keys with invalid
         // signatures, thus only 148 sessions are actually created, we check
         // that all 148 valid sessions get an room key.
         assert_eq!(event_count, 148);
+
+        let withheld_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| r.message_count())
+            .sum();
+        assert_eq!(withheld_count, 2);
     }
 
     #[async_test]
@@ -921,7 +965,12 @@ mod tests {
             .await
             .unwrap();
 
-        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        println!("{:?}", requests);
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room.encrypted".into())
+            .map(|r| r.message_count())
+            .sum();
         let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         assert_eq!(event_count, 1);
