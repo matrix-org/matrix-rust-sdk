@@ -173,8 +173,18 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Can't use `${{ matrix.* }}` inside uses
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@${{ matrix.rust }}
+        if: matrix.rust == 'stable'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        if: matrix.rust == 'beta'
+        uses: dtolnay/rust-toolchain@beta
+
+      - name: Install Rust
+        if: matrix.rust == 'nightly'
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
