@@ -230,30 +230,20 @@ where
 
     fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
         [
-            &base64_encode(
-                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                &STANDARD_NO_PAD,
-            ),
+            &STANDARD_NO_PAD
+                .encode(store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes())),
             KEY_SEPARATOR,
-            &base64_encode(
-                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                &STANDARD_NO_PAD,
-            ),
+            &STANDARD_NO_PAD
+                .encode(store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes())),
             KEY_SEPARATOR,
-            &base64_encode(
-                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
-                &STANDARD_NO_PAD,
-            ),
+            &STANDARD_NO_PAD
+                .encode(store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes())),
             KEY_SEPARATOR,
-            &base64_encode(
-                store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
-                &STANDARD_NO_PAD,
-            ),
+            &STANDARD_NO_PAD
+                .encode(store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes())),
             KEY_SEPARATOR,
-            &base64_encode(
-                store_cipher.hash_key(table_name, self.4.as_encoded_string().as_bytes()),
-                &STANDARD_NO_PAD,
-            ),
+            &STANDARD_NO_PAD
+                .encode(store_cipher.hash_key(table_name, self.4.as_encoded_string().as_bytes())),
         ]
         .concat()
     }
