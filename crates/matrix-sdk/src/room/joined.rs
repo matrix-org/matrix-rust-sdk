@@ -229,8 +229,12 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to notify this room that the user has read specific
-    /// event.
+    /// Send a request to set a read receipt, notifying this room that the user
+    /// has read a specific event and *some* - but maybe not all - events before
+    /// it.
+    ///
+    /// Use [`read_marker`][Self::read_marker] to indicate that the user has
+    /// read a specific event and *every* message before it.
     ///
     /// # Arguments
     ///
@@ -247,12 +251,15 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to notify this room that the user has read up to specific
-    /// event.
+    /// Send a request to set a read marker, notifying this room that the user
+    /// has read a specific event and *all* events before it.
+    ///
+    /// Use [`read_receipt`][Self::read_receipt] to indicate that the user has
+    /// read a specific event and *some* - but maybe not all - events before it.
     ///
     /// # Arguments
     ///
-    /// * fully_read - The `EventId` of the event the user has read to.
+    /// * fully_read - The `EventId` of the event to set the read marker on.
     ///
     /// * read_receipt - An `EventId` to specify the event to set the read
     ///   receipt on.
