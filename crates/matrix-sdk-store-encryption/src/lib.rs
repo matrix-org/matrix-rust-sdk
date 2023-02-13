@@ -56,7 +56,7 @@ pub enum Error {
     /// The ciphertext had an invalid length, expected {0}, got {1}
     Length(usize, usize),
     /**
-     * Failed to import a store-cipher, the export used a passphrase while
+     * Failed to import a store cipher, the export used a passphrase while
      * we're trying to import it using a key or vice-versa.
      */
     KdfMismatch,
@@ -139,8 +139,8 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `key` - The key that should be used to encrypt the store cipher. This
-    ///   should be a unique and random 32 byte long key.
+    /// * `key` - The 32-byte key to be used to encrypt the store cipher. It's
+    /// recommended to use a freshly and securely generated random key.
     ///
     /// # Examples
     ///
@@ -264,8 +264,8 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
-        // Our old export format used serde_json for the serialization format, let's
-        // first try the new format, if that fails try the old one.
+        // Our old export format used serde_json for the serialization format. Let's
+        // first try the new format and if that fails, try the old one.
         let encrypted: EncryptedStoreCipher =
             if let Ok(deserialized) = rmp_serde::from_slice(encrypted) {
                 deserialized
@@ -287,12 +287,12 @@ impl StoreCipher {
         Self::import_helper(key, encrypted)
     }
 
-    /// Restore a store cipher from an encrypted export.
+    /// Restore a store cipher from an export encrypted with a random key.
     ///
     /// # Arguments
     ///
-    /// * `key` - The key that should be used to decrypt the store cipher. This
-    ///   should be a unique and random 32 byte long key.
+    /// * `key` - The 32-byte decryption key that was previously used to
+    /// encrypt the store cipher.
     ///
     /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
@@ -747,7 +747,7 @@ mod tests {
         // StoreCipher.
         match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
             Err(Error::KdfMismatch) => {}
-            _ => panic!("Invalid error when importing a KDF based store-cipher"),
+            _ => panic!("Invalid error when importing a passphrase-encrypted store cipher with a key"),
         }
 
         let store_cipher = StoreCipher::new()?;
@@ -762,7 +762,7 @@ mod tests {
         // Same as above, can't use assert_matches.
         match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
             Err(Error::KdfMismatch) => {}
-            _ => panic!("Invalid error when importing a key based store-cipher"),
+            _ => panic!("Invalid error when importing a key-encrypted store cipher with a passphrase"),
         }
 
         let old_export = json!({
