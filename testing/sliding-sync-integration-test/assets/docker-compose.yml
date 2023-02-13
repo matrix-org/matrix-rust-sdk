@@ -14,7 +14,7 @@ services:
       - 8228:8008/tcp
 
   postgres:
-    image: postgres
+    image: docker.io/postgres
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
