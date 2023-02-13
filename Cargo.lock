@@ -3067,6 +3067,7 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "rand 0.8.5",
+ "rmp-serde",
  "serde",
  "serde_json",
  "sha2 0.10.6",
