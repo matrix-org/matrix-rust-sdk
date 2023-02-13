@@ -19,7 +19,10 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,
 };
-use ruma::events::fully_read::FullyReadEventContent;
+use ruma::events::{
+    fully_read::FullyReadEventContent,
+    receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
+};
 use tracing::error;
 
 use super::{
@@ -37,7 +40,7 @@ pub(crate) struct TimelineBuilder {
     room: room::Common,
     prev_token: Option<String>,
     events: Vector<SyncTimelineEvent>,
-    track_fully_read: bool,
+    track_read_marker_and_receipts: bool,
 }
 
 impl TimelineBuilder {
@@ -46,7 +49,7 @@ impl TimelineBuilder {
             room: room.clone(),
             prev_token: None,
             events: Vector::new(),
-            track_fully_read: false,
+            track_read_marker_and_receipts: false,
         }
     }
 
@@ -62,18 +65,57 @@ impl TimelineBuilder {
         self
     }
 
-    /// Enable tracking of the fully-read marker on the timeline.
-    pub(crate) fn track_fully_read(mut self) -> Self {
-        self.track_fully_read = true;
+    /// Enable tracking of the fully-read marker and the read receipts on the
+    /// timeline.
+    pub(crate) fn track_read_marker_and_receipts(mut self) -> Self {
+        self.track_read_marker_and_receipts = true;
         self
     }
 
     /// Create a [`Timeline`] with the options set on this builder.
     pub(crate) async fn build(self) -> Timeline {
-        let Self { room, prev_token, events, track_fully_read } = self;
+        let Self { room, prev_token, events, track_read_marker_and_receipts } = self;
         let has_events = !events.is_empty();
 
-        let mut inner = TimelineInner::new(room);
+        let mut inner =
+            TimelineInner::new(room).with_read_receipt_tracking(track_read_marker_and_receipts);
+
+        if track_read_marker_and_receipts {
+            match inner
+                .room()
+                .user_receipt(
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    inner.room().own_user_id(),
+                )
+                .await
+            {
+                Ok(Some(read_receipt)) => {
+                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt);
+                }
+                Err(e) => {
+                    error!("Failed to get public read receipt of own user from the store: {e}");
+                }
+                _ => {}
+            }
+            match inner
+                .room()
+                .user_receipt(
+                    ReceiptType::ReadPrivate,
+                    ReceiptThread::Unthreaded,
+                    inner.room().own_user_id(),
+                )
+                .await
+            {
+                Ok(Some(private_read_receipt)) => {
+                    inner.set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt);
+                }
+                Err(e) => {
+                    error!("Failed to get private read receipt of own user from the store: {e}");
+                }
+                _ => {}
+            }
+        }
 
         if has_events {
             inner.add_initial_events(events).await;
@@ -111,7 +153,7 @@ impl TimelineBuilder {
             forwarded_room_key_handle,
         ];
 
-        if track_fully_read {
+        if track_read_marker_and_receipts {
             match room.account_data_static::<FullyReadEventContent>().await {
                 Ok(Some(fully_read)) => match fully_read.deserialize() {
                     Ok(fully_read) => {
@@ -137,6 +179,17 @@ impl TimelineBuilder {
                 }
             });
             handles.push(fully_read_handle);
+
+            let read_receipts_handle = room.add_event_handler({
+                let inner = inner.clone();
+                move |read_receipts: SyncReceiptEvent| {
+                    let inner = inner.clone();
+                    async move {
+                        inner.handle_read_receipts(read_receipts.content).await;
+                    }
+                }
+            });
+            handles.push(read_receipts_handle);
         }
 
         let client = room.client.clone();

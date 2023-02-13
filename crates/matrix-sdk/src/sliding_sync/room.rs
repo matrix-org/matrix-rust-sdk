@@ -75,7 +75,7 @@ impl SlidingSyncRoom {
 
     /// `Timeline` of this room
     pub async fn timeline(&self) -> Option<Timeline> {
-        Some(self.timeline_builder()?.track_fully_read().build().await)
+        Some(self.timeline_builder()?.track_read_marker_and_receipts().build().await)
     }
 
     fn timeline_builder(&self) -> Option<TimelineBuilder> {

@@ -16,8 +16,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, test_json, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    TimelineTestEvent,
+    async_test, test_json, EphemeralTestEvent, EventBuilder, JoinedRoomBuilder,
+    RoomAccountDataTestEvent, TimelineTestEvent,
 };
 use ruma::{
     event_id,
@@ -668,6 +668,9 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    let _read_receipt_update =
+        assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { value, .. }) => value);
+
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let third_event = third.as_event().unwrap().as_remote().unwrap();
     let message =
@@ -726,4 +729,156 @@ async fn in_reply_to_details() {
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Ready(_));
+}
+
+#[async_test]
+async fn read_receipts_updates() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let alice = user_id!("@alice:localhost");
+    let bob = user_id!("@bob:localhost");
+
+    let second_event_id = event_id!("$e32037280er453l:localhost");
+    let third_event_id = event_id!("$Sg2037280074GZr34:localhost");
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert!(items.is_empty());
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::MessageText)
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "I'm dancing too",
+                    "msgtype": "m.text"
+                },
+                "event_id": second_event_id,
+                "origin_server_ts": 152039280,
+                "sender": alice,
+                "type": "m.room.message",
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "Viva la macarena!",
+                    "msgtype": "m.text"
+                },
+                "event_id": third_event_id,
+                "origin_server_ts": 152045280,
+                "sender": alice,
+                "type": "m.room.message",
+            }))),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+
+    // We don't list the read receipt of our own user on events.
+    let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let first_event = first_item.as_event().unwrap().as_remote().unwrap();
+    assert!(first_event.read_receipts.is_empty());
+
+    // Implicit read receipt of @alice:localhost.
+    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
+    assert_eq!(second_event.read_receipts.len(), 1);
+
+    // Read receipt of @alice:localhost is moved to third event.
+    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
+    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
+    assert!(second_event.read_receipts.is_empty());
+
+    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
+    assert_eq!(third_event.read_receipts.len(), 1);
+
+    // Read receipt on unknown event is ignored.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                "$unknowneventid": {
+                    "m.read": {
+                        alice: {
+                            "ts": 1436453550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Read receipt on older event is ignored.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                second_event_id: {
+                    "m.read": {
+                        alice: {
+                            "ts": 1436451550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    // Read receipt on same event is ignored.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                third_event_id: {
+                    "m.read": {
+                        alice: {
+                            "ts": 1436451550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    // New user with explicit read receipt.
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
+        EphemeralTestEvent::Custom(json!({
+            "content": {
+                third_event_id: {
+                    "m.read": {
+                        bob: {
+                            "ts": 1436451550,
+                        },
+                    },
+                },
+            },
+            "type": "m.receipt",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
+    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
+    assert_eq!(third_event.read_receipts.len(), 2);
 }

@@ -14,25 +14,30 @@
 
 //! Unit tests (based on private methods) for the timeline API.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering::SeqCst},
-    Arc,
+use std::{
+    collections::BTreeMap,
+    sync::{
+        atomic::{AtomicU64, Ordering::SeqCst},
+        Arc,
+    },
 };
 
 use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         AnyMessageLikeEventContent, EmptyStateKey, MessageLikeEventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticStateEventContent,
     },
     serde::Raw,
-    server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
-    UserId,
+    server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
+    OwnedUserId, TransactionId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -42,6 +47,7 @@ mod basic;
 mod echo;
 mod encryption;
 mod invalid;
+mod read_receipts;
 mod virt;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
@@ -55,6 +61,11 @@ struct TestTimeline {
 impl TestTimeline {
     fn new() -> Self {
         Self { inner: TimelineInner::new(TestRoomDataProvider), next_ts: AtomicU64::new(0) }
+    }
+
+    fn with_read_receipt_tracking(mut self) -> Self {
+        self.inner = self.inner.with_read_receipt_tracking(true);
+        self
     }
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
@@ -156,6 +167,14 @@ impl TestTimeline {
         self.inner.handle_back_paginated_event(timeline_event).await;
     }
 
+    async fn handle_read_receipts(
+        &self,
+        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+    ) {
+        let ev_content = self.make_receipt_event_content(receipts);
+        self.inner.handle_read_receipts(ev_content).await;
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
@@ -245,6 +264,24 @@ impl TestTimeline {
         })
     }
 
+    fn make_receipt_event_content(
+        &self,
+        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+    ) -> ReceiptEventContent {
+        let mut ev_content = ReceiptEventContent(BTreeMap::new());
+        for (event_id, receipt_type, user_id, thread) in receipts {
+            let event_map = ev_content.entry(event_id).or_default();
+            let receipt_map = event_map.entry(receipt_type).or_default();
+
+            let mut receipt = Receipt::new(self.next_server_ts());
+            receipt.thread = thread;
+
+            receipt_map.insert(user_id, receipt);
+        }
+
+        ev_content
+    }
+
     fn next_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
         MilliSecondsSinceUnixEpoch(
             self.next_ts
@@ -265,5 +302,9 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn profile(&self, _user_id: &UserId) -> Option<Profile> {
         None
+    }
+
+    async fn read_receipts_for_event(&self, _event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        IndexMap::new()
     }
 }

@@ -20,7 +20,7 @@ use std::{
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
 use im::Vector;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
@@ -28,8 +28,10 @@ use matrix_sdk_base::{
 };
 use ruma::{
     events::{
-        fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
-        AnySyncTimelineEvent,
+        fully_read::FullyReadEvent,
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        relation::Annotation,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
@@ -48,6 +50,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
+    read_receipts::{handle_explicit_read_receipts, load_read_receipts_for_event},
     rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
     Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
@@ -61,6 +64,7 @@ use crate::{
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
     state: Mutex<TimelineInnerState>,
     room_data_provider: P,
+    track_read_receipts: bool,
 }
 
 #[derive(Debug, Default)]
@@ -76,6 +80,9 @@ pub(super) struct TimelineInnerState {
     /// Whether the event that the fully-ready event _refers to_ is part of the
     /// timeline.
     pub(super) fully_read_event_in_timeline: bool,
+    /// User ID => Receipt type => Read receipt of the user of the given type.
+    pub(super) users_read_receipts:
+        HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 }
 
 impl<P: RoomDataProvider> TimelineInner<P> {
@@ -87,7 +94,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             items: ObservableVector::with_capacity(32),
             ..Default::default()
         };
-        Self { state: Mutex::new(state), room_data_provider }
+        Self { state: Mutex::new(state), room_data_provider, track_read_receipts: false }
+    }
+
+    pub(super) fn with_read_receipt_tracking(mut self, track_read_receipts: bool) -> Self {
+        self.track_read_receipts = track_read_receipts;
+        self
     }
 
     /// Get a copy of the current items in the list.
@@ -108,6 +120,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         (items, stream)
     }
 
+    pub(super) fn set_initial_user_receipt(
+        &mut self,
+        receipt_type: ReceiptType,
+        receipt: (OwnedEventId, Receipt),
+    ) {
+        let own_user_id = self.room_data_provider.own_user_id().to_owned();
+        self.state
+            .get_mut()
+            .users_read_receipts
+            .entry(own_user_id)
+            .or_default()
+            .insert(receipt_type, receipt);
+    }
+
     pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
@@ -124,6 +150,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 TimelineItemPosition::End,
                 state,
                 &self.room_data_provider,
+                self.track_read_receipts,
             )
             .await;
         }
@@ -153,6 +180,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             TimelineItemPosition::End,
             &mut state,
             &self.room_data_provider,
+            self.track_read_receipts,
         )
         .await;
     }
@@ -173,13 +201,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
+            read_receipts: Default::default(),
         };
 
         let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
         let kind = TimelineEventKind::Message { content };
 
         let mut state = self.state.lock().await;
-        TimelineEventHandler::new(event_meta, flow, &mut state).handle_event(kind);
+        TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
+            .handle_event(kind);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -242,6 +272,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             TimelineItemPosition::Start,
             &mut state,
             &self.room_data_provider,
+            self.track_read_receipts,
         )
         .await
     }
@@ -388,6 +419,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 TimelineItemPosition::Update(idx),
                 &mut state,
                 &self.room_data_provider,
+                self.track_read_receipts,
             )
             .await;
 
@@ -453,6 +485,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 }
             }
         }
+    }
+
+    pub(super) async fn handle_read_receipts(&self, receipt_event_content: ReceiptEventContent) {
+        let mut state = self.state.lock().await;
+        let own_user_id = self.room_data_provider.own_user_id();
+
+        handle_explicit_read_receipts(receipt_event_content, own_user_id, &mut state)
     }
 }
 
@@ -562,6 +601,7 @@ async fn fetch_replied_to_event(
 pub(super) trait RoomDataProvider {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
 }
 
 #[async_trait]
@@ -589,6 +629,16 @@ impl RoomDataProvider for room::Common {
             }
         }
     }
+
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await {
+            Ok(receipts) => receipts.into_iter().collect(),
+            Err(e) => {
+                error!(?event_id, "Failed to get read receipts for event: {e}");
+                IndexMap::new()
+            }
+        }
+    }
 }
 
 /// Handle a remote event.
@@ -600,6 +650,7 @@ async fn handle_remote_event<P: RoomDataProvider>(
     position: TimelineItemPosition,
     timeline_state: &mut TimelineInnerState,
     room_data_provider: &P,
+    track_read_receipts: bool,
 ) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
@@ -631,9 +682,21 @@ async fn handle_remote_event<P: RoomDataProvider>(
 
     let is_own_event = sender == room_data_provider.own_user_id();
     let sender_profile = room_data_provider.profile(&sender).await;
-    let event_meta =
-        TimelineEventMetadata { sender, sender_profile, is_own_event, relations, encryption_info };
+    let read_receipts = if track_read_receipts {
+        load_read_receipts_for_event(&event_id, timeline_state, room_data_provider).await
+    } else {
+        Default::default()
+    };
+    let event_meta = TimelineEventMetadata {
+        sender,
+        sender_profile,
+        is_own_event,
+        relations,
+        encryption_info,
+        read_receipts,
+    };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
-    TimelineEventHandler::new(event_meta, flow, timeline_state).handle_event(event_kind)
+    TimelineEventHandler::new(event_meta, flow, timeline_state, track_read_receipts)
+        .handle_event(event_kind)
 }
