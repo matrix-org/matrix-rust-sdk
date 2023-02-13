@@ -99,8 +99,8 @@ impl StoreCipher {
 
     /// Encrypt the store cipher using the given passphrase and export it.
     ///
-    /// This method can be used to persist the `StoreCipher` in the key/value
-    /// store in a safe manner.
+    /// This method can be used to persist the `StoreCipher` in an unencrypted
+    /// key/value store in a safe manner.
     ///
     /// The `StoreCipher` can later on be restored using
     /// [`StoreCipher::import`].
@@ -131,8 +131,8 @@ impl StoreCipher {
 
     /// Encrypt the store cipher using the given key and export it.
     ///
-    /// This method can be used to persist the `StoreCipher` in the key/value
-    /// store in a safe manner.
+    /// This method can be used to persist the `StoreCipher` in an unencrypted
+    /// key/value store in a safe manner.
     ///
     /// The `StoreCipher` can later on be restored using
     /// [`StoreCipher::import_with_key`].
@@ -236,7 +236,7 @@ impl StoreCipher {
         }
     }
 
-    /// Restore a store cipher from an encrypted export.
+    /// Restore a store cipher from an export encrypted with a passphrase.
     ///
     /// # Arguments
     ///
@@ -747,7 +747,9 @@ mod tests {
         // StoreCipher.
         match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
             Err(Error::KdfMismatch) => {}
-            _ => panic!("Invalid error when importing a passphrase-encrypted store cipher with a key"),
+            _ => panic!(
+                "Invalid error when importing a passphrase-encrypted store cipher with a key"
+            ),
         }
 
         let store_cipher = StoreCipher::new()?;
@@ -762,7 +764,9 @@ mod tests {
         // Same as above, can't use assert_matches.
         match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
             Err(Error::KdfMismatch) => {}
-            _ => panic!("Invalid error when importing a key-encrypted store cipher with a passphrase"),
+            _ => panic!(
+                "Invalid error when importing a key-encrypted store cipher with a passphrase"
+            ),
         }
 
         let old_export = json!({
