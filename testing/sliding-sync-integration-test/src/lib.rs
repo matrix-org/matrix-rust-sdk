@@ -119,9 +119,6 @@ mod tests {
             let stream = sync.stream();
             pin_mut!(stream);
 
-            // Get the view to all rooms.
-            let view = sync.view("all_rooms").context("View `all_rooms` isn't found")?;
-
             // Send the request and wait for a response.
             let update_summary = stream
                 .next()
@@ -132,17 +129,7 @@ mod tests {
             assert_eq!(update_summary.rooms.len(), 1);
 
             // Let's fetch the room ID then.
-            let room_id = update_summary.rooms[0].clone();
-
-            // Let's fetch the room ID from the view too.
-            let Some(RoomListEntry::Filled(same_room_id)) =
-                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
-                    panic!("Failed to read the room ID from the view");
-                };
-
-            assert_eq!(same_room_id, room_id);
-
-            room_id
+            update_summary.rooms[0].clone()
         };
 
         // Join a room and send 20 messages.
@@ -159,28 +146,26 @@ mod tests {
             }
         }
 
-        let sync = sync_builder
-            .clone()
-            .add_view(
-                SlidingSyncViewBuilder::default()
-                    .sync_mode(SlidingSyncMode::Selective)
-                    .set_range(0u32, 1)
-                    .name("timeline_limit_x")
-                    .timeline_limit(1u32)
-                    .build()?,
-            )
-            .build()
-            .await?;
+        // Start syncing with timeline_limt=0 for fast room list results
+        let visible_rooms_view = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 1)
+            .name("visible_rooms_view")
+            .timeline_limit(0u32)
+            .send_updates_for_items(true)
+            .build()?;
 
-        // Get the sync stream.
-        let stream = sync.stream();
-        pin_mut!(stream);
+        let sync = sync_builder.clone().add_view(visible_rooms_view).build().await?;
 
         // Get the view.
-        let view = sync.view("timeline_limit_x").context("View `timeline_limit_x` isn't found")?;
+        let view =
+            sync.view("visible_rooms_view").context("View `visible_rooms_view` isn't found")?;
 
-        // Sync to receive a message with a `timeline_limit` set to 1.
-        let timeline = {
+        // Sync to receive the initial room list
+        {
+            let stream = sync.stream();
+            pin_mut!(stream);
+
             let mut update_summary;
 
             loop {
@@ -206,22 +191,25 @@ mod tests {
                 };
 
             assert_eq!(same_room_id, room_id);
-
-            // OK, now let's read the timeline!
-            let room: matrix_sdk::SlidingSyncRoom =
-                sync.get_room(&room_id).expect("Failed to get the room");
-
-            // Test the `Timeline`.
-            let timeline = room.timeline().await.unwrap();
-
-            dbg!(&timeline);
-
-            timeline
         };
 
-        // Sync to receive messages with a `timeline_limit` set to 20.
+        // Once the visible_rooms_view(timeline_limit=0) receives its first update
+        // we can add the all_rooms_view and change the timeline_limit to 1
+        let all_rooms_view = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .name("all_rooms_view")
+            .no_timeline_limit()
+            .batch_size(100)
+            .send_updates_for_items(true)
+            .build()?;
+
+        // Register the all_rooms_view and change the visible_rooms_view limit to 1
+        view.timeline_limit.set(Some(UInt::try_from(1u32).unwrap()));
+        sync.add_view(all_rooms_view);
+
         {
-            view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
+            let stream = sync.stream();
+            pin_mut!(stream);
 
             let mut update_summary;
 
@@ -240,20 +228,46 @@ mod tests {
             // We see that one room has received an update, and it's our room!
             assert_eq!(update_summary.rooms.len(), 1);
             assert_eq!(room_id, update_summary.rooms[0]);
-
-            // Let's fetch the room ID from the view too.
-            let Some(RoomListEntry::Filled(same_room_id)) =
-                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
-                    panic!("Failed to read the room ID from the view");
-                };
-
-            assert_eq!(same_room_id, room_id);
-
-            println!("right here?");
-
-            // Test the `Timeline`.
-            dbg!(&timeline);
         }
+
+        let room: matrix_sdk::SlidingSyncRoom =
+            sync.get_room(&room_id).expect("Failed to get the room");
+
+        // Check the latest message
+        let latest_event = room.latest_event().await.unwrap();
+        let latest_event_id = latest_event.content().as_message().unwrap().body();
+        assert_eq!(latest_event_id, "Message #19");
+
+        // Now we can request more history for the currently visible rooms
+        view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
+
+        {
+            let stream = sync.stream();
+            pin_mut!(stream);
+
+            let mut update_summary;
+
+            loop {
+                // Wait for a response.
+                update_summary = stream
+                    .next()
+                    .await
+                    .context("No update summary found, loop ended unsucessfully")??;
+
+                if !update_summary.rooms.is_empty() {
+                    break;
+                }
+            }
+
+            // We see that one room has received an update, and it's our room!
+            assert_eq!(update_summary.rooms.len(), 1);
+            assert_eq!(room_id, update_summary.rooms[0]);
+        }
+
+        // Test the `Timeline`.
+        let latest_event = room.latest_event().await.unwrap();
+        let latest_event_id = latest_event.content().as_message().unwrap().body();
+        assert_eq!(latest_event_id, "Message #19");
 
         Ok(())
     }
