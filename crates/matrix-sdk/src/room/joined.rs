@@ -24,11 +24,11 @@ use ruma::{
     },
     assign,
     events::{
-        room::message::RoomMessageEventContent, EmptyStateKey, MessageLikeEventContent,
-        StateEventContent,
+        receipt::ReceiptThread, room::message::RoomMessageEventContent, EmptyStateKey,
+        MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, instrument};
@@ -240,50 +240,55 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to set a read receipt, notifying this room that the user
-    /// has read a specific event and *some* - but maybe not all - events before
-    /// it.
-    ///
-    /// Use [`read_marker`][Self::read_marker] to indicate that the user has
-    /// read a specific event and *every* message before it.
+    /// Send a request to set a single receipt.
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The `EventId` specifies the event to set the read receipt
-    ///   on.
+    /// * `receipt_type` - The type of the receipt to set. Note that it is
+    ///   possible to set the fully-read marker although it is technically not a
+    ///   receipt.
+    ///
+    /// * `thread` - The thread where this receipt should apply, if any. Note
+    ///   that this must be [`ReceiptThread::Unthreaded`] when sending a
+    ///   [`ReceiptType::FullyRead`].
+    ///
+    /// * `event_id` - The `EventId` of the event to set the receipt on.
     #[instrument(skip_all, parent = &self.client.root_span)]
-    pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
-        let request = create_receipt::v3::Request::new(
+    pub async fn send_single_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: OwnedEventId,
+    ) -> Result<()> {
+        let mut request = create_receipt::v3::Request::new(
             self.inner.room_id().to_owned(),
-            ReceiptType::Read,
-            event_id.to_owned(),
+            receipt_type,
+            event_id,
         );
+        request.thread = thread;
 
         self.client.send(request, None).await?;
         Ok(())
     }
 
-    /// Send a request to set a read marker, notifying this room that the user
-    /// has read a specific event and *all* events before it.
-    ///
-    /// Use [`read_receipt`][Self::read_receipt] to indicate that the user has
-    /// read a specific event and *some* - but maybe not all - events before it.
+    /// Send a request to set multiple receipts at once.
     ///
     /// # Arguments
     ///
-    /// * fully_read - The `EventId` of the event to set the read marker on.
+    /// * `receipts` - The `Receipts` to send.
     ///
-    /// * read_receipt - An `EventId` to specify the event to set the read
-    ///   receipt on.
+    /// If `receipts` is empty, this is a no-op.
     #[instrument(skip_all, parent = &self.client.root_span)]
-    pub async fn read_marker(
-        &self,
-        fully_read: &EventId,
-        read_receipt: Option<&EventId>,
-    ) -> Result<()> {
+    pub async fn send_multiple_receipts(&self, receipts: Receipts) -> Result<()> {
+        if receipts.is_empty() {
+            return Ok(());
+        }
+
+        let Receipts { fully_read, read_receipt, private_read_receipt } = receipts;
         let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id().to_owned()), {
-            fully_read: Some(fully_read.to_owned()),
-            read_receipt: read_receipt.map(ToOwned::to_owned),
+            fully_read,
+            read_receipt,
+            private_read_receipt,
         });
 
         self.client.send(request, None).await?;
@@ -1028,5 +1033,58 @@ impl Joined {
         );
 
         self.client.send(request, None).await
+    }
+}
+
+/// Receipts to send all at once.
+#[derive(Debug, Clone, Default)]
+pub struct Receipts {
+    fully_read: Option<OwnedEventId>,
+    read_receipt: Option<OwnedEventId>,
+    private_read_receipt: Option<OwnedEventId>,
+}
+
+impl Receipts {
+    /// Create an empty `Receipts`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the last event the user has read.
+    ///
+    /// It means that the user has read all the events before this event.
+    ///
+    /// This is a private marker only visible by the user.
+    ///
+    /// Note that this is technically not a receipt as it is persisted in the
+    /// room account data.
+    pub fn fully_read_marker(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+        self.fully_read = event_id.into();
+        self
+    }
+
+    /// Set the last event presented to the user and forward it to the other
+    /// users in the room.
+    ///
+    /// This is used to reset the unread messages/notification count and
+    /// advertise to other users the last event that the user has likely seen.
+    pub fn public_read_receipt(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+        self.read_receipt = event_id.into();
+        self
+    }
+
+    /// Set the last event presented to the user and don't forward it.
+    ///
+    /// This is used to reset the unread messages/notification count.
+    pub fn private_read_receipt(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+        self.private_read_receipt = event_id.into();
+        self
+    }
+
+    /// Whether this `Receipts` is empty.
+    pub fn is_empty(&self) -> bool {
+        self.fully_read.is_none()
+            && self.read_receipt.is_none()
+            && self.private_read_receipt.is_none()
     }
 }

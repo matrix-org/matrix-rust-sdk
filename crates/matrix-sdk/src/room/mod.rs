@@ -15,7 +15,7 @@ pub mod timeline;
 pub use self::{
     common::{Common, Messages, MessagesOptions},
     invited::Invited,
-    joined::Joined,
+    joined::{Joined, Receipts},
     left::Left,
     member::RoomMember,
 };
