@@ -9,7 +9,7 @@ services:
       disable: true
     volumes:
       - ./data/synapse:/data
-      
+
     ports:
       - 8228:8008/tcp
 
@@ -26,7 +26,7 @@ services:
       retries: 5
     volumes:
       - ./data/db:/var/lib/postgresql/data
-      
+
   sliding-sync-proxy:
     image: ghcr.io/matrix-org/sliding-sync:v0.99.0-rc1
     # image: ghcr.io/matrix-org/sliding-sync:latest
