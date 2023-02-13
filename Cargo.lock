@@ -4830,7 +4830,6 @@ name = "sliding-sync-integration-test"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ctor",
  "futures",
  "matrix-sdk",
  "matrix-sdk-integration-testing",
