@@ -22,6 +22,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        receipt::Receipt,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -294,6 +295,13 @@ pub struct RemoteEventTimelineItem {
     pub content: TimelineItemContent,
     /// All bundled reactions about the event.
     pub reactions: BundledReactions,
+    /// All read receipts for the event.
+    ///
+    /// The key is the ID of a room member and the value are details about the
+    /// read receipt.
+    ///
+    /// Note that currently this ignores threads.
+    pub read_receipts: IndexMap<OwnedUserId, Receipt>,
     /// Whether the event has been sent by the the logged-in user themselves.
     pub is_own: bool,
     /// Encryption information.

@@ -41,6 +41,7 @@ mod event_handler;
 mod event_item;
 mod inner;
 mod pagination;
+mod read_receipts;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
