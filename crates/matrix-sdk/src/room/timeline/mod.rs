@@ -19,6 +19,8 @@
 use std::sync::Arc;
 
 use futures_core::Stream;
+#[cfg(feature = "testing")]
+use futures_signals::signal_vec::MutableVecLockRef;
 use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
 use matrix_sdk_base::locks::Mutex;
 use ruma::{
@@ -222,6 +224,12 @@ impl Timeline {
                 None,
             )
             .await;
+    }
+
+    /// Get the current list of timeline items. Do not use this in production!
+    #[cfg(feature = "testing")]
+    pub fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
+        self.inner.items()
     }
 
     /// Get the latest of the timeline's event items.
