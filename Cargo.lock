@@ -1941,6 +1941,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
+name = "gloo-timers"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "gloo-utils"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2681,6 +2693,7 @@ dependencies = [
  "futures-signals",
  "futures-util",
  "getrandom 0.2.8",
+ "gloo-timers",
  "http",
  "hyper",
  "image 0.24.5",
@@ -2707,7 +2720,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "wasm-bindgen-test",
- "wasm-timer",
  "wiremock",
  "zeroize",
 ]
@@ -2776,6 +2788,7 @@ dependencies = [
  "async-lock",
  "futures-core",
  "futures-util",
+ "gloo-timers",
  "instant",
  "matrix-sdk-test",
  "ruma",
@@ -2784,7 +2797,6 @@ dependencies = [
  "tokio",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
- "wasm-timer",
 ]
 
 [[package]]
@@ -5977,21 +5989,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
-name = "wasm-timer"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
-dependencies = [
- "futures",
- "js-sys",
- "parking_lot 0.11.2",
- "pin-utils",
- "wasm-bindgen",
- "wasm-bindgen-futures",
  "web-sys",
 ]
 

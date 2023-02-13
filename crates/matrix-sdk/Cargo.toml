@@ -118,7 +118,7 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-once-cell = "0.4.2"
-wasm-timer = "0.2.5"
+gloo-timers = { version = "0.2.6", features = ["futures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
