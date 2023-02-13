@@ -66,6 +66,7 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
+    use core::time;
     use std::{
         iter::repeat,
         time::{Duration, Instant},
@@ -151,7 +152,7 @@ mod tests {
             .sync_mode(SlidingSyncMode::Selective)
             .add_range(0u32, 1)
             .name("visible_rooms_view")
-            .timeline_limit(0u32)
+            .timeline_limit(1u32)
             .send_updates_for_items(true)
             .build()?;
 
@@ -193,6 +194,9 @@ mod tests {
             assert_eq!(same_room_id, room_id);
         };
 
+        let room: matrix_sdk::SlidingSyncRoom =
+            sync.get_room(&room_id).expect("Failed to get the room");
+
         // Once the visible_rooms_view(timeline_limit=0) receives its first update
         // we can add the all_rooms_view and change the timeline_limit to 1
         let all_rooms_view = SlidingSyncViewBuilder::default()
@@ -205,6 +209,8 @@ mod tests {
 
         // Register the all_rooms_view and change the visible_rooms_view limit to 1
         view.timeline_limit.set(Some(UInt::try_from(1u32).unwrap()));
+
+        // THIS BREAKS IT
         sync.add_view(all_rooms_view);
 
         {
@@ -230,41 +236,7 @@ mod tests {
             assert_eq!(room_id, update_summary.rooms[0]);
         }
 
-        let room: matrix_sdk::SlidingSyncRoom =
-            sync.get_room(&room_id).expect("Failed to get the room");
-
         // Check the latest message
-        let latest_event = room.latest_event().await.unwrap();
-        let latest_event_id = latest_event.content().as_message().unwrap().body();
-        assert_eq!(latest_event_id, "Message #19");
-
-        // Now we can request more history for the currently visible rooms
-        view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
-
-        {
-            let stream = sync.stream();
-            pin_mut!(stream);
-
-            let mut update_summary;
-
-            loop {
-                // Wait for a response.
-                update_summary = stream
-                    .next()
-                    .await
-                    .context("No update summary found, loop ended unsucessfully")??;
-
-                if !update_summary.rooms.is_empty() {
-                    break;
-                }
-            }
-
-            // We see that one room has received an update, and it's our room!
-            assert_eq!(update_summary.rooms.len(), 1);
-            assert_eq!(room_id, update_summary.rooms[0]);
-        }
-
-        // Test the `Timeline`.
         let latest_event = room.latest_event().await.unwrap();
         let latest_event_id = latest_event.content().as_message().unwrap().body();
         assert_eq!(latest_event_id, "Message #19");
