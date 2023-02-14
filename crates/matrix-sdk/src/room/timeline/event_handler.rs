@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::{DateTime, Datelike, Local, TimeZone};
+use chrono::{Datelike, Local, TimeZone};
 use futures_signals::signal_vec::MutableVecLockMut;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
@@ -773,18 +773,16 @@ fn _update_timeline_item(
     }
 }
 
-/// Converts a timestamp since Unix Epoch to a local date and time.
-fn timestamp_to_local_datetime(ts: MilliSecondsSinceUnixEpoch) -> DateTime<Local> {
-    Local
+/// Converts a timestamp since Unix Epoch to a year, month and day.
+fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
+    let datetime = Local
         .timestamp_millis_opt(ts.0.into())
         // Only returns `None` if date is after Dec 31, 262143 BCE.
         .single()
         // Fallback to the current date to avoid issues with malicious
         // homeservers.
-        .unwrap_or_else(Local::now)
-}
+        .unwrap_or_else(Local::now);
 
-fn datetime_to_ymd(datetime: DateTime<Local>) -> (i32, u32, u32) {
     (datetime.year(), datetime.month(), datetime.day())
 }
 
@@ -794,14 +792,8 @@ fn maybe_create_day_divider_from_timestamps(
     old_ts: MilliSecondsSinceUnixEpoch,
     new_ts: MilliSecondsSinceUnixEpoch,
 ) -> Option<TimelineItem> {
-    let old_date = timestamp_to_local_datetime(old_ts);
-    let new_date = timestamp_to_local_datetime(new_ts);
-
-    if datetime_to_ymd(old_date) != datetime_to_ymd(new_date) {
-        Some(TimelineItem::day_divider(new_ts))
-    } else {
-        None
-    }
+    (timestamp_to_ymd(old_ts) != timestamp_to_ymd(new_ts))
+        .then(|| TimelineItem::day_divider(new_ts))
 }
 
 struct NewEventTimelineItem {
