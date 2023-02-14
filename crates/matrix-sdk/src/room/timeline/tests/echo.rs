@@ -56,9 +56,8 @@ async fn remote_echo_full_trip() {
 
     // Scenario 3: The local event has been sent successfully to the server and an
     // event ID has been received as part of the server's response.
-    let event_id = {
-        let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
-
+    let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
+    let timestamp = {
         timeline.inner.update_event_send_state(
             &txn_id,
             EventSendState::Sent { event_id: event_id.to_owned() },
@@ -68,10 +67,10 @@ async fn remote_echo_full_trip() {
             stream.next().await,
             Some(VecDiff::UpdateAt { value, index: 1 }) => value
         );
-        let event = item.as_event().unwrap().as_local().unwrap();
-        assert_matches!(event.send_state, EventSendState::Sent { .. });
+        let event_item = item.as_event().unwrap().as_local().unwrap();
+        assert_matches!(event_item.send_state, EventSendState::Sent { .. });
 
-        event_id
+        event_item.timestamp
     };
 
     // Now, a sync has been run against the server, and an event with the same ID
@@ -84,22 +83,14 @@ async fn remote_echo_full_trip() {
             },
             "sender": &*ALICE,
             "event_id": event_id,
-            "origin_server_ts": 5,
+            "origin_server_ts": timestamp,
             "type": "m.room.message",
         }))
         .await;
 
-    // The local echo is removed
-    assert_matches!(stream.next().await, Some(VecDiff::Pop { .. }));
-
-    // This day divider shouldn't be present, or the previous one should be
-    // removed. There being a two day dividers in a row is a bug, but it's
-    // non-trivial to fix and rare enough that we can fix it later (only happens
-    // when the first message on a given day is a local echo).
-    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-
-    // … and the remote echo is added.
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    // The local echo is replaced with the remote echo
+    let item =
+        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
     assert_matches!(item.as_event().unwrap(), EventTimelineItem::Remote(_));
 }
 

@@ -9,7 +9,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
         AnyOtherFullStateEventContent, Error as TimelineError, EventSendState, PaginationOptions,
-        TimelineDetails, TimelineItemContent, VirtualTimelineItem,
+        TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
     Error,
@@ -224,11 +224,15 @@ async fn echo() {
 
     // Local echo is removed
     assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
-    // Bug, will be fixed later. See comment in remote_echo_full_trip test
-    // from `room::timeline::tests`.
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    // Local echo day divider is removed
+    assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
 
+    // New day divider is added
+    let new_item =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+
+    // Remote echo is added
     let remote_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = remote_echo.as_event().unwrap().as_remote().unwrap();

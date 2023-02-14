@@ -399,6 +399,14 @@ impl TimelineItem {
         Self::Virtual(VirtualTimelineItem::TimelineStart)
     }
 
+    fn is_virtual(&self) -> bool {
+        matches!(self, Self::Virtual(_))
+    }
+
+    fn is_day_divider(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::DayDivider(_)))
+    }
+
     fn is_read_marker(&self) -> bool {
         matches!(self, Self::Virtual(VirtualTimelineItem::ReadMarker))
     }

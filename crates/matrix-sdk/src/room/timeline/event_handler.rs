@@ -648,10 +648,45 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                         trace!("Received remote echo without transaction ID");
                     }
 
-                    // Remove local echo, remote echo will be added below
                     // TODO: Check whether anything is different about the
                     //       old and new item?
-                    self.timeline_items.remove(idx);
+
+                    if idx == self.timeline_items.len() - 1
+                        && timestamp_to_ymd(old_item.timestamp())
+                            == timestamp_to_ymd(*origin_server_ts)
+                    {
+                        // If the old item is the last one and no day divider
+                        // changes need to happen, replace and return early.
+                        self.timeline_items.set_cloned(idx, item);
+                        return;
+                    } else {
+                        // In more complex cases, remove the item and day
+                        // divider (if necessary) before re-adding the item.
+                        self.timeline_items.remove(idx);
+
+                        assert_ne!(
+                            idx, 0,
+                            "there is never an event item at index 0 because \
+                             the first event item is preceded by a day divider"
+                        );
+
+                        // Pre-requisites for removing the day divider:
+                        // 1. there is one preceding the old item at all
+                        if self.timeline_items[idx - 1].is_day_divider()
+                            // 2. the next item after the old one being removed
+                            //    is virtual (it should be impossible for this
+                            //    to be a read marker)
+                            && self
+                                .timeline_items
+                                .get(idx + 1)
+                                .map_or(true, |item| item.is_virtual())
+                        {
+                            self.timeline_items.remove(idx - 1);
+                        }
+
+                        // no return here, below code for adding a new event
+                        // will run to re-add the removed item
+                    }
                 } else if txn_id.is_some() {
                     warn!(
                         "Received event with transaction ID, but didn't \
