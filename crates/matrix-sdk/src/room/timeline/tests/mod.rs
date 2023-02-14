@@ -15,7 +15,7 @@
 //! Unit tests (based on private methods) for the timeline API.
 
 use std::sync::{
-    atomic::{AtomicU32, Ordering::SeqCst},
+    atomic::{AtomicU64, Ordering::SeqCst},
     Arc,
 };
 
@@ -49,19 +49,19 @@ static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 
 struct TestTimeline {
     inner: TimelineInner<TestProfileProvider>,
-    next_ts: AtomicU32,
+    next_ts: AtomicU64,
 }
 
 impl TestTimeline {
     fn new() -> Self {
-        Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU32::new(0) }
+        Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU64::new(0) }
     }
 
     async fn with_initial_events<'a>(
         events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
     ) -> Self {
         let mut this =
-            Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU32::new(0) };
+            Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU64::new(0) };
 
         this.inner
             .add_initial_events(
@@ -174,7 +174,7 @@ impl TestTimeline {
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
-    fn set_next_ts(&self, value: u32) {
+    fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
     }
 
@@ -261,7 +261,12 @@ impl TestTimeline {
     }
 
     fn next_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
-        MilliSecondsSinceUnixEpoch(self.next_ts.fetch_add(1, SeqCst).into())
+        MilliSecondsSinceUnixEpoch(
+            self.next_ts
+                .fetch_add(1, SeqCst)
+                .try_into()
+                .expect("server timestamp should fit in js_int::UInt"),
+        )
     }
 }
 
