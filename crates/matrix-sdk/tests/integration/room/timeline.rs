@@ -224,7 +224,7 @@ async fn echo() {
 
     // Local echo is removed
     assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
-    // Bug, will be fixed later. See comment in remote_echo_without_txn_id test
+    // Bug, will be fixed later. See comment in remote_echo_full_trip test
     // from `room::timeline::tests`.
     let _day_divider =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
