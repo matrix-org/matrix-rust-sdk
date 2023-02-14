@@ -171,6 +171,13 @@ impl TestTimeline {
         txn_id
     }
 
+    /// Set the next server timestamp.
+    ///
+    /// Timestamps will continue to increase by 1 (millisecond) from that value.
+    fn set_next_ts(&self, value: u32) {
+        self.next_ts.store(value, SeqCst);
+    }
+
     fn make_message_event<C: MessageLikeEventContent>(
         &self,
         sender: &UserId,
