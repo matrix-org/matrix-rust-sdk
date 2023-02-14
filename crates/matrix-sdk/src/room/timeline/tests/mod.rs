@@ -88,12 +88,8 @@ impl TestTimeline {
         self.inner.handle_live_event(raw, None).await;
     }
 
-    async fn handle_live_original_state_event<C>(
-        &self,
-        sender: &UserId,
-        content: C,
-        prev_content: Option<C>,
-    ) where
+    async fn handle_live_state_event<C>(&self, sender: &UserId, content: C, prev_content: Option<C>)
+    where
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = make_state_event(sender, "", content, prev_content);
@@ -101,7 +97,7 @@ impl TestTimeline {
         self.inner.handle_live_event(raw, None).await;
     }
 
-    async fn handle_live_original_state_event_with_state_key<C>(
+    async fn handle_live_state_event_with_state_key<C>(
         &self,
         sender: &UserId,
         state_key: C::StateKey,
