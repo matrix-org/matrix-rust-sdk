@@ -7,7 +7,6 @@ use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
 };
-use serde_json::json;
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::room::timeline::VirtualTimelineItem;
@@ -18,16 +17,10 @@ async fn day_divider() {
     let mut stream = timeline.stream();
 
     timeline
-        .handle_live_custom_event(json!({
-            "content": {
-                "msgtype": "m.text",
-                "body": "This is a first message on the first day"
-            },
-            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
-            "origin_server_ts": 1669897395000u64,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        }))
+        .handle_live_message_event(
+            *ALICE,
+            RoomMessageEventContent::text_plain("This is a first message on the first day"),
+        )
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
@@ -36,40 +29,31 @@ async fn day_divider() {
         VirtualTimelineItem::DayDivider(ts) => *ts
     );
     let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
-    assert_eq!(date.year(), 2022);
-    assert_eq!(date.month(), 12);
+    assert_eq!(date.year(), 1970);
+    assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 1);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();
 
     timeline
-        .handle_live_custom_event(json!({
-            "content": {
-                "msgtype": "m.text",
-                "body": "This is a second message on the first day"
-            },
-            "event_id": "$feG0HA0FAZ37wP8kXlNkxx3I",
-            "origin_server_ts": 1669906604000u64,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        }))
+        .handle_live_message_event(
+            *ALICE,
+            RoomMessageEventContent::text_plain("This is a second message on the first day"),
+        )
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     item.as_event().unwrap();
 
+    // Timestamps start at unix epoch, advance to one day later
+    timeline.set_next_ts(24 * 60 * 60 * 1000);
+
     timeline
-        .handle_live_custom_event(json!({
-            "content": {
-                "msgtype": "m.text",
-                "body": "This is a first message on the next day"
-            },
-            "event_id": "$geG0HA0FAZ37wP8kXlNkxx3I",
-            "origin_server_ts": 1669992963000u64,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        }))
+        .handle_live_message_event(
+            *ALICE,
+            RoomMessageEventContent::text_plain("This is a first message on the next day"),
+        )
         .await;
 
     let day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
@@ -78,8 +62,8 @@ async fn day_divider() {
         VirtualTimelineItem::DayDivider(ts) => *ts
     );
     let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
-    assert_eq!(date.year(), 2022);
-    assert_eq!(date.month(), 12);
+    assert_eq!(date.year(), 1970);
+    assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 2);
 
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
