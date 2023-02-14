@@ -26,8 +26,9 @@ use url::Url;
 
 use super::{Client, Room, RUNTIME};
 use crate::{
-    helpers::unwrap_or_clone_arc, room::TimelineLock, EventTimelineItem, TimelineDiff,
-    TimelineListener,
+    helpers::{spawn_future, unwrap_or_clone_arc},
+    room::TimelineLock,
+    EventTimelineItem, TimelineDiff, TimelineListener,
 };
 
 type StoppableSpawnCallback = Box<dyn FnOnce() + Send + Sync>;
@@ -227,7 +228,7 @@ impl SlidingSyncRoom {
             }
         };
 
-        Some(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Some(StoppableSpawn::with_handle(spawn_future(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         })))
     }
@@ -508,7 +509,7 @@ impl SlidingSyncView {
         observer: Box<dyn SlidingSyncViewStateObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut signal = self.inner.state.signal_cloned().to_stream();
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(spawn_future(async move {
             loop {
                 if let Some(new_state) = signal.next().await {
                     observer.did_receive_update(new_state);
@@ -522,7 +523,7 @@ impl SlidingSyncView {
         observer: Box<dyn SlidingSyncViewRoomListObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(spawn_future(async move {
             loop {
                 if let Some(diff) = room_list.next().await {
                     observer.did_receive_update(diff.into());
@@ -536,7 +537,7 @@ impl SlidingSyncView {
         observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(spawn_future(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
                     observer.did_receive_update();
@@ -550,7 +551,7 @@ impl SlidingSyncView {
         observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
     ) -> Arc<StoppableSpawn> {
         let mut rooms_count = self.inner.rooms_count.signal_cloned().to_stream();
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(StoppableSpawn::with_handle(spawn_future(async move {
             loop {
                 if let Some(Some(new)) = rooms_count.next().await {
                     observer.did_receive_update(new);
@@ -711,7 +712,7 @@ impl SlidingSync {
             remote_stopper.store(true, Ordering::Relaxed);
         })));
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             let stream = inner.stream();
             pin_mut!(stream);
             loop {

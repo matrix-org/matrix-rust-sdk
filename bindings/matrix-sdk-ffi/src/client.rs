@@ -25,6 +25,7 @@ use tracing::{debug, warn};
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
 };
+use crate::helpers::spawn_future;
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -399,7 +400,7 @@ impl Client {
         let state = self.state.clone();
         let delegate = self.delegate.clone();
         let local_self = self.clone();
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
             let mut event_filter = RoomEventFilter::default();

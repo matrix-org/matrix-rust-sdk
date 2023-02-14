@@ -14,6 +14,7 @@ use matrix_sdk::{
 };
 
 use super::RUNTIME;
+use crate::helpers::spawn_future;
 
 pub struct SessionVerificationEmoji {
     symbol: String,
@@ -98,7 +99,7 @@ impl SessionVerificationController {
                         }
 
                         let delegate = self.delegate.clone();
-                        RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
+                        spawn_future(Self::listen_to_changes(delegate, verification));
                     }
                     _ => {
                         if let Some(delegate) = &*self.delegate.read().unwrap() {
@@ -170,7 +171,7 @@ impl SessionVerificationController {
                             }
 
                             let delegate = self.delegate.clone();
-                            RUNTIME.spawn(Self::listen_to_changes(delegate, sas_verification));
+                            spawn_future(Self::listen_to_changes(delegate, sas_verification));
                         } else if let Some(delegate) = &*self.delegate.read().unwrap() {
                             delegate.did_fail()
                         }

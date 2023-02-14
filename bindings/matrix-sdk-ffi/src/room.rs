@@ -21,7 +21,7 @@ use matrix_sdk::{
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{TimelineDiff, TimelineListener};
+use crate::{helpers::spawn_future, TimelineDiff, TimelineListener};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -154,7 +154,7 @@ impl Room {
             }
         };
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             timeline.retry_decryption(&session_ids).await;
         });
     }
@@ -168,7 +168,7 @@ impl Room {
             }
         };
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             timeline.fetch_members().await;
         });
     }
@@ -251,7 +251,7 @@ impl Room {
             .signal();
 
         let listener: Arc<dyn TimelineListener> = listener.into();
-        RUNTIME.spawn(timeline_signal.for_each(move |diff| {
+        spawn_future(timeline_signal.for_each(move |diff| {
             let listener = listener.clone();
             let fut = RUNTIME
                 .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
@@ -318,7 +318,7 @@ impl Room {
             }
         };
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
         });
     }
@@ -359,7 +359,7 @@ impl Room {
             )
         })?;
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await;
         });
         Ok(())
@@ -406,7 +406,7 @@ impl Room {
             Ok(edited_content)
         })?;
 
-        RUNTIME.spawn(async move {
+        spawn_future(async move {
             timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
         });
         Ok(())
