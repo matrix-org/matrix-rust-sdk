@@ -563,11 +563,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         match &self.flow {
             Flow::Local { timestamp, .. } => {
                 // Check if the latest event has the same date as this event.
-                if let Some(latest_event) = self
-                    .timeline_items
-                    .iter()
-                    .rfind(|item| item.as_event().is_some())
-                    .and_then(|item| item.as_event())
+                if let Some(latest_event) =
+                    self.timeline_items.iter().rev().find_map(|item| item.as_event())
                 {
                     let old_ts = latest_event.timestamp();
 
