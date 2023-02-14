@@ -228,7 +228,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) fn add_loading_indicator(&self) {
+    pub(super) async fn add_loading_indicator(&self) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
@@ -239,7 +243,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip(self))]
-    pub(super) fn remove_loading_indicator(&self, more_messages: bool) {
+    pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if !lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
