@@ -27,7 +27,8 @@ use once_cell::sync::Lazy;
 use ruma::{
     events::{
         AnyMessageLikeEventContent, EmptyStateKey, MessageLikeEventContent,
-        RedactedStateEventContent, StateEventContent, StaticStateEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
+        StaticStateEventContent,
     },
     serde::Raw,
     server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
@@ -84,6 +85,15 @@ impl TestTimeline {
         C: MessageLikeEventContent,
     {
         let ev = make_message_event(sender, content);
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.inner.handle_live_event(raw, None).await;
+    }
+
+    async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
+    where
+        C: RedactedMessageLikeEventContent,
+    {
+        let ev = make_redacted_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -178,6 +188,20 @@ fn make_message_event<C: MessageLikeEventContent>(sender: &UserId, content: C) -
         "event_id": EventId::new(server_name!("dummy.server")),
         "sender": sender,
         "origin_server_ts": next_server_ts(),
+    })
+}
+
+fn make_redacted_message_event<C: RedactedMessageLikeEventContent>(
+    sender: &UserId,
+    content: C,
+) -> JsonValue {
+    json!({
+        "type": content.event_type(),
+        "content": content,
+        "event_id": EventId::new(server_name!("dummy.server")),
+        "sender": sender,
+        "origin_server_ts": next_server_ts(),
+        "unsigned": make_redacted_unsigned(sender),
     })
 }
 

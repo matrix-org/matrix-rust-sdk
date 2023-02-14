@@ -9,7 +9,9 @@ use ruma::{
         relation::{Annotation, Replacement},
         room::{
             member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
-            message::{self, MessageType, RoomMessageEventContent},
+            message::{
+                self, MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent,
+            },
             name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
         },
@@ -76,25 +78,8 @@ async fn edit_redacted() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.stream();
 
-    // Ruma currently fails to serialize most redacted events correctly
     timeline
-        .handle_live_custom_event(json!({
-            "content": {},
-            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
-            "origin_server_ts": 10,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-            "unsigned": {
-                "redacted_because": {
-                    "content": {},
-                    "redacts": "$eeG0HA0FAZ37wP8kXlNkxx3K",
-                    "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
-                    "sender": "@alice:example.org",
-                    "origin_server_ts": 5,
-                    "type": "m.room.redaction",
-                },
-            },
-        }))
+        .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
     let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
