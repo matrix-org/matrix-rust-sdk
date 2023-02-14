@@ -49,31 +49,35 @@ static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 
 struct TestTimeline {
     inner: TimelineInner<TestProfileProvider>,
+    next_ts: AtomicU32,
 }
 
 impl TestTimeline {
     fn new() -> Self {
-        Self { inner: TimelineInner::new(TestProfileProvider) }
+        Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU32::new(0) }
     }
 
     async fn with_initial_events<'a>(
         events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
     ) -> Self {
-        let mut inner = TimelineInner::new(TestProfileProvider);
-        inner
+        let mut this =
+            Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU32::new(0) };
+
+        this.inner
             .add_initial_events(
                 events
                     .into_iter()
                     .map(|(sender, content)| {
                         let event =
-                            serde_json::from_value(make_message_event(sender, content)).unwrap();
+                            serde_json::from_value(this.make_message_event(sender, content))
+                                .unwrap();
                         SyncTimelineEvent { event, encryption_info: None }
                     })
                     .collect(),
             )
             .await;
 
-        Self { inner }
+        this
     }
 
     fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
@@ -84,7 +88,7 @@ impl TestTimeline {
     where
         C: MessageLikeEventContent,
     {
-        let ev = make_message_event(sender, content);
+        let ev = self.make_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -93,7 +97,7 @@ impl TestTimeline {
     where
         C: RedactedMessageLikeEventContent,
     {
-        let ev = make_redacted_message_event(sender, content);
+        let ev = self.make_redacted_message_event(sender, content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -102,7 +106,7 @@ impl TestTimeline {
     where
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
-        let ev = make_state_event(sender, "", content, prev_content);
+        let ev = self.make_state_event(sender, "", content, prev_content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -116,7 +120,7 @@ impl TestTimeline {
     ) where
         C: StaticStateEventContent,
     {
-        let ev = make_state_event(sender, state_key.as_ref(), content, prev_content);
+        let ev = self.make_state_event(sender, state_key.as_ref(), content, prev_content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -125,7 +129,7 @@ impl TestTimeline {
     where
         C: RedactedStateEventContent<StateKey = EmptyStateKey>,
     {
-        let ev = make_redacted_state_event(sender, "", content);
+        let ev = self.make_redacted_state_event(sender, "", content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -138,7 +142,7 @@ impl TestTimeline {
     ) where
         C: RedactedStateEventContent,
     {
-        let ev = make_redacted_state_event(sender, state_key.as_ref(), content);
+        let ev = self.make_redacted_state_event(sender, state_key.as_ref(), content);
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
     }
@@ -155,7 +159,7 @@ impl TestTimeline {
             "redacts": redacts,
             "event_id": EventId::new(server_name!("dummy.server")),
             "sender": sender,
-            "origin_server_ts": next_server_ts(),
+            "origin_server_ts": self.next_server_ts(),
         });
         let raw = Raw::new(&ev).unwrap().cast();
         self.inner.handle_live_event(raw, None).await;
@@ -165,6 +169,92 @@ impl TestTimeline {
         let txn_id = TransactionId::new();
         self.inner.handle_local_event(txn_id.clone(), content).await;
         txn_id
+    }
+
+    fn make_message_event<C: MessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        content: C,
+    ) -> JsonValue {
+        json!({
+            "type": content.event_type(),
+            "content": content,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+        })
+    }
+
+    fn make_redacted_message_event<C: RedactedMessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        content: C,
+    ) -> JsonValue {
+        json!({
+            "type": content.event_type(),
+            "content": content,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+            "unsigned": self.make_redacted_unsigned(sender),
+        })
+    }
+
+    fn make_state_event<C: StateEventContent>(
+        &self,
+        sender: &UserId,
+        state_key: &str,
+        content: C,
+        prev_content: Option<C>,
+    ) -> JsonValue {
+        let unsigned = if let Some(prev_content) = prev_content {
+            json!({ "prev_content": prev_content })
+        } else {
+            json!({})
+        };
+
+        json!({
+            "type": content.event_type(),
+            "state_key": state_key,
+            "content": content,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+            "unsigned": unsigned,
+        })
+    }
+
+    fn make_redacted_state_event<C: RedactedStateEventContent>(
+        &self,
+        sender: &UserId,
+        state_key: &str,
+        content: C,
+    ) -> JsonValue {
+        json!({
+            "type": content.event_type(),
+            "state_key": state_key,
+            "content": content,
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+            "unsigned": self.make_redacted_unsigned(sender),
+        })
+    }
+
+    fn make_redacted_unsigned(&self, sender: &UserId) -> JsonValue {
+        json!({
+            "redacted_because": {
+                "content": {},
+                "event_id": EventId::new(server_name!("dummy.server")),
+                "sender": sender,
+                "origin_server_ts": self.next_server_ts(),
+                "type": "m.room.redaction",
+            },
+        })
+    }
+
+    fn next_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
+        MilliSecondsSinceUnixEpoch(self.next_ts.fetch_add(1, SeqCst).into())
     }
 }
 
@@ -179,84 +269,4 @@ impl ProfileProvider for TestProfileProvider {
     async fn profile(&self, _user_id: &UserId) -> Option<Profile> {
         None
     }
-}
-
-fn make_message_event<C: MessageLikeEventContent>(sender: &UserId, content: C) -> JsonValue {
-    json!({
-        "type": content.event_type(),
-        "content": content,
-        "event_id": EventId::new(server_name!("dummy.server")),
-        "sender": sender,
-        "origin_server_ts": next_server_ts(),
-    })
-}
-
-fn make_redacted_message_event<C: RedactedMessageLikeEventContent>(
-    sender: &UserId,
-    content: C,
-) -> JsonValue {
-    json!({
-        "type": content.event_type(),
-        "content": content,
-        "event_id": EventId::new(server_name!("dummy.server")),
-        "sender": sender,
-        "origin_server_ts": next_server_ts(),
-        "unsigned": make_redacted_unsigned(sender),
-    })
-}
-
-fn make_state_event<C: StateEventContent>(
-    sender: &UserId,
-    state_key: &str,
-    content: C,
-    prev_content: Option<C>,
-) -> JsonValue {
-    let unsigned = if let Some(prev_content) = prev_content {
-        json!({ "prev_content": prev_content })
-    } else {
-        json!({})
-    };
-
-    json!({
-        "type": content.event_type(),
-        "state_key": state_key,
-        "content": content,
-        "event_id": EventId::new(server_name!("dummy.server")),
-        "sender": sender,
-        "origin_server_ts": next_server_ts(),
-        "unsigned": unsigned,
-    })
-}
-
-fn make_redacted_state_event<C: RedactedStateEventContent>(
-    sender: &UserId,
-    state_key: &str,
-    content: C,
-) -> JsonValue {
-    json!({
-        "type": content.event_type(),
-        "state_key": state_key,
-        "content": content,
-        "event_id": EventId::new(server_name!("dummy.server")),
-        "sender": sender,
-        "origin_server_ts": next_server_ts(),
-        "unsigned": make_redacted_unsigned(sender),
-    })
-}
-
-fn make_redacted_unsigned(sender: &UserId) -> JsonValue {
-    json!({
-        "redacted_because": {
-            "content": {},
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "origin_server_ts": next_server_ts(),
-            "type": "m.room.redaction",
-        },
-    })
-}
-
-fn next_server_ts() -> MilliSecondsSinceUnixEpoch {
-    static NEXT_TS: AtomicU32 = AtomicU32::new(0);
-    MilliSecondsSinceUnixEpoch(NEXT_TS.fetch_add(1, SeqCst).into())
 }
