@@ -121,7 +121,7 @@ impl Timeline {
             return Ok(());
         }
 
-        self.inner.add_loading_indicator();
+        self.inner.add_loading_indicator().await;
 
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();
@@ -169,7 +169,7 @@ impl Timeline {
             }
         }
 
-        self.inner.remove_loading_indicator(from.is_some());
+        self.inner.remove_loading_indicator(from.is_some()).await;
         *start_lock = from;
 
         Ok(())
