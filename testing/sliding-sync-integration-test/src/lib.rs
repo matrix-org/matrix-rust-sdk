@@ -66,7 +66,6 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[cfg(test)]
 mod tests {
-    use core::time;
     use std::{
         iter::repeat,
         time::{Duration, Instant},
@@ -75,6 +74,7 @@ mod tests {
     use anyhow::{bail, Context};
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
+        room::timeline::PaginationOptions,
         ruma::{
             api::client::error::ErrorKind as RumaError,
             events::room::message::RoomMessageEventContent, UInt,
@@ -147,7 +147,6 @@ mod tests {
             }
         }
 
-        // Start syncing with timeline_limt=0 for fast room list results
         let visible_rooms_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .add_range(0u32, 1)
@@ -240,6 +239,158 @@ mod tests {
         let latest_event = room.latest_event().await.unwrap();
         let latest_event_id = latest_event.content().as_message().unwrap().body();
         assert_eq!(latest_event_id, "Message #19");
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn timeline_duplicates() -> anyhow::Result<()> {
+        let (client, sync_builder) = random_setup_with_rooms(1).await?;
+
+        // List one room.
+        let room_id = {
+            let sync = sync_builder
+                .clone()
+                .add_view(
+                    SlidingSyncViewBuilder::default()
+                        .sync_mode(SlidingSyncMode::Selective)
+                        .set_range(0u32, 1)
+                        .name("all_rooms")
+                        .build()?,
+                )
+                .build()
+                .await?;
+
+            // Get the sync stream.
+            let stream = sync.stream();
+            pin_mut!(stream);
+
+            // Send the request and wait for a response.
+            let update_summary = stream
+                .next()
+                .await
+                .context("No room summary found, loop ended unsuccessfully")??;
+
+            // One room has received an update.
+            assert_eq!(update_summary.rooms.len(), 1);
+
+            // Let's fetch the room ID then.
+            update_summary.rooms[0].clone()
+        };
+
+        // Join a room and send 10 messages.
+        {
+            // Join the room.
+            let room =
+                client.get_joined_room(&room_id).context("Failed to join room `{room_id}`")?;
+
+            // In this room, let's send 10 messages!
+            for nth in 0..10 {
+                let message = RoomMessageEventContent::text_plain(format!("Message #{nth}"));
+
+                room.send(message, None).await?;
+            }
+        }
+
+        // Start with timeline limit = 0
+        let visible_rooms_view = SlidingSyncViewBuilder::default()
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 1)
+            .name("visible_rooms_view")
+            .timeline_limit(0u32)
+            .send_updates_for_items(true)
+            .build()?;
+
+        let sync = sync_builder.clone().add_view(visible_rooms_view).build().await?;
+
+        // Get the view.
+        let view =
+            sync.view("visible_rooms_view").context("View `visible_rooms_view` isn't found")?;
+
+        // Sync to receive the initial room list
+        {
+            let stream = sync.stream();
+            pin_mut!(stream);
+
+            let mut update_summary;
+
+            loop {
+                // Wait for a response.
+                update_summary = stream
+                    .next()
+                    .await
+                    .context("No update summary found, loop ended unsucessfully")??;
+
+                if !update_summary.rooms.is_empty() {
+                    break;
+                }
+            }
+
+            // We see that one room has received an update, and it's our room!
+            assert_eq!(update_summary.rooms.len(), 1);
+            assert_eq!(room_id, update_summary.rooms[0]);
+
+            // Let's fetch the room ID from the view too.
+            let Some(RoomListEntry::Filled(same_room_id)) =
+                    view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
+                        panic!("Failed to read the room ID from the view");
+                    };
+
+            assert_eq!(same_room_id, room_id);
+        };
+
+        let room: matrix_sdk::SlidingSyncRoom =
+            sync.get_room(&room_id).expect("Failed to get the room");
+
+        let timeline = room.timeline().await.unwrap();
+
+        assert_eq!(timeline.items().len(), 0);
+
+        // Change the timeline limit to 20
+        view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
+
+        // And run another sync loop
+        {
+            let stream = sync.stream();
+            pin_mut!(stream);
+
+            let mut update_summary;
+
+            loop {
+                // Wait for a response.
+                update_summary = stream
+                    .next()
+                    .await
+                    .context("No update summary found, loop ended unsucessfully")??;
+
+                if !update_summary.rooms.is_empty() {
+                    break;
+                }
+            }
+
+            // We see that one room has received an update, and it's our room!
+            assert_eq!(update_summary.rooms.len(), 1);
+            assert_eq!(room_id, update_summary.rooms[0]);
+
+            // Let's fetch the room ID from the view too.
+            let Some(RoomListEntry::Filled(same_room_id)) =
+                    view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
+                        panic!("Failed to read the room ID from the view");
+                    };
+
+            assert_eq!(same_room_id, room_id);
+        };
+
+        // Backpaginate to get some more items
+        _ = timeline.paginate_backwards(PaginationOptions::single_request(10)).await;
+
+        let last_item = &timeline.items()[timeline.items().len() - 1];
+        let last_event = last_item.as_event().unwrap().event_id().unwrap();
+
+        let second_to_last_item = &timeline.items()[timeline.items().len() - 2];
+        let second_to_last_event = second_to_last_item.as_event().unwrap().event_id().unwrap();
+
+        assert_ne!(last_event, second_to_last_event);
 
         Ok(())
     }
