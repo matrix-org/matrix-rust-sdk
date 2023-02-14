@@ -150,7 +150,7 @@ async fn room_member() {
     let mut first_room_member_content = RoomMemberEventContent::new(MembershipState::Invite);
     first_room_member_content.displayname = Some("Alice".to_owned());
     timeline
-        .handle_live_original_state_event_with_state_key(
+        .handle_live_state_event_with_state_key(
             &BOB,
             ALICE.to_owned(),
             first_room_member_content.clone(),
@@ -168,7 +168,7 @@ async fn room_member() {
     let mut second_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     second_room_member_content.displayname = Some("Alice".to_owned());
     timeline
-        .handle_live_original_state_event_with_state_key(
+        .handle_live_state_event_with_state_key(
             &ALICE,
             ALICE.to_owned(),
             second_room_member_content.clone(),
@@ -184,7 +184,7 @@ async fn room_member() {
     let mut third_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
     third_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
     timeline
-        .handle_live_original_state_event_with_state_key(
+        .handle_live_state_event_with_state_key(
             &ALICE,
             ALICE.to_owned(),
             third_room_member_content,
@@ -217,7 +217,7 @@ async fn other_state() {
     let mut stream = timeline.stream();
 
     timeline
-        .handle_live_original_state_event(
+        .handle_live_state_event(
             &ALICE,
             RoomNameEventContent::new(Some("Alice's room".to_owned())),
             None,
