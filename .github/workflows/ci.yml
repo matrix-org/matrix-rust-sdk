@@ -470,4 +470,4 @@ jobs:
 
       - name: Test
         run: |
-          cargo nextest run -p sliding-sync-integration-test
+          SLIDING_SYNC_PROXY_URL=http://localhost:8118 cargo nextest run -p sliding-sync-integration-test
