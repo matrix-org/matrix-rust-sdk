@@ -2760,7 +2760,6 @@ dependencies = [
  "ctor",
  "dashmap",
  "futures",
- "futures-channel",
  "futures-core",
  "futures-signals",
  "futures-util",
