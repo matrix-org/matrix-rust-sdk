@@ -652,8 +652,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     //       old and new item?
 
                     if idx == self.timeline_items.len() - 1
-                        && timestamp_to_ymd(old_item.timestamp())
-                            == timestamp_to_ymd(*origin_server_ts)
+                        && timestamp_to_date(old_item.timestamp())
+                            == timestamp_to_date(*origin_server_ts)
                     {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
@@ -805,8 +805,15 @@ fn _update_timeline_item(
     }
 }
 
+#[derive(PartialEq)]
+struct Date {
+    year: i32,
+    month: u32,
+    day: u32,
+}
+
 /// Converts a timestamp since Unix Epoch to a year, month and day.
-fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
+fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
     let datetime = Local
         .timestamp_millis_opt(ts.0.into())
         // Only returns `None` if date is after Dec 31, 262143 BCE.
@@ -815,7 +822,7 @@ fn timestamp_to_ymd(ts: MilliSecondsSinceUnixEpoch) -> (i32, u32, u32) {
         // homeservers.
         .unwrap_or_else(Local::now);
 
-    (datetime.year(), datetime.month(), datetime.day())
+    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
 }
 
 /// Returns a new day divider item for the new timestamp if it is on a different
@@ -824,7 +831,7 @@ fn maybe_create_day_divider_from_timestamps(
     old_ts: MilliSecondsSinceUnixEpoch,
     new_ts: MilliSecondsSinceUnixEpoch,
 ) -> Option<TimelineItem> {
-    (timestamp_to_ymd(old_ts) != timestamp_to_ymd(new_ts))
+    (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
         .then(|| TimelineItem::day_divider(new_ts))
 }
 
