@@ -30,6 +30,7 @@
         "cross-env": "^7.0.3",
         "fake-indexeddb": "^4.0",
         "jest": "^28.1.0",
+        "prettier": "^2.8.3",
         "typedoc": "^0.22.17",
         "wasm-pack": "^0.10.2",
         "yargs-parser": "~21.0.1"
@@ -38,6 +39,7 @@
         "node": ">= 10"
     },
     "scripts": {
+        "lint": "prettier --check .",
         "build": "./scripts/build.sh",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",

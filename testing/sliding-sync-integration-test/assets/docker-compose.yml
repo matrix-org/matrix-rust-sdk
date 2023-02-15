@@ -29,6 +29,9 @@ services:
 
   sliding-sync-proxy:
     image: ghcr.io/matrix-org/sliding-sync:v0.99.0-rc1
+    depends_on:
+      postgres:
+        condition: service_healthy
     # image: ghcr.io/matrix-org/sliding-sync:latest
     links:
       - synapse

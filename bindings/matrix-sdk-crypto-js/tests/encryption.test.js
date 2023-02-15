@@ -1,14 +1,19 @@
-const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
+const {
+    EncryptionAlgorithm,
+    EncryptionSettings,
+    HistoryVisibility,
+    VerificationState,
+} = require("../pkg/matrix_sdk_crypto_js");
 
-describe('EncryptionAlgorithm', () => {
-    test('has the correct variant values', () => {
+describe("EncryptionAlgorithm", () => {
+    test("has the correct variant values", () => {
         expect(EncryptionAlgorithm.OlmV1Curve25519AesSha2).toStrictEqual(0);
         expect(EncryptionAlgorithm.MegolmV1AesSha2).toStrictEqual(1);
     });
 });
 
 describe(EncryptionSettings.name, () => {
-    test('can be instantiated with default values', () => {
+    test("can be instantiated with default values", () => {
         const es = new EncryptionSettings();
 
         expect(es.algorithm).toStrictEqual(EncryptionAlgorithm.MegolmV1AesSha2);
@@ -17,18 +22,20 @@ describe(EncryptionSettings.name, () => {
         expect(es.historyVisibility).toStrictEqual(HistoryVisibility.Shared);
     });
 
-    test('checks the history visibility values', () => {
+    test("checks the history visibility values", () => {
         const es = new EncryptionSettings();
 
         es.historyVisibility = HistoryVisibility.Invited;
 
         expect(es.historyVisibility).toStrictEqual(HistoryVisibility.Invited);
-        expect(() => { es.historyVisibility = 42 }).toThrow();
+        expect(() => {
+            es.historyVisibility = 42;
+        }).toThrow();
     });
 });
 
-describe('VerificationState', () => {
-    test('has the correct variant values', () => {
+describe("VerificationState", () => {
+    test("has the correct variant values", () => {
         expect(VerificationState.Trusted).toStrictEqual(0);
         expect(VerificationState.Untrusted).toStrictEqual(1);
         expect(VerificationState.UnknownDevice).toStrictEqual(2);
