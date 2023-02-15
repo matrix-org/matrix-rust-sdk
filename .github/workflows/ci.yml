@@ -412,9 +412,7 @@ jobs:
 
   sliding-sync-integration-tests:
     name: Sliding Sync Integration test
-    # disabled until we can figure out the weird docker-not-starting-situation
-    if: false
-    # if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     runs-on: ubuntu-latest
     # Service containers to run with `runner-job`
@@ -466,8 +464,8 @@ jobs:
 
       - uses: addnab/docker-run-action@v3
         with:
-          registry: gcr.io
-          image: "matrix-org/sliding-sync:v0.98.0"
+          registry: ghcr.io
+          image: "matrix-org/sliding-sync:v0.99.0"
           docker_network: "host"
           options: '-e "SYNCV3_SERVER=http://locahost:8228" -e "SYNCV3_SECRET=SUPER_CI_SECRET" -e "SYNCV3_BINDADDR=:8118" -e "SYNCV3_DB=user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres" -p 8118:8118'
 
