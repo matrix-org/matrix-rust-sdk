@@ -588,7 +588,22 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 self.timeline_items.push_cloned(item);
             }
 
-            Flow::Remote { position: TimelineItemPosition::Start, origin_server_ts, .. } => {
+            Flow::Remote {
+                position: TimelineItemPosition::Start,
+                event_id,
+                origin_server_ts,
+                ..
+            } => {
+                if self
+                    .timeline_items
+                    .iter()
+                    .filter_map(|ev| ev.as_event()?.event_id())
+                    .any(|id| id == event_id)
+                {
+                    trace!("Skipping back-paginated event that has already been seen");
+                    return;
+                }
+
                 trace!("Adding new remote timeline item at the start");
 
                 // If there is a loading indicator at the top, check for / insert the day
