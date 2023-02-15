@@ -418,9 +418,7 @@ impl SlidingSyncRoom {
                             &timeline_updates[..timeline_updates_len - position];
 
                         if !new_timeline_updates.is_empty() {
-                            for (at, update) in
-                                new_timeline_updates.into_iter().cloned().enumerate()
-                            {
+                            for (at, update) in new_timeline_updates.iter().cloned().enumerate() {
                                 timeline_queue.insert_cloned(at, update);
                             }
                         }
