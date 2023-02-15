@@ -49,8 +49,6 @@ $ npm run doc
 
 The documentation is generated in the `./docs` directory.
 
-
-
 [WebAssembly]: https://webassembly.org/
 [`matrix-sdk-crypto`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-crypto
 [`matrix-rust-sdk`]: https://github.com/matrix-org/matrix-rust-sdk
