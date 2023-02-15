@@ -136,8 +136,11 @@ async fn remote_echo_new_position() {
 
     // … the local echo should be removed
     assert_matches!(stream.next().await, Some(VecDiff::RemoveAt { index: 1 }));
+    // … along with its day divider
+    assert_matches!(stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));
 
-    // … and the remote echo added
+    // … and the remote echo added (no new day divider because both bob's and
+    // alice's message are from the same day according to server timestamps)
     let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(item.as_event().unwrap(), EventTimelineItem::Remote(_));
 }

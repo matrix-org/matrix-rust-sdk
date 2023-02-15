@@ -2,7 +2,7 @@
 
 ## 0.1.0-beta.1 - 2022-07-14
 
-- Fixing broken download link, [#842](https://github.com/matrix-org/matrix-rust-sdk/issues/842)
+-   Fixing broken download link, [#842](https://github.com/matrix-org/matrix-rust-sdk/issues/842)
 
 ## 0.1.0-beta.0 - 2022-07-12
 

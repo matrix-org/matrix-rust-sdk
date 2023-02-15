@@ -16,13 +16,14 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc, task::Poll};
 
 use futures_core::Stream;
 #[cfg(feature = "testing")]
 use futures_signals::signal_vec::MutableVecLockRef;
-use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
+use futures_signals::signal_vec::{MutableSignalVec, SignalVec, SignalVecExt, VecDiff};
 use matrix_sdk_base::locks::Mutex;
+use pin_project_lite::pin_project;
 use ruma::{
     assign, events::AnyMessageLikeEventContent, EventId, MilliSecondsSinceUnixEpoch, TransactionId,
 };
@@ -33,7 +34,7 @@ use super::Joined;
 use crate::{
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
-    Result,
+    Client, Result,
 };
 
 mod builder;
@@ -70,15 +71,7 @@ pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
     start_token: Mutex<Option<String>>,
     _end_token: Mutex<Option<String>>,
-    event_handler_handles: Vec<EventHandlerHandle>,
-}
-
-impl Drop for Timeline {
-    fn drop(&mut self) {
-        for handle in self.event_handler_handles.drain(..) {
-            self.inner.room().client().remove_event_handler(handle);
-        }
-    }
+    event_handler_handles: Arc<TimelineEventHandlerHandles>,
 }
 
 impl Timeline {
@@ -245,7 +238,7 @@ impl Timeline {
     /// See [`SignalVecExt`](futures_signals::signal_vec::SignalVecExt) for a
     /// high-level API on top of [`SignalVec`].
     pub fn signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
-        self.inner.items_signal()
+        TimelineSignal::new(self.inner.items_signal(), self.event_handler_handles.clone())
     }
 
     /// Get a stream of timeline changes.
@@ -350,6 +343,48 @@ impl Timeline {
                 self.inner.set_sender_profiles_error(Arc::new(e));
             }
         }
+    }
+}
+
+#[derive(Debug)]
+struct TimelineEventHandlerHandles {
+    client: Client,
+    handles: Vec<EventHandlerHandle>,
+}
+
+impl Drop for TimelineEventHandlerHandles {
+    fn drop(&mut self) {
+        for handle in self.handles.drain(..) {
+            self.client.remove_event_handler(handle);
+        }
+    }
+}
+
+pin_project! {
+    struct TimelineSignal {
+        #[pin]
+        inner: MutableSignalVec<Arc<TimelineItem>>,
+        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+    }
+}
+
+impl TimelineSignal {
+    fn new(
+        inner: MutableSignalVec<Arc<TimelineItem>>,
+        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+    ) -> Self {
+        Self { inner, event_handler_handles }
+    }
+}
+
+impl SignalVec for TimelineSignal {
+    type Item = Arc<TimelineItem>;
+
+    fn poll_vec_change(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<VecDiff<Self::Item>>> {
+        self.project().inner.poll_vec_change(cx)
     }
 }
 
