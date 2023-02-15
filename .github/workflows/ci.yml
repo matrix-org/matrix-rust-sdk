@@ -451,7 +451,7 @@ jobs:
             SYNAPSE_COMPLEMENT_DATABASE: sqlite
             SERVER_NAME: synapse
         ports:
-            - 8228:8228
+            - 8008:8008
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v3
@@ -471,4 +471,4 @@ jobs:
 
       - name: Test
         run: |
-          RUST_LOG=hyper=trace HOMESERVER_URL=http://synapse:8228 HOMESERVER_DOMAIN=synapse SLIDING_SYNC_PROXY_URL=http://localhost:8118 cargo nextest run -p sliding-sync-integration-test
+          RUST_LOG=hyper=trace HOMESERVER_URL=http://localhost:8008 HOMESERVER_DOMAIN=synapse SLIDING_SYNC_PROXY_URL=http://localhost:8118 cargo nextest run -p sliding-sync-integration-test
