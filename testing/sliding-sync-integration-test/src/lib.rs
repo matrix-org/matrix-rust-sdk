@@ -1,9 +1,6 @@
-use assert_matches::assert_matches;
-use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
-    room::timeline::{EventTimelineItem, TimelineItem},
-    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
-    Client, RoomListEntry, SlidingSyncBuilder,
+    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest, Client, RoomListEntry,
+    SlidingSyncBuilder,
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
@@ -75,8 +72,11 @@ mod tests {
     };
 
     use anyhow::{bail, Context};
+    use assert_matches::assert_matches;
     use futures::{pin_mut, stream::StreamExt};
+    use futures_signals::signal_vec::VecDiff;
     use matrix_sdk::{
+        room::timeline::EventTimelineItem,
         ruma::{
             api::client::error::ErrorKind as RumaError,
             events::room::message::RoomMessageEventContent, UInt,
@@ -202,7 +202,7 @@ mod tests {
                 update_summary = stream
                     .next()
                     .await
-                    .context("No update summary found, loop ended unsucessfully")??;
+                    .context("No update summary found, loop ended unsuccessfully")??;
 
                 if !update_summary.rooms.is_empty() {
                     break;
@@ -254,7 +254,7 @@ mod tests {
                 update_summary = stream
                     .next()
                     .await
-                    .context("No update summary found, loop ended unsucessfully")??;
+                    .context("No update summary found, loop ended unsuccessfully")??;
 
                 if !update_summary.rooms.is_empty() {
                     break;
