@@ -39,6 +39,7 @@
     },
     "scripts": {
         "build": "./scripts/build.sh",
+        "build:debug": "WASM_PACK_ARGS=--debug ./scripts/build.sh",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
         "prepack": "npm run build && npm run test"
