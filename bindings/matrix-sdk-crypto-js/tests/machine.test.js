@@ -440,13 +440,14 @@ describe(OlmMachine.name, () => {
         test("can share a room key", async () => {
             const other_users = [new UserId("@example:localhost")];
 
-            const requests = JSON.parse(await m.shareRoomKey(room, other_users, new EncryptionSettings()));
+            const requests = await m.shareRoomKey(room, other_users, new EncryptionSettings());
 
             expect(requests).toHaveLength(1);
-            expect(requests[0].event_type).toBeDefined();
+            expect(requests[0]).toBeInstanceOf(ToDeviceRequest);
+            expect(requests[0].event_type).toEqual("m.room.encrypted");
             expect(requests[0].txn_id).toBeDefined();
-            expect(requests[0].messages).toBeDefined();
-            expect(requests[0].messages["@example:localhost"]).toBeDefined();
+            const content = JSON.parse(requests[0].body);
+            expect(Object.keys(content.messages)).toEqual(["@example:localhost"]);
         });
 
         let encrypted;
