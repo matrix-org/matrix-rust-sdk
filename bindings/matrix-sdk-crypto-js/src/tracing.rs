@@ -145,9 +145,6 @@ mod inner {
 
     #[wasm_bindgen]
     extern "C" {
-        #[wasm_bindgen(js_namespace = console, js_name = "trace")]
-        fn log_trace(message: String);
-
         #[wasm_bindgen(js_namespace = console, js_name = "debug")]
         fn log_debug(message: String);
 
