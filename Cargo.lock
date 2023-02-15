@@ -2575,6 +2575,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a94d21414c1f4a51209ad204c1776a3d0765002c76c6abcb602a6f09f1e881c7"
 
 [[package]]
+name = "log-panics"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f9dd8546191c1850ecf67d22f5ff00a935b890d0e84713159a55495cc2ac5f"
+dependencies = [
+ "backtrace",
+ "log",
+]
+
+[[package]]
 name = "log4rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2887,6 +2897,7 @@ dependencies = [
  "futures-core",
  "futures-signals",
  "futures-util",
+ "log-panics",
  "matrix-sdk",
  "mime",
  "once_cell",

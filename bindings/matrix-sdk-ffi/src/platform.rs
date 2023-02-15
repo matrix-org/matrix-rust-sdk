@@ -125,7 +125,16 @@ fn setup_otlp_tracing_helper(
 
 #[cfg(target_os = "android")]
 mod android {
+    use tracing_subscriber::{prelude::*, EnvFilter};
+
+    fn log_panics() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+        log_panics::init();
+    }
+
     pub fn setup_tracing(configuration: String) {
+        log_panics();
+
         tracing_subscriber::registry()
             .with(EnvFilter::new(configuration))
             .with(
@@ -142,6 +151,8 @@ mod android {
         password: String,
         otlp_endpoint: String,
     ) -> anyhow::Result<()> {
+        log_panics();
+
         let otlp_tracer = super::create_otlp_tracer(user, password, otlp_endpoint, client_name)?;
         let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
 
@@ -153,14 +164,13 @@ mod android {
             )
             .with(otlp_layer)
             .init();
+
+        Ok(())
     }
 }
 
 #[cfg(target_os = "ios")]
 mod ios {
-    use std::io;
-
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     pub fn setup_tracing(configuration: String) {
         super::setup_tracing_helper(configuration, false);
     }
