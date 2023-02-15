@@ -443,6 +443,11 @@ impl OlmMachine {
     ///
     /// All associated resources will be closed too, like the crypto storage
     /// connections.
+    ///
+    /// # Safety
+    ///
+    /// The caller is responsible to **not** use any objects that came from this
+    /// `OlmMachine` after this `close` method has been called.
     #[napi(strict)]
     pub fn close(&mut self) {
         self.inner = OlmMachineInner::Closed;
