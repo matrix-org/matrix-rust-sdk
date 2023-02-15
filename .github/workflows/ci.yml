@@ -444,9 +444,6 @@ jobs:
           SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
         ports:
           - 8118:8118
-
-
-
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v3
@@ -473,4 +470,4 @@ jobs:
 
       - name: Test
         run: |
-          cargo nextest run -p sliding-sync-integration-tests
+          cargo nextest run -p sliding-sync-integration-test
