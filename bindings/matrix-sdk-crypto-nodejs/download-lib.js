@@ -1,19 +1,18 @@
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { DownloaderHelper } = require('node-downloader-helper');
+const { HttpsProxyAgent } = require("https-proxy-agent");
+const { DownloaderHelper } = require("node-downloader-helper");
 const { version } = require("./package.json");
-const { platform, arch } = process
+const { platform, arch } = process;
 
 const DOWNLOADS_BASE_URL = "https://github.com/matrix-org/matrix-rust-sdk/releases/download";
 const CURRENT_VERSION = `matrix-sdk-crypto-nodejs-v${version}`;
 
 const byteHelper = function (value) {
     if (value === 0) {
-        return '0 b';
+        return "0 b";
     }
-    const units = ['b', 'kB', 'MB', 'GB', 'TB'];
+    const units = ["b", "kB", "MB", "GB", "TB"];
     const number = Math.floor(Math.log(value) / Math.log(1024));
-    return (value / Math.pow(1024, Math.floor(number))).toFixed(1) + ' ' +
-        units[number];
+    return (value / Math.pow(1024, Math.floor(number))).toFixed(1) + " " + units[number];
 };
 
 function download_lib(libname) {
@@ -33,9 +32,9 @@ function download_lib(libname) {
         });
     }
 
-    dl.on('end', () => console.info('Download Completed'));
-    dl.on('error', (err) => console.info('Download Failed', err));
-    dl.on('progress', stats => {
+    dl.on("end", () => console.info("Download Completed"));
+    dl.on("error", (err) => console.info("Download Failed", err));
+    dl.on("progress", (stats) => {
         const progress = stats.progress.toFixed(1);
         const speed = byteHelper(stats.speed);
         const downloaded = byteHelper(stats.downloaded);
@@ -49,74 +48,74 @@ function download_lib(libname) {
             console.info(`${speed}/s - ${progress}% [${downloaded}/${total}]`);
         }
     });
-    dl.start().catch(err => console.error(err));
+    dl.start().catch((err) => console.error(err));
 }
 
 function isMusl() {
-  // For Node 10
-  if (!process.report || typeof process.report.getReport !== 'function') {
-    try {
-      return readFileSync('/usr/bin/ldd', 'utf8').includes('musl')
-    } catch (e) {
-      return true
+    // For Node 10
+    if (!process.report || typeof process.report.getReport !== "function") {
+        try {
+            return readFileSync("/usr/bin/ldd", "utf8").includes("musl");
+        } catch (e) {
+            return true;
+        }
+    } else {
+        const { glibcVersionRuntime } = process.report.getReport().header;
+        return !glibcVersionRuntime;
     }
-  } else {
-    const { glibcVersionRuntime } = process.report.getReport().header
-    return !glibcVersionRuntime
-  }
 }
 
 switch (platform) {
-  case 'win32':
-    switch (arch) {
-      case 'x64':
-        download_lib('matrix-sdk-crypto.win32-x64-msvc.node')
-        break
-      case 'ia32':
-        download_lib('matrix-sdk-crypto.win32-ia32-msvc.node')
-        break
-      case 'arm64':
-        download_lib('matrix-sdk-crypto.win32-arm64-msvc.node')
-        break
-      default:
-        throw new Error(`Unsupported architecture on Windows: ${arch}`)
-    }
-    break
-  case 'darwin':
-    switch (arch) {
-      case 'x64':
-        download_lib('matrix-sdk-crypto.darwin-x64.node')
-        break
-      case 'arm64':
-        download_lib('matrix-sdk-crypto.darwin-arm64.node')
-        break
-      default:
-        throw new Error(`Unsupported architecture on macOS: ${arch}`)
-    }
-    break
-  case 'linux':
-    switch (arch) {
-      case 'x64':
-        if (isMusl()) {
-          download_lib('matrix-sdk-crypto.linux-x64-musl.node')
-        } else {
-          download_lib('matrix-sdk-crypto.linux-x64-gnu.node')
+    case "win32":
+        switch (arch) {
+            case "x64":
+                download_lib("matrix-sdk-crypto.win32-x64-msvc.node");
+                break;
+            case "ia32":
+                download_lib("matrix-sdk-crypto.win32-ia32-msvc.node");
+                break;
+            case "arm64":
+                download_lib("matrix-sdk-crypto.win32-arm64-msvc.node");
+                break;
+            default:
+                throw new Error(`Unsupported architecture on Windows: ${arch}`);
         }
-        break
-      case 'arm64':
-        if (isMusl()) {
-            throw new Error('Linux for arm64 musl isn\'t support at the moment')
-        } else {
-          download_lib('matrix-sdk-crypto.linux-arm64-gnu.node')
+        break;
+    case "darwin":
+        switch (arch) {
+            case "x64":
+                download_lib("matrix-sdk-crypto.darwin-x64.node");
+                break;
+            case "arm64":
+                download_lib("matrix-sdk-crypto.darwin-arm64.node");
+                break;
+            default:
+                throw new Error(`Unsupported architecture on macOS: ${arch}`);
         }
-        break
-      case 'arm':
-        download_lib('matrix-sdk-crypto.linux-arm-gnueabihf.node')
-        break
-      default:
-        throw new Error(`Unsupported architecture on Linux: ${arch}`)
-    }
-    break
-  default:
-    throw new Error(`Unsupported OS: ${platform}, architecture: ${arch}`)
+        break;
+    case "linux":
+        switch (arch) {
+            case "x64":
+                if (isMusl()) {
+                    download_lib("matrix-sdk-crypto.linux-x64-musl.node");
+                } else {
+                    download_lib("matrix-sdk-crypto.linux-x64-gnu.node");
+                }
+                break;
+            case "arm64":
+                if (isMusl()) {
+                    throw new Error("Linux for arm64 musl isn't support at the moment");
+                } else {
+                    download_lib("matrix-sdk-crypto.linux-arm64-gnu.node");
+                }
+                break;
+            case "arm":
+                download_lib("matrix-sdk-crypto.linux-arm-gnueabihf.node");
+                break;
+            default:
+                throw new Error(`Unsupported architecture on Linux: ${arch}`);
+        }
+        break;
+    default:
+        throw new Error(`Unsupported OS: ${platform}, architecture: ${arch}`);
 }

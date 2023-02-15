@@ -1,7 +1,16 @@
-const { RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, ToDeviceRequest, SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest } = require('../');
+const {
+    RequestType,
+    KeysUploadRequest,
+    KeysQueryRequest,
+    KeysClaimRequest,
+    ToDeviceRequest,
+    SignatureUploadRequest,
+    RoomMessageRequest,
+    KeysBackupRequest,
+} = require("../");
 
-describe('RequestType', () => {
-    test('has the correct variant values', () => {
+describe("RequestType", () => {
+    test("has the correct variant values", () => {
         expect(RequestType.KeysUpload).toStrictEqual(0);
         expect(RequestType.KeysQuery).toStrictEqual(1);
         expect(RequestType.KeysClaim).toStrictEqual(2);
@@ -22,8 +31,10 @@ for (const request of [
     KeysBackupRequest,
 ]) {
     describe(request.name, () => {
-        test('cannot be instantiated', () => {
-            expect(() => { new (request)() }).toThrow();
+        test("cannot be instantiated", () => {
+            expect(() => {
+                new request();
+            }).toThrow();
         });
-    })
+    });
 }
