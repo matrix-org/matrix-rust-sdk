@@ -55,6 +55,64 @@ impl RoomKeyWithheldContent {
             RoomKeyWithheldContent::Unknown(c) => c.algorithm.to_owned(),
         }
     }
+
+    /// Creates a withheld content from the given info
+    pub fn create(
+        algorithm: EventEncryptionAlgorithm,
+        code: WithheldCode,
+        room_id: OwnedRoomId,
+        session_id: String,
+        sender_key: Curve25519PublicKey,
+        from_device: Option<OwnedDeviceId>,
+    ) -> Self {
+        let (room_id, session_id) = match code {
+            WithheldCode::NoOlm => (None, None),
+            _ => (Some(room_id), Some(session_id)),
+        };
+        match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
+                let content = MegolmV1AesSha2WithheldContent {
+                    room_id: JsOption::from_implicit_option(room_id),
+                    session_id: JsOption::from_implicit_option(session_id),
+                    sender_key,
+                    code,
+                    reason: JsOption::Some(code.to_human_readable().to_owned()),
+                    from_device: JsOption::from_implicit_option(from_device),
+                    other: Default::default(),
+                };
+                let helper = WithheldHelper {
+                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    other: serde_json::to_value(content)
+                        .expect("We can always serialize this construction"),
+                };
+                RoomKeyWithheldContent::try_from(helper)
+                    .expect("We can always serialize this construction")
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                let content = MegolmV2AesSha2WithheldContent {
+                    room_id: JsOption::from_implicit_option(room_id),
+                    session_id: JsOption::from_implicit_option(session_id),
+                    sender_key,
+                    code,
+                    reason: JsOption::Some(code.to_human_readable().to_owned()),
+                    from_device: JsOption::from_implicit_option(from_device),
+                    other: Default::default(),
+                };
+                let helper = WithheldHelper {
+                    algorithm: EventEncryptionAlgorithm::MegolmV2AesSha2,
+                    other: serde_json::to_value(content)
+                        .expect("We can always serialize this construction"),
+                };
+                RoomKeyWithheldContent::try_from(helper)
+                    .expect("We can always serialize this construction")
+            }
+            _ => RoomKeyWithheldContent::Unknown(UnknownRoomKeyWithHeld {
+                algorithm,
+                other: Default::default(),
+            }),
+        }
+    }
 }
 
 impl EventType for RoomKeyWithheldContent {
@@ -238,11 +296,20 @@ impl Serialize for RoomKeyWithheldContent {
 
 #[cfg(test)]
 pub(super) mod test {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
+    use ruma::{
+        device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id, JsOption,
+    };
     use serde_json::{json, Value};
+    use vodozemac::Curve25519PublicKey;
 
     use super::RoomKeyWithheldEvent;
-    use crate::types::events::room_key_withheld::RoomKeyWithheldContent;
+    use crate::types::{
+        events::room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
+        EventEncryptionAlgorithm,
+    };
 
     pub fn json() -> Value {
         json!({
@@ -271,5 +338,100 @@ pub(super) mod test {
         assert_eq!(json, serialized);
 
         Ok(())
+    }
+
+    #[test]
+    fn serialization_to_device() {
+        let mut messages = BTreeMap::new();
+
+        let room_id = room_id!("!DwLygpkclUAfQNnfva:localhost:8481");
+        let user_id = user_id!("@alice:example.org");
+        let device_id = device_id!("DEV001");
+        let sender_key =
+            Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
+                .unwrap();
+
+        let content = RoomKeyWithheldContent::create(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            WithheldCode::Unverified,
+            room_id.to_owned(),
+            "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
+            sender_key,
+            Some(device_id.to_owned()),
+        );
+        let content: Raw<RoomKeyWithheldContent> =
+            Raw::new(&content).expect("We can always serialize a withheld content info").cast();
+
+        messages
+            .entry(user_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), content);
+
+        let serialized = serde_json::to_value(messages).unwrap();
+
+        let expected: Value = json!({
+            "@alice:example.org":{
+                  "DEV001":{
+                     "algorithm":"m.megolm.v1.aes-sha2",
+                     "code":"m.unverified",
+                     "from_device":"DEV001",
+                     "reason":"The sender has disabled encrypting to unverified devices.",
+                     "room_id":"!DwLygpkclUAfQNnfva:localhost:8481",
+                     "sender_key":"9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                     "session_id":"0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs"
+                  }
+            }
+        });
+        assert_eq!(serialized, expected);
+    }
+
+    #[test]
+    fn no_olm_should_not_have_room_and_session() {
+        let room_id = room_id!("!DwLygpkclUAfQNnfva:localhost:8481");
+        let user_id = user_id!("@alice:example.org");
+        let device_id = device_id!("DEV001");
+        let sender_key =
+            Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
+                .unwrap();
+
+        let content = RoomKeyWithheldContent::create(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            WithheldCode::NoOlm,
+            room_id.to_owned(),
+            "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
+            sender_key,
+            Some(device_id.to_owned()),
+        );
+
+        assert_matches!(content, RoomKeyWithheldContent::MegolmV1AesSha2(_));
+
+        let content_box = if let RoomKeyWithheldContent::MegolmV1AesSha2(content_box) = content {
+            content_box
+        } else {
+            panic!("")
+        };
+
+        assert_matches!(content_box.room_id, JsOption::Undefined);
+        assert_matches!(content_box.session_id, JsOption::Undefined);
+
+        let content = RoomKeyWithheldContent::create(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            WithheldCode::Unverified,
+            room_id.to_owned(),
+            "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
+            sender_key,
+            Some(device_id.to_owned()),
+        );
+
+        assert_matches!(content, RoomKeyWithheldContent::MegolmV1AesSha2(_));
+
+        let content_box = if let RoomKeyWithheldContent::MegolmV1AesSha2(content_box) = content {
+            content_box
+        } else {
+            panic!("")
+        };
+
+        assert_matches!(content_box.room_id, JsOption::Some(_));
+        assert_matches!(content_box.session_id, JsOption::Some(_));
     }
 }

@@ -37,7 +37,7 @@ use crate::{
     store::{Changes, Result as StoreResult, Store},
     types::events::{
         room::encrypted::RoomEncryptedEventContent,
-        room_key_withheld::{MegolmV1AesSha2WithheldContent, WithheldCode},
+        room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
         EventType,
     },
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
@@ -522,6 +522,7 @@ impl GroupSessionManager {
         trace!(room_id = room_id.as_str(), "Checking if a room key needs to be shared");
 
         let encryption_settings = encryption_settings.into();
+        let algorithm = encryption_settings.algorithm.to_owned();
         let mut changes = Changes::default();
         let mut no_olm: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
@@ -648,14 +649,13 @@ impl GroupSessionManager {
                 // TODO do not resend code if already sent for that session (or target if
                 // no_olm)
                 chunk.into_iter().for_each(|(user_id, device_id, code)| {
-                    // TODO use helper to create correct content depending on alg and code
-                    let content = MegolmV1AesSha2WithheldContent::new(
+                    let content = RoomKeyWithheldContent::create(
+                        algorithm.to_owned(),
+                        code.to_owned(),
                         room_id.to_owned(),
-                        Some(outbound.session_id().to_owned()),
+                        outbound.session_id().to_owned(),
                         // help: can't access it from the outbound, should I get it from Inbound?
                         self.account.identity_keys.curve25519,
-                        code.to_owned(),
-                        // help: can't access it from the outbound, should I get it from Inbound?
                         Some(self.account.device_id.deref().to_owned()),
                     );
                     let content = Raw::new(&content)
