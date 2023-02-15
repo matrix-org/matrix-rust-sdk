@@ -22,7 +22,7 @@ use std::sync::{
 use async_trait::async_trait;
 use futures_core::Stream;
 use futures_signals::signal_vec::{SignalVecExt, VecDiff};
-use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
@@ -55,29 +55,6 @@ struct TestTimeline {
 impl TestTimeline {
     fn new() -> Self {
         Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU64::new(0) }
-    }
-
-    async fn with_initial_events<'a>(
-        events: impl IntoIterator<Item = (&'a UserId, AnyMessageLikeEventContent)>,
-    ) -> Self {
-        let mut this =
-            Self { inner: TimelineInner::new(TestProfileProvider), next_ts: AtomicU64::new(0) };
-
-        this.inner
-            .add_initial_events(
-                events
-                    .into_iter()
-                    .map(|(sender, content)| {
-                        let event =
-                            serde_json::from_value(this.make_message_event(sender, content))
-                                .unwrap();
-                        SyncTimelineEvent { event, encryption_info: None }
-                    })
-                    .collect(),
-            )
-            .await;
-
-        this
     }
 
     fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
