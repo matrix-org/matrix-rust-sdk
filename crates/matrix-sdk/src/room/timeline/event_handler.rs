@@ -700,12 +700,12 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                         // Pre-requisites for removing the day divider:
                         // 1. there is one preceding the old item at all
                         if self.timeline_items[idx - 1].is_day_divider()
-                            // 2. the next item after the old one being removed
+                            // 2. the item after the old one that was removed
                             //    is virtual (it should be impossible for this
                             //    to be a read marker)
                             && self
                                 .timeline_items
-                                .get(idx + 1)
+                                .get(idx)
                                 .map_or(true, |item| item.is_virtual())
                         {
                             trace!("Removing day divider");
