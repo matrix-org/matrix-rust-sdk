@@ -1,6 +1,9 @@
+use assert_matches::assert_matches;
+use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
-    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest, Client, RoomListEntry,
-    SlidingSyncBuilder,
+    room::timeline::{EventTimelineItem, TimelineItem},
+    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
+    Client, RoomListEntry, SlidingSyncBuilder,
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
@@ -108,8 +111,9 @@ mod tests {
                 .add_view(
                     SlidingSyncViewBuilder::default()
                         .sync_mode(SlidingSyncMode::Selective)
-                        .set_range(0u32, 1)
-                        .name("all_rooms")
+                        .add_range(0u32, 1)
+                        .timeline_limit(0u32)
+                        .name("init_view")
                         .build()?,
                 )
                 .build()
@@ -119,14 +123,18 @@ mod tests {
             let stream = sync.stream();
             pin_mut!(stream);
 
-            // Get the view to all rooms.
-            let view = sync.view("all_rooms").context("View `all_rooms` isn't found")?;
+            // Get the view to all rooms to check the view' state.
+            let view = sync.view("init_view").context("View `init_view` isn't found")?;
+            assert_eq!(*view.state.lock_ref(), SlidingSyncState::Cold);
 
             // Send the request and wait for a response.
             let update_summary = stream
                 .next()
                 .await
                 .context("No room summary found, loop ended unsuccessfully")??;
+
+            // Check the state has switched to `Live`.
+            assert_eq!(*view.state.lock_ref(), SlidingSyncState::Live);
 
             // One room has received an update.
             assert_eq!(update_summary.rooms.len(), 1);
@@ -157,6 +165,9 @@ mod tests {
 
                 room.send(message, None).await?;
             }
+
+            // Wait on the server to receive all the messages.
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         let sync = sync_builder
@@ -164,8 +175,8 @@ mod tests {
             .add_view(
                 SlidingSyncViewBuilder::default()
                     .sync_mode(SlidingSyncMode::Selective)
-                    .set_range(0u32, 1)
-                    .name("timeline_limit_x")
+                    .name("visible_rooms_view")
+                    .add_range(0u32, 1)
                     .timeline_limit(1u32)
                     .build()?,
             )
@@ -177,10 +188,13 @@ mod tests {
         pin_mut!(stream);
 
         // Get the view.
-        let view = sync.view("timeline_limit_x").context("View `timeline_limit_x` isn't found")?;
+        let view =
+            sync.view("visible_rooms_view").context("View `visible_rooms_view` isn't found")?;
+
+        let mut all_event_ids = Vec::new();
 
         // Sync to receive a message with a `timeline_limit` set to 1.
-        let timeline = {
+        let (room, _timeline, mut timeline_stream) = {
             let mut update_summary;
 
             loop {
@@ -199,24 +213,34 @@ mod tests {
             assert_eq!(update_summary.rooms.len(), 1);
             assert_eq!(room_id, update_summary.rooms[0]);
 
-            // Let's fetch the room ID from the view too.
-            let Some(RoomListEntry::Filled(same_room_id)) =
-                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
-                    panic!("Failed to read the room ID from the view");
-                };
-
-            assert_eq!(same_room_id, room_id);
-
             // OK, now let's read the timeline!
-            let room: matrix_sdk::SlidingSyncRoom =
-                sync.get_room(&room_id).expect("Failed to get the room");
+            let room = sync.get_room(&room_id).expect("Failed to get the room");
 
             // Test the `Timeline`.
             let timeline = room.timeline().await.unwrap();
+            let mut timeline_stream = timeline.stream();
 
-            dbg!(&timeline);
+            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::Replace { values }) => {
+                // First timeline item.
+                assert_matches!(values[0].as_virtual(), Some(_));
 
-            timeline
+                // Second timeline item.
+                let remote_event = assert_matches!(
+                    values[1].as_event(),
+                    Some(EventTimelineItem::Remote(remote_event)) => remote_event
+                );
+                all_event_ids.push(remote_event.event_id.clone());
+
+                remote_event.clone()
+            });
+
+            // Test the room to see the last event.
+            assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
+                assert_eq!(remote_event.event_id, latest_remote_event.event_id, "Unexpected latest event");
+                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
+            });
+
+            (room, timeline, timeline_stream)
         };
 
         // Sync to receive messages with a `timeline_limit` set to 20.
@@ -249,10 +273,48 @@ mod tests {
 
             assert_eq!(same_room_id, room_id);
 
-            println!("right here?");
-
             // Test the `Timeline`.
-            dbg!(&timeline);
+
+            // The first 19th items are `VecDiff::Push`.
+            for nth in 0..19 {
+                assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => {
+                    let remote_event = assert_matches!(value.as_event(), Some(EventTimelineItem::Remote(remote_event)) => remote_event);
+
+                    // Check messages arrived in the correct order.
+                    assert_eq!(
+                        remote_event.content.as_message().expect("Received event is not a message").body(),
+                        format!("Message #{nth}"),
+                    );
+
+                    all_event_ids.push(remote_event.event_id.clone());
+                });
+            }
+
+            // Now the 20th item is a `VecDiff::UpdateAt`.
+            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index, value }) => {
+                // Index 0 is for day divider. So our first event is at index 1.
+                assert_eq!(index, 1);
+                let remote_event = assert_matches!(value.as_event(), Some(EventTimelineItem::Remote(remote_event)) => remote_event);
+                assert_eq!(remote_event.event_id.clone(), all_event_ids[0]);
+                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
+
+                remote_event.clone()
+            });
+
+            // Test the room to see the last event.
+            assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
+                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
+                assert_eq!(remote_event.event_id, latest_remote_event.event_id, "Unexpected latest event");
+            });
+
+            // Ensure there is no event ID duplication.
+            {
+                let mut dedup_event_ids = all_event_ids.clone();
+                dedup_event_ids.sort();
+                dedup_event_ids.dedup();
+
+                assert_eq!(dedup_event_ids.len(), all_event_ids.len(), "Found duplicated event ID");
+            }
         }
 
         Ok(())
@@ -268,8 +330,8 @@ mod tests {
         let build_view = |name| {
             SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
-                .set_range(0u32, 10u32)
-                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+                .add_range(0u32, 10u32)
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
                 .name(name)
                 .build()
         };
@@ -362,7 +424,7 @@ mod tests {
             SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(0u32, 10u32)
-                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
                 .name(name)
                 .build()
         };
@@ -485,14 +547,14 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("sliding")
             .build()?;
 
         let full = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("full")
             .build()?;
         let sync_proxy =
@@ -542,7 +604,7 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
@@ -661,7 +723,7 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(1u32, 10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
@@ -837,13 +899,13 @@ mod tests {
             let sliding_window_view = SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(1u32, 10u32)
-                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
                 .name("sliding")
                 .build()?;
             let growing_sync = SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::GrowingFullSync)
                 .limit(100)
-                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
                 .name("growing")
                 .build()?;
             anyhow::Ok((sliding_window_view, growing_sync))
@@ -901,7 +963,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("growing")
             .build()?;
 
@@ -961,7 +1023,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("growing")
             .build()?;
 
@@ -1029,7 +1091,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("growing")
             .build()?;
 
@@ -1119,7 +1181,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
             .name("growing")
             .build()?;
 

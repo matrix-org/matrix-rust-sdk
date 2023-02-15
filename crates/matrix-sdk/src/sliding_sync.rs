@@ -152,7 +152,7 @@ pub struct SlidingSyncRoom {
     is_loading_more: Mutable<bool>,
     is_cold: Arc<AtomicBool>,
     prev_batch: Mutable<Option<String>>,
-    timeline: AliveRoomTimeline,
+    timeline_queue: AliveRoomTimeline,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -160,12 +160,12 @@ struct FrozenSlidingSyncRoom {
     room_id: OwnedRoomId,
     inner: v4::SlidingSyncRoom,
     prev_batch: Option<String>,
-    timeline: Vec<SyncTimelineEvent>,
+    timeline_queue: Vec<SyncTimelineEvent>,
 }
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
-        let locked_tl = value.timeline.lock_ref();
+        let locked_tl = value.timeline_queue.lock_ref();
         let tl_len = locked_tl.len();
         // To not overflow the database, we only freeze the newest 10 items. On doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
@@ -179,7 +179,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
         };
         FrozenSlidingSyncRoom {
             prev_batch,
-            timeline,
+            timeline_queue: timeline,
             room_id: value.room_id.clone(),
             inner: value.inner.clone(),
         }
@@ -188,7 +188,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 
 impl SlidingSyncRoom {
     fn from_frozen(val: FrozenSlidingSyncRoom, client: Client) -> Self {
-        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline } = val;
+        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline_queue: timeline } = val;
         SlidingSyncRoom {
             client,
             room_id,
@@ -196,7 +196,7 @@ impl SlidingSyncRoom {
             is_loading_more: Mutable::new(false),
             is_cold: Arc::new(AtomicBool::new(true)),
             prev_batch: Mutable::new(prev_batch),
-            timeline: Arc::new(MutableVec::new_with_values(timeline)),
+            timeline_queue: Arc::new(MutableVec::new_with_values(timeline)),
         }
     }
 }
@@ -216,7 +216,7 @@ impl SlidingSyncRoom {
             is_loading_more: Mutable::new(false),
             is_cold: Arc::new(AtomicBool::new(false)),
             prev_batch: Mutable::new(inner.prev_batch.clone()),
-            timeline: Arc::new(MutableVec::new_with_values(timeline)),
+            timeline_queue: Arc::new(MutableVec::new_with_values(timeline)),
             inner,
         }
     }
@@ -243,9 +243,9 @@ impl SlidingSyncRoom {
 
     fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
-            let current_timeline = self.timeline.lock_ref().to_vec();
+            let timeline_queue = self.timeline_queue.lock_ref().to_vec();
             let prev_batch = self.prev_batch.lock_ref().clone();
-            Some(Timeline::builder(&room).events(prev_batch, current_timeline))
+            Some(Timeline::builder(&room).events(prev_batch, timeline_queue))
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::builder(&invited_room).events(None, vec![]))
         } else {
@@ -295,7 +295,11 @@ impl SlidingSyncRoom {
         &self.inner.required_state
     }
 
-    fn update(&mut self, room_data: &v4::SlidingSyncRoom, timeline: Vec<SyncTimelineEvent>) {
+    fn update(
+        &mut self,
+        room_data: &v4::SlidingSyncRoom,
+        timeline_updates: Vec<SyncTimelineEvent>,
+    ) {
         let v4::SlidingSyncRoom {
             name,
             initial,
@@ -330,23 +334,104 @@ impl SlidingSyncRoom {
             self.prev_batch.lock_mut().replace(batch.clone());
         }
 
-        if !timeline.is_empty() {
+        // There is timeline updates.
+        if !timeline_updates.is_empty() {
+            // If we come from a cold storage, we overwrite the timeline queue with the
+            // timeline updates.
             if self.is_cold.load(Ordering::SeqCst) {
-                // if we come from cold storage, we hard overwrite
-                self.timeline.lock_mut().replace_cloned(timeline);
+                self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
                 self.is_cold.store(false, Ordering::SeqCst);
-            } else if *limited {
-                // the server alerted us that we missed items in between
-                self.timeline.lock_mut().replace_cloned(timeline);
-            } else {
-                let mut ref_timeline = self.timeline.lock_mut();
-                for e in timeline {
-                    ref_timeline.push_cloned(e);
+            }
+            // The server alerted us that we missed items in between.
+            else if *limited {
+                self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
+            }
+            // It's the hot path. We have new updates that must be added to the existing timeline
+            // queue.
+            else {
+                let mut timeline_queue = self.timeline_queue.lock_mut();
+
+                // If the `timeline_queue` contains:
+                //     [D, E, F]
+                // and if the `timeline_updates` contains:
+                //     [A, B, C, D, E, F]
+                // the resulting `timeline_queue` must be:
+                //     [A, B, C, D, E, F]
+                //
+                // To do that, we find the longest suffix between `timeline_queue` and
+                // `timeline_updates`, in this case:
+                //     [D, E, F]
+                // Remove the suffix from `timeline_updates`, we get `[A, B, C]` that is
+                // prepended to `timeline_queue`.
+                //
+                // If the `timeline_queue` contains:
+                //     [A, B, C, D, E, F]
+                // and if the `timeline_updates` contains:
+                //     [D, E, F]
+                // the resulting `timeline_queue` must be:
+                //     [A, B, C, D, E, F]
+                //
+                // To do that, we continue with the longest suffix. In this case, it is:
+                //     [D, E, F]
+                // Remove the suffix from `timeline_updates`, we get `[]`. It's empty, we don't
+                // touch at `timeline_queue`.
+
+                {
+                    let timeline_queue_len = timeline_queue.len();
+                    let timeline_updates_len = timeline_updates.len();
+
+                    let position = match timeline_queue
+                        .iter()
+                        .rev()
+                        .zip(timeline_updates.iter().rev())
+                        .map(|(queue, update)| (queue.event_id(), update.event_id()))
+                        .position(|(queue, update)| queue != update)
+                    {
+                        // We have found a suffix that equals the size of `timeline_queue` or
+                        // `timeline_update`, typically:
+                        //     timeline_queue = [D, E, F]
+                        //     timeline_update = [A, B, C, D, E, F]
+                        // or
+                        //     timeline_queue = [A, B, C, D, E, F]
+                        //     timeline_update = [D, E, F]
+                        // in both case, `position` will return `None` because we are looking (from
+                        // the end) an item that is different.
+                        None => std::cmp::min(timeline_queue_len, timeline_updates_len),
+
+                        // We have found a suffix but it doesn't cover all `timeline_queue` or
+                        // `timeline_update`, typically:
+                        //     timeline_queue = [B, D, E, F]
+                        //     timeline_update = [A, B, C, D, E, F]
+                        // in this case, `position` will return `Some(3)` instead of `None`.
+                        // That's annoying because it means we have an invalid `timeline_queue` or
+                        // `timeline_update`.
+                        Some(position) => position,
+                    };
+
+                    // No prefix found.
+                    if position == 0 {
+                        timeline_queue.extend(timeline_updates);
+                    }
+                    // One prefix found
+                    else {
+                        let new_timeline_updates =
+                            &timeline_updates[..timeline_updates_len - position];
+
+                        if !new_timeline_updates.is_empty() {
+                            for (at, update) in
+                                new_timeline_updates.into_iter().cloned().enumerate()
+                            {
+                                timeline_queue.insert_cloned(at, update);
+                            }
+                        }
+                    }
                 }
             }
-        } else if *limited {
-            // notihing but we were alerted that we are stale. clear up
-            self.timeline.lock_mut().clear();
+        }
+        // The timeline updates are empty. But `limited` is set to true. It's a way to alert that we
+        // are stale. In this case, we should just clear the existing timeline.
+        else if *limited {
+            self.timeline_queue.lock_mut().clear();
         }
     }
 }
@@ -916,11 +1001,14 @@ impl SlidingSync {
                     events
                 };
 
-                if let Some(mut r) = rooms_map.remove(&id) {
-                    r.update(&room_data, timeline);
-                    rooms_map.insert_cloned(id.clone(), r);
+                // The room existed before, let's update it.
+                if let Some(mut room) = rooms_map.remove(&id) {
+                    room.update(&room_data, timeline);
+                    rooms_map.insert_cloned(id.clone(), room);
                     rooms.push(id.clone());
-                } else {
+                }
+                // First time we need this room, let's create it.
+                else {
                     rooms_map.insert_cloned(
                         id.clone(),
                         SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
