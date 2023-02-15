@@ -41,8 +41,7 @@ zeroize = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 tracing = { version = "0.1.29", default-features = false, features = ["log"] }
-android_logger = "0.11"
-log-panics = { version = "2", features = ["with-backtrace"]}
+tracing-android = "0.2.0"
 matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "experimental-sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
