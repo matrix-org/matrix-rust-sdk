@@ -18,7 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use futures_signals::signal_vec::{MutableSignalVec, MutableVec, MutableVecLockRef};
 use indexmap::IndexSet;
 use matrix_sdk_base::{
     crypto::OlmMachine,
@@ -83,7 +83,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.lock_ref()
     }
 
-    pub(super) fn items_signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
+    pub(super) fn items_signal(&self) -> MutableSignalVec<Arc<TimelineItem>> {
         trace!("Creating timeline items signal");
         self.items.signal_vec_cloned()
     }
