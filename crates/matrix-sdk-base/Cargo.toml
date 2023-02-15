@@ -29,7 +29,6 @@ testing = ["dep:http"]
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
-futures-channel = "0.3.21"
 futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
