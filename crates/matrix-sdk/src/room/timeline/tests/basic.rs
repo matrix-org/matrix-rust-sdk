@@ -22,7 +22,7 @@ use serde_json::json;
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::room::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineItemContent,
+    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
 
@@ -226,4 +226,18 @@ async fn other_state() {
     let full_content =
         assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomTopic(c) => c);
     assert_matches!(full_content, FullStateEventContent::Redacted(_));
+}
+
+#[async_test]
+async fn dedup_pagination() {
+    let timeline = TestTimeline::new();
+
+    let event = timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
+    timeline.handle_live_custom_event(event.clone()).await;
+    timeline.handle_back_paginated_custom_event(event).await;
+
+    let timeline_items = timeline.inner.items();
+    assert_eq!(timeline_items.len(), 2);
+    assert_matches!(*timeline_items[0], TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_matches!(*timeline_items[1], TimelineItem::Event(_));
 }
