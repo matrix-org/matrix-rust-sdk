@@ -651,17 +651,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
                 if let Some((idx, old_item)) = result {
                     if let EventTimelineItem::Remote(old_item) = old_item {
-                        // Item was previously received by the server. Until we
-                        // implement forwards pagination, this indicates a bug
-                        // somewhere.
-                        warn!(?item, ?old_item, "Received duplicate event");
-
-                        // With /messages and /sync sometimes disagreeing on
-                        // order of messages, we might want to change the
-                        // position in some circumstances, but for now this
-                        // should be good enough.
-                        self.timeline_items.set_cloned(idx, item);
-                        return;
+                        // Item was previously received from the server. This
+                        // should be very rare normally, but with the sliding-
+                        // sync proxy, it is actually very common.
+                        trace!(?item, ?old_item, "Received duplicate event");
                     };
 
                     if txn_id.is_none() {

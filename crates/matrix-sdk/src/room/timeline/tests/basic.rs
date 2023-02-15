@@ -255,3 +255,22 @@ async fn dedup_pagination() {
     assert_matches!(*timeline_items[0], TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
     assert_matches!(*timeline_items[1], TimelineItem::Event(_));
 }
+
+#[async_test]
+async fn dedup_initial() {
+    let mut timeline = TestTimeline::new();
+
+    let event_a = sync_timeline_event(
+        timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+    );
+    let event_b = sync_timeline_event(
+        timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+    );
+
+    timeline.inner.add_initial_events(vec![event_a.clone(), event_b, event_a]).await;
+
+    let timeline_items = dbg!(timeline.inner.items());
+    assert_eq!(timeline_items.len(), 3);
+    assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
+    assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
+}
