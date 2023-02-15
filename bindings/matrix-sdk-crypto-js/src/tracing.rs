@@ -213,7 +213,7 @@ mod inner {
             let message = format!("{level} {origin}{recorder}");
 
             match *level {
-                Level::TRACE => log_trace(message),
+                Level::TRACE => log_debug(message),
                 Level::DEBUG => log_debug(message),
                 Level::INFO => log_info(message),
                 Level::WARN => log_warn(message),
