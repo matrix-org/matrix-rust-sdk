@@ -471,4 +471,4 @@ jobs:
 
       - name: Test
         run: |
-          RUST_LOG=hyper=trace SLIDING_SYNC_PROXY_URL=http://localhost:8118 cargo nextest run -p sliding-sync-integration-test
+          RUST_LOG=hyper=trace SLIDING_SYNC_PROXY_URL=http://synapse:8118 cargo nextest run -p sliding-sync-integration-test
