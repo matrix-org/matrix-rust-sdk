@@ -435,6 +435,17 @@ jobs:
         ports:
           # Maps tcp port 5432 on service container to the host
           - 5432:5432
+      slidingsync:
+        image: "ghcr.io/matrix-org/sliding-sync:v0.99.0"
+        env:
+          SYNCV3_SERVER: "http://locahost:8228"
+          SYNCV3_SECRET: "SUPER_CI_SECRET"
+          SYNCV3_BINDADDR: ":8118"
+          SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
+        ports:
+          - 8118:8118
+
+
 
     steps:
       - name: Checkout the repo
@@ -459,14 +470,6 @@ jobs:
           uploadLogs: true
           httpPort: 8228
           disableRateLimiting: true
-
-      # latest sliding sync proxy
-      - uses: addnab/docker-run-action@v3
-        with:
-          registry: ghcr.io
-          image: "matrix-org/sliding-sync:v0.99.0"
-          docker_network: "host"
-          options: '-e "SYNCV3_SERVER=http://locahost:8228" -e "SYNCV3_SECRET=SUPER_CI_SECRET" -e "SYNCV3_BINDADDR=:8118" -e "SYNCV3_DB=user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres" -p 8118:8118'
 
       - name: Test
         run: |
