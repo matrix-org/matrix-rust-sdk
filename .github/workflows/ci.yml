@@ -461,7 +461,6 @@ jobs:
           disableRateLimiting: true
 
       # latest sliding sync proxy
-
       - uses: addnab/docker-run-action@v3
         with:
           registry: ghcr.io
