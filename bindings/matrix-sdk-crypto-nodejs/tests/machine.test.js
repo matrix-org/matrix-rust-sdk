@@ -25,7 +25,7 @@ describe(OlmMachine.name, () => {
             expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), temp_directory, 'hello')).toBeInstanceOf(OlmMachine);
         });
     });
-    
+
     const user = new UserId('@alice:example.org');
     const device = new DeviceId('foobar');
     const room = new RoomId('!baz:matrix.org');
@@ -33,6 +33,16 @@ describe(OlmMachine.name, () => {
     function machine(new_user, new_device) {
         return OlmMachine.initialize(new_user || user, new_device || device);
     }
+
+    test('can drop/close, and then re-open', async () => {
+        const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-sdk-crypto--'));
+
+        let m1 = await OlmMachine.initialize(new UserId('@test:bar.org'), new DeviceId('device'), temp_directory, 'hello')
+        m1.close();
+
+        let m2 = await OlmMachine.initialize(new UserId('@test:bar.org'), new DeviceId('device'), temp_directory, 'hello')
+        m2.close();
+    });
 
     test('can read user ID', async () => {
         expect((await machine()).userId.toString()).toStrictEqual(user.toString());
@@ -179,7 +189,7 @@ describe(OlmMachine.name, () => {
         beforeAll(async () => {
             m = await machine(user, device);
         });
-        
+
         test('can pass keysquery and keysclaim requests directly', async () => {
             {
                 // derived from https://github.com/matrix-org/matrix-rust-sdk/blob/7f49618d350fab66b7e1dc4eaf64ec25ceafd658/benchmarks/benches/crypto_bench/keys_query.json
