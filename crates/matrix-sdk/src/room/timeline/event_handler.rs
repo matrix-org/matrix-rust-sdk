@@ -259,6 +259,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
+        trace!("Handling event");
+
         match event_kind {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => {
@@ -312,9 +314,11 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         }
 
         if !self.result.item_added {
+            trace!("No new item added");
             if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
+                trace!("Removing UTD that was successfully retried");
                 self.timeline_items.remove(idx);
             }
 
@@ -562,6 +566,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         match &self.flow {
             Flow::Local { timestamp, .. } => {
+                trace!("Adding new local timeline item");
+
                 // Check if the latest event has the same date as this event.
                 if let Some(latest_event) =
                     self.timeline_items.iter().rev().find_map(|item| item.as_event())
@@ -583,6 +589,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
 
             Flow::Remote { position: TimelineItemPosition::Start, origin_server_ts, .. } => {
+                trace!("Adding new remote timeline item at the start");
+
                 // If there is a loading indicator at the top, check for / insert the day
                 // divider at position 1 and the new event at 2 rather than 0 and 1.
                 let offset = match self.timeline_items.first().and_then(|item| item.as_virtual()) {
@@ -619,6 +627,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 origin_server_ts,
                 ..
             } => {
+                trace!("Adding new remote timeline item at the end");
+
                 let result = rfind_event_item(self.timeline_items, |it| {
                     txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
                         || it.event_id() == Some(event_id)
@@ -763,6 +773,8 @@ pub(crate) fn update_read_marker(
     fully_read_event_in_timeline: &mut bool,
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
+    trace!(?fully_read_event, "Updating read marker");
+
     let read_marker_idx = find_read_marker(items_lock);
     let fully_read_event_idx = rfind_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
 
@@ -796,7 +808,9 @@ fn _update_timeline_item(
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
 ) {
     if let Some((idx, item)) = rfind_event_by_id(timeline_items, event_id) {
+        trace!("Found timeline item to update");
         if let Some(new_item) = update(item) {
+            trace!("Updating item");
             timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(new_item)));
             *items_updated += 1;
         }
