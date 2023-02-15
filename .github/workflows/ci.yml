@@ -412,7 +412,7 @@ jobs:
 
   sliding-sync-integration-tests:
     name: Sliding Sync Integration test
-    if: github.event_name == 'push'
+    if: true
 
     runs-on: ubuntu-latest
     # Service containers to run with `runner-job`
