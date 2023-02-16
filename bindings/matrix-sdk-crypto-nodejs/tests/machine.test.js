@@ -14,10 +14,18 @@ const {
     VerificationState,
     CrossSigningStatus,
     MaybeSignature,
+    StoreType,
 } = require("../");
 const path = require("path");
 const os = require("os");
 const fs = require("fs/promises");
+
+describe("StoreType", () => {
+    test("has the correct variant values", () => {
+        expect(StoreType.Sled).toStrictEqual(0);
+        expect(StoreType.Sqlite).toStrictEqual(1);
+    });
+});
 
 describe(OlmMachine.name, () => {
     test("cannot be instantiated with the constructor", () => {
@@ -31,21 +39,39 @@ describe(OlmMachine.name, () => {
     });
 
     describe("can be instantiated with a store", () => {
-        test("with no passphrase", async () => {
-            const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sdk-crypto--"));
+        for (const [store_type, store_name] of [
+            [StoreType.Sled, "sled"],
+            [StoreType.Sqlite, "sqlite"],
+            [null, "default"],
+        ]) {
+            test(`with no passphrase (store: ${store_name})`, async () => {
+                const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sdk-crypto--"));
 
-            expect(
-                await OlmMachine.initialize(new UserId("@foo:bar.org"), new DeviceId("baz"), temp_directory),
-            ).toBeInstanceOf(OlmMachine);
-        });
+                expect(
+                    await OlmMachine.initialize(
+                        new UserId("@foo:bar.org"),
+                        new DeviceId("baz"),
+                        temp_directory,
+                        null,
+                        store_type,
+                    ),
+                ).toBeInstanceOf(OlmMachine);
+            });
 
-        test("with a passphrase", async () => {
-            const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sdk-crypto--"));
+            test(`with a passphrase (store: ${store_name})`, async () => {
+                const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sdk-crypto--"));
 
-            expect(
-                await OlmMachine.initialize(new UserId("@foo:bar.org"), new DeviceId("baz"), temp_directory, "hello"),
-            ).toBeInstanceOf(OlmMachine);
-        });
+                expect(
+                    await OlmMachine.initialize(
+                        new UserId("@foo:bar.org"),
+                        new DeviceId("baz"),
+                        temp_directory,
+                        "hello",
+                        store_type,
+                    ),
+                ).toBeInstanceOf(OlmMachine);
+            });
+        }
     });
 
     const user = new UserId("@alice:example.org");

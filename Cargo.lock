@@ -2877,6 +2877,7 @@ dependencies = [
  "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-sled",
+ "matrix-sdk-sqlite",
  "napi",
  "napi-build",
  "napi-derive",

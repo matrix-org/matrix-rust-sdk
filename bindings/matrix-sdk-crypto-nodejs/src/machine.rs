@@ -2,11 +2,12 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    mem::ManuallyDrop,
     ops::Deref,
     sync::Arc,
 };
 
-use napi::bindgen_prelude::Either7;
+use napi::bindgen_prelude::{within_runtime_if_available, Either7, ToNapiValue};
 use napi_derive::*;
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::{value::RawValue, Value as JsonValue};
@@ -27,8 +28,19 @@ use crate::{
 ///
 /// Using the `OlmMachine` when its state is `Closed` will panic.
 enum OlmMachineInner {
-    Opened(matrix_sdk_crypto::OlmMachine),
+    Opened(ManuallyDrop<matrix_sdk_crypto::OlmMachine>),
     Closed,
+}
+
+impl Drop for OlmMachineInner {
+    fn drop(&mut self) {
+        if let Self::Opened(machine) = self {
+            // SAFETY: `self` won't be used anymore after this `take`, so it's safe to do it
+            // here.
+            let machine = unsafe { ManuallyDrop::take(machine) };
+            within_runtime_if_available(move || drop(machine));
+        }
+    }
 }
 
 impl Deref for OlmMachineInner {
@@ -41,6 +53,18 @@ impl Deref for OlmMachineInner {
             Self::Closed => panic!("The `OlmMachine` has been closed, cannot use it anymore"),
         }
     }
+}
+
+/// Represents the type of store an `OlmMachine` can use.
+#[derive(Default)]
+#[napi]
+pub enum StoreType {
+    /// Use `matrix-sdk-sled`.
+    #[default]
+    Sled,
+
+    /// Use `matrix-sdk-sqlite`.
+    Sqlite,
 }
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -87,40 +111,56 @@ impl OlmMachine {
         device_id: &identifiers::DeviceId,
         store_path: Option<String>,
         mut store_passphrase: Option<String>,
+        store_type: Option<StoreType>,
     ) -> napi::Result<OlmMachine> {
-        let user_id = user_id.clone();
-        let device_id = device_id.clone();
+        let user_id = user_id.clone().inner;
+        let device_id = device_id.clone().inner;
 
-        let store = if let Some(store_path) = store_path {
-            Some(
-                matrix_sdk_sled::SledCryptoStore::open(store_path, store_passphrase.as_deref())
-                    .await
-                    .map(Arc::new)
-                    .map_err(into_err)?,
-            )
-        } else {
-            None
-        };
-
-        store_passphrase.zeroize();
+        let user_id = user_id.as_ref();
+        let device_id = device_id.as_ref();
 
         Ok(OlmMachine {
-            inner: OlmMachineInner::Opened(match store {
-                Some(store) => matrix_sdk_crypto::OlmMachine::with_store(
-                    user_id.inner.as_ref(),
-                    device_id.inner.as_ref(),
-                    store,
-                )
-                .await
-                .map_err(into_err)?,
-                None => {
-                    matrix_sdk_crypto::OlmMachine::new(
-                        user_id.inner.as_ref(),
-                        device_id.inner.as_ref(),
-                    )
-                    .await
+            inner: OlmMachineInner::Opened(ManuallyDrop::new(match store_path {
+                Some(store_path) => {
+                    let machine = match store_type.unwrap_or_default() {
+                        StoreType::Sled => {
+                            matrix_sdk_crypto::OlmMachine::with_store(
+                                user_id,
+                                device_id,
+                                matrix_sdk_sled::SledCryptoStore::open(
+                                    store_path,
+                                    store_passphrase.as_deref(),
+                                )
+                                .await
+                                .map(Arc::new)
+                                .map_err(into_err)?,
+                            )
+                            .await
+                        }
+
+                        StoreType::Sqlite => {
+                            matrix_sdk_crypto::OlmMachine::with_store(
+                                user_id,
+                                device_id,
+                                matrix_sdk_sqlite::SqliteCryptoStore::open(
+                                    store_path,
+                                    store_passphrase.as_deref(),
+                                )
+                                .await
+                                .map(Arc::new)
+                                .map_err(into_err)?,
+                            )
+                            .await
+                        }
+                    };
+
+                    store_passphrase.zeroize();
+
+                    machine.map_err(into_err)?
                 }
-            }),
+
+                None => matrix_sdk_crypto::OlmMachine::new(user_id, device_id).await,
+            })),
         })
     }
 
