@@ -1,4 +1,4 @@
-// Copyright 2022 Benjamin Kampmann
+// Copyright 2022-2023 Benjamin Kampmann
 // Copyright 2022 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -10,8 +10,629 @@
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
+// See the License for that specific language governing permissions and
 // limitations under the License.
+
+//! Sliding Sync Client implementation of [MSC3575][MSC] & extensions
+//!
+//! [`Sliding Sync`][MSC] is the third generation synchronization mechanism of
+//! matrix with a strong focus on bandwidth efficiency. This is made possible by
+//! allowing the client to filter the content very specifically in its request
+//! which as a result allows the server to reduce the data sent to the
+//! absolute necessary minimum needed. The API is modeled after common patterns
+//! and UI components end user messenger client typically offer. By allowing a
+//! tight coupling of what the client shows and synchronizing that state over
+//! the protocol to the server, the server always sends exactly the information
+//! necessary for the currently displayed subset for the user rather than
+//! filling the connection with data the user isn't interested in right now.
+//!
+//! Sliding Sync is a live-protocol using [long-polling](#long-polling) http(s)
+//! connections to stay up to date. On the client side these updates are applied
+//! and propagated through an [asynchronous reactive API](#reactive-api)
+//! implemented with [`futures_signals`][futures_signals].
+//!
+//! The protocol is split into three major sections for that: room
+//! lists or [views](#views), the [room details](#rooms) and
+//! [extensions](#extensions), most notably the end-to-end-encryption and
+//! to-device extensions to enable full end-to-end-encryption support.
+//!
+//! ## Starting up
+//!
+//! To create a new sliding-sync-session, you must query your existing
+//! (authenticated) `Client` for a new [`SlidingSyncBuilder`] by calling
+//! [`sliding_sync`](`super::Client::sliding_sync`) on client. The
+//! [`SlidingSyncBuilder`] is the baseline configuration to create a
+//! [`SlidingSync`]-session by calling `.build()` once everything is ready.
+//! Typically one configures the custom homeserver endpoint. at the time of
+//! writing no matrix server natively supports sliding sync but a sidecar called
+//! the [Sliding Sync Proxy][proxy] is needed. As that typically runs one a
+//! separate domain, it can be configured on the [`SlidingSyncBuilder`]:
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! # use matrix_sdk::Client;
+//! # use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! let sliding_sync_builder = client
+//!     .sliding_sync()
+//!     .await
+//!     .homeserver(Url::parse("http://sliding-sync.example.org")?);
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//! After the general configuration, you typically want to add a view via the
+//! [`add_view`][`SlidingSyncBuilder::add_view`] function.
+//!
+//! ## Views
+//!
+//! A view defines the subset of matching rooms you want to filter for, and be
+//! kept up about. The [`v4::SyncRequestListFilters`][] allows for a granular
+//! specification of the exact rooms you want the server to select and the way
+//! you want them to be ordered before receiving. Secondly each view has a set
+//! of `ranges`: the subset of indexes of the entire list you are interested in
+//! and a unique name to be identified with.
+//!
+//! For example, a user might be part of thousands of rooms, but if your App
+//! always starts by showing the most recent direct message conversations,
+//! loading all rooms is an inefficient approach. Instead with sliding sync you
+//! define yourself a view (named `"main_view"`) filtering for `is_dm`, ordered
+//! by recency and select to view the top 10 via `ranges: [ [0,9] ]` (indexes
+//! are **inclusive**) like so:
+//!
+//! ```rust
+//! # use matrix_sdk::sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode};
+//! use ruma::{assign, api::client::sync::sync_events::v4};
+//!
+//! let view_builder = SlidingSyncViewBuilder::default()
+//!     .name("main_view")
+//!     .sync_mode(SlidingSyncMode::Selective)
+//!     .filters(Some(assign!(
+//!         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
+//!      )))
+//!     .sort(vec!["by_recency".to_owned()])
+//!     .set_range(0u32, 9u32);
+//! ```
+//!
+//! Please refer to the [specification][MSC], the [Ruma types][ruma-types],
+//! specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
+//! [`SlidingSyncViewBuilder`] for details on the filters, sort-order and
+//! range-options and data you request to be sent. Once your view is fully
+//! configured you can issue the view builder to `build()` it and add the view
+//! to the sliding sync session by supplying it to
+//! [`add_view`][`SlidingSyncBuilder::add_view`].
+//!
+//! Views are inherently stateful and all updates are applied on the shared
+//! view-object. Once a view has been added to [`SlidingSync`] a cloned shared
+//! copy can be retrieved by calls `SlidingSync::view()` providing the name of
+//! the view. Next to the configuration settings (like name and
+//! `timeline_limit`), the view provides the stateful
+//! [`rooms_count`](SlidingSyncView::rooms_count),
+//! [`rooms_list`](SlidingSyncView::rooms_list) and
+//! [`state`](SlidingSyncView::state):
+//!
+//!  - `rooms_count` is the number of rooms _total_ there were found matching
+//!    the filters given.
+//!  - `rooms_list` is a vector of `rooms_count` [`RoomListEntry`]'s at the
+//!    current its current state. `RoomListEntry`'s only hold `the room_id` if
+//!    given, the [Rooms API](#rooms) holds the actual information about each
+//!    room
+//!  - `state` is a [`SlidingSyncMode`] signalling meta information about the
+//!    view and its stateful data - whether this is the state loaded from local
+//!    cache, whether the [full sync](#helper-views) is in progress or whether
+//!    this is the current live information
+//!
+//! These are update upon every update received from the server. You can query
+//! these for their current value at any time, or use the [Reactive API
+//! to subscribe to changes](#reactive-api).
+//!
+//! ### Helper Views
+//!
+//! By default views run in the [`Selective`-Mode](SlidingSyncMode::Selective).
+//! That means you set the range(s) you want to see explicitly (as described
+//! above). Very often you still want to load up the entire room list in
+//! background though. For that the client implementation offers to run views in
+//! two additional full-sync-modes, which require additional configuration:
+//!
+//! - [`SlidingSyncMode::PagingFullSync`]: Pages through the entire list of
+//!   rooms one request at a time asking for the next `batch_size` number of
+//!   rooms up to the end or `limit` if configured
+//! - [`SlidingSyncMode::GrowingFullSync`]: Grows the window by `batch_size` on
+//!   every request till all rooms or until `limit` of rooms are in view.
+//!
+//! For both one should configure
+//! [`batch_size`](SlidingSyncViewBuilder::batch_size) and optionally
+//! [`limit`](SlidingSyncViewBuilder::limit) on the [`SlidingSyncViewBuilder`].
+//! Both full-sync views will notice if the number of rooms increased at runtime
+//! and will attempt to catch up to that (barring the `limit`).
+//!
+//! ## Rooms
+//!
+//! Next to the room list, the details for rooms are the next important aspect.
+//! Each [view](#views) only references the [`OwnedRoomId`][ruma::OwnedRoomId]
+//! of the room at the given position. The details (`required_state`s and
+//! timeline items) requested by all views are bundled, together with the common
+//! details (e.g. whether it is a `dm` or its calculated name) and made
+//! available on the sliding sync session struct as a [reactive](#reactive-api)
+//! through [`.rooms`](SlidingSync::rooms), [`get_room`](SlidingSync::get_room)
+//! and [`get_rooms`](SlidingSync::get_rooms) APIs.
+//!
+//! Notably, this map only knows about the rooms that have come down [sliding
+//! sync protocol][MSC] and if the given room isn't in any active view range, it
+//! may be stale. Additionally to selecting the room data via the room lists,
+//! the [sliding sync protocol][MSC] allows to subscribe to specific rooms via
+//! the [`subscribe()`](SlidingSync::subscribe). Any room subscribed to will
+//! receive updates (with the given Settings) regardless of whether they are
+//! visible in any view. The most common case for using this API is when the
+//! user enters a room - as we want to receive the incoming new messages
+//! regardless of whether the room is pushed out of the views room list.
+//!
+//! ### Room List Entries
+//!
+//! As the room list of each view is a vec of the `rooms_count` len but a room
+//! may only know of a subset of entries for sure at any given time, these
+//! entries are wrapped in [`RoomListEntry`][]. This type, in close proximity to
+//! the [specification][MSC], can be either `Empty`, `Filled` or `Invalidated`,
+//! signaling the state of each entry position.
+//! - `Empty` should be self-explanatory: we don't know what sits here at this
+//!   position in the list
+//! - `Filled`, too is pretty clear: there is this room_id at this position;
+//! - `Invalidated` in that sense means that we _knew_ what was here before, but
+//!   can't be sure anymore this is still accurate. This occurs when we move the
+//!   sliding window (by changing the ranges) or when a room might drop out of
+//!   the window we are looking at. For the sake of displaying, this is probably
+//!   still fine to display to be at this position, but we can't be sure
+//!   anymore.
+//!
+//! Because `Invalidated` occurs whenever a room we knew about before drops out
+//! of focus, we aren't updated about its changes anymore either, there could be
+//! duplicates rooms within invalidated rooms as well as in the union of
+//! invalidated and filled rooms. Keep that in mind, as most UI frameworks don't
+//! like it when their list entries aren't unique.
+//!
+//! When [restoring from cold cache][#caching] the room list also only
+//! propagated with `Invalidated` rooms. So if you want to be able to display
+//! data quickly, ensure you are able to render `Invalidated` entries.
+//!
+//! ### Unsubscribe
+//!
+//! Don't forget to [unsubscribe](`SlidingSync::subscribe`) when the data isn't
+//! needed to be updated anymore, e.g. when the user leaves the room, to reduce
+//! the bandwidth back down to what is really needed.
+//!
+//! ## Extensions
+//!
+//! Additionally to the rooms list and rooms with their state and latest
+//! messages Matrix knows of many other exchange information. All these are
+//! modeled as specific, optional extensions in the [sliding sync
+//! protocol][MSC]. This includes end-to-end-encryption, to-device-messages,
+//! typing- and presence-information and account-data, but can be extended by
+//! any implementation as they please. Handling of the data of the e2ee,
+//! to-device and typing-extensions takes place transparently within the SDK.
+//!
+//! By default [`SlidingSync`][] doesn't activate _any_ extensions to save on
+//! bandwidth, but we generally recommend to use the [`with_common_extensions`
+//! when building sliding sync](`SlidingSyncBuilder::with_common_extensions`) to
+//! active e2ee, to-device-messages and account-data-extensions.
+//!
+//! ## Timeline events
+//!
+//! Both the view configuration as well as the [room subscription
+//! settings](`v4::RoomSubscription`) allow to specify a `timeline_limit` to
+//! receive timeline events. If that is unset or set to 0, no events are sent by
+//! the server (which is the default), if multiple limits are found, the highest
+//! takes precedence. Any positive number indicates that on the first request a
+//! room should come into view, up to that count of messages are sent
+//! (depending how many the server has in cache). Following, whenever new events
+//! are found for the matching rooms, the server relays them to the client.
+//!
+//! All timeline events coming through sliding sync will be processed through
+//! the [`BaseClient`][`matrix_sdk_base::BaseClient`] as in previous sync. This
+//! allows for transparent decryption as well trigger the `client_handlers`.
+//!
+//! The current and then following live events list can be queried via the
+//! [`timeline` API](`SlidingSyncRoom::timeline). This is prefilled with already
+//! received data.
+//!
+//! ### Timeline trickling
+//!
+//! To allow for a quick startup, client might want to request only a very low
+//! `timeline_limit` (maybe 1 or even 0) at first and update the count later on
+//! the view or room subscription (see [reactive api](#reactive-api)), Since
+//! `0.99.0-rc1` the [sliding sync proxy][proxy] will then "paginate back" and
+//! resent the now larger number of events. All this is handled transparently.
+//!
+//! ## Long Polling
+//!
+//! [Sliding Sync][MSC] is a long-polling API. That means that immediately after
+//! you've received data from the server, you re-open the network connection
+//! again and await for a new response. As there might not be happening much or
+//! a lot happening in short succession - from the client perspective we never
+//! know when new data is received.
+//!
+//! One principle of long-polling is, therefore, that it might also takes one
+//! or two requests before the changes you asked for will actually be applied
+//! and the results come back for that. Just assume that at the same time you
+//! add a room subscription, a new message comes in. The server might reply
+//! with that message immediately and will only kick off the process of
+//! calculating the rooms details and respond with that in the next request you
+//! do after.
+//!
+//! This is modelled as a [async `Stream`][`futures_core::stream::Stream`] in
+//! our API, that you basically want to continue polling. Once you've made your
+//! setup ready and build your sliding sync sessions, you want to acquire its
+//! [`.stream()`](`SlidingSync::stream`) and continuously poll it.
+//!
+//! While the async stream API allows for streams to end (by returning `None`)
+//! sliding sync stream items `Result<UpdateSummary, Error>`. For every
+//! successful poll, all data is applied internally, through the base client and
+//! the [reactive structs](#reactive-api) and an
+//! [`Ok(UpdateSummary)`][`UpdateSummary`] is yielded with the minimum
+//! information, which data has been refreshed _in this iteration_: names of
+//! views and room_ids of rooms. Note that, the same way that a view isn't
+//! reacting if only the room data has changed (but not its position in its
+//! list), the view won't be mentioned here either, only the `room_id`. So be
+//! sure to look at both for all objects you have subscribed to.
+//!
+//! In full this typically looks like this:
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! # use futures::{pin_mut, StreamExt};
+//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
+//! # use matrix_sdk::{
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder},
+//! #    Client,
+//! # };
+//! # use ruma::{
+//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! # };
+//! # use tracing::{debug, error, info, warn};
+//! # use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! let sliding_sync = client
+//!     .sliding_sync()
+//!     .await
+//!     // any views you want are added here.
+//!     .build()
+//!     .await?;
+//!
+//! let stream = sliding_sync.stream();
+//!
+//! // continuously poll for updates
+//! pin_mut!(stream);
+//! loop {
+//!     let update = match stream.next().await {
+//!         Some(Ok(u)) => {
+//!             info!("Received an update. Summary: {u:?}");
+//!         }
+//!         Some(Err(e)) => {
+//!             error!("loop was stopped by client error processing: {e}");
+//!         }
+//!         None => {
+//!             error!("Streaming loop ended unexpectedly");
+//!             break;
+//!         }
+//!     };
+//! }
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//! ### Quick refreshing
+//!
+//! A main purpose of [sliding sync][MSC] is provide an API for snappy end user
+//! applications. Long-polling on the other side means that we wait for the
+//! server to respond and that can take quite some time, before sending the next
+//! request with our updates, for example an update in a view's `range`.
+//!
+//! That is a bit unfortunate and leaks through the `stream` API as well. We are
+//! waiting for a `stream.next().await` call before the next request is sent.
+//! The [specification][MSC] on long polling also states, however, that if an
+//! new request is found coming in, the previous one shall be sent out. In
+//! practice that means you can just start a new stream and the old connection
+//! will return immediately - with a proper response though. You just need to
+//! make sure to not call that stream any further. Additionally, as both
+//! requests are sent with the same positional argument, the server might
+//! respond with data, the client has already processed. This isn't a problem,
+//! the [`SlidingSync`][] will only process new data and skip the processing
+//! even across restarts.
+//!
+//! To support this, in practice you probably want to wrap your `loop` in a
+//! spawn with an atomic flag that tells it to stop, which you can set upon
+//! restart. Something along the lines of:
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! # use futures::{pin_mut, StreamExt};
+//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
+//! # use matrix_sdk::{
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder, SlidingSync, Error},
+//! #    Client,
+//! # };
+//! # use ruma::{
+//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! # };
+//! # use tracing::{debug, error, info, warn};
+//! # use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! # let sliding_sync = client
+//! #    .sliding_sync()
+//! #    .await
+//! #    // any views you want are added here.
+//! #    .build()
+//! #    .await?;
+//! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+//!
+//! struct MyRunner{ lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
+//!
+//! impl MyRunner {
+//!   pub fn restart_sync(&mut self) {
+//!     self.lock.store(false, Ordering::SeqCst);
+//!     // create a new lock
+//!     self.lock = Arc::new(AtomicBool::new(false));
+//!
+//!     let stream_lock = self.lock.clone();
+//!     let sliding_sync = self.sliding_sync.clone();
+//!
+//!     // continuously poll for updates
+//!     tokio::spawn(async move {
+//!         let stream = sliding_sync.stream();
+//!         pin_mut!(stream);
+//!         loop {
+//!             match stream.next().await {
+//!                 Some(Ok(u)) => {
+//!                     info!("Received an update. Summary: {u:?}");
+//!                 }
+//!                 Some(Err(e)) => {
+//!                     error!("loop was stopped by client error processing: {e}");
+//!                 }
+//!                 None => {
+//!                     error!("Streaming loop ended unexpectedly");
+//!                     break;
+//!                 }
+//!            };
+//!             if !stream_lock.load(Ordering::SeqCst) {
+//!                 info!("Asked to stop");
+//!                 break
+//!             }
+//!         };
+//!     });
+//!   }
+//! }
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//!
+//! ## Reactive API
+//!
+//! As the main source of truth is the data coming from the server, all updates
+//! must be applied transparently throughout to the data layer. The simplest
+//! way to stay up to date on what objects have changed is by checking the
+//! [`views`](`UpdateSummary.views`) and [`rooms`](`UpdateSummary.rooms`) of
+//! each `UpdateSummary` given by each stream iteration and update the local
+//! copies accordingly. Because of where the loop sits in the stack, that can
+//! be a bit tedious though, so views and rooms have an additional way of
+//! subscribing to updates via [`futures_signals`][].
+//!
+//! As already touched on in
+//! description of [views](#views), their `state`, `rooms_list` and
+//! `rooms_count` are all various forms of `futures_signals::Mutable`, a
+//! low-cost, thread-safe futures based reactive API implementation.
+//! [`SlidingSync.rooms`][], too, are of a mutable implementation, namely the
+//! [`MutableBTreeMap`](`futures_signals::signal_map::MutableBTreeMap`) updated
+//! in real time (even before the summary comes around) allowing you to
+//! subscribe to their changes with a straight forward async API through the
+//! [`SignalExt`](`futures_signals::signal::SignalExt`) you can get from each by
+//! just calling `signal_cloned()` on it. For the most common use-cases you just
+//! want to have a stream of updates of the value you can poll for changes,
+//! which you then get by calling
+//! [`to_stream()`](`futures_signals::signal::SignalExt::to_stream`). You can do
+//! a lot more on the signal itself already, like
+//! [`map`](`futures_signals::signal::SignalExt::map`),
+//! [`for_each`](`futures_signals::signal::SignalExt::for_each`) or convert it
+//! into a [`Broadcaster`](futures_signals::signal::SignalExt::broadcast)
+//! depending on your needs.
+//!
+//! The `rooms_list` is of the more specialized
+//! [`MutableVec`](`futures_signals::signal_vec::MutableVec`) type. Rather than
+//! just signaling the latest state (which can be very inefficient, especially
+//! on large lists), its
+//! [`MutableSignalVec`](`futures_signals::signal_vec::MutableSignalVec`) will
+//! share the modifications made by signalling
+//! [`VecDiff`](`futures_signals::signal_vec::VecDiff`) over the stream. This
+//! allows for easy and efficient synchronization of exactly those parts that
+//! have been changed. If you are keeping a memory copy of the
+//! `Vec<RoomListItem>` for your view for example, you can apply changes that
+//! come as `VecDiff` easily by calling
+//! [`apply_to_vec`](`futures_signals::signal_vec::VecDiff::apply_to_vec`).
+//!
+//! The `Timeline` you can receive per room by calling
+//! [`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
+//! currently cached timeline events. It itself uses the `future_signals` for
+//! reactivity, too.
+//!
+//! 👉 To learn more about [`future_signals` check out to their excellent
+//! tutorial][future-signals-tutorial].
+//!
+//! ## Caching
+//!
+//! All room data, for filled but also _invalidated_ rooms, including the entire
+//! timeline events as well as all view room_lists and rooms_count are held
+//! in memory (unless you `pop` the view out). Technically, you can access
+//! `rooms_list` and `rooms` directly and mutate them but doing so invalidates
+//! further updates received by the server - see [#1474][https://github.com/matrix-org/matrix-rust-sdk/issues/1474].
+//!
+//! This is a purely in-memory cache layer though. If you want sliding sync to
+//! persist and load from cold (storage) cache you need to set its key with
+//! [`cold_cache(name)`][`SlidingSyncBuilder::cold_cache`] and for each view
+//! present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
+//! to load their latest cached version from storage, as well as some overall
+//! information of sliding sync. If that succeeded the views `state` has been
+//! set to [`Preload`][SlidingSyncViewState::Preload]. Only room data of rooms
+//! present in one of the views is loaded from storage.
+//!
+//! Once [#1441](https://github.com/matrix-org/matrix-rust-sdk/pull/1441) is merged
+//! you can disable caching on a per-view basis by setting
+//! [`cold_cache(false)`][`SlidingSyncViewBuilder::cold_cache`] when
+//! constructing the builder.
+//!
+//! Notice that views added after sliding sync has been built **will not be
+//! loaded from cache** regardless of their settings (as this could lead to
+//! inconsistencies between views). The same goes for any extension: some
+//! extension data (like the to-device-message position) are stored to storage,
+//! but only retrieved upon `build()` of the `SlidingSyncBuilder`. So if you
+//! only add them later, they will not be reading the data from storage (to
+//! avoid inconsistencies) and might require more data to be sent in their first
+//! request than if they were loaded form cold-cache.
+//!
+//! When loading from storage `rooms_list` entries found are set to
+//! `Invalidated` - the initial setting here is communicated as a single
+//! `VecDiff::Replace` event through the [reactive API](#reactive-api).
+//!
+//! Only the latest 10 timeline items of each room are cached and they are reset
+//! whenever a new set of timeline items is received by the server.
+//!
+//! ## Bot mode
+//!
+//! _Note_: This is not yet exposed via the API. See [#1475](https://github.com/matrix-org/matrix-rust-sdk/issues/1475)
+//!
+//! Sliding Sync is modeled for faster and more efficient user-facing client
+//! applications, but offers significant speed ups even for bot cases through
+//! its filtering mechanism. The sort-order and specific subsets, however, are
+//! usually not of interest for bots. For that use case the the
+//! [`v4::SyncRequestList`][] offers the
+//! [`slow_get_all_rooms`](`v4::SyncRequestList::slow_get_all_rooms`)-flag.
+//!
+//! Once switched on, this mode will not trigger any updates on "list
+//! movements", ranges and sorting are ignored and all rooms matching the filter
+//! will be returned with the given room details settings. Depending on the data
+//! that is requested this will still be significantly faster as the response
+//! only returns the matching rooms and states as per settings.
+//!
+//! Think about a bot that only interacts in `is_dm = true` and doesn't need
+//! room topic, room avatar and all the other state. It will be a lot faster to
+//! start up and retrieve only the data needed to actually run.
+//!
+//! # Full example
+//!
+//! ```no_run
+//! # use futures::executor::block_on;
+//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode}};
+//! use ruma::{assign, {api::client::sync::sync_events::v4, events::TimelineEventType}};
+//! use tracing::{warn, error, info, debug};
+//! use futures::{StreamExt, pin_mut};
+//! use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
+//! use url::Url;
+//! # block_on(async {
+//! # let homeserver = Url::parse("http://example.com")?;
+//! # let client = Client::new(homeserver).await?;
+//! let full_sync_view_name = "full-sync".to_owned();
+//! let active_view_name = "active-view".to_owned();
+//! let sliding_sync_builder = client
+//!     .sliding_sync()
+//!     .await
+//!     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
+//!     .with_common_extensions() // we want the e2ee and to-device enabled, please
+//!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
+//!
+//! let full_sync_view = SlidingSyncViewBuilder::default()
+//!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
+//!     .name(&full_sync_view_name)    // needed to lookup again.
+//!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
+//!     .required_state(vec![
+//!         (TimelineEventType::RoomEncryption, "".to_owned())
+//!      ]) // only want to know if the room is encrypted
+//!     .batch_size(50)   // grow the window by 50 items at a time
+//!     .limit(500)      // only sync up the top 500 rooms
+//!     .build()?;
+//!
+//! let active_view = SlidingSyncViewBuilder::default()
+//!     .name(&active_view_name)   // the active window
+//!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
+//!     .set_range(0u32, 9u32) // only the top 10 items
+//!     .sort(vec!["by_recency".to_owned()]) // last active
+//!     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
+//!     .required_state(vec![ // we want to know immediately:
+//!         (TimelineEventType::RoomEncryption, "".to_owned()), // is it encrypted
+//!         (TimelineEventType::RoomTopic, "".to_owned()),      // any topic if known
+//!         (TimelineEventType::RoomAvatar, "".to_owned()),     // avatar if set
+//!      ])
+//!     .build()?;
+//!
+//! let sliding_sync = sliding_sync_builder
+//!     .add_view(active_view)
+//!     .add_view(full_sync_view)
+//!     .build()
+//!     .await?;
+//!
+//!  // subscribe to the view APIs for updates
+//!
+//! let active_view = sliding_sync.view(&active_view_name).unwrap();
+//! let view_state_stream = active_view.state.signal_cloned().to_stream();
+//! let view_count_stream = active_view.rooms_count.signal_cloned().to_stream();
+//! let view_list_stream = active_view.rooms_list.signal_vec_cloned().to_stream();
+//!
+//! tokio::spawn(async move {
+//!     pin_mut!(view_state_stream);
+//!     while let Some(new_state) = view_state_stream.next().await {
+//!         info!("active-view switched state to {new_state:?}");
+//!     }
+//! });
+//!
+//! tokio::spawn(async move {
+//!     pin_mut!(view_count_stream);
+//!     while let Some(new_count) = view_count_stream.next().await {
+//!         info!("active-view new count: {new_count:?}");
+//!     }
+//! });
+//!
+//! tokio::spawn(async move {
+//!     pin_mut!(view_list_stream);
+//!     while let Some(v_diff) = view_list_stream.next().await {
+//!         info!("active-view rooms view diff update: {v_diff:?}");
+//!     }
+//! });
+//!
+//! let stream = sliding_sync.stream();
+//!
+//! // continuously poll for updates
+//! pin_mut!(stream);
+//! loop {
+//!     let update = match stream.next().await {
+//!         Some(Ok(u)) => {
+//!             info!("Received an update. Summary: {u:?}");
+//!         },
+//!         Some(Err(e)) => {
+//!              error!("loop was stopped by client error processing: {e}");
+//!         }
+//!         None => {
+//!             error!("Streaming loop ended unexpectedly");
+//!             break;
+//!         }
+//!     };
+//! }
+//!
+//! # anyhow::Ok(())
+//! # });
+//! ```
+//!
+//!
+//! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
+//! [proxy]: https://github.com/matrix-org/sliding-sync
+//! [futures_signals]: https://docs.rs/futures-signals/latest/futures_signals/index.html
+//! [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
+//! [future-signals-tutorial]: https://docs.rs/futures-signals/latest/futures_signals/tutorial/index.html
 
 use std::{
     collections::BTreeMap,
@@ -60,10 +681,12 @@ use crate::{config::RequestConfig, Client, Result};
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("Received response for {found} lists, yet we have {expected}.")]
-    BadViewsCount { found: usize, expected: usize },
+    /// The response we've received from the server can't be parsed or doesn't
+    /// match up with the current expectations on the client side. A
+    /// `sync`-restart might be required.
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
+    /// The builder couldn't build `SlidingSync`
     #[error("Builder went wrong: {0}")]
     SlidingSyncBuilder(#[from] SlidingSyncBuilderError),
 }
@@ -94,13 +717,13 @@ pub enum SlidingSyncState {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// fully sync all rooms in the background, page by page of `batch_size`
-    #[default]
     #[serde(alias = "FullSync")]
     PagingFullSync,
     /// fully sync all rooms in the background, with a growing window of
     /// `batch_size`,
     GrowingFullSync,
     /// Only sync the specific windows defined
+    #[default]
     Selective,
 }
 
@@ -141,7 +764,7 @@ impl RoomListEntry {
     }
 }
 
-pub type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
+type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
 
 /// Room info as giving by the SlidingSync Feature.
 #[derive(Debug, Clone)]
@@ -466,12 +1089,13 @@ pub struct UpdateSummary {
 /// Configuration for a Sliding Sync Instance
 #[derive(Clone, Debug, Builder)]
 #[builder(
+    public,
     name = "SlidingSyncBuilder",
     pattern = "owned",
-    build_fn(name = "build_no_cache"),
+    build_fn(name = "build_no_cache", private),
     derive(Clone, Debug)
 )]
-pub struct SlidingSyncConfig {
+struct SlidingSyncConfig {
     /// The storage key to keep this cache at and load it from
     #[builder(setter(strip_option), default)]
     storage_key: Option<String>,
@@ -787,11 +1411,11 @@ pub struct SlidingSync {
     /// The views of this sliding sync instance
     pub views: Views,
 
+    /// The rooms details
+    pub rooms: RoomsMap,
+
     subscriptions: RoomsSubscriptions,
     unsubscribe: RoomUnsubscribe,
-
-    /// The rooms details
-    rooms: RoomsMap,
 
     /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
@@ -851,7 +1475,7 @@ impl SlidingSync {
                     format!("{storage_key}::{name}").as_bytes(),
                     serde_json::to_vec(&frozen)?,
                 )
-                .await?; // FIXME: parallilize?
+                .await?; // FIXME: parallelize?
         }
         Ok(())
     }
@@ -1210,7 +1834,8 @@ impl SlidingSync {
 /// let sliding_sync =
 ///     client.sliding_sync().await.add_fullsync_view().build().await?;
 ///
-/// # anyhow::Ok(()) });
+/// # anyhow::Ok(())
+/// # });
 /// ```
 #[derive(Clone, Debug, Builder)]
 #[builder(build_fn(name = "finish_build"), pattern = "owned", derive(Clone, Debug))]
@@ -1249,7 +1874,7 @@ pub struct SlidingSyncView {
     pub timeline_limit: Mutable<Option<UInt>>,
 
     // ----- Public state
-    /// Name of this view to easily recognise them
+    /// Name of this view to easily recognize them
     #[builder(setter(into))]
     pub name: String,
 
@@ -1269,7 +1894,7 @@ pub struct SlidingSyncView {
     #[builder(setter(name = "ranges_raw"), default)]
     ranges: RangeState,
 
-    /// Signaling updates on the roomlist after processing
+    /// Signaling updates on the room list after processing
     #[builder(private)]
     rooms_updated_signal: futures_signals::signal::Sender<()>,
 
@@ -1329,7 +1954,7 @@ impl SlidingSyncView {
     }
 }
 
-// /// the default name for the full sync view
+/// the default name for the full sync view
 pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 
 impl SlidingSyncViewBuilder {
@@ -1875,8 +2500,8 @@ impl SlidingSyncView {
             || current_rooms_count == Some(0)
             || self.is_cold.load(Ordering::SeqCst)
         {
-            debug!("first run, replacing roomslist");
-            // first response, we do that slightly differentely
+            debug!("first run, replacing rooms list");
+            // first response, we do that slightly differently
             let rooms_list =
                 MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
             // then we apply it
