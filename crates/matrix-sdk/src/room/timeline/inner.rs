@@ -1,16 +1,28 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
 };
 
 use async_trait::async_trait;
-use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use futures_signals::signal_vec::{MutableSignalVec, MutableVec, MutableVecLockRef};
 use indexmap::IndexSet;
-#[cfg(any(test, feature = "experimental-sliding-sync"))]
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
@@ -71,11 +83,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.lock_ref()
     }
 
-    pub(super) fn items_signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
+    pub(super) fn items_signal(&self) -> MutableSignalVec<Arc<TimelineItem>> {
+        trace!("Creating timeline items signal");
         self.items.signal_vec_cloned()
     }
 
-    #[cfg(any(test, feature = "experimental-sliding-sync"))]
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
@@ -100,6 +112,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
     #[cfg(feature = "experimental-sliding-sync")]
     pub(super) async fn clear(&self) {
+        trace!("Clearing timeline");
+
         let mut timeline_meta = self.metadata.lock().await;
         let mut timeline_items = self.items.lock_mut();
 
@@ -110,6 +124,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         timeline_items.clear();
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
@@ -128,6 +143,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     /// Handle the creation of a new local event.
+    #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
@@ -156,6 +172,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     /// Update the send state of a local event represented by a transaction ID.
     ///
     /// If no local event is found, a warning is raised.
+    #[instrument(skip_all, fields(txn_id))]
     pub(super) fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
@@ -176,13 +193,13 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
         let Some((idx, item)) = result else {
             // Event isn't found at all.
-            warn!(?txn_id, "Timeline item not found, can't add event ID");
+            warn!("Timeline item not found, can't add event ID");
             return;
         };
 
         let EventTimelineItem::Local(item) = item else {
             // Remote echo already received. This is very unlikely.
-            trace!(?txn_id, "Remote echo received before send-event response");
+            trace!("Remote echo received before send-event response");
             return;
         };
 
@@ -190,7 +207,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         // emit an error but also override to the given sent state.
         if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
             let new_event_id = new_event_id.map(debug);
-            error!(?existing_event_id, ?new_event_id, ?txn_id, "Local echo already marked as sent");
+            error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
         let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
@@ -200,6 +217,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
+    #[instrument(skip_all)]
     pub(super) async fn handle_back_paginated_event(
         &self,
         event: TimelineEvent,
@@ -217,7 +235,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) fn add_loading_indicator(&self) {
+    pub(super) async fn add_loading_indicator(&self) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
@@ -228,7 +250,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip(self))]
-    pub(super) fn remove_loading_indicator(&self, more_messages: bool) {
+    pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if !lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
@@ -242,6 +268,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
         let fully_read_event_id = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
@@ -254,6 +281,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.set_fully_read_event(fully_read_event_id).await;
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         let mut metadata_lock = self.metadata.lock().await;
 
@@ -341,7 +369,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
 
         let mut metadata_lock = self.metadata.lock().await;
-        for (idx, event_id, session_id, utd) in utds_for_session.iter().rev() {
+        for (idx, event_id, session_id, utd) in utds_for_session {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
                 Err(e) => {
@@ -363,7 +391,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
-                TimelineItemPosition::Update(*idx),
+                TimelineItemPosition::Update(idx),
                 &self.items,
                 &mut metadata_lock,
                 &self.profile_provider,
@@ -394,6 +422,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     pub(super) async fn update_sender_profiles(&self) {
+        trace!("Updating sender profiles");
+
         // Can't lock the timeline items across .await points without making the
         // resulting future `!Send`. As a (brittle) hack around that, lock the
         // timeline items in each loop iteration but keep a lock of the metadata

@@ -83,6 +83,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
 matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
+pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
 ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
@@ -118,7 +119,7 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-once-cell = "0.4.2"
-wasm-timer = "0.2.5"
+gloo-timers = { version = "0.2.6", features = ["futures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }

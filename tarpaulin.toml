@@ -7,6 +7,9 @@ exclude-files = [
     "**/tests/*",
 ]
 workspace = true
+# sqlite crypto store is not tested otherwise because it's only activated by
+# matrix-sdk-crypto-ffi, which is excluded from testing below
+features = "crypto-store"
 exclude = [
     # bindings
     "matrix-sdk-crypto-ffi",
@@ -22,5 +25,6 @@ exclude = [
     "jack-in",
     "sled-state-inspector",
     # repo automation (ci, codegen)
+    "uniffi-bindgen",
     "xtask",
 ]

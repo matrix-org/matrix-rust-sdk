@@ -1,10 +1,10 @@
-const { DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest } = require('../pkg/matrix_sdk_crypto_js');
+const { DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest } = require("../pkg/matrix_sdk_crypto_js");
 
 function* zip(...arrays) {
     const len = Math.min(...arrays.map((array) => array.length));
 
     for (let nth = 0; nth < len; ++nth) {
-        yield [...arrays.map((array) => array.at(nth))]
+        yield [...arrays.map((array) => array.at(nth))];
     }
 }
 
@@ -16,7 +16,9 @@ async function addMachineToMachine(machineToAdd, machine) {
     const oneTimeKeyCounts = new Map();
     const unusedFallbackKeys = new Set();
 
-    const receiveSyncChanges = JSON.parse(await machineToAdd.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
+    const receiveSyncChanges = JSON.parse(
+        await machineToAdd.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys),
+    );
 
     expect(receiveSyncChanges).toEqual([]);
 
@@ -38,12 +40,16 @@ async function addMachineToMachine(machineToAdd, machine) {
 
         // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysupload
         const hypothetical_response = JSON.stringify({
-            "one_time_key_counts": {
-                "curve25519": 10,
-                "signed_curve25519": 20
-            }
+            one_time_key_counts: {
+                curve25519: 10,
+                signed_curve25519: 20,
+            },
         });
-        const marked = await machineToAdd.markRequestAsSent(outgoingRequests[0].id, outgoingRequests[0].type, hypothetical_response);
+        const marked = await machineToAdd.markRequestAsSent(
+            outgoingRequests[0].id,
+            outgoingRequests[0].type,
+            hypothetical_response,
+        );
         expect(marked).toStrictEqual(true);
 
         keysUploadRequest = outgoingRequests[0];
@@ -71,7 +77,11 @@ async function addMachineToMachine(machineToAdd, machine) {
         keyQueryResponse.self_signing_keys[userId] = keys.self_signing_key;
         keyQueryResponse.user_signing_keys[userId] = keys.user_signing_key;
 
-        const marked = await machine.markRequestAsSent(outgoingRequests[1].id, outgoingRequests[1].type, JSON.stringify(keyQueryResponse));
+        const marked = await machine.markRequestAsSent(
+            outgoingRequests[1].id,
+            outgoingRequests[1].type,
+            JSON.stringify(keyQueryResponse),
+        );
         expect(marked).toStrictEqual(true);
     }
 }

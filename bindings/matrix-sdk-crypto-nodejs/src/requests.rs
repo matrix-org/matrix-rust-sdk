@@ -8,10 +8,13 @@ use matrix_sdk_crypto::requests::{
 };
 use napi::bindgen_prelude::{Either7, ToNapiValue};
 use napi_derive::*;
-use ruma::api::client::keys::{
-    claim_keys::v3::Request as RumaKeysClaimRequest,
-    upload_keys::v3::Request as RumaKeysUploadRequest,
-    upload_signatures::v3::Request as RumaSignatureUploadRequest,
+use ruma::{
+    api::client::keys::{
+        claim_keys::v3::Request as RumaKeysClaimRequest,
+        upload_keys::v3::Request as RumaKeysUploadRequest,
+        upload_signatures::v3::Request as RumaSignatureUploadRequest,
+    },
+    events::EventContent,
 };
 
 use crate::into_err;
@@ -28,11 +31,10 @@ pub struct KeysUploadRequest {
     #[napi(readonly)]
     pub id: String,
 
-    /// A JSON-encoded object of form:
+    /// A JSON-encoded string containing the rest of the payload: `device_keys`,
+    /// `one_time_keys`, `fallback_keys`.
     ///
-    /// ```json
-    /// {"device_keys": …, "one_time_keys": …, "fallback_keys": …}
-    /// ```
+    /// It represents the body of the HTTP request.
     #[napi(readonly)]
     pub body: String,
 }
@@ -61,7 +63,7 @@ pub struct KeysQueryRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```json
-    /// {"timeout": …, "device_keys": …, "token": …}
+    /// {"timeout": …, "one_time_keys": …}
     /// ```
     #[napi(readonly)]
     pub body: String,
@@ -92,7 +94,7 @@ pub struct KeysClaimRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```json
-    /// {"timeout": …, "one_time_keys": …}
+    /// {"event_type": …, "txn_id": …, "messages": …}
     /// ```
     #[napi(readonly)]
     pub body: String,
@@ -119,11 +121,18 @@ pub struct ToDeviceRequest {
     #[napi(readonly)]
     pub id: String,
 
-    /// A JSON-encoded object of form:
+    /// A string representing the type of event being sent to each devices.
+    #[napi(readonly)]
+    pub event_type: String,
+
+    /// A string representing a request identifier unique to the access token
+    /// used to send the request.
+    #[napi(readonly)]
+    pub txn_id: String,
+
+    /// A JSON-encoded string containing the rest of the payload: `messages`.
     ///
-    /// ```json
-    /// {"event_type": …, "txn_id": …, "messages": …}
-    /// ```
+    /// It represents the body of the HTTP request.
     #[napi(readonly)]
     pub body: String,
 }
@@ -149,11 +158,9 @@ pub struct SignatureUploadRequest {
     #[napi(readonly)]
     pub id: String,
 
-    /// A JSON-encoded object of form:
+    /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
     ///
-    /// ```json
-    /// {"signed_keys": …, "txn_id": …, "messages": …}
-    /// ```
+    /// It represents the body of the HTTP request.
     #[napi(readonly)]
     pub body: String,
 }
@@ -177,13 +184,25 @@ pub struct RoomMessageRequest {
     #[napi(readonly)]
     pub id: String,
 
-    /// A JSON-encoded object of form:
-    ///
-    /// ```json
-    /// {"room_id": …, "txn_id": …, "content": …}
-    /// ```
+    /// A string representing the room to send the event to.
     #[napi(readonly)]
-    pub body: String,
+    pub room_id: String,
+
+    /// A string representing the transaction ID for this event.
+    ///
+    /// Clients should generate an ID unique across requests with the same
+    /// access token; it will be used by the server to ensure idempotency of
+    /// requests.
+    #[napi(readonly)]
+    pub txn_id: String,
+
+    /// A string representing the type of event to be sent.
+    #[napi(readonly)]
+    pub event_type: String,
+
+    /// A JSON-encoded string containing the message's content.
+    #[napi(readonly, js_name = "body")]
+    pub content: String,
 }
 
 #[napi]
@@ -205,11 +224,9 @@ pub struct KeysBackupRequest {
     #[napi(readonly)]
     pub id: String,
 
-    /// A JSON-encoded object of form:
+    /// A JSON-encoded string containing the rest of the payload: `rooms`.
     ///
-    /// ```json
-    /// {"rooms": …}
-    /// ```
+    /// It represents the body of the HTTP request.
     #[napi(readonly)]
     pub body: String,
 }
@@ -224,43 +241,89 @@ impl KeysBackupRequest {
 }
 
 macro_rules! request {
-    ($request:ident from $ruma_request:ident maps fields $( $field:ident $( { $transformation:expr } )? ),+ $(,)? ) => {
-        impl TryFrom<(String, &$ruma_request)> for $request {
+    (
+        $destination_request:ident from $source_request:ident
+        $( extracts $( $field_name:ident : $field_type:tt ),+ $(,)? )?
+        $( $( and )? groups $( $grouped_field_name:ident $( { $grouped_field_transformation:expr } )? ),+ $(,)? )?
+    ) => {
+        impl TryFrom<(String, &$source_request)> for $destination_request {
             type Error = napi::Error;
 
             fn try_from(
-                (request_id, request): (String, &$ruma_request),
+                (request_id, request): (String, &$source_request),
             ) -> Result<Self, Self::Error> {
-                let mut map = serde_json::Map::new();
-                $(
-                    let field = &request.$field;
-                    $(
-                        let field = {
-                            let $field = field;
-
-                            $transformation
-                        };
-                    )?
-                    map.insert(stringify!($field).to_owned(), serde_json::to_value(field).map_err(into_err)?);
-                )+
-                let value = serde_json::Value::Object(map);
-
-                Ok($request {
-                    id: request_id,
-                    body: serde_json::to_string(&value).map_err(into_err)?.into(),
-                })
+                request!(
+                    @__try_from $destination_request from $source_request
+                    (request_id = request_id.into(), request = request)
+                    $( extracts [ $( $field_name : $field_type, )+ ] )?
+                    $( groups [ $( $grouped_field_name $( { $grouped_field_transformation } )? , )+ ] )?
+                )
             }
         }
     };
+
+    (
+        @__try_from $destination_request:ident from $source_request:ident
+        (request_id = $request_id:expr, request = $request:expr)
+        $( extracts [ $( $field_name:ident : $field_type:tt ),* $(,)? ] )?
+        $( groups [ $( $grouped_field_name:ident $( { $grouped_field_transformation:expr } )? ),* $(,)? ] )?
+    ) => {
+        {
+            Ok($destination_request {
+                id: $request_id,
+                $(
+                    $(
+                        $field_name: request!(@__field $field_name : $field_type ; request = $request),
+                    )*
+                )?
+                $(
+                    body: {
+                        let mut map = serde_json::Map::new();
+                        $(
+
+                            let field = &$request.$grouped_field_name;
+                            $(
+                                let field = {
+                                    let $grouped_field_name = field;
+
+                                    $grouped_field_transformation
+                                };
+                            )?
+                            map.insert(stringify!($grouped_field_name).to_owned(), serde_json::to_value(field).map_err(into_err)?);
+                        )*
+                        let object = serde_json::Value::Object(map);
+
+                        serde_json::to_string(&object).map_err(into_err)?.into()
+                    }
+                )?
+            })
+        }
+    };
+
+    ( @__field $field_name:ident : $field_type:ident ; request = $request:expr ) => {
+        request!(@__field_type as $field_type ; request = $request, field_name = $field_name)
+    };
+
+    ( @__field_type as string ; request = $request:expr, field_name = $field_name:ident ) => {
+        $request.$field_name.to_string().into()
+    };
+
+    ( @__field_type as json ; request = $request:expr, field_name = $field_name:ident ) => {
+        serde_json::to_string(&$request.$field_name).map_err(into_err)?.into()
+    };
+
+    ( @__field_type as event_type ; request = $request:expr, field_name = $field_name:ident ) => {
+        $request.content.event_type().to_string().into()
+    };
 }
 
-request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys, fallback_keys);
-request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, device_keys, token);
-request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, one_time_keys);
-request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);
-request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields signed_keys);
-request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
-request!(KeysBackupRequest from RumaKeysBackupRequest maps fields rooms);
+request!(KeysUploadRequest from RumaKeysUploadRequest groups device_keys, one_time_keys, fallback_keys);
+request!(KeysQueryRequest from RumaKeysQueryRequest groups timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, device_keys, token);
+request!(KeysClaimRequest from RumaKeysClaimRequest groups timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, one_time_keys);
+request!(ToDeviceRequest from RumaToDeviceRequest extracts event_type: string, txn_id: string and groups messages);
+request!(SignatureUploadRequest from RumaSignatureUploadRequest groups signed_keys);
+request!(RoomMessageRequest from RumaRoomMessageRequest extracts room_id: string, txn_id: string, event_type: event_type, content: json);
+request!(KeysBackupRequest from RumaKeysBackupRequest groups rooms);
 
 pub type OutgoingRequests = Either7<
     KeysUploadRequest,

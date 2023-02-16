@@ -52,7 +52,7 @@ use crate::{
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
-    store::{Changes, CryptoStore},
+    store::{Changes, DynCryptoStore},
     types::Signatures,
     CryptoStoreError, LocalTrust, OutgoingVerificationRequest, ReadOnlyDevice,
     ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
@@ -62,7 +62,7 @@ use crate::{
 pub(crate) struct VerificationStore {
     pub account: ReadOnlyAccount,
     pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<dyn CryptoStore>,
+    inner: Arc<DynCryptoStore>,
 }
 
 /// An emoji that is used for interactive verification using a short auth
@@ -181,7 +181,7 @@ impl VerificationStore {
             .map(|d| d.signatures().to_owned()))
     }
 
-    pub fn inner(&self) -> &dyn CryptoStore {
+    pub fn inner(&self) -> &DynCryptoStore {
         self.inner.deref()
     }
 }
@@ -812,15 +812,13 @@ pub(crate) mod tests {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use matrix_sdk_common::locks::Mutex;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::VerificationStore;
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{Changes, CryptoStore, IdentityChanges, MemoryStore},
+        store::{Changes, CryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore},
         ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
     };
 
@@ -886,13 +884,13 @@ mod test {
 
         let alice_store = VerificationStore {
             account: alice,
-            inner: Arc::new(alice_store),
+            inner: alice_store.into_crypto_store(),
             private_identity: alice_private_identity.into(),
         };
 
         let bob_store = VerificationStore {
             account: bob.clone(),
-            inner: Arc::new(bob_store),
+            inner: bob_store.into_crypto_store(),
             private_identity: bob_private_identity.into(),
         };
 

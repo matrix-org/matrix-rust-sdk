@@ -25,7 +25,7 @@ use futures_signals::signal::ReadOnlyMutable;
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::CryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
+    store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
@@ -82,7 +82,7 @@ pub struct BaseClient {
     /// This field is only meant to be used for `OlmMachine` initialization.
     /// All operations on it happen inside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
-    crypto_store: Arc<dyn CryptoStore>,
+    crypto_store: Arc<DynCryptoStore>,
     /// The olm-machine that is created once the
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
     /// [`BaseClient::set_session_meta`]

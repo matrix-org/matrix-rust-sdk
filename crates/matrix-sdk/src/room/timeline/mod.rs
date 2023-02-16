@@ -16,17 +16,16 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc, task::Poll};
 
 use futures_core::Stream;
-use futures_signals::signal_vec::{SignalVec, SignalVecExt, VecDiff};
-#[cfg(feature = "experimental-sliding-sync")]
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_base::{deserialized_responses::EncryptionInfo, locks::Mutex};
+#[cfg(feature = "testing")]
+use futures_signals::signal_vec::MutableVecLockRef;
+use futures_signals::signal_vec::{MutableSignalVec, SignalVec, SignalVecExt, VecDiff};
+use matrix_sdk_base::locks::Mutex;
+use pin_project_lite::pin_project;
 use ruma::{
-    assign,
-    events::{fully_read::FullyReadEventContent, AnyMessageLikeEventContent},
-    EventId, MilliSecondsSinceUnixEpoch, TransactionId,
+    assign, events::AnyMessageLikeEventContent, EventId, MilliSecondsSinceUnixEpoch, TransactionId,
 };
 use thiserror::Error;
 use tracing::{error, instrument, warn};
@@ -35,9 +34,10 @@ use super::Joined;
 use crate::{
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
-    Result,
+    Client, Result,
 };
 
+mod builder;
 mod event_handler;
 mod event_item;
 mod inner;
@@ -48,6 +48,8 @@ mod tests;
 mod to_device;
 mod virtual_item;
 
+pub(crate) use self::builder::TimelineBuilder;
+use self::inner::{TimelineInner, TimelineInnerMetadata};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -57,10 +59,6 @@ pub use self::{
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
-};
-use self::{
-    inner::{TimelineInner, TimelineInnerMetadata},
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
 };
 
 /// A high-level view into a regular¹ room's contents.
@@ -73,117 +71,16 @@ pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
     start_token: Mutex<Option<String>>,
     _end_token: Mutex<Option<String>>,
-    event_handler_handles: Vec<EventHandlerHandle>,
-}
-
-impl Drop for Timeline {
-    fn drop(&mut self) {
-        for handle in self.event_handler_handles.drain(..) {
-            self.inner.room().client().remove_event_handler(handle);
-        }
-    }
+    event_handler_handles: Arc<TimelineEventHandlerHandles>,
 }
 
 impl Timeline {
-    pub(super) fn new(room: &room::Common) -> Self {
-        Self::from_inner(Arc::new(TimelineInner::new(room.to_owned())), None)
-    }
-
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) async fn with_events(
-        room: &room::Common,
-        prev_token: Option<String>,
-        events: Vec<SyncTimelineEvent>,
-    ) -> Self {
-        let mut inner = TimelineInner::new(room.to_owned());
-        inner.add_initial_events(events).await;
-
-        let timeline = Self::from_inner(Arc::new(inner), prev_token);
-
-        // The events we're injecting might be encrypted events, but we might
-        // have received the room key to decrypt them while nobody was listening to the
-        // `m.room_key` event, let's retry now.
-        //
-        // TODO: We could spawn a task here and put this into the background, though it
-        // might not be worth it depending on the number of events we injected.
-        // Some measuring needs to be done.
-        #[cfg(feature = "e2e-encryption")]
-        timeline.retry_decryption_for_all_events().await;
-
-        timeline
-    }
-
-    fn from_inner(inner: Arc<TimelineInner>, prev_token: Option<String>) -> Timeline {
-        let room = inner.room();
-
-        let timeline_event_handle = room.add_event_handler({
-            let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_live_event(event, encryption_info).await;
-                }
-            }
-        });
-
-        // Not using room.add_event_handler here because RoomKey events are
-        // to-device events that are not received in the context of a room.
-        #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = room
-            .client
-            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
-        #[cfg(feature = "e2e-encryption")]
-        let forwarded_room_key_handle = room.client.add_event_handler(
-            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
-        );
-
-        let event_handler_handles = vec![
-            timeline_event_handle,
-            #[cfg(feature = "e2e-encryption")]
-            room_key_handle,
-            #[cfg(feature = "e2e-encryption")]
-            forwarded_room_key_handle,
-        ];
-
-        Timeline {
-            inner,
-            start_token: Mutex::new(prev_token),
-            _end_token: Mutex::new(None),
-            event_handler_handles,
-        }
+    pub(crate) fn builder(room: &room::Common) -> TimelineBuilder {
+        TimelineBuilder::new(room)
     }
 
     fn room(&self) -> &room::Common {
         self.inner.room()
-    }
-
-    /// Enable tracking of the fully-read marker on this `Timeline`.
-    pub async fn with_fully_read_tracking(mut self) -> Self {
-        match self.room().account_data_static::<FullyReadEventContent>().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => {
-                    self.inner.set_fully_read_event(fully_read.content.event_id).await;
-                }
-                Err(e) => {
-                    error!("Failed to deserialize fully-read account data: {e}");
-                }
-            },
-            Err(e) => {
-                error!("Failed to get fully-read account data from the store: {e}");
-            }
-            _ => {}
-        }
-
-        let inner = self.inner.clone();
-        let fully_read_handle = self.room().add_event_handler(move |event| {
-            let inner = inner.clone();
-            async move {
-                inner.handle_fully_read(event).await;
-            }
-        });
-        self.event_handler_handles.push(fully_read_handle);
-
-        self
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -217,7 +114,7 @@ impl Timeline {
             return Ok(());
         }
 
-        self.inner.add_loading_indicator();
+        self.inner.add_loading_indicator().await;
 
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();
@@ -265,7 +162,7 @@ impl Timeline {
             }
         }
 
-        self.inner.remove_loading_indicator(from.is_some());
+        self.inner.remove_loading_indicator(from.is_some()).await;
         *start_lock = from;
 
         Ok(())
@@ -311,7 +208,7 @@ impl Timeline {
             .await;
     }
 
-    #[cfg(all(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
+    #[cfg(feature = "e2e-encryption")]
     async fn retry_decryption_for_all_events(&self) {
         self.inner
             .retry_event_decryption(
@@ -320,6 +217,12 @@ impl Timeline {
                 None,
             )
             .await;
+    }
+
+    /// Get the current list of timeline items. Do not use this in production!
+    #[cfg(feature = "testing")]
+    pub fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
+        self.inner.items()
     }
 
     /// Get the latest of the timeline's event items.
@@ -335,7 +238,7 @@ impl Timeline {
     /// See [`SignalVecExt`](futures_signals::signal_vec::SignalVecExt) for a
     /// high-level API on top of [`SignalVec`].
     pub fn signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
-        self.inner.items_signal()
+        TimelineSignal::new(self.inner.items_signal(), self.event_handler_handles.clone())
     }
 
     /// Get a stream of timeline changes.
@@ -443,6 +346,48 @@ impl Timeline {
     }
 }
 
+#[derive(Debug)]
+struct TimelineEventHandlerHandles {
+    client: Client,
+    handles: Vec<EventHandlerHandle>,
+}
+
+impl Drop for TimelineEventHandlerHandles {
+    fn drop(&mut self) {
+        for handle in self.handles.drain(..) {
+            self.client.remove_event_handler(handle);
+        }
+    }
+}
+
+pin_project! {
+    struct TimelineSignal {
+        #[pin]
+        inner: MutableSignalVec<Arc<TimelineItem>>,
+        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+    }
+}
+
+impl TimelineSignal {
+    fn new(
+        inner: MutableSignalVec<Arc<TimelineItem>>,
+        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+    ) -> Self {
+        Self { inner, event_handler_handles }
+    }
+}
+
+impl SignalVec for TimelineSignal {
+    type Item = Arc<TimelineItem>;
+
+    fn poll_vec_change(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<VecDiff<Self::Item>>> {
+        self.project().inner.poll_vec_change(cx)
+    }
+}
+
 /// A single entry in timeline.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -487,6 +432,14 @@ impl TimelineItem {
 
     fn timeline_start() -> Self {
         Self::Virtual(VirtualTimelineItem::TimelineStart)
+    }
+
+    fn is_virtual(&self) -> bool {
+        matches!(self, Self::Virtual(_))
+    }
+
+    fn is_day_divider(&self) -> bool {
+        matches!(self, Self::Virtual(VirtualTimelineItem::DayDivider(_)))
     }
 
     fn is_read_marker(&self) -> bool {

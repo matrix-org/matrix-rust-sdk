@@ -484,6 +484,7 @@ enum BuilderStoreConfig {
     Custom(StoreConfig),
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::infallible_destructuring_match)]

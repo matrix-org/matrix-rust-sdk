@@ -1,7 +1,7 @@
-const { HistoryVisibility } = require('../');
+const { HistoryVisibility } = require("../");
 
-describe('HistoryVisibility', () => {
-    test('has the correct variant values', () => {
+describe("HistoryVisibility", () => {
+    test("has the correct variant values", () => {
         expect(HistoryVisibility.Invited).toStrictEqual(0);
         expect(HistoryVisibility.Joined).toStrictEqual(1);
         expect(HistoryVisibility.Shared).toStrictEqual(2);

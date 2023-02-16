@@ -415,7 +415,7 @@ mod tests {
         identities::{KeysQueryListener, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
-        store::{CryptoStore, MemoryStore, Store},
+        store::{IntoCryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
 
@@ -464,7 +464,7 @@ mod tests {
 
         let users_for_key_claim = Arc::new(DashMap::new());
         let account = ReadOnlyAccount::new(user_id, device_id);
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let store = MemoryStore::new().into_crypto_store();
         store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification =

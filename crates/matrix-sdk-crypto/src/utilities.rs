@@ -22,22 +22,23 @@ use std::{
 
 pub use base64::DecodeError;
 use base64::{
-    alphabet, decode_engine, encode_engine,
-    engine::fast_portable::{self, FastPortable},
+    alphabet,
+    engine::{general_purpose, GeneralPurpose},
+    Engine,
 };
 use matrix_sdk_common::instant::Instant;
 
-const STANDARD_NO_PAD: FastPortable =
-    FastPortable::from(&alphabet::STANDARD, fast_portable::NO_PAD);
+const STANDARD_NO_PAD: GeneralPurpose =
+    GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
 /// Decode the input as base64 with no padding.
 pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
-    decode_engine(input, &STANDARD_NO_PAD)
+    STANDARD_NO_PAD.decode(input)
 }
 
 /// Encode the input as base64 with no padding.
 pub fn encode(input: impl AsRef<[u8]>) -> String {
-    encode_engine(input, &STANDARD_NO_PAD)
+    STANDARD_NO_PAD.encode(input)
 }
 
 #[cfg(test)]
