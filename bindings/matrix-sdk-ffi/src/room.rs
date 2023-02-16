@@ -8,6 +8,7 @@ use futures_signals::signal_vec::SignalVecExt;
 use matrix_sdk::{
     room::{timeline::Timeline, Room as SdkRoom},
     ruma::{
+        api::client::room::report_content,
         events::{
             reaction::ReactionEventContent,
             relation::{Annotation, Replacement},
@@ -15,7 +16,7 @@ use matrix_sdk::{
                 ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
             },
         },
-        EventId, UserId,
+        EventId, Int, UserId,
     },
 };
 use tracing::error;
@@ -449,6 +450,46 @@ impl Room {
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
             room.send(ReactionEventContent::new(Annotation::new(event_id, key)), None).await?;
+            Ok(())
+        })
+    }
+
+    /// Reports an event from the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to report
+    ///
+    /// * `reason` - The reason for the event being reported (optional).
+    ///
+    /// * `score` - The score to rate this content as where -100 is most
+    ///   offensive and 0 is inoffensive (optional).
+    pub fn report_content(
+        &self,
+        event_id: String,
+        score: Option<i32>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let int_score: Option<Int>;
+        if let Some(value) = score {
+            int_score = Some(Int::from(value.clamp(-100, 0)));
+        } else {
+            int_score = None;
+        }
+        RUNTIME.block_on(async move {
+            let event_id = EventId::parse(event_id)?;
+            self.room
+                .client()
+                .send(
+                    report_content::v3::Request::new(
+                        self.room_id().into(),
+                        event_id,
+                        int_score,
+                        reason,
+                    ),
+                    None,
+                )
+                .await?;
             Ok(())
         })
     }
