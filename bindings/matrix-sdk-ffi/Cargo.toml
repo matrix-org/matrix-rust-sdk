@@ -31,7 +31,9 @@ opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client"
 sanitize-filename-reader-friendly = "2.2.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 tracing-opentelemetry = { version = "0.18.0" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
 uniffi = { workspace = true }
@@ -40,12 +42,9 @@ zeroize = { workspace = true }
 
 
 [target.'cfg(target_os = "android")'.dependencies]
-tracing = { version = "0.1.29", default-features = false, features = ["log"] }
-android_logger = "0.11"
 log-panics = { version = "2", features = ["with-backtrace"]}
+tracing-android = "0.2.0"
 matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "experimental-sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "experimental-sliding-sync", "socks"], version = "0.6.0" }
