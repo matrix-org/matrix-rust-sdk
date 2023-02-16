@@ -1,7 +1,10 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-use ruma::api::client::sync::sync_events::{v3, v4};
+use ruma::api::client::sync::sync_events::{
+    v3::{self, Ephemeral},
+    v4,
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
 use tracing::{debug, info, instrument};
@@ -87,8 +90,8 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
-            self.handle_account_data(global_data, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref() {
+            self.handle_account_data(&global_data.global, &mut changes).await;
         }
 
         let push_rules = self.get_push_rules(&changes).await?;
@@ -207,7 +210,7 @@ impl BaseClient {
                         timeline,
                         v3::State::with_events(room_data.required_state.clone()),
                         room_account_data.unwrap_or_default(),
-                        Default::default(), // room_info.ephemeral,
+                        Ephemeral::default(),
                         notification_count,
                     ),
                 );
@@ -220,8 +223,8 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
-            self.handle_account_data(global_data, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref() {
+            self.handle_account_data(&global_data.global, &mut changes).await;
         }
 
         // FIXME not yet supported by sliding sync.

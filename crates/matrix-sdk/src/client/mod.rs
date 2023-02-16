@@ -69,7 +69,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, info, instrument};
+use tracing::{debug, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -128,6 +128,7 @@ pub enum LoopCtrl {
 #[derive(Clone)]
 pub struct Client {
     pub(crate) inner: Arc<ClientInner>,
+    pub(crate) root_span: Span,
 }
 
 pub(crate) struct ClientInner {
@@ -1152,6 +1153,15 @@ impl Client {
             }
         }
 
+        self.root_span
+            .record("user_id", display(&response.user_id))
+            .record("device_id", display(&response.device_id));
+
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(key) = self.encryption().ed25519_key().await {
+            self.root_span.record("ed25519_key", key);
+        }
+
         self.inner.base_client.receive_login_response(response).await?;
 
         Ok(())
@@ -1216,10 +1226,27 @@ impl Client {
     /// ```
     ///
     /// [`login`]: #method.login
+    #[instrument(skip_all, parent = &self.root_span)]
     pub async fn restore_session(&self, session: Session) -> Result<()> {
+        debug!("Restoring session");
+
         let (meta, tokens) = session.into_parts();
+
+        self.root_span
+            .record("user_id", display(&meta.user_id))
+            .record("device_id", display(&meta.device_id));
+
         self.base_client().set_session_tokens(tokens);
-        Ok(self.base_client().set_session_meta(meta).await?)
+        self.base_client().set_session_meta(meta).await?;
+
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(key) = self.encryption().ed25519_key().await {
+            self.root_span.record("ed25519_key", key);
+        }
+
+        debug!("Done restoring session");
+
+        Ok(())
     }
 
     /// Refresh the access token.
@@ -1401,7 +1428,7 @@ impl Client {
     /// client.register(request).await;
     /// # })
     /// ```
-    #[instrument(skip_all)]
+    #[instrument(skip_all, parent = &self.root_span)]
     pub async fn register(
         &self,
         request: register::v3::Request,
@@ -1464,7 +1491,7 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
-    #[instrument(skip(self, definition))]
+    #[instrument(skip(self, definition), parent = &self.root_span)]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
@@ -2157,7 +2184,7 @@ impl Client {
     ///     .await;
     /// })
     /// ```
-    #[instrument(skip(self, callback))]
+    #[instrument(skip_all, parent = &self.root_span)]
     pub async fn sync_with_callback<C>(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2254,11 +2281,15 @@ impl Client {
         }
 
         loop {
+            trace!("Syncing");
             let result = self.sync_loop_helper(&mut sync_settings).await;
 
+            trace!("Running callback");
             if callback(result).await? == LoopCtrl::Break {
+                trace!("Callback told us to stop");
                 break;
             }
+            trace!("Done running callback");
 
             Client::delay_sync(&mut last_sync_time).await
         }
@@ -2308,7 +2339,7 @@ impl Client {
     ///
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip(self))]
+    #[instrument(skip(self), parent = &self.root_span)]
     pub async fn sync_stream(
         &self,
         mut sync_settings: crate::config::SyncSettings,
@@ -2319,9 +2350,11 @@ impl Client {
             sync_settings.token = self.sync_token().await;
         }
 
+        let parent_span = Span::current();
+
         async_stream::stream! {
             loop {
-                yield self.sync_loop_helper(&mut sync_settings).await;
+                yield self.sync_loop_helper(&mut sync_settings).instrument(parent_span.clone()).await;
 
                 Client::delay_sync(&mut last_sync_time).await
             }

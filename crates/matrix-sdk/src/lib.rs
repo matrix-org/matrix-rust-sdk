@@ -39,7 +39,7 @@ pub mod room;
 pub mod sync;
 
 #[cfg(feature = "experimental-sliding-sync")]
-mod sliding_sync;
+pub mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
