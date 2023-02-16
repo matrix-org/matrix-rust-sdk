@@ -40,7 +40,8 @@
     },
     "scripts": {
         "lint": "prettier --check .",
-        "build": "./scripts/build.sh",
+        "build": "WASM_PACK_ARGS=--release ./scripts/build.sh",
+        "build:dev": "WASM_PACK_ARGS=--dev ./scripts/build.sh",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
         "prepack": "npm run build && npm run test"
