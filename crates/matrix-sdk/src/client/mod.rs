@@ -69,7 +69,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
-use tracing::{debug, field::display, info, instrument, Instrument, Span};
+use tracing::{debug, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -2281,15 +2281,15 @@ impl Client {
         }
 
         loop {
-            debug!("Syncing");
+            trace!("Syncing");
             let result = self.sync_loop_helper(&mut sync_settings).await;
 
-            debug!("Running callback");
+            trace!("Running callback");
             if callback(result).await? == LoopCtrl::Break {
-                debug!("Callback told us to stop");
+                trace!("Callback told us to stop");
                 break;
             }
-            debug!("Done running callback");
+            trace!("Done running callback");
 
             Client::delay_sync(&mut last_sync_time).await
         }
