@@ -290,13 +290,18 @@ mod tests {
                 });
             }
 
-            // Now the 20th item is a `VecDiff::UpdateAt`.
-            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index, value }) => {
+            // The 20th item is a `VecDiff::RemoveAt`, i.e. the first message is removed.
+            assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index }) => {
                 // Index 0 is for day divider. So our first event is at index 1.
                 assert_eq!(index, 1);
+            });
+
+            // And now, the initial message is pushed at the bottom, so the 21th item is a
+            // `VecDiff::Push`.
+            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => {
                 let remote_event = assert_matches!(value.as_event(), Some(EventTimelineItem::Remote(remote_event)) => remote_event);
-                assert_eq!(remote_event.event_id.clone(), all_event_ids[0]);
                 assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
+                assert_eq!(remote_event.event_id.clone(), all_event_ids[0]);
 
                 remote_event.clone()
             });
