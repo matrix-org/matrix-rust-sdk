@@ -335,8 +335,8 @@ mod tests {
         let build_view = |name| {
             SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
-                .add_range(0u32, 10u32)
-                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .set_range(0u32, 10u32)
+                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name(name)
                 .build()
         };
@@ -429,7 +429,7 @@ mod tests {
             SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(0u32, 10u32)
-                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name(name)
                 .build()
         };
@@ -552,14 +552,14 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
 
         let full = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("full")
             .build()?;
         let sync_proxy =
@@ -728,7 +728,7 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(1u32, 10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
@@ -904,13 +904,13 @@ mod tests {
             let sliding_window_view = SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(1u32, 10u32)
-                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name("sliding")
                 .build()?;
             let growing_sync = SlidingSyncViewBuilder::default()
                 .sync_mode(SlidingSyncMode::GrowingFullSync)
                 .limit(100)
-                .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name("growing")
                 .build()?;
             anyhow::Ok((sliding_window_view, growing_sync))
@@ -968,7 +968,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
 
@@ -1096,7 +1096,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
 
@@ -1186,7 +1186,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
 

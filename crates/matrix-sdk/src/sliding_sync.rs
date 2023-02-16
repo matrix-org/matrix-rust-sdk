@@ -336,19 +336,20 @@ impl SlidingSyncRoom {
 
         // There is timeline updates.
         if !timeline_updates.is_empty() {
-            // If we come from a cold storage, we overwrite the timeline queue with the
-            // timeline updates.
             if self.is_cold.load(Ordering::SeqCst) {
+                // If we come from a cold storage, we overwrite the timeline queue with the
+                // timeline updates.
+
                 self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
                 self.is_cold.store(false, Ordering::SeqCst);
-            }
-            // The server alerted us that we missed items in between.
-            else if *limited {
+            } else if *limited {
+                // The server alerted us that we missed items in between.
+
                 self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
-            }
-            // It's the hot path. We have new updates that must be added to the existing timeline
-            // queue.
-            else {
+            } else {
+                // It's the hot path. We have new updates that must be added to the existing
+                // timeline queue.
+
                 let mut timeline_queue = self.timeline_queue.lock_mut();
 
                 // If the `timeline_queue` contains:
@@ -384,8 +385,7 @@ impl SlidingSyncRoom {
                         .iter()
                         .rev()
                         .zip(timeline_updates.iter().rev())
-                        .map(|(queue, update)| (queue.event_id(), update.event_id()))
-                        .position(|(queue, update)| queue != update)
+                        .position(|(queue, update)| queue.event_id() != update.event_id())
                     {
                         // We have found a suffix that equals the size of `timeline_queue` or
                         // `timeline_update`, typically:
@@ -394,26 +394,32 @@ impl SlidingSyncRoom {
                         // or
                         //     timeline_queue = [A, B, C, D, E, F]
                         //     timeline_update = [D, E, F]
-                        // in both case, `position` will return `None` because we are looking (from
-                        // the end) an item that is different.
+                        // in both case, `position` will return `None` because we are looking for
+                        // (from the end) an item that is different.
                         None => std::cmp::min(timeline_queue_len, timeline_updates_len),
 
-                        // We have found a suffix but it doesn't cover all `timeline_queue` or
-                        // `timeline_update`, typically:
+                        // We may have found a suffix.
+                        //
+                        // If we have `Some(0)`, it means we don't have found a suffix. That's the
+                        // hot path, `timeline_updates` will just be appended to `timeline_queue`.
+                        //
+                        // If we have `Some(n)` with `n > 0`, it means we have a prefix but it
+                        // doesn't cover all `timeline_queue` or `timeline_update`, typically:
                         //     timeline_queue = [B, D, E, F]
                         //     timeline_update = [A, B, C, D, E, F]
-                        // in this case, `position` will return `Some(3)` instead of `None`.
+                        // in this case, `position` will return `Some(3)`.
                         // That's annoying because it means we have an invalid `timeline_queue` or
-                        // `timeline_update`.
+                        // `timeline_update`, but let's try to do our best.
                         Some(position) => position,
                     };
 
-                    // No prefix found.
                     if position == 0 {
+                        // No prefix found.
+
                         timeline_queue.extend(timeline_updates);
-                    }
-                    // One prefix found
-                    else {
+                    } else {
+                        // Prefix found.
+
                         let new_timeline_updates =
                             &timeline_updates[..timeline_updates_len - position];
 
