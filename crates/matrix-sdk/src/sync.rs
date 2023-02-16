@@ -184,7 +184,7 @@ impl Client {
 
     async fn sleep() {
         #[cfg(target_arch = "wasm32")]
-        let _ = wasm_timer::Delay::new(Duration::from_secs(1)).await;
+        gloo_timers::future::TimeoutFuture::new(1_000).await;
 
         #[cfg(not(target_arch = "wasm32"))]
         tokio::time::sleep(Duration::from_secs(1)).await;

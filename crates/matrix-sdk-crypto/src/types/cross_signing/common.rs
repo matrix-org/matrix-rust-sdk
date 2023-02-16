@@ -23,16 +23,17 @@ use std::collections::BTreeMap;
 
 use ruma::{
     encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId,
-    OwnedUserId,
+    OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Ed25519PublicKey, KeyError};
 
-use super::{Signatures, SigningKeys};
+use super::{SelfSigningPubkey, UserSigningPubkey};
+use crate::types::{Signatures, SigningKeys};
 
 /// A cross signing key.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CrossSigningKey {
     /// The ID of the user the key belongs to.
     pub user_id: OwnedUserId,
@@ -132,38 +133,40 @@ impl From<Ed25519PublicKey> for SigningKey {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ruma::user_id;
-    use serde_json::json;
+/// Enum over the cross signing sub-keys.
+pub(crate) enum CrossSigningSubKeys<'a> {
+    /// The self signing subkey.
+    SelfSigning(&'a SelfSigningPubkey),
+    /// The user signing subkey.
+    UserSigning(&'a UserSigningPubkey),
+}
 
-    use super::CrossSigningKey;
+impl<'a> CrossSigningSubKeys<'a> {
+    /// Get the id of the user that owns this cross signing subkey.
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            CrossSigningSubKeys::SelfSigning(key) => key.user_id(),
+            CrossSigningSubKeys::UserSigning(key) => key.user_id(),
+        }
+    }
 
-    #[test]
-    fn serialization() {
-        let json = json!({
-            "user_id": "@example:localhost",
-              "usage": [
-                "master"
-              ],
-              "keys": {
-                "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
-                }
-              },
-              "other_data": "other"
-        });
+    /// Get the `CrossSigningKey` from an sub-keys enum
+    pub fn cross_signing_key(&self) -> &CrossSigningKey {
+        match self {
+            CrossSigningSubKeys::SelfSigning(key) => key.as_ref(),
+            CrossSigningSubKeys::UserSigning(key) => key.as_ref(),
+        }
+    }
+}
 
-        let key: CrossSigningKey =
-            serde_json::from_value(json.clone()).expect("Can't deserialize cross signing key");
+impl<'a> From<&'a UserSigningPubkey> for CrossSigningSubKeys<'a> {
+    fn from(key: &'a UserSigningPubkey) -> Self {
+        CrossSigningSubKeys::UserSigning(key)
+    }
+}
 
-        assert_eq!(key.user_id, user_id!("@example:localhost"));
-
-        let serialized = serde_json::to_value(key).expect("Can't reserialize cross signing key");
-
-        assert_eq!(json, serialized);
+impl<'a> From<&'a SelfSigningPubkey> for CrossSigningSubKeys<'a> {
+    fn from(key: &'a SelfSigningPubkey) -> Self {
+        CrossSigningSubKeys::SelfSigning(key)
     }
 }

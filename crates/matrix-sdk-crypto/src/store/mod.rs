@@ -38,33 +38,18 @@
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
 //! [`CryptoStore`]: trait.Cryptostore.html
 
-pub mod caches;
-mod memorystore;
-
-#[cfg(any(test, feature = "testing"))]
-#[macro_use]
-#[allow(missing_docs)]
-pub mod integration_tests;
-
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    io::Error as IoError,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
 };
 
-use async_trait::async_trait;
 use atomic::Ordering;
 use dashmap::DashSet;
-use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
-pub use memorystore::MemoryStore;
-use ruma::{
-    events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId,
-    RoomId, TransactionId, UserId,
-};
+use matrix_sdk_common::locks::Mutex;
+use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
-use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
@@ -77,15 +62,26 @@ use crate::{
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session, SessionCreationError,
+        ReadOnlyAccount, Session,
     },
     utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
 };
 
-/// A `CryptoStore` specific result type.
-pub type Result<T, E = CryptoStoreError> = std::result::Result<T, E>;
+pub mod caches;
+mod error;
+mod memorystore;
+mod traits;
+
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+#[allow(missing_docs)]
+pub mod integration_tests;
+
+pub use error::{CryptoStoreError, Result};
+pub use memorystore::MemoryStore;
+pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
@@ -96,10 +92,10 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub(crate) struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<dyn CryptoStore>,
+    inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
     users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
@@ -199,6 +195,7 @@ impl RecoveryKey {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Debug for RecoveryKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RecoveryKey").finish()
@@ -249,6 +246,7 @@ pub struct CrossSigningKeyExport {
     pub user_signing_key: Option<String>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Debug for CrossSigningKeyExport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CrossSigningKeyExport")
@@ -283,7 +281,7 @@ impl Store {
     pub fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<dyn CryptoStore>,
+        store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self {
@@ -682,14 +680,6 @@ impl Store {
         Ok(self.tracked_users_cache.contains(user_id))
     }
 
-    /// Are there any users that have the outdated/dirty flag set for their list
-    /// of devices?
-    pub async fn has_users_for_key_query(&self) -> Result<bool> {
-        self.load_tracked_users().await?;
-
-        Ok(!self.users_for_key_query_cache.is_empty())
-    }
-
     /// Get the set of users that has the outdate/dirty flag set for their list
     /// of devices.
     ///
@@ -710,242 +700,9 @@ impl Store {
 }
 
 impl Deref for Store {
-    type Target = dyn CryptoStore;
+    type Target = DynCryptoStore;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
-    }
-}
-
-/// The crypto store's error type.
-#[derive(Debug, Error)]
-pub enum CryptoStoreError {
-    /// The account that owns the sessions, group sessions, and devices wasn't
-    /// found.
-    #[error("can't save/load sessions or group sessions in the store before an account is stored")]
-    AccountUnset,
-
-    /// An IO error occurred.
-    #[error(transparent)]
-    Io(#[from] IoError),
-
-    /// Failed to decrypt an pickled object.
-    #[error("An object failed to be decrypted while unpickling")]
-    UnpicklingError,
-
-    /// Failed to decrypt an pickled object.
-    #[error(transparent)]
-    Pickle(#[from] vodozemac::PickleError),
-
-    /// The received room key couldn't be converted into a valid Megolm session.
-    #[error(transparent)]
-    SessionCreation(#[from] SessionCreationError),
-
-    /// A Matrix identifier failed to be validated.
-    #[error(transparent)]
-    IdentifierValidation(#[from] IdParseError),
-
-    /// The store failed to (de)serialize a data type.
-    #[error(transparent)]
-    Serialization(#[from] SerdeError),
-
-    /// The database format has changed in a backwards incompatible way.
-    #[error(
-        "The database format changed in an incompatible way, current \
-        version: {0}, latest version: {1}"
-    )]
-    UnsupportedDatabaseVersion(usize, usize),
-
-    /// A problem with the underlying database backend
-    #[error(transparent)]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl CryptoStoreError {
-    /// Create a new [`Backend`][Self::Backend] error.
-    ///
-    /// Shorthand for `StoreError::Backend(Box::new(error))`.
-    #[inline]
-    pub fn backend<E>(error: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        Self::Backend(Box::new(error))
-    }
-}
-
-/// Represents a store that the `OlmMachine` uses to store E2EE data (such as
-/// cryptographic keys).
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait CryptoStore: AsyncTraitDeps {
-    /// Load an account that was previously stored.
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>>;
-
-    /// Save the given account in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `account` - The account that should be stored.
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
-
-    /// Try to load a private cross signing identity, if one is stored.
-    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>;
-
-    /// Save the set of changes to the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `changes` - The set of changes that should be stored.
-    async fn save_changes(&self, changes: Changes) -> Result<()>;
-
-    /// Get all the sessions that belong to the given sender key.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender_key` - The sender key that was used to establish the sessions.
-    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
-
-    /// Get the inbound group session from our store.
-    ///
-    /// # Arguments
-    /// * `room_id` - The room id of the room that the session belongs to.
-    ///
-    /// * `sender_key` - The sender key that sent us the session.
-    ///
-    /// * `session_id` - The unique id of the session.
-    async fn get_inbound_group_session(
-        &self,
-        room_id: &RoomId,
-        session_id: &str,
-    ) -> Result<Option<InboundGroupSession>>;
-
-    /// Get all the inbound group sessions we have stored.
-    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
-
-    /// Get the number inbound group sessions we have and how many of them are
-    /// backed up.
-    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts>;
-
-    /// Get all the inbound group sessions we have not backed up yet.
-    async fn inbound_group_sessions_for_backup(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<InboundGroupSession>>;
-
-    /// Reset the backup state of all the stored inbound group sessions.
-    async fn reset_backup_state(&self) -> Result<()>;
-
-    /// Get the backup keys we have stored.
-    async fn load_backup_keys(&self) -> Result<BackupKeys>;
-
-    /// Get the outbound group session we have stored that is used for the
-    /// given room.
-    async fn get_outbound_group_session(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>>;
-
-    /// Load the list of users whose devices we are keeping track of.
-    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>>;
-
-    /// Save a list of users and their respective dirty/outdated flags to the
-    /// store.
-    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()>;
-
-    /// Get the device for the given user with the given device ID.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The user that the device belongs to.
-    ///
-    /// * `device_id` - The unique id of the device.
-    async fn get_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>>;
-
-    /// Get all the devices of the given user.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The user for which we should get all the devices.
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>>;
-
-    /// Get the user identity that is attached to the given user id.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The user for which we should get the identity.
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>>;
-
-    /// Check if a hash for an Olm message stored in the database.
-    async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
-
-    /// Get an outgoing secret request that we created that matches the given
-    /// request id.
-    ///
-    /// # Arguments
-    ///
-    /// * `request_id` - The unique request id that identifies this outgoing
-    /// secret request.
-    async fn get_outgoing_secret_requests(
-        &self,
-        request_id: &TransactionId,
-    ) -> Result<Option<GossipRequest>>;
-
-    /// Get an outgoing key request that we created that matches the given
-    /// requested key info.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_info` - The key info of an outgoing secret request.
-    async fn get_secret_request_by_info(
-        &self,
-        secret_info: &SecretInfo,
-    ) -> Result<Option<GossipRequest>>;
-
-    /// Get all outgoing secret requests that we have in the store.
-    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>>;
-
-    /// Delete an outgoing key request that we created that matches the given
-    /// request id.
-    ///
-    /// # Arguments
-    ///
-    /// * `request_id` - The unique request id that identifies this outgoing key
-    /// request.
-    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()>;
-}
-
-/// A type that can be type-erased into `Arc<dyn CryptoStore>`.
-///
-/// This trait is not meant to be implemented directly outside
-/// `matrix-sdk-crypto`, but it is automatically implemented for everything that
-/// implements `CryptoStore`.
-pub trait IntoCryptoStore {
-    #[doc(hidden)]
-    fn into_crypto_store(self) -> Arc<dyn CryptoStore>;
-}
-
-impl<T> IntoCryptoStore for T
-where
-    T: CryptoStore + Sized + 'static,
-{
-    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
-        Arc::new(self)
-    }
-}
-
-impl<T> IntoCryptoStore for Arc<T>
-where
-    T: CryptoStore + 'static,
-{
-    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
-        self
     }
 }

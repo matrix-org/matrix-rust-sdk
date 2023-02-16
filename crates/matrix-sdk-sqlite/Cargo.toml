@@ -32,13 +32,10 @@ rmp-serde = "1.1.1"
 ruma = { workspace = true }
 rusqlite = { version = "0.28.0", features = ["bundled"] }
 serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.23.1", default-features = false, features = [
-    "sync",
-    "fs",
-] }
+tokio = { version = "1.24.2", default-features = false, features = ["sync", "fs"] }
 tracing = { workspace = true }
+vodozemac = { workspace = true }
 
 [dev-dependencies]
 ctor = { workspace = true }
@@ -48,8 +45,5 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
-tokio = { version = "1.23.1", default-features = false, features = [
-    "rt-multi-thread",
-    "macros",
-] }
+tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

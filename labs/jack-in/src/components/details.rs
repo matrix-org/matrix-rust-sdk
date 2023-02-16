@@ -47,14 +47,14 @@ impl Details {
 
     pub fn refresh_data(&mut self) {
         let Some(room_id) = self.sstate.selected_room.lock_ref().clone() else { return };
-        let Some(room_data) = self.sstate.view().rooms.lock_ref().get(&room_id).cloned() else {
+        let Some(room_data) = self.sstate.get_room(&room_id) else {
             return;
         };
 
-        let name = room_data.name.clone().unwrap_or_else(|| "unknown".to_owned());
+        let name = room_data.name().unwrap_or("unknown").to_owned();
 
         let state_events = room_data
-            .required_state
+            .required_state()
             .iter()
             .filter_map(|r| r.deserialize().ok())
             .fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {

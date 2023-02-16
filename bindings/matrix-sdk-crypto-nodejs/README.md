@@ -12,6 +12,7 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 ## Usage
 
 Just add the latest release to your `package.json`:
+
 ```sh
 $ npm install --save @matrix-org/matrix-sdk-crypto-nodejs
 ```
@@ -112,28 +113,27 @@ generated. At the same level of those files, you can edit a file and
 try this:
 
 ```javascript
-const { OlmMachine } = require('./index.js');
+const { OlmMachine } = require("./index.js");
 
 // Let's see what we can do.
 ```
 
 The `OlmMachine` state machine works in a push/pull manner:
 
-* You push state changes and events retrieved from a Matrix homeserver
-  `/sync` response, into the state machine,
-  
-* You pull requests that you will need to send back to the homeserver
-  out of the state machine.
-  
+-   You push state changes and events retrieved from a Matrix homeserver
+    `/sync` response, into the state machine,
+-   You pull requests that you will need to send back to the homeserver
+    out of the state machine.
+
 ```javascript
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists } = require('./index.js');
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists } = require("./index.js");
 
 async function main() {
     // Define a user ID.
-    const alice = new UserId('@alice:example.org');
+    const alice = new UserId("@alice:example.org");
 
     // Define a device ID.
-    const device = new DeviceId('DEVICEID');
+    const device = new DeviceId("DEVICEID");
 
     // Let's create the `OlmMachine` state machine.
     const machine = await OlmMachine.initialize(alice, device);
@@ -197,8 +197,6 @@ $ npm run doc
 ```
 
 The documentation is generated in the `./docs` directory.
-
-
 
 [Node.js]: https://nodejs.org/
 [`matrix-sdk-crypto`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-crypto

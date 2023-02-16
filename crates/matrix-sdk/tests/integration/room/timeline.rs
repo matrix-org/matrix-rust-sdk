@@ -8,9 +8,11 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     room::timeline::{
-        AnyOtherFullStateEventContent, PaginationOptions, TimelineItemContent, VirtualTimelineItem,
+        AnyOtherFullStateEventContent, Error as TimelineError, EventSendState, PaginationOptions,
+        TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
     },
     ruma::MilliSecondsSinceUnixEpoch,
+    Error,
 };
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
@@ -186,21 +188,21 @@ async fn echo() {
     let local_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = local_echo.as_event().unwrap().as_local().unwrap();
-    assert!(item.event_id.is_none());
+    assert_matches!(&item.send_state, EventSendState::NotSentYet);
 
     let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
-    send_hdl.await.unwrap().unwrap();
+    send_hdl.await.unwrap();
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
         Some(VecDiff::UpdateAt { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
-    assert!(item.event_id.is_some());
+    assert_matches!(&item.send_state, EventSendState::Sent { .. });
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -222,11 +224,15 @@ async fn echo() {
 
     // Local echo is removed
     assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
-    // Bug, will be fixed later. See comment in remote_echo_without_txn_id test
-    // from `room::timeline::tests`.
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    // Local echo day divider is removed
+    assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
 
+    // New day divider is added
+    let new_item =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+
+    // Remote echo is added
     let remote_echo =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     let item = remote_echo.as_event().unwrap().as_remote().unwrap();
@@ -551,4 +557,164 @@ async fn read_marker() {
     let marker =
         assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
     assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
+}
+
+#[async_test]
+async fn in_reply_to_details() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let mut timeline_stream = timeline.signal().to_stream();
+
+    // The event doesn't exist.
+    assert_matches!(
+        timeline.fetch_event_details(event_id!("$fakeevent")).await,
+        Err(Error::Timeline(TimelineError::RemoteEventNotInTimeline))
+    );
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": "$event1",
+                "origin_server_ts": 152037280,
+                "sender": "@alice:example.org",
+                "type": "m.room.message",
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello to you too",
+                    "msgtype": "m.text",
+                    "m.relates_to": {
+                        "m.in_reply_to": {
+                            "event_id": "$event1",
+                        },
+                    },
+                },
+                "event_id": "$event2",
+                "origin_server_ts": 152045456,
+                "sender": "@bob:example.org",
+                "type": "m.room.message",
+            }))),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let _day_divider =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let first =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+    let second =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let second_event = second.as_event().unwrap().as_remote().unwrap();
+    let message =
+        assert_matches!(&second_event.content, TimelineItemContent::Message(message) => message);
+    let in_reply_to = message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id!("$event1"));
+    assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
+
+    // Fetch details locally first.
+    timeline.fetch_event_details(&second_event.event_id).await.unwrap();
+
+    let second = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 2, value }) => value);
+    let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Ready(_));
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "you were right",
+                "msgtype": "m.text",
+                "m.relates_to": {
+                    "m.in_reply_to": {
+                        "event_id": "$remoteevent",
+                    },
+                },
+            },
+            "event_id": "$event3",
+            "origin_server_ts": 152046694,
+            "sender": "@bob:example.org",
+            "type": "m.room.message",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let third =
+        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let third_event = third.as_event().unwrap().as_remote().unwrap();
+    let message =
+        assert_matches!(&third_event.content, TimelineItemContent::Message(message) => message);
+    let in_reply_to = message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
+    assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$remoteevent"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Event not found.",
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Fetch details remotely if we can't find them locally.
+    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+    server.reset().await;
+
+    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Pending);
+
+    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Error(_));
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$remoteevent"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": {
+                "body": "Alice is gonna arrive soon",
+                "msgtype": "m.text",
+            },
+            "room_id": room_id,
+            "event_id": "$event0",
+            "origin_server_ts": 152024004,
+            "sender": "@admin:example.org",
+            "type": "m.room.message",
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+
+    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Pending);
+
+    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
+    assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Ready(_));
 }

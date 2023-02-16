@@ -174,18 +174,7 @@ impl OlmMachine {
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
-            .block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(path, passphrase.as_deref()))
-            .map_err(|e| match e {
-                // This is a bit of an error in the sled store, the
-                // CryptoStore returns an `OpenStoreError` which has a
-                // variant for the state store. Not sure what to do about
-                // this.
-                matrix_sdk_sqlite::OpenStoreError::Crypto(r) => r.into(),
-                matrix_sdk_sqlite::OpenStoreError::Sqlite(s) => CryptoStoreError::CryptoStore(
-                    matrix_sdk_crypto::store::CryptoStoreError::backend(s),
-                ),
-                _ => unreachable!(),
-            })?;
+            .block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(path, passphrase.as_deref()))?;
 
         passphrase.zeroize();
 

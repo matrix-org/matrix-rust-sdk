@@ -13,7 +13,7 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId, UInt,
+    assign, IdParseError, OwnedRoomId, RoomId, UInt,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
@@ -22,6 +22,7 @@ pub use matrix_sdk::{
 };
 use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
 use tracing::{debug, error, trace, warn};
+use url::Url;
 
 use super::{Client, Room, RUNTIME};
 use crate::{
@@ -129,22 +130,23 @@ impl SlidingSyncRoom {
     }
 
     pub fn is_dm(&self) -> Option<bool> {
-        self.inner.is_dm
+        self.inner.is_dm()
     }
 
     pub fn is_initial(&self) -> Option<bool> {
-        self.inner.initial
+        self.inner.is_initial_response()
     }
+
     pub fn is_loading_more(&self) -> bool {
         self.inner.is_loading_more()
     }
 
     pub fn has_unread_notifications(&self) -> bool {
-        !self.inner.unread_notifications.is_empty()
+        self.inner.has_unread_notifications()
     }
 
     pub fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications.clone().into())
+        Arc::new(self.inner.unread_notifications().clone().into())
     }
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
@@ -642,7 +644,8 @@ impl SlidingSync {
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
         let runner = self.inner.clone();
-        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|inner| {
+
+        Ok(self.inner.get_room(<&RoomId>::try_from(room_id.as_str())?).map(|inner| {
             Arc::new(SlidingSyncRoom {
                 inner,
                 runner,
@@ -846,7 +849,16 @@ impl Client {
 impl Client {
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
         RUNTIME.block_on(async move {
-            let inner = self.client.sliding_sync().await;
+            let mut inner = self.client.sliding_sync().await;
+            if let Some(sliding_sync_proxy) = self
+                .sliding_sync_proxy
+                .read()
+                .unwrap()
+                .clone()
+                .and_then(|p| Url::parse(p.as_str()).ok())
+            {
+                inner = inner.homeserver(sliding_sync_proxy);
+            }
             Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
         })
     }

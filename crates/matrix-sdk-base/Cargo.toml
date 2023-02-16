@@ -29,7 +29,6 @@ testing = ["dep:http"]
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
-futures-channel = "0.3.21"
 futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
@@ -54,7 +53,7 @@ matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "1.23.1", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"

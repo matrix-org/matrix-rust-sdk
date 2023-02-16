@@ -37,7 +37,6 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
-pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Batch, Config, Db, IVec, Transactional, Tree,
@@ -463,7 +462,7 @@ impl SledCryptoStore {
         };
 
         let private_identity_pickle =
-            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
+            if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let recovery_key_pickle = changes.recovery_key;
 
@@ -698,6 +697,8 @@ impl SledCryptoStore {
 
 #[async_trait]
 impl CryptoStore for SledCryptoStore {
+    type Error = CryptoStoreError;
+
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         if let Some(pickle) =
             self.account.get("account".encode()).map_err(CryptoStoreError::backend)?

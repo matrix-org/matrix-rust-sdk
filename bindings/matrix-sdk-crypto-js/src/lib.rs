@@ -15,7 +15,11 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
-#![allow(clippy::drop_non_drop)] // triggered by wasm_bindgen code
+// triggered by wasm_bindgen code
+#![allow(clippy::drop_non_drop)]
+// Triggers false positives.
+// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
+#![allow(clippy::extra_unused_type_parameters)]
 
 pub mod attachment;
 pub mod device;

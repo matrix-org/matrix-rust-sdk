@@ -13,7 +13,7 @@ anyhow = "1"
 clap = "4.0.16"
 futures = "0.3"
 futures-signals = { version = "0.3.30", default-features = false }
-tokio = { version = "1.23.1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
 url = "2.2.2"
 

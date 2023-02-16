@@ -1,29 +1,40 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
 };
 
 use async_trait::async_trait;
-use futures_signals::signal_vec::{MutableVec, MutableVecLockRef, SignalVec};
+use futures_signals::signal_vec::{MutableSignalVec, MutableVec, MutableVecLockRef};
 use indexmap::IndexSet;
-#[cfg(any(test, feature = "experimental-sliding-sync"))]
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_base::{
     crypto::OlmMachine,
-    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::Mutex,
 };
 use ruma::{
-    api::client::message::send_message_event::v3::Response as SendMessageEventResponse,
     events::{
         fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, field::debug, info, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -32,11 +43,13 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    rfind_event_item, EventTimelineItem, Profile, TimelineItem,
+    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
+    Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
     room::{self, timeline::event_item::RemoteEventTimelineItem},
+    Error, Result,
 };
 
 #[derive(Debug)]
@@ -70,11 +83,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.items.lock_ref()
     }
 
-    pub(super) fn items_signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
+    pub(super) fn items_signal(&self) -> MutableSignalVec<Arc<TimelineItem>> {
+        trace!("Creating timeline items signal");
         self.items.signal_vec_cloned()
     }
 
-    #[cfg(any(test, feature = "experimental-sliding-sync"))]
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
@@ -97,7 +110,10 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     pub(super) async fn clear(&self) {
+        trace!("Clearing timeline");
+
         let mut timeline_meta = self.metadata.lock().await;
         let mut timeline_items = self.items.lock_mut();
 
@@ -108,6 +124,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         timeline_items.clear();
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn handle_live_event(
         &self,
         raw: Raw<AnySyncTimelineEvent>,
@@ -126,6 +143,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     /// Handle the creation of a new local event.
+    #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
@@ -151,74 +169,55 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .handle_event(kind);
     }
 
-    /// Handle the response returned by the server when a local event has been
-    /// sent.
-    pub(super) fn handle_local_event_send_response(
-        &self,
-        txn_id: &TransactionId,
-        response: crate::error::Result<SendMessageEventResponse>,
-    ) -> crate::error::Result<()> {
-        match response {
-            Ok(response) => {
-                self.update_event_id_of_local_event(txn_id, Some(response.event_id));
-
-                Ok(())
-            }
-            Err(error) => {
-                self.update_event_id_of_local_event(txn_id, None);
-
-                Err(error)
-            }
-        }
-    }
-
-    /// Update the event ID of a local event represented by a transaction ID.
-    ///
-    /// If the event ID is `None`, it means there is no event ID returned by the
-    /// server, so the sending has failed. If the event ID is `Some(_)`, it
-    /// means the sending has been successful.
+    /// Update the send state of a local event represented by a transaction ID.
     ///
     /// If no local event is found, a warning is raised.
-    pub(super) fn update_event_id_of_local_event(
+    #[instrument(skip_all, fields(txn_id))]
+    pub(super) fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
-        event_id: Option<OwnedEventId>,
+        send_state: EventSendState,
     ) {
         let mut lock = self.items.lock_mut();
+
+        let new_event_id: Option<&EventId> = match &send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
+        };
 
         // Look for the local event by the transaction ID or event ID.
         let result = rfind_event_item(&lock, |it| {
             it.transaction_id() == Some(txn_id)
-                || event_id.is_some() && it.event_id() == event_id.as_deref()
+                || new_event_id.is_some() && it.event_id() == new_event_id
         });
 
         let Some((idx, item)) = result else {
             // Event isn't found at all.
-            warn!(?txn_id, "Timeline item not found, can't add event ID");
+            warn!("Timeline item not found, can't add event ID");
             return;
         };
 
         let EventTimelineItem::Local(item) = item else {
             // Remote echo already received. This is very unlikely.
-            trace!(?txn_id, "Remote echo received before send-event response");
+            trace!("Remote echo received before send-event response");
             return;
         };
 
-        // An event ID already exists, that's a broken state, let's emit an
-        // error but also override to the given event ID.
-        if let Some(existing_event_id) = &item.event_id {
-            error!(
-                ?existing_event_id, new_event_id = ?event_id, ?txn_id,
-                "Local echo already has an event ID"
-            );
+        // The event was already marked as sent, that's a broken state, let's
+        // emit an error but also override to the given sent state.
+        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+            let new_event_id = new_event_id.map(debug);
+            error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        lock.set_cloned(idx, Arc::new(TimelineItem::Event(item.with_event_id(event_id).into())));
+        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        lock.set_cloned(idx, Arc::new(new_item));
     }
 
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
+    #[instrument(skip_all)]
     pub(super) async fn handle_back_paginated_event(
         &self,
         event: TimelineEvent,
@@ -236,7 +235,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) fn add_loading_indicator(&self) {
+    pub(super) async fn add_loading_indicator(&self) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
@@ -247,7 +250,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     #[instrument(skip(self))]
-    pub(super) fn remove_loading_indicator(&self, more_messages: bool) {
+    pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
+        // hack: Ensure this can't run between loop iterations of
+        // update_sender_profiles. We badly need to replace futures-signals...
+        let _guard = self.metadata.lock().await;
+
         let mut lock = self.items.lock_mut();
         if !lock.first().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
@@ -261,11 +268,12 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
         let fully_read_event_id = match raw.deserialize() {
             Ok(ev) => ev.content.event_id,
-            Err(error) => {
-                error!(?error, "Failed to deserialize `m.fully_read` account data");
+            Err(e) => {
+                error!("Failed to deserialize fully-read account data: {e}");
                 return;
             }
         };
@@ -273,6 +281,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         self.set_fully_read_event(fully_read_event_id).await;
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         let mut metadata_lock = self.metadata.lock().await;
 
@@ -360,7 +369,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
 
         let mut metadata_lock = self.metadata.lock().await;
-        for (idx, event_id, session_id, utd) in utds_for_session.iter().rev() {
+        for (idx, event_id, session_id, utd) in utds_for_session {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
                 Err(e) => {
@@ -382,7 +391,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
             handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
-                TimelineItemPosition::Update(*idx),
+                TimelineItemPosition::Update(idx),
                 &self.items,
                 &mut metadata_lock,
                 &self.profile_provider,
@@ -390,18 +399,161 @@ impl<P: ProfileProvider> TimelineInner<P> {
             .await;
         }
     }
+
+    pub(super) fn set_sender_profiles_pending(&self) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Pending);
+    }
+
+    pub(super) fn set_sender_profiles_error(&self, error: Arc<Error>) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Error(error));
+    }
+
+    fn set_non_ready_sender_profiles(&self, state: TimelineDetails<Profile>) {
+        let mut timeline_items = self.items.lock_mut();
+        for idx in 0..timeline_items.len() {
+            let Some(event_item) = timeline_items[idx].as_event() else { continue };
+            if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
+                timeline_items.set_cloned(
+                    idx,
+                    Arc::new(TimelineItem::Event(event_item.with_sender_profile(state.clone()))),
+                );
+            }
+        }
+    }
+
+    pub(super) async fn update_sender_profiles(&self) {
+        trace!("Updating sender profiles");
+
+        // Can't lock the timeline items across .await points without making the
+        // resulting future `!Send`. As a (brittle) hack around that, lock the
+        // timeline items in each loop iteration but keep a lock of the metadata
+        // so no event handler runs in parallel and assert the number of items
+        // doesn't change between iterations.
+        let _guard = self.metadata.lock().await;
+        let num_items = self.items().len();
+
+        for idx in 0..num_items {
+            let sender = match self.items()[idx].as_event() {
+                Some(event_item) => event_item.sender().to_owned(),
+                None => continue,
+            };
+            let maybe_profile = self.profile_provider.profile(&sender).await;
+
+            let mut timeline_items = self.items.lock_mut();
+            assert_eq!(timeline_items.len(), num_items);
+
+            let event_item = timeline_items[idx].as_event().unwrap();
+            match maybe_profile {
+                Some(profile) => {
+                    if !event_item.sender_profile().contains(&profile) {
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
+                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                    }
+                }
+                None => {
+                    if !event_item.sender_profile().is_unavailable() {
+                        let updated_item =
+                            event_item.with_sender_profile(TimelineDetails::Unavailable);
+                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_event_item(&self, index: usize, event_item: EventTimelineItem) {
+        self.items.lock_mut().set_cloned(index, Arc::new(TimelineItem::Event(event_item)))
+    }
 }
 
 impl TimelineInner {
     pub(super) fn room(&self) -> &room::Common {
         &self.profile_provider
     }
+
+    pub(super) async fn fetch_in_reply_to_details(
+        &self,
+        index: usize,
+        mut item: RemoteEventTimelineItem,
+    ) -> Result<RemoteEventTimelineItem> {
+        let TimelineItemContent::Message(message) = item.content.clone() else {
+            return Ok(item);
+        };
+        let Some(in_reply_to) = message.in_reply_to() else {
+            return Ok(item);
+        };
+
+        let details =
+            self.fetch_replied_to_event(index, &item, &message, &in_reply_to.event_id).await;
+
+        // We need to be sure to have the latest position of the event as it might have
+        // changed while waiting for the request.
+        let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
+            .ok_or(super::Error::RemoteEventNotInTimeline)?;
+
+        item = item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
+        )));
+        self.update_event_item(index, item.clone().into());
+
+        Ok(item)
+    }
+
+    async fn fetch_replied_to_event(
+        &self,
+        index: usize,
+        item: &RemoteEventTimelineItem,
+        message: &Message,
+        in_reply_to: &EventId,
+    ) -> TimelineDetails<Box<RepliedToEvent>> {
+        if let Some((_, item)) = rfind_event_by_id(&self.items(), in_reply_to) {
+            let details = match item.content() {
+                TimelineItemContent::Message(message) => {
+                    TimelineDetails::Ready(Box::new(RepliedToEvent {
+                        message: message.clone(),
+                        sender: item.sender().to_owned(),
+                        sender_profile: item.sender_profile().clone(),
+                    }))
+                }
+                _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
+            };
+
+            return details;
+        };
+
+        self.update_event_item(
+            index,
+            item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
+                InReplyToDetails {
+                    event_id: in_reply_to.to_owned(),
+                    details: TimelineDetails::Pending,
+                },
+            )))
+            .into(),
+        );
+
+        match self.room().event(in_reply_to).await {
+            Ok(timeline_event) => {
+                match RepliedToEvent::try_from_timeline_event(
+                    timeline_event,
+                    &self.profile_provider,
+                )
+                .await
+                {
+                    Ok(event) => TimelineDetails::Ready(Box::new(event)),
+                    Err(e) => TimelineDetails::Error(Arc::new(e)),
+                }
+            }
+            Err(e) => TimelineDetails::Error(Arc::new(e)),
+        }
+    }
 }
 
 #[async_trait]
 pub(super) trait ProfileProvider {
     fn own_user_id(&self) -> &UserId;
-    async fn profile(&self, user_id: &UserId) -> Profile;
+    async fn profile(&self, user_id: &UserId) -> Option<Profile>;
 }
 
 #[async_trait]
@@ -410,19 +562,22 @@ impl ProfileProvider for room::Common {
         (**self).own_user_id()
     }
 
-    async fn profile(&self, user_id: &UserId) -> Profile {
+    async fn profile(&self, user_id: &UserId) -> Option<Profile> {
         match self.get_member_no_sync(user_id).await {
-            Ok(Some(member)) => Profile {
+            Ok(Some(member)) => Some(Profile {
                 display_name: member.display_name().map(ToOwned::to_owned),
                 display_name_ambiguous: member.name_ambiguous(),
                 avatar_url: member.avatar_url().map(ToOwned::to_owned),
-            },
-            Ok(None) => {
-                Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
-            }
+            }),
+            Ok(None) if self.are_members_synced() => Some(Profile {
+                display_name: None,
+                display_name_ambiguous: false,
+                avatar_url: None,
+            }),
+            Ok(None) => None,
             Err(e) => {
                 error!(%user_id, "Failed to getch room member information: {e}");
-                Profile { display_name: None, display_name_ambiguous: false, avatar_url: None }
+                None
             }
         }
     }
@@ -461,7 +616,9 @@ async fn handle_remote_event<P: ProfileProvider>(
                     TimelineEventKind::failed_to_parse(event, e),
                 ),
                 Err(e) => {
-                    warn!("Failed to deserialize timeline event: {e}");
+                    let event_type: Option<String> = raw.get_field("type").ok().flatten();
+                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
                     return HandleEventResult::default();
                 }
             },

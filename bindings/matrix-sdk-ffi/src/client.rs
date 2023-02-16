@@ -46,6 +46,10 @@ pub struct Client {
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+    /// The sliding sync proxy that the client is configured to use by default.
+    /// If this value is `Some`, it will be automatically added to the builder
+    /// when calling `sliding_sync()`.
+    pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
     pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
 }
 
@@ -74,6 +78,7 @@ impl Client {
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
+            sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx,
         }
     }
@@ -108,10 +113,12 @@ impl Client {
             device_id,
             homeserver_url: _,
             is_soft_logout,
+            sliding_sync_proxy,
         } = session;
 
-        // update soft logout state
+        // update the client state
         self.state.write().unwrap().is_soft_logout = is_soft_logout;
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
 
         let session = matrix_sdk::Session {
             access_token,
@@ -144,6 +151,18 @@ impl Client {
         self.client.authentication_issuer().await.map(|server| server.to_string())
     }
 
+    /// The sliding sync proxy that is trusted by the homeserver. `None` when
+    /// not configured.
+    pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
+        RUNTIME.block_on(async move {
+            self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+        })
+    }
+
+    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<String>) {
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
+    }
+
     /// Whether or not the client's homeserver supports the password login flow.
     pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.client.get_login_types().await?;
@@ -165,7 +184,9 @@ impl Client {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
             let homeserver_url = self.client.homeserver().await.into();
-            let is_soft_logout = self.state.read().unwrap().is_soft_logout;
+            let state = self.state.read().unwrap();
+            let is_soft_logout = state.is_soft_logout;
+            let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
 
             Ok(Session {
                 access_token,
@@ -174,6 +195,7 @@ impl Client {
                 device_id: device_id.to_string(),
                 homeserver_url,
                 is_soft_logout,
+                sliding_sync_proxy,
             })
         })
     }
@@ -440,6 +462,7 @@ pub struct Session {
     // FFI-only fields (for now)
     pub homeserver_url: String,
     pub is_soft_logout: bool,
+    pub sliding_sync_proxy: Option<String>,
 }
 
 #[uniffi::export]

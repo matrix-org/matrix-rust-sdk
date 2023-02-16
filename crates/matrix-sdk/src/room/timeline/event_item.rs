@@ -15,7 +15,7 @@
 use std::{fmt, ops::Deref, sync::Arc};
 
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, TimelineEvent};
 use ruma::{
     events::{
         policy::rule::{
@@ -33,7 +33,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::MessageType,
+            message::{self, MessageType, Relation},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -44,19 +44,22 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
-        MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyTimelineEvent, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
     OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 
+use super::inner::ProfileProvider;
+use crate::{Error, Result};
+
 /// An item in the timeline that represents at least one event.
 ///
 /// There is always one main event that gives the `EventTimelineItem` its
-/// identity (see [key](Self::key)) but in many cases, additional events like
-/// reactions and edits are also part of the item.
+/// identity but in many cases, additional events like reactions and edits are
+/// also part of the item.
 #[derive(Debug, Clone)]
 pub enum EventTimelineItem {
     /// An event item that has been sent, but not yet acknowledged by the
@@ -88,10 +91,10 @@ impl EventTimelineItem {
     /// case of a remote event.
     pub fn unique_identifier(&self) -> String {
         match self {
-            Self::Local(LocalEventTimelineItem { transaction_id, event_id, .. }) => {
-                match event_id {
-                    Some(event_id) => event_id.to_string(),
-                    None => transaction_id.to_string(),
+            Self::Local(LocalEventTimelineItem { transaction_id, send_state, .. }) => {
+                match send_state {
+                    EventSendState::Sent { event_id } => event_id.to_string(),
+                    _ => transaction_id.to_string(),
                 }
             }
 
@@ -117,13 +120,13 @@ impl EventTimelineItem {
     /// If this returns `Some(_)`, the event was successfully created by the
     /// server.
     ///
-    /// Even if the [`key()`](Self::key) of this timeline item holds a
-    /// transaction ID, this can be `Some(_)` as the event ID can be known not
-    /// just from the remote echo via `sync_events`, but also from the response
-    /// of the send request that created the event.
+    /// Even if this is a [`Local`](Self::Local) event,, this can be `Some(_)`
+    /// as the event ID can be known not just from the remote echo via
+    /// `sync_events`, but also from the response of the send request that
+    /// created the event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            Self::Local(local_event) => local_event.event_id.as_deref(),
+            Self::Local(local_event) => local_event.event_id(),
             Self::Remote(remote_event) => Some(&remote_event.event_id),
         }
     }
@@ -137,7 +140,7 @@ impl EventTimelineItem {
     }
 
     /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &Profile {
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         match self {
             Self::Local(local_event) => &local_event.sender_profile,
             Self::Remote(remote_event) => &remote_event.sender_profile,
@@ -206,32 +209,48 @@ impl EventTimelineItem {
             }
         }
     }
+
+    /// Clone the current event item, and update its `sender_profile`.
+    pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
+        match self {
+            EventTimelineItem::Local(item) => {
+                Self::Local(LocalEventTimelineItem { sender_profile, ..item.clone() })
+            }
+            EventTimelineItem::Remote(item) => {
+                Self::Remote(RemoteEventTimelineItem { sender_profile, ..item.clone() })
+            }
+        }
+    }
 }
 
-/// This type represents the “send state” of a local event timeline item.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LocalEventTimelineItemSendState {
+/// This type represents the "send state" of a local event timeline item.
+#[derive(Clone, Debug)]
+pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed,
+    SendingFailed {
+        /// Details about how sending the event failed.
+        error: Arc<Error>,
+    },
     /// The local event has been sent successfully to the server.
-    Sent,
+    Sent {
+        /// The event ID assigned by the server.
+        event_id: OwnedEventId,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct LocalEventTimelineItem {
     /// The send state of this local event.
-    pub send_state: LocalEventTimelineItemSendState,
+    pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
-    /// The event ID received from the server in the event-sending response.
-    pub event_id: Option<OwnedEventId>,
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -239,24 +258,19 @@ pub struct LocalEventTimelineItem {
 }
 
 impl LocalEventTimelineItem {
-    /// Clone the current event item, and update its `event_id`.
+    /// Get the event ID of this item.
     ///
-    /// `event_id` is optional:
-    ///   * `Some(_)` means the local event has been sent successfully to the
-    ///     server, its send state will be moved to
-    ///     [`LocalEventTimelineItemSendState::Sent`].
-    ///   * `None` means the local event has been failed to be sent to the
-    ///     server, its send state will be moved to
-    ///     [`LocalEventTimelineItemSendState::SendingFailed`].
-    pub(super) fn with_event_id(&self, event_id: Option<OwnedEventId>) -> Self {
-        Self {
-            send_state: match &event_id {
-                Some(_) => LocalEventTimelineItemSendState::Sent,
-                None => LocalEventTimelineItemSendState::SendingFailed,
-            },
-            event_id,
-            ..self.clone()
+    /// Will be `Some` if and only if `send_state` is `EventSendState::Sent`.
+    pub fn event_id(&self) -> Option<&EventId> {
+        match &self.send_state {
+            EventSendState::Sent { event_id } => Some(event_id),
+            _ => None,
         }
+    }
+
+    /// Clone the current event item, and update its `send_state`.
+    pub(super) fn with_send_state(&self, send_state: EventSendState) -> Self {
+        Self { send_state, ..self.clone() }
     }
 }
 
@@ -273,7 +287,7 @@ pub struct RemoteEventTimelineItem {
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -292,6 +306,11 @@ impl RemoteEventTimelineItem {
     /// Clone the current event item, and update its `reactions`.
     pub(super) fn with_reactions(&self, reactions: BundledReactions) -> Self {
         Self { reactions, ..self.clone() }
+    }
+
+    /// Clone the current event item, and update its `content`.
+    pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
+        Self { content, ..self.clone() }
     }
 
     /// Clone the current event item, change its `content` to
@@ -319,6 +338,7 @@ impl From<RemoteEventTimelineItem> for EventTimelineItem {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteEventTimelineItem")
@@ -335,7 +355,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
 }
 
 /// The display name and avatar URL of a room member.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
@@ -363,6 +383,29 @@ pub enum TimelineDetails<T> {
 
     /// The details are available.
     Ready(T),
+
+    /// An error occurred when fetching the details.
+    Error(Arc<Error>),
+}
+
+impl<T> TimelineDetails<T> {
+    pub(crate) fn from_initial_value(value: Option<T>) -> Self {
+        match value {
+            Some(v) => Self::Ready(v),
+            None => Self::Unavailable,
+        }
+    }
+
+    pub(crate) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+
+    pub(crate) fn contains<U>(&self, value: &U) -> bool
+    where
+        T: PartialEq<U>,
+    {
+        matches!(self, Self::Ready(v) if v == value)
+    }
 }
 
 /// The content of an [`EventTimelineItem`].
@@ -435,10 +478,7 @@ impl TimelineItemContent {
 #[derive(Clone)]
 pub struct Message {
     pub(super) msgtype: MessageType,
-    // TODO: Add everything required to display the replied-to event, plus a
-    // 'loading' state that is entered at first, until the user requests the
-    // reply to be loaded.
-    pub(super) in_reply_to: Option<OwnedEventId>,
+    pub(super) in_reply_to: Option<InReplyToDetails>,
     pub(super) edited: bool,
 }
 
@@ -455,22 +495,107 @@ impl Message {
         self.msgtype.body()
     }
 
-    /// Get the event ID of the event this message is replying to, if any.
-    pub fn in_reply_to(&self) -> Option<&EventId> {
-        self.in_reply_to.as_deref()
+    /// Get the event this message is replying to, if any.
+    pub fn in_reply_to(&self) -> Option<&InReplyToDetails> {
+        self.in_reply_to.as_ref()
     }
 
     /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
     }
+
+    pub(super) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
+        Self { in_reply_to: Some(in_reply_to), ..self.clone() }
+    }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
+    }
+}
+
+/// Details about an event being replied to.
+#[derive(Clone, Debug)]
+pub struct InReplyToDetails {
+    /// The ID of the event.
+    pub event_id: OwnedEventId,
+
+    /// The details of the event.
+    ///
+    /// Use [`Timeline::fetch_item_details`] to fetch the data if it is
+    /// unavailable. The `replies_nesting_level` field in
+    /// [`TimelineDetailsSettings`] decides if this should be fetched.
+    ///
+    /// [`Timeline::fetch_item_details`]: super::Timeline::fetch_item_details
+    /// [`TimelineDetailsSettings`]: super::TimelineDetailsSettings
+    pub details: TimelineDetails<Box<RepliedToEvent>>,
+}
+
+impl InReplyToDetails {
+    pub(super) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
+        match relation {
+            message::Relation::Reply { in_reply_to } => {
+                Some(Self { event_id: in_reply_to.event_id, details: TimelineDetails::Unavailable })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// An event that is replied to.
+#[derive(Clone, Debug)]
+pub struct RepliedToEvent {
+    pub(super) message: Message,
+    pub(super) sender: OwnedUserId,
+    pub(super) sender_profile: TimelineDetails<Profile>,
+}
+
+impl RepliedToEvent {
+    /// Get the message of this event.
+    pub fn message(&self) -> &Message {
+        &self.message
+    }
+
+    /// Get the sender of this event.
+    pub fn sender(&self) -> &UserId {
+        &self.sender
+    }
+
+    /// Get the profile of the sender.
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
+        &self.sender_profile
+    }
+
+    pub(super) async fn try_from_timeline_event<P: ProfileProvider>(
+        timeline_event: TimelineEvent,
+        profile_provider: &P,
+    ) -> Result<Self> {
+        let event = match timeline_event.event.deserialize() {
+            Ok(AnyTimelineEvent::MessageLike(event)) => event,
+            _ => {
+                return Err(super::Error::UnsupportedEvent.into());
+            }
+        };
+
+        let Some(AnyMessageLikeEventContent::RoomMessage(c)) = event.original_content() else {
+            return Err(super::Error::UnsupportedEvent.into());
+        };
+
+        let message = Message {
+            msgtype: c.msgtype,
+            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
+            edited: event.relations().replace.is_some(),
+        };
+        let sender = event.sender().to_owned();
+        let sender_profile =
+            TimelineDetails::from_initial_value(profile_provider.profile(&sender).await);
+
+        Ok(Self { message, sender, sender_profile })
     }
 }
 

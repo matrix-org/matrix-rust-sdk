@@ -1,6 +1,6 @@
 {
     "name": "@matrix-org/matrix-sdk-crypto-js",
-    "version": "0.1.0-alpha.3",
+    "version": "0.1.0-alpha.4",
     "homepage": "https://github.com/matrix-org/matrix-rust-sdk",
     "description": "Matrix encryption library, for JavaScript",
     "license": "Apache-2.0",
@@ -30,6 +30,7 @@
         "cross-env": "^7.0.3",
         "fake-indexeddb": "^4.0",
         "jest": "^28.1.0",
+        "prettier": "^2.8.3",
         "typedoc": "^0.22.17",
         "wasm-pack": "^0.10.2",
         "yargs-parser": "~21.0.1"
@@ -38,7 +39,9 @@
         "node": ">= 10"
     },
     "scripts": {
-        "build": "./scripts/build.sh",
+        "lint": "prettier --check .",
+        "build": "WASM_PACK_ARGS=--release ./scripts/build.sh",
+        "build:dev": "WASM_PACK_ARGS=--dev ./scripts/build.sh",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
         "prepack": "npm run build && npm run test"

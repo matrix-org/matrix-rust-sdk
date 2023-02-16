@@ -90,7 +90,7 @@ mod devices;
 mod users;
 
 pub use devices::{Device, UserDevices};
-pub use matrix_sdk_base::crypto::MasterPubkey;
+pub use matrix_sdk_base::crypto::types::MasterPubkey;
 pub use users::UserIdentity;
 
 /// Error for the manual verification step, when we manually sign users or

@@ -24,7 +24,7 @@
 //!    data will.
 
 mod backup;
-mod cross_signing_key;
+mod cross_signing;
 mod device_keys;
 pub mod events;
 mod one_time_keys;
@@ -38,7 +38,7 @@ use std::{
 };
 
 pub use backup::*;
-pub use cross_signing_key::*;
+pub use cross_signing::*;
 pub use device_keys::*;
 pub use one_time_keys::*;
 use ruma::{

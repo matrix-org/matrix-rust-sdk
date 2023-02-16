@@ -22,20 +22,15 @@ jobs:
         ref: ${{ github.event.pull_request.head.sha }}
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+      uses: dtolnay/rust-toolchain@stable
 
     - name: Load cache
-      uses: Swatinem/rust-cache@v1
+      uses: Swatinem/rust-cache@v2
 
     - name: Install tarpaulin
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-tarpaulin
+        tool: cargo-tarpaulin
 
     # set up backend for integration tests
     - uses: actions/setup-python@v4
@@ -50,10 +45,12 @@ jobs:
         serverName: "matrix-sdk.rs"
 
     - name: Run tarpaulin
-      uses: actions-rs/cargo@v1
-      with:
-        command: tarpaulin
-        args: --out Xml -e sliding-sync-integration-test
+      run: |
+        cargo tarpaulin --out Xml -e sliding-sync-integration-test
 
     - name: Upload to codecov.io
       uses: codecov/codecov-action@v3
+      with:
+        # The upload sometimes fails due to https://github.com/codecov/codecov-action/issues/837.
+        # To make sure that the failure gets flagged clearly in the UI, fail the action.
+        fail_ci_if_error: true

@@ -23,6 +23,7 @@ pub struct ClientBuilder {
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
+    sliding_sync_proxy: Option<String>,
     inner: MatrixClientBuilder,
 }
 
@@ -69,6 +70,12 @@ impl ClientBuilder {
         builder.user_agent = Some(user_agent);
         Arc::new(builder)
     }
+
+    pub fn sliding_sync_proxy(self: Arc<Self>, sliding_sync_proxy: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.sliding_sync_proxy = sliding_sync_proxy;
+        Arc::new(builder)
+    }
 }
 
 impl ClientBuilder {
@@ -81,6 +88,7 @@ impl ClientBuilder {
             server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
+            sliding_sync_proxy: None,
             inner: MatrixClient::builder(),
         }
     }
@@ -128,6 +136,7 @@ impl ClientBuilder {
         RUNTIME.block_on(async move {
             let client = inner_builder.build().await?;
             let c = Client::new(client, ClientState::default());
+            c.set_sliding_sync_proxy(builder.sliding_sync_proxy);
             Ok(Arc::new(c))
         })
     }

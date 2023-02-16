@@ -41,7 +41,7 @@
 //! Both identity sets need to regularly fetched from the server using the
 //! `/keys/query` API call.
 pub(crate) mod device;
-mod manager;
+pub(crate) mod manager;
 pub(crate) mod user;
 
 use std::sync::{
@@ -53,8 +53,8 @@ pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub(crate) use manager::{IdentityManager, KeysQueryListener, UserKeyQueryResult};
 use serde::{Deserialize, Deserializer, Serializer};
 pub use user::{
-    MasterPubkey, OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
-    ReadOnlyUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity, UserSigningPubkey,
+    OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
+    UserIdentities, UserIdentity,
 };
 
 // These methods are only here because Serialize and Deserialize don't seem to

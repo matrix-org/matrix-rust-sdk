@@ -16,11 +16,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -28,18 +24,16 @@ jobs:
           node-version: 18
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       # Keep in sync with xtask docs
       - name: Build rust documentation
-        uses: actions-rs/cargo@v1
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
           CARGO_TARGET_APPLIES_TO_HOST: "true"
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
-        with:
-          command: doc
-          args: --no-deps --features docsrs
+        run:
+          cargo doc --no-deps --features docsrs
 
       - name: Build `matrix-sdk-crypto-nodejs` doc
         run: |

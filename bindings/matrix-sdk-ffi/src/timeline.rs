@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use extension_trait::extension_trait;
 use futures_signals::signal_vec::VecDiff;
+use matrix_sdk::room::timeline::{Profile, TimelineDetails};
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
 #[uniffi::export]
@@ -172,26 +173,24 @@ impl TimelineItem {
 
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
-pub enum LocalEventTimelineItemSendState {
+pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSendYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed,
+    SendingFailed { error: String },
     /// The local event has been sent successfully to the server.
-    Sent,
+    Sent { event_id: String },
 }
 
-impl From<matrix_sdk::room::timeline::LocalEventTimelineItemSendState>
-    for LocalEventTimelineItemSendState
-{
-    fn from(value: matrix_sdk::room::timeline::LocalEventTimelineItemSendState) -> Self {
-        use matrix_sdk::room::timeline::LocalEventTimelineItemSendState::*;
+impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
+    fn from(value: &matrix_sdk::room::timeline::EventSendState) -> Self {
+        use matrix_sdk::room::timeline::EventSendState::*;
 
         match value {
             NotSentYet => Self::NotSendYet,
-            SendingFailed => Self::SendingFailed,
-            Sent => Self::Sent,
+            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }
 }
@@ -225,7 +224,7 @@ impl EventTimelineItem {
         self.0.sender().to_string()
     }
 
-    pub fn sender_profile(&self) -> Profile {
+    pub fn sender_profile(&self) -> ProfileTimelineDetails {
         self.0.sender_profile().into()
     }
 
@@ -267,11 +266,11 @@ impl EventTimelineItem {
         self.0.raw().map(|r| r.json().get().to_owned())
     }
 
-    pub fn local_send_state(&self) -> Option<LocalEventTimelineItemSendState> {
+    pub fn local_send_state(&self) -> Option<EventSendState> {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
-            Local(local_event) => Some(local_event.send_state.into()),
+            Local(local_event) => Some((&local_event.send_state).into()),
             Remote(_) => None,
         }
     }
@@ -281,19 +280,25 @@ impl EventTimelineItem {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct Profile {
-    display_name: Option<String>,
-    display_name_ambiguous: bool,
-    avatar_url: Option<String>,
+#[derive(uniffi::Enum)]
+pub enum ProfileTimelineDetails {
+    Unavailable,
+    Pending,
+    Ready { display_name: Option<String>, display_name_ambiguous: bool, avatar_url: Option<String> },
+    Error { message: String },
 }
 
-impl From<&matrix_sdk::room::timeline::Profile> for Profile {
-    fn from(p: &matrix_sdk::room::timeline::Profile) -> Self {
-        Self {
-            display_name: p.display_name.clone(),
-            display_name_ambiguous: p.display_name_ambiguous,
-            avatar_url: p.avatar_url.as_ref().map(ToString::to_string),
+impl From<&TimelineDetails<Profile>> for ProfileTimelineDetails {
+    fn from(details: &TimelineDetails<Profile>) -> Self {
+        match details {
+            TimelineDetails::Unavailable => Self::Unavailable,
+            TimelineDetails::Pending => Self::Pending,
+            TimelineDetails::Ready(profile) => Self::Ready {
+                display_name: profile.display_name.clone(),
+                display_name_ambiguous: profile.display_name_ambiguous,
+                avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+            },
+            TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
     }
 }
@@ -465,7 +470,7 @@ impl Message {
 
     // This event ID string will be replaced by something more useful later.
     pub fn in_reply_to(&self) -> Option<String> {
-        self.0.in_reply_to().map(ToString::to_string)
+        self.0.in_reply_to().map(|r| r.event_id.to_string())
     }
 
     pub fn is_edited(&self) -> bool {
