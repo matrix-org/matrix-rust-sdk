@@ -670,7 +670,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "experimental-timeline")]
@@ -884,6 +884,7 @@ impl SlidingSyncRoom {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.timeline_builder()?.build().await.latest_event()
     }
@@ -1767,6 +1768,7 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
+    #[instrument(name = "sync_stream", skip_all, parent = &self.client.root_span)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         let mut views = {
             let mut views = BTreeMap::new();
@@ -1778,12 +1780,17 @@ impl SlidingSync {
         };
 
         debug!(?self.extensions, "Setting view stream going");
+        let stream_span = Span::current();
 
         async_stream::stream! {
             loop {
-                debug!(?self.extensions, "Sync loop running");
+                let sync_span = info_span!(parent: &stream_span, "sync_once");
 
-                match self.sync_once(&mut views).await {
+                sync_span.in_scope(|| {
+                    debug!(?self.extensions, "Sync loop running");
+                });
+
+                match self.sync_once(&mut views).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.failure_count.store(0, Ordering::SeqCst);
                         yield Ok(updates)
@@ -1795,19 +1802,21 @@ impl SlidingSync {
                         if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
                             if self.failure_count.fetch_add(1, Ordering::SeqCst) >= 3 {
-                                error!("session expired three times in a row");
+                                sync_span.in_scope(|| error!("session expired three times in a row"));
                                 yield Err(e.into());
 
                                 break
                             }
 
-                            warn!("Session expired. Restarting sliding sync.");
-                            *self.pos.lock_mut() = None;
+                            sync_span.in_scope(|| {
+                                warn!("Session expired. Restarting sliding sync.");
+                                *self.pos.lock_mut() = None;
 
-                            // reset our extensions to the last known good ones.
-                            *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
+                                // reset our extensions to the last known good ones.
+                                *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
 
-                            debug!(?self.extensions, "Resetting view stream");
+                                debug!(?self.extensions, "Resetting view stream");
+                            });
                         }
 
                         yield Err(e.into());

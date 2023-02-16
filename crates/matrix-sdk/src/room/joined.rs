@@ -31,9 +31,7 @@ use ruma::{
     EventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
-use tracing::debug;
-#[cfg(feature = "e2e-encryption")]
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use super::Left;
 use crate::{
@@ -84,6 +82,7 @@ impl Joined {
     }
 
     /// Leave this room.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
@@ -95,6 +94,7 @@ impl Joined {
     /// * `user_id` - The user to ban with `UserId`.
     ///
     /// * `reason` - The reason for banning this user.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             ban_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
@@ -112,6 +112,7 @@ impl Joined {
     ///   room.
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             kick_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
@@ -126,6 +127,7 @@ impl Joined {
     /// # Arguments
     ///
     /// * `user_id` - The `UserId` of the user to invite to the room.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
 
@@ -140,6 +142,7 @@ impl Joined {
     /// # Arguments
     ///
     /// * `invite_id` - A third party id of a user to invite to the room.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.inner.room_id().to_owned(), recipient);
@@ -207,24 +210,32 @@ impl Joined {
         };
 
         if send {
-            let typing = if typing {
-                self.client
-                    .inner
-                    .typing_notice_times
-                    .insert(self.inner.room_id().to_owned(), Instant::now());
-                Typing::Yes(TYPING_NOTICE_TIMEOUT)
-            } else {
-                self.client.inner.typing_notice_times.remove(self.inner.room_id());
-                Typing::No
-            };
-
-            let request = TypingRequest::new(
-                self.inner.own_user_id().to_owned(),
-                self.inner.room_id().to_owned(),
-                typing,
-            );
-            self.client.send(request, None).await?;
+            self.send_typing_notice(typing).await?;
         }
+
+        Ok(())
+    }
+
+    #[instrument(name = "typing_notice", skip(self), parent = &self.client.root_span)]
+    async fn send_typing_notice(&self, typing: bool) -> Result<()> {
+        let typing = if typing {
+            self.client
+                .inner
+                .typing_notice_times
+                .insert(self.inner.room_id().to_owned(), Instant::now());
+            Typing::Yes(TYPING_NOTICE_TIMEOUT)
+        } else {
+            self.client.inner.typing_notice_times.remove(self.inner.room_id());
+            Typing::No
+        };
+
+        let request = TypingRequest::new(
+            self.inner.own_user_id().to_owned(),
+            self.inner.room_id().to_owned(),
+            typing,
+        );
+
+        self.client.send(request, None).await?;
 
         Ok(())
     }
@@ -240,6 +251,7 @@ impl Joined {
     ///
     /// * `event_id` - The `EventId` specifies the event to set the read receipt
     ///   on.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
         let request = create_receipt::v3::Request::new(
             self.inner.room_id().to_owned(),
@@ -263,6 +275,7 @@ impl Joined {
     ///
     /// * read_receipt - An `EventId` to specify the event to set the read
     ///   receipt on.
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn read_marker(
         &self,
         fully_read: &EventId,
@@ -308,6 +321,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
             events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
@@ -408,6 +422,7 @@ impl Joined {
     /// Warning: This waits until a sync happens and does not return if no sync
     /// is happening! It can also return early when the room is not a joined
     /// room anymore!
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn sync_up(&self) {
         while !self.is_synced() && self.room_type() == RoomType::Joined {
             self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
@@ -678,6 +693,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn send_attachment(
         &self,
         body: &str,
@@ -847,6 +863,7 @@ impl Joined {
     /// joined_room.send_state_event(content).await?;
     /// # anyhow::Ok(()) };
     /// ```
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn send_state_event(
         &self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
@@ -946,6 +963,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn send_state_event_raw(
         &self,
         content: Value,
@@ -996,6 +1014,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
+    #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn redact(
         &self,
         event_id: &EventId,
