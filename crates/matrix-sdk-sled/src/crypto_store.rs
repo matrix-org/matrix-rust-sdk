@@ -35,7 +35,7 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -58,6 +58,7 @@ const INBOUND_GROUP_TABLE_NAME: &str = "crypto-store-inbound-group-sessions";
 const OUTBOUND_GROUP_TABLE_NAME: &str = "crypto-store-outbound-group-sessions";
 const SECRET_REQUEST_BY_INFO_TABLE: &str = "crypto-store-secret-request-by-info";
 const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
+const NO_OLM_SENT_TABLE: &str = "crypto-store-no-olm-sent";
 
 impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
@@ -185,6 +186,8 @@ pub struct SledCryptoStore {
     identities: Tree,
 
     tracked_users: Tree,
+
+    no_olm_sent: Tree,
 }
 
 impl std::fmt::Debug for SledCryptoStore {
@@ -388,6 +391,8 @@ impl SledCryptoStore {
 
         let session_cache = SessionStore::new();
 
+        let no_olm_sent = db.open_tree("no_olm_sent")?;
+
         let database = Self {
             account_info: RwLock::new(None).into(),
             path,
@@ -406,6 +411,7 @@ impl SledCryptoStore {
             tracked_users,
             olm_hashes,
             identities,
+            no_olm_sent,
         };
 
         database.upgrade().await?;
@@ -1009,6 +1015,11 @@ impl CryptoStore for SledCryptoStore {
         };
 
         Ok(key)
+    }
+
+    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool> {
+        // TODO, help not sure how to to that?
+        Ok(false)
     }
 }
 

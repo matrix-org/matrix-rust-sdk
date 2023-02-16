@@ -946,6 +946,15 @@ impl CryptoStore for SqliteCryptoStore {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }
+
+    async fn is_no_olm_sent(
+        &self,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> StoreResult<bool> {
+        // TODO help I need some guidance here?
+        Ok(false)
+    }
 }
 
 #[cfg(test)]

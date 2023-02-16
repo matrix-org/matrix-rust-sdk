@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
@@ -51,6 +51,7 @@ pub struct MemoryStore {
     identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
     outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
+    no_olm_sent: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
 }
 
 impl Default for MemoryStore {
@@ -63,6 +64,7 @@ impl Default for MemoryStore {
             identities: Default::default(),
             outgoing_key_requests: Default::default(),
             key_requests_by_info: Default::default(),
+            no_olm_sent: Default::default(),
         }
     }
 }
@@ -88,6 +90,11 @@ impl MemoryStore {
     async fn save_sessions(&self, sessions: Vec<Session>) {
         for session in sessions {
             let _ = self.sessions.add(session.clone()).await;
+            // we have a new session for that device so we can forgot no_olm
+            self.no_olm_sent
+                .entry(session.user_id.deref().to_owned())
+                .or_default()
+                .remove(session.device_id.deref());
         }
     }
 
@@ -142,6 +149,13 @@ impl CryptoStore for MemoryStore {
 
             self.outgoing_key_requests.insert(id.clone(), key_request);
             self.key_requests_by_info.insert(info_string, id);
+        }
+
+        for (user_id, device_id_list) in changes.no_olm_sent {
+            self.no_olm_sent
+                .entry(user_id)
+                .or_insert_with(DashSet::new)
+                .extend(device_id_list.into_iter());
         }
 
         Ok(())
@@ -270,12 +284,27 @@ impl CryptoStore for MemoryStore {
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         Ok(BackupKeys::default())
     }
+
+    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool> {
+        Ok(self.no_olm_sent.entry(user_id).or_default().contains(&device_id))
+    }
+
+    /*  async fn forget_no_olm_sent(
+         &self,
+         user_id: OwnedUserId,
+         device_id: OwnedDeviceId,
+     ) -> Result<()> {
+         self.no_olm_sent.entry(user_id).or_default().remove(&device_id);
+         Ok(())
+     }
+
+    */
 }
 
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{device_id, room_id, user_id};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use crate::{
@@ -365,5 +394,33 @@ mod tests {
         assert!(!store.is_message_known(&hash).await.unwrap());
         store.save_changes(changes).await.unwrap();
         assert!(store.is_message_known(&hash).await.unwrap());
+    }
+
+    #[async_test]
+    async fn test_no_olm_withheld_store() {
+        let store = MemoryStore::new();
+
+        let user_id = user_id!("@alice:example.com");
+        let device_id_1 = device_id!("DEV0001");
+        let device_id_2 = device_id!("DEV0002");
+
+        let mut changes = Changes::default();
+        changes
+            .no_olm_sent
+            .entry(user_id.to_owned())
+            .or_insert_with(Vec::new)
+            .push(device_id_1.to_owned());
+
+        store.save_changes(changes).await.unwrap();
+
+        let is_withheld_for =
+            store.is_no_olm_sent(user_id.to_owned(), device_id_1.to_owned()).await.unwrap();
+
+        assert_eq!(true, is_withheld_for);
+
+        let is_withheld_for =
+            store.is_no_olm_sent(user_id.to_owned(), device_id_2.to_owned()).await.unwrap();
+
+        assert_eq!(false, is_withheld_for);
     }
 }

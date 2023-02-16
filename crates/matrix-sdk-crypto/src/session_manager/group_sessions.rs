@@ -635,19 +635,26 @@ impl GroupSessionManager {
             })
             .collect();
 
-        no_olm.iter().for_each(|(u, list)| {
-            list.into_iter().for_each(|d| {
-                flat_with_code.push((u.to_owned(), d.to_owned(), WithheldCode::NoOlm))
-            });
-        });
+        for (u, list_devices) in no_olm {
+            for dev in list_devices {
+                let no_olm_sent =
+                    self.store.is_no_olm_sent(u.to_owned(), dev.to_owned()).await.unwrap_or(false);
+                if !no_olm_sent {
+                    flat_with_code.push((u.to_owned(), dev.to_owned(), WithheldCode::NoOlm));
+                    changes
+                        .no_olm_sent
+                        .entry(u.to_owned())
+                        .or_insert_with(Vec::new)
+                        .push(dev.to_owned());
+                }
+            }
+        }
 
         let withheld_to_device_request: Vec<Arc<ToDeviceRequest>> = flat_with_code
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
                 let mut messages = BTreeMap::new();
 
-                // TODO do not resend code if already sent for that session (or target if
-                // no_olm)
                 chunk.into_iter().for_each(|(user_id, device_id, code)| {
                     let content = RoomKeyWithheldContent::create(
                         algorithm.to_owned(),
@@ -947,6 +954,77 @@ mod tests {
             .map(|r| r.message_count())
             .sum();
         assert_eq!(withheld_count, 2);
+
+        requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).for_each(|r| {
+            println!("{:?}", r.messages);
+        })
+    }
+
+    #[async_test]
+    async fn test_no_olm_sent_once() {
+        let machine = machine().await;
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+
+        let first_room_id = room_id!("!test:localhost");
+        let requests = machine
+            .share_room_key(first_room_id, users, EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        // there will be two no_olm
+        let withheld_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| {
+                let mut count = 0;
+                // count targets
+                for (_, message) in &r.messages {
+                    message.iter().for_each(|(_, content)| {
+                        let withheld: MegolmV1AesSha2WithheldContent =
+                            content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
+                        if withheld.code == WithheldCode::NoOlm {
+                            count += 1;
+                        }
+                    })
+                }
+                count
+            })
+            .sum();
+        assert_eq!(withheld_count, 2);
+
+        // Use another session in an other room
+        let second_room_id = room_id!("!other:localhost");
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let requests = machine
+            .share_room_key(second_room_id, users, EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        // there will be two no_olm
+        let withheld_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| {
+                let mut count = 0;
+                // count targets
+                for (_, message) in &r.messages {
+                    message.iter().for_each(|(_, content)| {
+                        let withheld: MegolmV1AesSha2WithheldContent =
+                            content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
+                        if withheld.code == WithheldCode::NoOlm {
+                            count += 1;
+                        }
+                    })
+                }
+                count
+            })
+            .sum();
+        assert_eq!(withheld_count, 0);
+
+        // Help how do I simulate the creation of a new session for the device
+        // with no session now?
     }
 
     #[async_test]
@@ -1168,6 +1246,6 @@ mod tests {
                 withheld.code == WithheldCode::Blacklisted
             });
 
-        assert!(has_blacklist)
+        assert!(has_blacklist);
     }
 }

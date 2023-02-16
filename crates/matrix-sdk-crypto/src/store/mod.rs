@@ -39,7 +39,7 @@
 //! [`CryptoStore`]: trait.Cryptostore.html
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
@@ -117,6 +117,7 @@ pub struct Changes {
     pub key_requests: Vec<GossipRequest>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+    pub no_olm_sent: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -143,6 +144,7 @@ impl Changes {
             && self.key_requests.is_empty()
             && self.identities.is_empty()
             && self.devices.is_empty()
+            && self.no_olm_sent.is_empty()
     }
 }
 

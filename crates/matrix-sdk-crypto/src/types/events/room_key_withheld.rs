@@ -388,7 +388,6 @@ pub(super) mod test {
     #[test]
     fn no_olm_should_not_have_room_and_session() {
         let room_id = room_id!("!DwLygpkclUAfQNnfva:localhost:8481");
-        let user_id = user_id!("@alice:example.org");
         let device_id = device_id!("DEV001");
         let sender_key =
             Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")

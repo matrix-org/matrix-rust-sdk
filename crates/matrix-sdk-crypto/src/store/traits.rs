@@ -16,7 +16,7 @@ use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 
 use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts};
 use crate::{
@@ -186,6 +186,11 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         request_id: &TransactionId,
     ) -> Result<(), Self::Error>;
+    /// Remembers when a no_olm withheld message was already sent to avoid doing
+    /// it again.
+    /// Help: Using user/device as key here because it's sent in clear, but
+    /// should we use the sender_key?
+    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool>;
 }
 
 #[repr(transparent)]
