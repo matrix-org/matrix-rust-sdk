@@ -1267,27 +1267,37 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn restart_room_resubscription() -> anyhow::Result<()> {
         let (client, sync_proxy_builder) = random_setup_with_rooms(3).await?;
-        let sliding_window_view = SlidingSyncViewBuilder::default()
-            .sync_mode(SlidingSyncMode::Selective)
-            .set_range(0u32, 2u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
-            .name("sliding")
-            .build()?;
-        let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+
+        let sync_proxy = sync_proxy_builder
+            .add_view(
+                SlidingSyncViewBuilder::default()
+                    .sync_mode(SlidingSyncMode::Selective)
+                    .set_range(0u32, 2u32)
+                    .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                    .name("sliding_view")
+                    .build()?,
+            )
+            .build()
+            .await?;
+
+        let view = sync_proxy.view("sliding_view").context("View `sliding_view` isn't found")?;
+
         let stream = sync_proxy.stream();
         pin_mut!(stream);
+
         let room_summary =
-            stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
-        let summary = room_summary?;
+            stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
+
         // we only heard about the ones we had asked for
-        assert_eq!(summary.rooms.len(), 3);
+        assert_eq!(room_summary.rooms.len(), 3);
+
         let collection_simple = view
             .rooms_list
             .lock_ref()
             .iter()
             .map(Into::<RoomListEntryEasy>::into)
             .collect::<Vec<_>>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled).take(3).collect::<Vec<_>>()
@@ -1300,10 +1310,10 @@ mod tests {
         view.set_range(1, 2);
 
         for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
+
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if room_summary.views.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -1314,6 +1324,7 @@ mod tests {
             .iter()
             .map(Into::<RoomListEntryEasy>::into)
             .collect::<Vec<_>>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -1329,8 +1340,7 @@ mod tests {
             .lock_ref()
             .iter()
             .next()
-            .map(Clone::clone) else
-        {
+            .map(Clone::clone) else {
             panic!("2nd room has moved? how?");
         };
 
@@ -1349,10 +1359,10 @@ mod tests {
         let mut room_updated = false;
 
         for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
+
             // we only heard about the ones we had asked for
-            if summary.rooms.iter().any(|s| s == &room_id) {
+            if room_summary.rooms.iter().any(|s| s == &room_id) {
                 room_updated = true;
                 break;
             }
@@ -1362,8 +1372,10 @@ mod tests {
 
         // force the pos to be invalid and thus this being reset internally
         force_sliding_sync_pos(&sync_proxy, "100".to_owned());
+
         let mut error_seen = false;
         let mut room_updated = false;
+
         for _n in 0..2 {
             let summary = match stream.next().await {
                 Some(Ok(e)) => e,
@@ -1379,6 +1391,7 @@ mod tests {
                 }
                 None => anyhow::bail!("Stream ended unexpectedly."),
             };
+
             // we only heard about the ones we had asked for
             if summary.rooms.iter().any(|s| s == &room_id) {
                 room_updated = true;
@@ -1401,23 +1414,18 @@ mod tests {
         let mut room_updated = false;
 
         for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let summary = room_summary?;
+            let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
+
             // we only heard about the ones we had asked for
-            if summary.rooms.iter().any(|s| s == &room_id) {
+            if room_summary.rooms.iter().any(|s| s == &room_id) {
                 room_updated = true;
                 break;
             }
         }
         assert!(room_updated, "Room update has not been seen");
 
-        let Some(sliding_sync_room) = sync_proxy.get_room(room_id) else {
-            panic!("Sliding Sync room not found");
-        };
-
-        let Some(event) = sliding_sync_room.latest_event().await else {
-            panic!("No event found")
-        };
+        let sliding_sync_room = sync_proxy.get_room(&room_id).expect("Slidin Sync room not found");
+        let event = sliding_sync_room.latest_event().await.expect("No even found");
 
         let collection_simple = view
             .rooms_list
@@ -1425,6 +1433,7 @@ mod tests {
             .iter()
             .map(Into::<RoomListEntryEasy>::into)
             .collect::<Vec<_>>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
