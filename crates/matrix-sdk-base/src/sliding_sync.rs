@@ -1,7 +1,10 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-use ruma::api::client::sync::sync_events::{v3, v4};
+use ruma::api::client::sync::sync_events::{
+    v3::{self, Ephemeral},
+    v4,
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
 use tracing::{debug, info, instrument};
@@ -207,7 +210,7 @@ impl BaseClient {
                         timeline,
                         v3::State::with_events(room_data.required_state.clone()),
                         room_account_data.unwrap_or_default(),
-                        Default::default(), // room_info.ephemeral,
+                        Ephemeral::default(),
                         notification_count,
                     ),
                 );
