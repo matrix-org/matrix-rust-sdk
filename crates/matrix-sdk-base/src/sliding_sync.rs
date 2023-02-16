@@ -90,8 +90,8 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
-            self.handle_account_data(global_data, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref() {
+            self.handle_account_data(&global_data.global, &mut changes).await;
         }
 
         let push_rules = self.get_push_rules(&changes).await?;
@@ -223,8 +223,8 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        if let Some(global_data) = account_data.as_ref().map(|a| &a.global) {
-            self.handle_account_data(global_data, &mut changes).await;
+        if let Some(global_data) = account_data.as_ref() {
+            self.handle_account_data(&global_data.global, &mut changes).await;
         }
 
         // FIXME not yet supported by sliding sync.
