@@ -24,7 +24,7 @@ use tracing::error;
 use super::{
     inner::TimelineInner,
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-    Timeline,
+    Timeline, TimelineEventHandlerHandles,
 };
 use crate::room;
 
@@ -102,7 +102,7 @@ impl TimelineBuilder {
             handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
         );
 
-        let mut event_handler_handles = vec![
+        let mut handles = vec![
             timeline_event_handle,
             #[cfg(feature = "e2e-encryption")]
             room_key_handle,
@@ -135,14 +135,15 @@ impl TimelineBuilder {
                     }
                 }
             });
-            event_handler_handles.push(fully_read_handle);
+            handles.push(fully_read_handle);
         }
 
+        let client = room.client.clone();
         let timeline = Timeline {
             inner,
             start_token: Mutex::new(prev_token),
             _end_token: Mutex::new(None),
-            event_handler_handles,
+            event_handler_handles: Arc::new(TimelineEventHandlerHandles { client, handles }),
         };
 
         #[cfg(feature = "e2e-encryption")]

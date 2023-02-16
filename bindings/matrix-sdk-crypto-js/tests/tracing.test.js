@@ -1,7 +1,7 @@
-const { Tracing, LoggerLevel, OlmMachine, UserId, DeviceId } = require('../pkg/matrix_sdk_crypto_js');
+const { Tracing, LoggerLevel, OlmMachine, UserId, DeviceId } = require("../pkg/matrix_sdk_crypto_js");
 
-describe('LoggerLevel', () => {
-    test('has the correct variant values', () => {
+describe("LoggerLevel", () => {
+    test("has the correct variant values", () => {
         expect(LoggerLevel.Trace).toStrictEqual(0);
         expect(LoggerLevel.Debug).toStrictEqual(1);
         expect(LoggerLevel.Info).toStrictEqual(2);
@@ -14,7 +14,7 @@ describe(Tracing.name, () => {
     if (Tracing.isAvailable()) {
         let tracing = new Tracing(LoggerLevel.Debug);
 
-        test('can installed several times', () => {
+        test("can installed several times", () => {
             new Tracing(LoggerLevel.Debug);
             new Tracing(LoggerLevel.Warn);
             new Tracing(LoggerLevel.Debug);
@@ -23,27 +23,30 @@ describe(Tracing.name, () => {
         const originalConsoleDebug = console.debug;
 
         for (const [testName, testPreState, testPostState, expectedGotcha] of [
+            ["can log something", () => {}, () => {}, true],
             [
-                'can log something',
-                () => {},
-                () => {},
-                true,
-            ],
-            [
-                'can change the logger level',
-                () => { tracing.minLevel = LoggerLevel.Warn },
-                () => { tracing.minLevel = LoggerLevel.Debug },
+                "can change the logger level",
+                () => {
+                    tracing.minLevel = LoggerLevel.Warn;
+                },
+                () => {
+                    tracing.minLevel = LoggerLevel.Debug;
+                },
                 false,
             ],
             [
-                'can be turned off',
-                () => { tracing.turnOff() },
+                "can be turned off",
+                () => {
+                    tracing.turnOff();
+                },
                 () => {},
                 false,
             ],
             [
-                'can be turned on',
-                () => { tracing.turnOn() },
+                "can be turned on",
+                () => {
+                    tracing.turnOn();
+                },
                 () => {},
                 true,
             ],
@@ -51,8 +54,10 @@ describe(Tracing.name, () => {
             // This one *must* be the last. We are turning tracing off
             // again for the other tests.
             [
-                'can be turned off',
-                () => { tracing.turnOff() },
+                "can be turned off",
+                () => {
+                    tracing.turnOff();
+                },
                 () => {},
                 false,
             ],
@@ -68,7 +73,7 @@ describe(Tracing.name, () => {
                 };
 
                 // Do something that emits a `DEBUG` log.
-                await OlmMachine.initialize(new UserId('@alice:example.org'), new DeviceId('foo'));
+                await OlmMachine.initialize(new UserId("@alice:example.org"), new DeviceId("foo"));
 
                 console.debug = originalConsoleDebug;
                 testPostState();
@@ -77,8 +82,10 @@ describe(Tracing.name, () => {
             });
         }
     } else {
-        test('cannot be constructed', () => {
-            expect(() => { new Tracing(LoggerLevel.Error) }).toThrow();
+        test("cannot be constructed", () => {
+            expect(() => {
+                new Tracing(LoggerLevel.Error);
+            }).toThrow();
         });
     }
 });

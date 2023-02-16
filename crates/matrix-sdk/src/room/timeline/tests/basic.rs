@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use futures_signals::signal_vec::VecDiff;
 use futures_util::StreamExt;
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -18,21 +19,34 @@ use ruma::{
         FullStateEventContent,
     },
 };
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::room::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineItemContent,
+    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
 
+fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
+    let event = serde_json::from_value(event).unwrap();
+    SyncTimelineEvent { event, encryption_info: None }
+}
+
 #[async_test]
 async fn initial_events() {
-    let timeline = TestTimeline::with_initial_events([
-        (*ALICE, RoomMessageEventContent::text_plain("A").into()),
-        (*BOB, RoomMessageEventContent::text_plain("B").into()),
-    ])
-    .await;
+    let mut timeline = TestTimeline::new();
+    timeline
+        .inner
+        .add_initial_events(vec![
+            sync_timeline_event(
+                timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+            ),
+            sync_timeline_event(
+                timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+            ),
+        ])
+        .await;
+
     let mut stream = timeline.stream();
 
     let items = assert_matches!(stream.next().await, Some(VecDiff::Replace { values }) => values);
@@ -226,4 +240,37 @@ async fn other_state() {
     let full_content =
         assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomTopic(c) => c);
     assert_matches!(full_content, FullStateEventContent::Redacted(_));
+}
+
+#[async_test]
+async fn dedup_pagination() {
+    let timeline = TestTimeline::new();
+
+    let event = timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
+    timeline.handle_live_custom_event(event.clone()).await;
+    timeline.handle_back_paginated_custom_event(event).await;
+
+    let timeline_items = timeline.inner.items();
+    assert_eq!(timeline_items.len(), 2);
+    assert_matches!(*timeline_items[0], TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_matches!(*timeline_items[1], TimelineItem::Event(_));
+}
+
+#[async_test]
+async fn dedup_initial() {
+    let mut timeline = TestTimeline::new();
+
+    let event_a = sync_timeline_event(
+        timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+    );
+    let event_b = sync_timeline_event(
+        timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+    );
+
+    timeline.inner.add_initial_events(vec![event_a.clone(), event_b, event_a]).await;
+
+    let timeline_items = dbg!(timeline.inner.items());
+    assert_eq!(timeline_items.len(), 3);
+    assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
+    assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
 }

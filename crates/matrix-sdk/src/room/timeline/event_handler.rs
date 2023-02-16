@@ -259,6 +259,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
             }
         }
 
+        trace!("Handling event");
+
         match event_kind {
             TimelineEventKind::Message { content } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => {
@@ -312,9 +314,11 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
         }
 
         if !self.result.item_added {
+            trace!("No new item added");
             if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
+                trace!("Removing UTD that was successfully retried");
                 self.timeline_items.remove(idx);
             }
 
@@ -562,6 +566,8 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
         match &self.flow {
             Flow::Local { timestamp, .. } => {
+                trace!("Adding new local timeline item");
+
                 // Check if the latest event has the same date as this event.
                 if let Some(latest_event) =
                     self.timeline_items.iter().rev().find_map(|item| item.as_event())
@@ -571,10 +577,12 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, *timestamp)
                     {
+                        trace!("Adding day divider");
                         self.timeline_items.push_cloned(Arc::new(day_divider_item));
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
+                    trace!("Adding first day divider");
                     self.timeline_items
                         .push_cloned(Arc::new(TimelineItem::day_divider(*timestamp)));
                 }
@@ -582,7 +590,24 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                 self.timeline_items.push_cloned(item);
             }
 
-            Flow::Remote { position: TimelineItemPosition::Start, origin_server_ts, .. } => {
+            Flow::Remote {
+                position: TimelineItemPosition::Start,
+                event_id,
+                origin_server_ts,
+                ..
+            } => {
+                if self
+                    .timeline_items
+                    .iter()
+                    .filter_map(|ev| ev.as_event()?.event_id())
+                    .any(|id| id == event_id)
+                {
+                    trace!("Skipping back-paginated event that has already been seen");
+                    return;
+                }
+
+                trace!("Adding new remote timeline item at the start");
+
                 // If there is a loading indicator at the top, check for / insert the day
                 // divider at position 1 and the new event at 2 rather than 0 and 1.
                 let offset = match self.timeline_items.first().and_then(|item| item.as_virtual()) {
@@ -626,17 +651,10 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
 
                 if let Some((idx, old_item)) = result {
                     if let EventTimelineItem::Remote(old_item) = old_item {
-                        // Item was previously received by the server. Until we
-                        // implement forwards pagination, this indicates a bug
-                        // somewhere.
-                        warn!(?item, ?old_item, "Received duplicate event");
-
-                        // With /messages and /sync sometimes disagreeing on
-                        // order of messages, we might want to change the
-                        // position in some circumstances, but for now this
-                        // should be good enough.
-                        self.timeline_items.set_cloned(idx, item);
-                        return;
+                        // Item was previously received from the server. This
+                        // should be very rare normally, but with the sliding-
+                        // sync proxy, it is actually very common.
+                        trace!(?item, ?old_item, "Received duplicate event");
                     };
 
                     if txn_id.is_none() {
@@ -657,11 +675,13 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
+                        trace!(idx, "Replacing existing event");
                         self.timeline_items.set_cloned(idx, item);
                         return;
                     } else {
                         // In more complex cases, remove the item and day
                         // divider (if necessary) before re-adding the item.
+                        trace!("Removing local echo or duplicate timeline item");
                         self.timeline_items.remove(idx);
 
                         assert_ne!(
@@ -673,14 +693,15 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                         // Pre-requisites for removing the day divider:
                         // 1. there is one preceding the old item at all
                         if self.timeline_items[idx - 1].is_day_divider()
-                            // 2. the next item after the old one being removed
+                            // 2. the item after the old one that was removed
                             //    is virtual (it should be impossible for this
                             //    to be a read marker)
                             && self
                                 .timeline_items
-                                .get(idx + 1)
+                                .get(idx)
                                 .map_or(true, |item| item.is_virtual())
                         {
+                            trace!("Removing day divider");
                             self.timeline_items.remove(idx - 1);
                         }
 
@@ -703,14 +724,17 @@ impl<'a, 'i> TimelineEventHandler<'a, 'i> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
                     {
+                        trace!("Adding day divider");
                         self.timeline_items.push_cloned(Arc::new(day_divider_item));
                     }
                 } else {
-                    // If there is not event item, there is no day divider yet.
+                    // If there is no event item, there is no day divider yet.
+                    trace!("Adding first day divider");
                     self.timeline_items
                         .push_cloned(Arc::new(TimelineItem::day_divider(*origin_server_ts)));
                 }
 
+                trace!("Adding new remote timeline item at the end");
                 self.timeline_items.push_cloned(item);
             }
 
@@ -763,6 +787,8 @@ pub(crate) fn update_read_marker(
     fully_read_event_in_timeline: &mut bool,
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
+    trace!(?fully_read_event, "Updating read marker");
+
     let read_marker_idx = find_read_marker(items_lock);
     let fully_read_event_idx = rfind_event_by_id(items_lock, fully_read_event).map(|(idx, _)| idx);
 
@@ -796,7 +822,9 @@ fn _update_timeline_item(
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
 ) {
     if let Some((idx, item)) = rfind_event_by_id(timeline_items, event_id) {
+        trace!("Found timeline item to update");
         if let Some(new_item) = update(item) {
+            trace!("Updating item");
             timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(new_item)));
             *items_updated += 1;
         }
