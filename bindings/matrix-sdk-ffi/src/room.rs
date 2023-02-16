@@ -16,7 +16,7 @@ use matrix_sdk::{
                 ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
             },
         },
-        EventId, Int, UserId,
+        EventId, UserId,
     },
 };
 use tracing::error;
