@@ -308,12 +308,7 @@ impl Timeline {
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
-        let (index, item) = rfind_event_by_id(&self.inner.items(), event_id)
-            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
-            .ok_or(Error::RemoteEventNotInTimeline)?;
-
-        self.inner.fetch_in_reply_to_details(index, item).await?;
-
+        self.inner.fetch_in_reply_to_details(event_id).await?;
         Ok(())
     }
 

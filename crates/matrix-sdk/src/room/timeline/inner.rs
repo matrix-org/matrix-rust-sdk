@@ -474,9 +474,12 @@ impl TimelineInner {
 
     pub(super) async fn fetch_in_reply_to_details(
         &self,
-        index: usize,
-        mut item: RemoteEventTimelineItem,
+        event_id: &EventId,
     ) -> Result<RemoteEventTimelineItem> {
+        let (index, mut item) = rfind_event_by_id(&self.items(), event_id)
+            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
+            .ok_or(super::Error::RemoteEventNotInTimeline)?;
+
         let TimelineItemContent::Message(message) = item.content.clone() else {
             return Ok(item);
         };
@@ -492,9 +495,10 @@ impl TimelineInner {
         let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
-        item = item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
-            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
-        )));
+        item.content = TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
+            event_id: in_reply_to.event_id.clone(),
+            details,
+        }));
         self.update_event_item(index, item.clone().into());
 
         Ok(item)
