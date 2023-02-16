@@ -11,3 +11,5 @@ matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-slidi
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 futures = { version = "0.3.25" }
 uuid = { version = "1.2.2" }
+futures-signals = { version = "0.3.31", default-features = false }
+assert_matches = "1.5.0"
