@@ -1,6 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
 use js_sys::{Array, Function, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
@@ -13,7 +13,7 @@ use crate::{
     identifiers, identities,
     js::downcast,
     olm, requests,
-    requests::OutgoingRequest,
+    requests::{OutgoingRequest, ToDeviceRequest},
     responses::{self, response_from_string},
     store, sync_events, types, verification, vodozemac,
 };
@@ -482,6 +482,8 @@ impl OlmMachine {
     /// `room_id` is the room ID. `users` is an array of `UserId`
     /// objects. `encryption_settings` are an `EncryptionSettings`
     /// object.
+    ///
+    /// Returns an array of `ToDeviceRequest`s.
     #[wasm_bindgen(js_name = "shareRoomKey")]
     pub fn share_room_key(
         &self,
@@ -500,10 +502,19 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(serde_json::to_string(
-                &me.share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
-                    .await?,
-            )?)
+            let to_device_requests = me
+                .share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
+                .await?;
+
+            // convert each request to our own ToDeviceRequest struct, and then wrap it in a
+            // JsValue.
+            //
+            // Then collect the results into a javascript Array, throwing any errors into
+            // the promise.
+            Ok(to_device_requests
+                .into_iter()
+                .map(|td| ToDeviceRequest::try_from(td.deref()).map(JsValue::from))
+                .collect::<Result<Array, _>>()?)
         }))
     }
 
