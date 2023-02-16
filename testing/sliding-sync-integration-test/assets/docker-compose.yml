@@ -28,7 +28,7 @@ services:
       - ./data/db:/var/lib/postgresql/data
 
   sliding-sync-proxy:
-    image: ghcr.io/matrix-org/sliding-sync:latest
+    image: ghcr.io/matrix-org/sliding-sync:v0.99.0
     links:
       - synapse
       - postgres
