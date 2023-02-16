@@ -431,10 +431,11 @@ impl SlidingSyncRoom {
                     }
                 }
             }
-        }
-        // The timeline updates are empty. But `limited` is set to true. It's a way to alert that we
-        // are stale. In this case, we should just clear the existing timeline.
-        else if *limited {
+        } else if *limited {
+            // The timeline updates are empty. But `limited` is set to true. It's a way to
+            // alert that we are stale. In this case, we should just clear the
+            // existing timeline.
+
             self.timeline_queue.lock_mut().clear();
         }
     }
@@ -1005,14 +1006,15 @@ impl SlidingSync {
                     events
                 };
 
-                // The room existed before, let's update it.
                 if let Some(mut room) = rooms_map.remove(&id) {
+                    // The room existed before, let's update it.
+
                     room.update(&room_data, timeline);
                     rooms_map.insert_cloned(id.clone(), room);
                     rooms.push(id.clone());
-                }
-                // First time we need this room, let's create it.
-                else {
+                } else {
+                    // First time we need this room, let's create it.
+
                     rooms_map.insert_cloned(
                         id.clone(),
                         SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
