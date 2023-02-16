@@ -476,7 +476,7 @@ impl TimelineInner {
         &self,
         event_id: &EventId,
     ) -> Result<RemoteEventTimelineItem> {
-        let (index, mut item) = rfind_event_by_id(&self.items(), event_id)
+        let (index, item) = rfind_event_by_id(&self.items(), event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
@@ -490,10 +490,20 @@ impl TimelineInner {
         let details =
             self.fetch_replied_to_event(index, &item, &message, &in_reply_to.event_id).await;
 
-        // We need to be sure to have the latest position of the event as it might have
-        // changed while waiting for the request.
-        let (index, _) = rfind_event_by_id(&self.items(), &item.event_id)
+        // We need to be sure to have the latest position of the event as it
+        // might have changed while waiting for the request.
+        let (index, mut item) = rfind_event_by_id(&self.items(), &item.event_id)
+            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
+
+        // Check the state of the event again, it might have been redacted while
+        // the request was in-flight.
+        let TimelineItemContent::Message(message) = item.content.clone() else {
+            return Ok(item);
+        };
+        let Some(in_reply_to) = message.in_reply_to() else {
+            return Ok(item);
+        };
 
         item.content = TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
             event_id: in_reply_to.event_id.clone(),
