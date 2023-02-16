@@ -145,9 +145,6 @@ mod inner {
 
     #[wasm_bindgen]
     extern "C" {
-        #[wasm_bindgen(js_namespace = console, js_name = "trace")]
-        fn log_trace(message: String);
-
         #[wasm_bindgen(js_namespace = console, js_name = "debug")]
         fn log_debug(message: String);
 
@@ -213,7 +210,7 @@ mod inner {
             let message = format!("{level} {origin}{recorder}");
 
             match *level {
-                Level::TRACE => log_trace(message),
+                Level::TRACE => log_debug(message),
                 Level::DEBUG => log_debug(message),
                 Level::INFO => log_info(message),
                 Level::WARN => log_warn(message),

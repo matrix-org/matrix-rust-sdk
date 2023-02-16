@@ -50,3 +50,7 @@ jobs:
 
     - name: Upload to codecov.io
       uses: codecov/codecov-action@v3
+      with:
+        # The upload sometimes fails due to https://github.com/codecov/codecov-action/issues/837.
+        # To make sure that the failure gets flagged clearly in the UI, fail the action.
+        fail_ci_if_error: true
