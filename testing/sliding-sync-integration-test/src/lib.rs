@@ -609,7 +609,7 @@ mod tests {
         let sliding_window_view = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
         let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
@@ -1028,7 +1028,7 @@ mod tests {
         let growing_sync = SlidingSyncViewBuilder::default()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
-            .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
 
