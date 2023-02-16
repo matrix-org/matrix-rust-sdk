@@ -470,12 +470,7 @@ impl Room {
         score: Option<i32>,
         reason: Option<String>,
     ) -> Result<()> {
-        let int_score: Option<Int>;
-        if let Some(value) = score {
-            int_score = Some(Int::from(value.clamp(-100, 0)));
-        } else {
-            int_score = None;
-        }
+        let int_score = score.map(|value| value.into());
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
             self.room
