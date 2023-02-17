@@ -269,7 +269,7 @@ async fn dedup_initial() {
 
     timeline.inner.add_initial_events(vec![event_a.clone(), event_b, event_a]).await;
 
-    let timeline_items = dbg!(timeline.inner.items());
+    let timeline_items = timeline.inner.items();
     assert_eq!(timeline_items.len(), 3);
     assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
     assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
