@@ -22,6 +22,10 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
+          cache: npm
+          cache-dependency-path: |
+            bindings/matrix-sdk-crypto-nodejs/package.json
+            bindings/matrix-sdk-crypto-js/package.json
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
