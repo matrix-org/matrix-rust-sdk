@@ -482,27 +482,27 @@ impl Room {
         }
     }
 
-    /// Get the read receipt as a `EventId` and `Receipt` tuple for the given
-    /// `thread` and `user_id` in this room.
-    pub async fn user_read_receipt(
+    /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
+    /// `receipt_type`, `thread` and `user_id` in this room.
+    pub async fn user_receipt(
         &self,
+        receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.store
-            .get_user_room_receipt_event(self.room_id(), ReceiptType::Read, thread, user_id)
-            .await
+        self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
     }
 
-    /// Get the read receipts as a list of `UserId` and `Receipt` tuples for the
-    /// given `thread` and `event_id` in this room.
-    pub async fn event_read_receipts(
+    /// Get the receipts as a list of `OwnedUserId` and `Receipt` tuples for the
+    /// given `receipt_type`, `thread` and `event_id` in this room.
+    pub async fn event_receipts(
         &self,
+        receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store
-            .get_event_room_receipt_events(self.room_id(), ReceiptType::Read, thread, event_id)
+            .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
             .await
     }
 }

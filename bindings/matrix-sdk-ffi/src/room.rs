@@ -6,11 +6,12 @@ use std::{
 use anyhow::{bail, Context, Result};
 use futures_signals::signal_vec::SignalVecExt;
 use matrix_sdk::{
-    room::{timeline::Timeline, Room as SdkRoom},
+    room::{timeline::Timeline, Receipts, Room as SdkRoom},
     ruma::{
-        api::client::room::report_content,
+        api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             reaction::ReactionEventContent,
+            receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
                 ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
@@ -282,7 +283,8 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async move {
-            room.read_receipt(&event_id).await?;
+            room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                .await?;
             Ok(())
         })
     }
@@ -303,9 +305,11 @@ impl Room {
             .map(EventId::parse)
             .transpose()
             .context("parsing read receipt event ID")?;
+        let receipts =
+            Receipts::new().fully_read_marker(fully_read).public_read_receipt(read_receipt);
 
         RUNTIME.block_on(async move {
-            room.read_marker(&fully_read, read_receipt.as_deref()).await?;
+            room.send_multiple_receipts(receipts).await?;
             Ok(())
         })
     }
