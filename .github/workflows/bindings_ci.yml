@@ -12,6 +12,10 @@ on:
       - synchronize
       - ready_for_review
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
