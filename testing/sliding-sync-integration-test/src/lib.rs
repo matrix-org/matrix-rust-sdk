@@ -1273,7 +1273,7 @@ mod tests {
                 SlidingSyncViewBuilder::default()
                     .sync_mode(SlidingSyncMode::Selective)
                     .set_range(0u32, 2u32)
-                    .sort(vec!["by_recency".to_string(), "by_name".to_string()])
+                    .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                     .name("sliding_view")
                     .build()?,
             )

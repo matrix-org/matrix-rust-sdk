@@ -80,6 +80,7 @@ fn the_protocol_definitions() -> SasV1Content {
         short_authentication_string: STRINGS.to_vec(),
         key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
         message_authentication_codes: vec![
+            #[allow(deprecated)]
             MessageAuthenticationCode::HkdfHmacSha256,
             MessageAuthenticationCode::from("org.matrix.msc3783.hkdf-hmac-sha256"),
         ],
@@ -1581,6 +1582,7 @@ mod tests {
             ],
             hashes: vec![HashAlgorithm::Sha256],
             message_authentication_codes: vec![
+                #[allow(deprecated)]
                 MessageAuthenticationCode::HkdfHmacSha256,
                 MessageAuthenticationCode::from("org.matrix.msc3783.hkdf-hmac-sha256"),
             ],
