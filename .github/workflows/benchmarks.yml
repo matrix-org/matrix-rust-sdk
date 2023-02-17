@@ -8,7 +8,6 @@ jobs:
     name: Run Benchmarks
     runs-on: ubuntu-latest
     environment: matrix-rust-bot
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
     - name: Checkout the repo

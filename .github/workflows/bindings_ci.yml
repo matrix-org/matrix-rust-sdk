@@ -28,7 +28,6 @@ jobs:
   test-uniffi-codegen:
     name: Test UniFFI bindings generation
     needs: xtask
-    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
 
     steps:
@@ -89,7 +88,6 @@ jobs:
 
   test-matrix-sdk-crypto-nodejs:
     name: ${{ matrix.os-name }} [m]-crypto-nodejs, v${{ matrix.node-version }}
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -160,7 +158,6 @@ jobs:
 
   test-matrix-sdk-crypto-js:
     name: 🕸 [m]-crypto-js
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
 
@@ -203,7 +200,6 @@ jobs:
     name: matrix-rust-components-swift
     needs: xtask
     runs-on: macos-12
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout
