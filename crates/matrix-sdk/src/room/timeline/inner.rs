@@ -504,6 +504,31 @@ impl TimelineInner {
         &self.room_data_provider
     }
 
+    /// Get the current fully-read event.
+    pub(super) async fn fully_read_event(&self) -> Option<FullyReadEvent> {
+        match self.room().account_data_static().await {
+            Ok(Some(fully_read)) => match fully_read.deserialize() {
+                Ok(fully_read) => Some(fully_read),
+                Err(e) => {
+                    error!("Failed to deserialize fully-read account data: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                error!("Failed to get fully-read account data from the store: {e}");
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Load the current fully-read event in this inner timeline.
+    pub(super) async fn load_fully_read_event(&self) {
+        if let Some(fully_read) = self.fully_read_event().await {
+            self.set_fully_read_event(fully_read.content.event_id).await;
+        }
+    }
+
     pub(super) async fn fetch_in_reply_to_details(
         &self,
         event_id: &EventId,
