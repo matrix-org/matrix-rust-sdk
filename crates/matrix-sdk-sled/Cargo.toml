@@ -27,7 +27,6 @@ crypto-store = [
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
-derive_builder = "0.11.2"
 fs_extra = "1.2.0"
 futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }

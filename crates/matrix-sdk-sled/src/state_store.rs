@@ -20,7 +20,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use derive_builder::Builder;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
@@ -177,25 +176,27 @@ enum DbOrPath {
     Path(PathBuf),
 }
 
-#[derive(Builder, Debug)]
-#[builder(name = "SledStateStoreBuilder", build_fn(skip))]
-#[allow(dead_code)]
-pub struct SledStateStoreBuilderConfig {
-    #[builder(setter(custom))]
-    db_or_path: DbOrPath,
-    /// Set the password the sled store is encrypted with (if any)
-    passphrase: String,
-    /// The strategy to use when a merge conflict is found, see
-    /// [`MigrationConflictStrategy`] for details
-    #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
+/// Builder for [`SledStateStore`].
+#[derive(Debug)]
+pub struct SledStateStoreBuilder {
+    db_or_path: Option<DbOrPath>,
+    passphrase: Option<String>,
     migration_conflict_strategy: MigrationConflictStrategy,
 }
 
 impl SledStateStoreBuilder {
+    fn new() -> Self {
+        Self {
+            db_or_path: None,
+            passphrase: None,
+            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
+        }
+    }
+
     /// Path to the sled store files, created if not it doesn't exist yet.
     ///
     /// Mutually exclusive with [`db`][Self::db], whichever is called last wins.
-    pub fn path(&mut self, path: PathBuf) -> &mut SledStateStoreBuilder {
+    pub fn path(mut self, path: PathBuf) -> Self {
         self.db_or_path = Some(DbOrPath::Path(path));
         self
     }
@@ -204,8 +205,22 @@ impl SledStateStoreBuilder {
     ///
     /// Mutually exclusive with [`path`][Self::path], whichever is called last
     /// wins.
-    pub fn db(&mut self, db: Db) -> &mut SledStateStoreBuilder {
+    pub fn db(mut self, db: Db) -> Self {
         self.db_or_path = Some(DbOrPath::Db(db));
+        self
+    }
+
+    /// Set the password the sled store is encrypted with (if any).
+    pub fn passphrase(mut self, value: String) -> Self {
+        self.passphrase = Some(value);
+        self
+    }
+
+    /// Set the strategy to use when a merge conflict is found.
+    ///
+    /// See [`MigrationConflictStrategy`] for details.
+    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
+        self.migration_conflict_strategy = value;
         self
     }
 
@@ -219,7 +234,7 @@ impl SledStateStoreBuilder {
     ///   path.
     /// * Migration error: The migration to a newer version of the schema
     ///   failed, see `SledStoreError::MigrationConflict`.
-    pub fn build(&mut self) -> Result<SledStateStore> {
+    pub fn build(self) -> Result<SledStateStore> {
         let (db, path) = match &self.db_or_path {
             None => {
                 let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
@@ -254,11 +269,7 @@ impl SledStateStoreBuilder {
         let migration_res = store.upgrade();
         if let Err(SledStoreError::MigrationConflict { path, .. }) = &migration_res {
             // how  are supposed to react about this?
-            match self
-                .migration_conflict_strategy
-                .as_ref()
-                .unwrap_or(&MigrationConflictStrategy::BackupAndDrop)
-            {
+            match self.migration_conflict_strategy {
                 MigrationConflictStrategy::BackupAndDrop => {
                     let mut new_path = path.clone();
                     new_path.set_extension(format!(
@@ -397,9 +408,9 @@ impl SledStateStore {
         })
     }
 
-    /// Generate a SledStateStoreBuilder with default parameters
+    /// Create a [`SledStateStoreBuilder`] with default parameters.
     pub fn builder() -> SledStateStoreBuilder {
-        SledStateStoreBuilder::default()
+        SledStateStoreBuilder::new()
     }
 
     fn drop_tables(self) -> StoreResult<()> {
