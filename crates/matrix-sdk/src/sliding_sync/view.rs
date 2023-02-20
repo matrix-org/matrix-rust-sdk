@@ -212,6 +212,11 @@ impl SlidingSyncView {
         self
     }
 
+    /// Get the current state.
+    pub fn state(&self) -> SlidingSyncState {
+        self.state.get_cloned()
+    }
+
     /// Get a stream of state.
     pub fn state_stream(&self) -> SignalStream<MutableSignalCloned<SlidingSyncState>> {
         self.state.signal_cloned().to_stream()

@@ -738,6 +738,12 @@ impl RoomListEntry {
     }
 }
 
+impl<'a> From<&'a RoomListEntry> for RoomListEntry {
+    fn from(value: &'a RoomListEntry) -> Self {
+        value.clone()
+    }
+}
+
 /// The Summary of a new SlidingSync Update received
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {

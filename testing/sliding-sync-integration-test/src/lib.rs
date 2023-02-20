@@ -125,7 +125,7 @@ mod tests {
 
             // Get the view to all rooms to check the view' state.
             let view = sync.view("init_view").context("View `init_view` isn't found")?;
-            assert_eq!(*view.state.lock_ref(), SlidingSyncState::Cold);
+            assert_eq!(view.state(), SlidingSyncState::Cold);
 
             // Send the request and wait for a response.
             let update_summary = stream
@@ -134,7 +134,7 @@ mod tests {
                 .context("No room summary found, loop ended unsuccessfully")??;
 
             // Check the state has switched to `Live`.
-            assert_eq!(*view.state.lock_ref(), SlidingSyncState::Live);
+            assert_eq!(view.state(), SlidingSyncState::Live);
 
             // One room has received an update.
             assert_eq!(update_summary.rooms.len(), 1);
@@ -143,12 +143,9 @@ mod tests {
             let room_id = update_summary.rooms[0].clone();
 
             // Let's fetch the room ID from the view too.
-            let Some(RoomListEntry::Filled(same_room_id)) =
-                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
-                    panic!("Failed to read the room ID from the view");
-                };
-
-            assert_eq!(same_room_id, room_id);
+            assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Filled(ref same_room_id)) => {
+                assert_eq!(same_room_id, &room_id);
+            });
 
             room_id
         };
@@ -266,12 +263,9 @@ mod tests {
             assert_eq!(room_id, update_summary.rooms[0]);
 
             // Let's fetch the room ID from the view too.
-            let Some(RoomListEntry::Filled(same_room_id)) =
-                view.rooms_list.lock_ref().iter().next().map(Clone::clone) else {
-                    panic!("Failed to read the room ID from the view");
-                };
-
-            assert_eq!(same_room_id, room_id);
+            assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Filled(ref same_room_id)) => {
+                assert_eq!(same_room_id, &room_id);
+            });
 
             // Test the `Timeline`.
 
@@ -381,14 +375,7 @@ mod tests {
         assert!(saw_update, "We didn't see the update come through the pipe");
 
         // and let's update the order of all views again
-        let Some(RoomListEntry::Filled(room_id)) = view1
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .nth(4)
-            .map(Clone::clone) else {
-                panic!("4th room has moved? how?")
-            };
+        let room_id = assert_matches!(view1.rooms_list().get(4), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
 
         let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -470,13 +457,7 @@ mod tests {
         // Let's trigger an update by sending a message to room pos=3, making it move to
         // pos 0
 
-        let Some(RoomListEntry::Filled(room_id)) = view1
-            .rooms_list
-            .lock_ref()
-            .iter().nth(3).map(Clone::clone) else
-        {
-            bail!("2nd room has moved? how?");
-        };
+        let room_id = assert_matches!(view1.rooms_list().get(3), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
 
         let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -510,13 +491,7 @@ mod tests {
         pin_mut!(stream);
 
         // and let's update the order of all views again
-        let Some(RoomListEntry::Filled(room_id)) = view1
-            .rooms_list
-            .lock_ref()
-            .iter().nth(4).map(Clone::clone) else
-        {
-            bail!("4th room has moved? how?");
-        };
+        let room_id = assert_matches!(view1.rooms_list().get(4), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
 
         let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -567,8 +542,8 @@ mod tests {
 
         let view = sync_proxy.view("sliding").context("but we just added that view!")?;
         let full_view = sync_proxy.view("full").context("but we just added that view!")?;
-        assert_eq!(view.state.get_cloned(), SlidingSyncState::Cold, "view isn't cold");
-        assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Cold, "full isn't cold");
+        assert_eq!(view.state(), SlidingSyncState::Cold, "view isn't cold");
+        assert_eq!(full_view.state(), SlidingSyncState::Cold, "full isn't cold");
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -579,27 +554,18 @@ mod tests {
 
         // we only heard about the ones we had asked for
         assert_eq!(room_summary.rooms.len(), 11);
-        assert_eq!(view.state.get_cloned(), SlidingSyncState::Live, "view isn't live");
-        assert_eq!(
-            full_view.state.get_cloned(),
-            SlidingSyncState::CatchingUp,
-            "full isn't preloading"
-        );
+        assert_eq!(view.state(), SlidingSyncState::Live, "view isn't live");
+        assert_eq!(full_view.state(), SlidingSyncState::CatchingUp, "full isn't preloading");
 
         // doing another two requests 0-20; 0-21 should bring full live, too
         let _room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
-        let rooms_list = full_view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let rooms_list = full_view.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
+        assert_eq!(full_view.state(), SlidingSyncState::Live, "full isn't live yet");
 
-        assert_eq!(full_view.state.get_cloned(), SlidingSyncState::Live, "full isn't live yet");
         Ok(())
     }
 
@@ -621,12 +587,9 @@ mod tests {
         let summary = room_summary?;
         // we only heard about the ones we had asked for
         assert_eq!(summary.rooms.len(), 11);
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
@@ -635,7 +598,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let _signal = view.rooms_list.signal_vec_cloned();
+        let _signal = view.rooms_list_stream();
 
         // let's move the window
 
@@ -651,12 +614,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -677,12 +636,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -705,12 +660,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -740,12 +691,8 @@ mod tests {
         let summary = room_summary?;
         // we only heard about the ones we had asked for
         assert_eq!(summary.rooms.len(), 10);
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Empty)
@@ -755,7 +702,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let _signal = view.rooms_list.signal_vec_cloned();
+        let _signal = view.rooms_list_stream();
 
         // let's move the window
 
@@ -770,12 +717,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
@@ -797,12 +740,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -815,15 +754,7 @@ mod tests {
         // now we "move" the room of pos 3 to pos 0;
         // this is a bordering case
 
-        let Some(RoomListEntry::Filled(room_id)) = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .nth(3)
-            .map(Clone::clone) else
-        {
-            panic!("2nd room has moved? how?");
-        };
+        let room_id = assert_matches!(view.rooms_list().get(3), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
 
         let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -840,12 +771,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Invalid)
@@ -856,7 +783,9 @@ mod tests {
         );
 
         // items has moved, thus we shouldn't find it where it was
-        assert!(view.rooms_list.lock_ref().iter().nth(3).unwrap().as_room_id().unwrap() != room_id);
+        assert!(
+            view.rooms_list::<RoomListEntry>().get(3).unwrap().as_room_id().unwrap() != room_id
+        );
 
         // let's move the window again
 
@@ -871,12 +800,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
@@ -888,7 +813,7 @@ mod tests {
 
         // and check that our room move has been accepted properly, too.
         assert_eq!(
-            view.rooms_list.lock_ref().iter().next().unwrap().as_room_id().unwrap(),
+            view.rooms_list::<RoomListEntry>().get(0).unwrap().as_room_id().unwrap(),
             &room_id
         );
 
@@ -932,7 +857,7 @@ mod tests {
                 sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
             let stream = sync_proxy.stream();
             pin_mut!(stream);
-            while growing_sync.state.get_cloned() != SlidingSyncState::Live {
+            while growing_sync.state() != SlidingSyncState::Live {
                 // we wait until growing sync is all done, too
                 println!("awaiting");
                 let _room_summary = stream
@@ -985,12 +910,8 @@ mod tests {
             let _summary = room_summary?;
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
@@ -1005,12 +926,8 @@ mod tests {
             let _summary = room_summary?;
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
@@ -1045,12 +962,8 @@ mod tests {
             let _summary = room_summary?;
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1071,12 +984,8 @@ mod tests {
             let _summary = room_summary?;
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1119,12 +1028,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1161,12 +1066,8 @@ mod tests {
 
         assert!(error_seen, "We have not seen the UnknownPos error");
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1200,7 +1101,7 @@ mod tests {
         let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
         let stream = sync_proxy.stream();
         pin_mut!(stream);
-        while view.state.get_cloned() != SlidingSyncState::Live {
+        while view.state() != SlidingSyncState::Live {
             // we wait until growing sync is all done, too
             println!("awaiting");
             let _room_summary = stream
@@ -1209,12 +1110,8 @@ mod tests {
                 .context("No room summary found, loop ended unsuccessfully")??;
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1235,7 +1132,7 @@ mod tests {
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.views.iter().any(|s| s == "growing")
-                && view.rooms_count.get_cloned().unwrap_or_default() == 32
+                && view.rooms_count().unwrap_or_default() == 32
             {
                 if seen {
                     // once we saw 32, we give it another loop to catch up!
@@ -1246,12 +1143,8 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(
             collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
                 acc + 1
@@ -1291,19 +1184,14 @@ mod tests {
         // we only heard about the ones we had asked for
         assert_eq!(room_summary.rooms.len(), 3);
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled).take(3).collect::<Vec<_>>()
         );
 
-        let _signal = view.rooms_list.signal_vec_cloned();
+        let _signal = view.rooms_list_stream();
 
         // let's move the window
 
@@ -1318,12 +1206,7 @@ mod tests {
             }
         }
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(
             collection_simple,
@@ -1335,14 +1218,7 @@ mod tests {
 
         // let's get that first entry
 
-        let Some(RoomListEntry::Invalidated(room_id)) = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .next()
-            .map(Clone::clone) else {
-            panic!("2nd room has moved? how?");
-        };
+        let room_id = assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Invalidated(ref room_id)) => room_id.clone());
 
         // send a message
 
@@ -1427,12 +1303,7 @@ mod tests {
         let sliding_sync_room = sync_proxy.get_room(&room_id).expect("Slidin Sync room not found");
         let event = sliding_sync_room.latest_event().await.expect("No even found");
 
-        let collection_simple = view
-            .rooms_list
-            .lock_ref()
-            .iter()
-            .map(Into::<RoomListEntryEasy>::into)
-            .collect::<Vec<_>>();
+        let collection_simple = view.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(
             collection_simple,
