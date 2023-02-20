@@ -10,7 +10,6 @@ use std::{
 use derive_builder::Builder;
 use futures_signals::{
     signal::Mutable,
-    signal_map::MutableBTreeMapLockRef,
     signal_vec::{MutableVec, MutableVecLockMut},
 };
 use ruma::{
@@ -128,7 +127,7 @@ pub(super) struct FrozenSlidingSyncView {
 impl FrozenSlidingSyncView {
     pub(super) fn freeze(
         source_view: &SlidingSyncView,
-        rooms_map: &MutableBTreeMapLockRef<'_, OwnedRoomId, SlidingSyncRoom>,
+        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
         let mut rooms_list = Vec::new();
