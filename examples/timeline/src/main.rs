@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
-use futures_signals::signal_vec::SignalVecExt;
 use matrix_sdk::{self, config::SyncSettings, ruma::OwnedRoomId, Client};
 use url::Url;
 
@@ -68,11 +67,12 @@ async fn main() -> Result<()> {
     // Get the timeline stream and listen to it.
     let room = client.get_room(&room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (timeline_items, mut timeline_stream) = timeline.subscribe().await;
 
+    println!("Initial timeline items: {timeline_items:#?}");
     tokio::spawn(async move {
         while let Some(diff) = timeline_stream.next().await {
-            println!("Received a timeline diff {diff:#?}");
+            println!("Received a timeline diff: {diff:#?}");
         }
     });
 

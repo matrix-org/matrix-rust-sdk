@@ -18,12 +18,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures_signals::signal_vec::{MutableSignalVec, MutableVec, MutableVecLockRef};
+use eyeball_im::{ObservableVector, VectorSubscriber};
+use im::Vector;
 use indexmap::IndexSet;
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
-    locks::Mutex,
+    locks::{Mutex, MutexGuard},
 };
 use ruma::{
     events::{
@@ -54,14 +55,13 @@ use crate::{
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
-    items: MutableVec<Arc<TimelineItem>>,
-    metadata: Mutex<TimelineInnerMetadata>,
+    state: Mutex<TimelineInnerState>,
     profile_provider: P,
 }
 
-/// Non-signalling parts of `TimelineInner`.
 #[derive(Debug, Default)]
-pub(super) struct TimelineInnerMetadata {
+pub(super) struct TimelineInnerState {
+    pub(super) items: ObservableVector<Arc<TimelineItem>>,
     /// Reaction event / txn ID => sender and reaction data.
     pub(super) reaction_map:
         HashMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), (OwnedUserId, Annotation)>,
@@ -76,16 +76,32 @@ pub(super) struct TimelineInnerMetadata {
 
 impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) fn new(profile_provider: P) -> Self {
-        Self { items: Default::default(), metadata: Default::default(), profile_provider }
+        let state = TimelineInnerState {
+            // Upstream default capacity is currently 16, which is making
+            // sliding-sync tests with 20 events lag. This should still be
+            // small enough.
+            items: ObservableVector::with_capacity(32),
+            ..Default::default()
+        };
+        Self { state: Mutex::new(state), profile_provider }
     }
 
-    pub(super) fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
-        self.items.lock_ref()
+    /// Get a copy of the current items in the list.
+    ///
+    /// Cheap because `im::Vector` is cheap to clone.
+    pub(super) async fn items(&self) -> Vector<Arc<TimelineItem>> {
+        self.state.lock().await.items.clone()
     }
 
-    pub(super) fn items_signal(&self) -> MutableSignalVec<Arc<TimelineItem>> {
+    pub(super) async fn subscribe(
+        &self,
+    ) -> (Vector<Arc<TimelineItem>>, VectorSubscriber<Arc<TimelineItem>>) {
         trace!("Creating timeline items signal");
-        self.items.signal_vec_cloned()
+        let state = self.state.lock().await;
+        // auto-deref to the inner vector's clone method
+        let items = state.items.clone();
+        let stream = state.items.subscribe();
+        (items, stream)
     }
 
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
@@ -95,15 +111,14 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
         debug!("Adding {} initial events", events.len());
 
-        let timeline_meta = self.metadata.get_mut();
+        let state = self.state.get_mut();
 
         for event in events {
             handle_remote_event(
                 event.event,
                 event.encryption_info,
                 TimelineItemPosition::End,
-                &self.items,
-                timeline_meta,
+                state,
                 &self.profile_provider,
             )
             .await;
@@ -114,14 +129,11 @@ impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) async fn clear(&self) {
         trace!("Clearing timeline");
 
-        let mut timeline_meta = self.metadata.lock().await;
-        let mut timeline_items = self.items.lock_mut();
-
-        timeline_meta.reaction_map.clear();
-        timeline_meta.fully_read_event = None;
-        timeline_meta.fully_read_event_in_timeline = false;
-
-        timeline_items.clear();
+        let mut state = self.state.lock().await;
+        state.items.clear();
+        state.reaction_map.clear();
+        state.fully_read_event = None;
+        state.fully_read_event_in_timeline = false;
     }
 
     #[instrument(skip_all)]
@@ -130,13 +142,12 @@ impl<P: ProfileProvider> TimelineInner<P> {
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
     ) {
-        let mut timeline_meta = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
         handle_remote_event(
             raw,
             encryption_info,
             TimelineItemPosition::End,
-            &self.items,
-            &mut timeline_meta,
+            &mut state,
             &self.profile_provider,
         )
         .await;
@@ -163,22 +174,20 @@ impl<P: ProfileProvider> TimelineInner<P> {
         let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
         let kind = TimelineEventKind::Message { content };
 
-        let mut timeline_meta = self.metadata.lock().await;
-        let mut timeline_items = self.items.lock_mut();
-        TimelineEventHandler::new(event_meta, flow, &mut timeline_items, &mut timeline_meta)
-            .handle_event(kind);
+        let mut state = self.state.lock().await;
+        TimelineEventHandler::new(event_meta, flow, &mut state).handle_event(kind);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
     ///
     /// If no local event is found, a warning is raised.
     #[instrument(skip_all, fields(txn_id))]
-    pub(super) fn update_event_send_state(
+    pub(super) async fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
         send_state: EventSendState,
     ) {
-        let mut lock = self.items.lock_mut();
+        let mut state = self.state.lock().await;
 
         let new_event_id: Option<&EventId> = match &send_state {
             EventSendState::Sent { event_id } => Some(event_id),
@@ -186,7 +195,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         };
 
         // Look for the local event by the transaction ID or event ID.
-        let result = rfind_event_item(&lock, |it| {
+        let result = rfind_event_item(&state.items, |it| {
             it.transaction_id() == Some(txn_id)
                 || new_event_id.is_some() && it.event_id() == new_event_id
         });
@@ -211,7 +220,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         }
 
         let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
-        lock.set_cloned(idx, Arc::new(new_item));
+        state.items.set(idx, Arc::new(new_item));
     }
 
     /// Handle a back-paginated event.
@@ -222,13 +231,12 @@ impl<P: ProfileProvider> TimelineInner<P> {
         &self,
         event: TimelineEvent,
     ) -> HandleEventResult {
-        let mut metadata_lock = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
         handle_remote_event(
             event.event.cast(),
             event.encryption_info,
             TimelineItemPosition::Start,
-            &self.items,
-            &mut metadata_lock,
+            &mut state,
             &self.profile_provider,
         )
         .await
@@ -236,35 +244,29 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
     #[instrument(skip_all)]
     pub(super) async fn add_loading_indicator(&self) {
-        // hack: Ensure this can't run between loop iterations of
-        // update_sender_profiles. We badly need to replace futures-signals...
-        let _guard = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
 
-        let mut lock = self.items.lock_mut();
-        if lock.first().map_or(false, |item| item.is_loading_indicator()) {
+        if state.items.front().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
             return;
         }
 
-        lock.insert_cloned(0, Arc::new(TimelineItem::loading_indicator()));
+        state.items.push_front(Arc::new(TimelineItem::loading_indicator()));
     }
 
     #[instrument(skip(self))]
     pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
-        // hack: Ensure this can't run between loop iterations of
-        // update_sender_profiles. We badly need to replace futures-signals...
-        let _guard = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
 
-        let mut lock = self.items.lock_mut();
-        if !lock.first().map_or(false, |item| item.is_loading_indicator()) {
+        if !state.items.front().map_or(false, |item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
             return;
         }
 
         if more_messages {
-            lock.remove(0);
+            state.items.pop_front();
         } else {
-            lock.set_cloned(0, Arc::new(TimelineItem::timeline_start()))
+            state.items.set(0, Arc::new(TimelineItem::timeline_start()));
         }
     }
 
@@ -283,27 +285,26 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
     #[instrument(skip_all)]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        let mut metadata_lock = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
 
         // A similar event has been handled already. We can ignore it.
-        if metadata_lock.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
+        if state.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
             return;
         }
 
-        metadata_lock.fully_read_event = Some(fully_read_event_id);
+        state.fully_read_event = Some(fully_read_event_id);
 
-        let mut items_lock = self.items.lock_mut();
-        let metadata = &mut *metadata_lock;
+        let state = &mut *state;
         update_read_marker(
-            &mut items_lock,
-            metadata.fully_read_event.as_deref(),
-            &mut metadata.fully_read_event_in_timeline,
+            &mut state.items,
+            state.fully_read_event.as_deref(),
+            &mut state.fully_read_event_in_timeline,
         );
     }
 
     /// Collect events and their metadata that are unable-to-decrypt (UTD)
     /// events in the timeline.
-    fn collect_utds(
+    async fn collect_utds(
         &self,
         session_ids: Option<BTreeSet<&str>>,
     ) -> Vec<(usize, OwnedEventId, String, Raw<AnySyncTimelineEvent>)> {
@@ -319,8 +320,10 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         };
 
-        self.items
-            .lock_ref()
+        self.state
+            .lock()
+            .await
+            .items
             .iter()
             .enumerate()
             .filter_map(|(idx, item)| {
@@ -331,17 +334,14 @@ impl<P: ProfileProvider> TimelineInner<P> {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
                         if should_retry(session_id) =>
                     {
-                        let EventTimelineItem::Remote(RemoteEventTimelineItem { event_id, raw, .. }) = event_item else {
+                        let EventTimelineItem::Remote(
+                            RemoteEventTimelineItem { event_id, raw, .. },
+                        ) = event_item else {
                             error!("Key for unable-to-decrypt timeline item is not an event ID");
                             return None;
                         };
 
-                        Some((
-                            idx,
-                            event_id.to_owned(),
-                            session_id.to_owned(),
-                            raw.clone(),
-                        ))
+                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw.clone()))
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
@@ -361,14 +361,14 @@ impl<P: ProfileProvider> TimelineInner<P> {
     ) {
         debug!("Retrying decryption");
 
-        let utds_for_session = self.collect_utds(session_ids);
+        let utds_for_session = self.collect_utds(session_ids).await;
 
         if utds_for_session.is_empty() {
             trace!("Found no events to retry decryption for");
             return;
         }
 
-        let mut metadata_lock = self.metadata.lock().await;
+        let mut state = self.state.lock().await;
         for (idx, event_id, session_id, utd) in utds_for_session {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
@@ -392,31 +392,30 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 event.event.cast(),
                 event.encryption_info,
                 TimelineItemPosition::Update(idx),
-                &self.items,
-                &mut metadata_lock,
+                &mut state,
                 &self.profile_provider,
             )
             .await;
         }
     }
 
-    pub(super) fn set_sender_profiles_pending(&self) {
-        self.set_non_ready_sender_profiles(TimelineDetails::Pending);
+    pub(super) async fn set_sender_profiles_pending(&self) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Pending).await;
     }
 
-    pub(super) fn set_sender_profiles_error(&self, error: Arc<Error>) {
-        self.set_non_ready_sender_profiles(TimelineDetails::Error(error));
+    pub(super) async fn set_sender_profiles_error(&self, error: Arc<Error>) {
+        self.set_non_ready_sender_profiles(TimelineDetails::Error(error)).await;
     }
 
-    fn set_non_ready_sender_profiles(&self, state: TimelineDetails<Profile>) {
-        let mut timeline_items = self.items.lock_mut();
-        for idx in 0..timeline_items.len() {
-            let Some(event_item) = timeline_items[idx].as_event() else { continue };
+    async fn set_non_ready_sender_profiles(&self, profile_state: TimelineDetails<Profile>) {
+        let mut state = self.state.lock().await;
+        for idx in 0..state.items.len() {
+            let Some(event_item) = state.items[idx].as_event() else { continue };
             if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
-                timeline_items.set_cloned(
-                    idx,
-                    Arc::new(TimelineItem::Event(event_item.with_sender_profile(state.clone()))),
-                );
+                let item = Arc::new(TimelineItem::Event(
+                    event_item.with_sender_profile(profile_state.clone()),
+                ));
+                state.items.set(idx, item);
             }
         }
     }
@@ -424,46 +423,36 @@ impl<P: ProfileProvider> TimelineInner<P> {
     pub(super) async fn update_sender_profiles(&self) {
         trace!("Updating sender profiles");
 
-        // Can't lock the timeline items across .await points without making the
-        // resulting future `!Send`. As a (brittle) hack around that, lock the
-        // timeline items in each loop iteration but keep a lock of the metadata
-        // so no event handler runs in parallel and assert the number of items
-        // doesn't change between iterations.
-        let _guard = self.metadata.lock().await;
-        let num_items = self.items().len();
+        let mut state = self.state.lock().await;
+        let num_items = state.items.len();
 
         for idx in 0..num_items {
-            let sender = match self.items()[idx].as_event() {
+            let sender = match state.items[idx].as_event() {
                 Some(event_item) => event_item.sender().to_owned(),
                 None => continue,
             };
             let maybe_profile = self.profile_provider.profile(&sender).await;
 
-            let mut timeline_items = self.items.lock_mut();
-            assert_eq!(timeline_items.len(), num_items);
+            assert_eq!(state.items.len(), num_items);
 
-            let event_item = timeline_items[idx].as_event().unwrap();
+            let event_item = state.items[idx].as_event().unwrap();
             match maybe_profile {
                 Some(profile) => {
                     if !event_item.sender_profile().contains(&profile) {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                        state.items.set(idx, Arc::new(TimelineItem::Event(updated_item)));
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        timeline_items.set_cloned(idx, Arc::new(TimelineItem::Event(updated_item)));
+                        state.items.set(idx, Arc::new(TimelineItem::Event(updated_item)));
                     }
                 }
             }
         }
-    }
-
-    fn update_event_item(&self, index: usize, event_item: EventTimelineItem) {
-        self.items.lock_mut().set_cloned(index, Arc::new(TimelineItem::Event(event_item)))
     }
 }
 
@@ -476,7 +465,8 @@ impl TimelineInner {
         &self,
         event_id: &EventId,
     ) -> Result<RemoteEventTimelineItem> {
-        let (index, item) = rfind_event_by_id(&self.items(), event_id)
+        let state = self.state.lock().await;
+        let (index, item) = rfind_event_by_id(&state.items, event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
@@ -487,12 +477,20 @@ impl TimelineInner {
             return Ok(item);
         };
 
-        let details =
-            self.fetch_replied_to_event(index, &item, &message, &in_reply_to.event_id).await;
+        let details = fetch_replied_to_event(
+            state,
+            index,
+            &item,
+            &message,
+            &in_reply_to.event_id,
+            self.room(),
+        )
+        .await;
 
-        // We need to be sure to have the latest position of the event as it
-        // might have changed while waiting for the request.
-        let (index, mut item) = rfind_event_by_id(&self.items(), &item.event_id)
+        // We need to be sure to have the latest position of the event as it might have
+        // changed while waiting for the request.
+        let mut state = self.state.lock().await;
+        let (index, mut item) = rfind_event_by_id(&state.items, &item.event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
@@ -509,58 +507,54 @@ impl TimelineInner {
             event_id: in_reply_to.event_id.clone(),
             details,
         }));
-        self.update_event_item(index, item.clone().into());
+        state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
         Ok(item)
     }
+}
 
-    async fn fetch_replied_to_event(
-        &self,
-        index: usize,
-        item: &RemoteEventTimelineItem,
-        message: &Message,
-        in_reply_to: &EventId,
-    ) -> TimelineDetails<Box<RepliedToEvent>> {
-        if let Some((_, item)) = rfind_event_by_id(&self.items(), in_reply_to) {
-            let details = match item.content() {
-                TimelineItemContent::Message(message) => {
-                    TimelineDetails::Ready(Box::new(RepliedToEvent {
-                        message: message.clone(),
-                        sender: item.sender().to_owned(),
-                        sender_profile: item.sender_profile().clone(),
-                    }))
-                }
-                _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
-            };
-
-            return details;
+async fn fetch_replied_to_event(
+    mut state: MutexGuard<'_, TimelineInnerState>,
+    index: usize,
+    item: &RemoteEventTimelineItem,
+    message: &Message,
+    in_reply_to: &EventId,
+    room: &room::Common,
+) -> TimelineDetails<Box<RepliedToEvent>> {
+    if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
+        let details = match item.content() {
+            TimelineItemContent::Message(message) => {
+                TimelineDetails::Ready(Box::new(RepliedToEvent {
+                    message: message.clone(),
+                    sender: item.sender().to_owned(),
+                    sender_profile: item.sender_profile().clone(),
+                }))
+            }
+            _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
         };
 
-        self.update_event_item(
-            index,
-            item.with_content(TimelineItemContent::Message(message.with_in_reply_to(
-                InReplyToDetails {
-                    event_id: in_reply_to.to_owned(),
-                    details: TimelineDetails::Pending,
-                },
-            )))
-            .into(),
-        );
+        return details;
+    };
 
-        match self.room().event(in_reply_to).await {
-            Ok(timeline_event) => {
-                match RepliedToEvent::try_from_timeline_event(
-                    timeline_event,
-                    &self.profile_provider,
-                )
-                .await
-                {
-                    Ok(event) => TimelineDetails::Ready(Box::new(event)),
-                    Err(e) => TimelineDetails::Error(Arc::new(e)),
-                }
+    let event_item = item
+        .with_content(TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
+            event_id: in_reply_to.to_owned(),
+            details: TimelineDetails::Pending,
+        })))
+        .into();
+    state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
+
+    // Don't hold the state lock while the network request is made
+    drop(state);
+
+    match room.event(in_reply_to).await {
+        Ok(timeline_event) => {
+            match RepliedToEvent::try_from_timeline_event(timeline_event, room).await {
+                Ok(event) => TimelineDetails::Ready(Box::new(event)),
+                Err(e) => TimelineDetails::Error(Arc::new(e)),
             }
-            Err(e) => TimelineDetails::Error(Arc::new(e)),
         }
+        Err(e) => TimelineDetails::Error(Arc::new(e)),
     }
 }
 
@@ -604,10 +598,7 @@ async fn handle_remote_event<P: ProfileProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
-    // MutableVecLock can't be held across `.await`s in `Send` futures, so we
-    // can't lock it ahead of time like `timeline_meta`.
-    timeline_items: &MutableVec<Arc<TimelineItem>>,
-    timeline_meta: &mut TimelineInnerMetadata,
+    timeline_state: &mut TimelineInnerState,
     profile_provider: &P,
 ) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
@@ -644,7 +635,5 @@ async fn handle_remote_event<P: ProfileProvider>(
         TimelineEventMetadata { sender, sender_profile, is_own_event, relations, encryption_info };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
-    let mut timeline_items = timeline_items.lock_mut();
-    TimelineEventHandler::new(event_meta, flow, &mut timeline_items, timeline_meta)
-        .handle_event(event_kind)
+    TimelineEventHandler::new(event_meta, flow, timeline_state).handle_event(event_kind)
 }

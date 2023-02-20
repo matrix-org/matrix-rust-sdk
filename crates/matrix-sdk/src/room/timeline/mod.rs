@@ -18,10 +18,9 @@
 
 use std::{pin::Pin, sync::Arc, task::Poll};
 
+use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
-#[cfg(feature = "testing")]
-use futures_signals::signal_vec::MutableVecLockRef;
-use futures_signals::signal_vec::{MutableSignalVec, SignalVec, SignalVecExt, VecDiff};
+use im::Vector;
 use matrix_sdk_base::locks::Mutex;
 use pin_project_lite::pin_project;
 use ruma::{
@@ -49,7 +48,7 @@ mod to_device;
 mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;
-use self::inner::{TimelineInner, TimelineInnerMetadata};
+use self::inner::{TimelineInner, TimelineInnerState};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -100,7 +99,7 @@ impl Timeline {
     pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
-            && self.inner.items().first().map_or(false, |item| item.is_timeline_start())
+            && self.inner.items().await.front().map_or(false, |item| item.is_timeline_start())
         {
             warn!("Start of timeline reached, ignoring backwards-pagination request");
             return Ok(());
@@ -213,31 +212,25 @@ impl Timeline {
 
     /// Get the current list of timeline items. Do not use this in production!
     #[cfg(feature = "testing")]
-    pub fn items(&self) -> MutableVecLockRef<'_, Arc<TimelineItem>> {
-        self.inner.items()
+    pub async fn items(&self) -> Vector<Arc<TimelineItem>> {
+        self.inner.items().await
     }
 
     /// Get the latest of the timeline's event items.
-    pub fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.items().last()?.as_event().cloned()
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.items().await.last()?.as_event().cloned()
     }
 
-    /// Get a signal of the timeline's items.
+    /// Get the current timeline items, and a stream of changes.
     ///
-    /// You can poll this signal to receive updates, the first of which will
-    /// be the full list of items currently available.
-    ///
-    /// See [`SignalVecExt`](futures_signals::signal_vec::SignalVecExt) for a
-    /// high-level API on top of [`SignalVec`].
-    pub fn signal(&self) -> impl SignalVec<Item = Arc<TimelineItem>> {
-        TimelineSignal::new(self.inner.items_signal(), self.event_handler_handles.clone())
-    }
-
-    /// Get a stream of timeline changes.
-    ///
-    /// This is a convenience shorthand for `timeline.signal().to_stream()`.
-    pub fn stream(&self) -> impl Stream<Item = VecDiff<Arc<TimelineItem>>> {
-        self.signal().to_stream()
+    /// You can poll this stream to receive updates. See
+    /// [`futures_util::StreamExt`] for a high-level API on top of [`Stream`].
+    pub async fn subscribe(
+        &self,
+    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
+        let (items, stream) = self.inner.subscribe().await;
+        let stream = TimelineStream::new(stream, self.event_handler_handles.clone());
+        (items, stream)
     }
 
     /// Send a message to the room, and add it to the timeline as a local echo.
@@ -284,7 +277,7 @@ impl Timeline {
             Ok(response) => EventSendState::Sent { event_id: response.event_id },
             Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
         };
-        self.inner.update_event_send_state(&txn_id, send_state);
+        self.inner.update_event_send_state(&txn_id, send_state).await;
     }
 
     /// Fetch unavailable details about the event with the given ID.
@@ -321,13 +314,13 @@ impl Timeline {
     /// the `sender_profile` set to [`TimelineDetails::Error`].
     #[instrument(skip_all)]
     pub async fn fetch_members(&self) {
-        self.inner.set_sender_profiles_pending();
+        self.inner.set_sender_profiles_pending().await;
         match self.room().ensure_members().await {
             Ok(_) => {
                 self.inner.update_sender_profiles().await;
             }
             Err(e) => {
-                self.inner.set_sender_profiles_error(Arc::new(e));
+                self.inner.set_sender_profiles_error(Arc::new(e)).await;
             }
         }
     }
@@ -348,30 +341,30 @@ impl Drop for TimelineEventHandlerHandles {
 }
 
 pin_project! {
-    struct TimelineSignal {
+    struct TimelineStream {
         #[pin]
-        inner: MutableSignalVec<Arc<TimelineItem>>,
+        inner: VectorSubscriber<Arc<TimelineItem>>,
         event_handler_handles: Arc<TimelineEventHandlerHandles>,
     }
 }
 
-impl TimelineSignal {
+impl TimelineStream {
     fn new(
-        inner: MutableSignalVec<Arc<TimelineItem>>,
+        inner: VectorSubscriber<Arc<TimelineItem>>,
         event_handler_handles: Arc<TimelineEventHandlerHandles>,
     ) -> Self {
         Self { inner, event_handler_handles }
     }
 }
 
-impl SignalVec for TimelineSignal {
-    type Item = Arc<TimelineItem>;
+impl Stream for TimelineStream {
+    type Item = VectorDiff<Arc<TimelineItem>>;
 
-    fn poll_vec_change(
+    fn poll_next(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<VecDiff<Self::Item>>> {
-        self.project().inner.poll_vec_change(cx)
+    ) -> Poll<Option<Self::Item>> {
+        self.project().inner.poll_next(cx)
     }
 }
 
@@ -445,7 +438,7 @@ impl TimelineItem {
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
 fn rfind_event_item(
-    items: &[Arc<TimelineItem>],
+    items: &Vector<Arc<TimelineItem>>,
     mut f: impl FnMut(&EventTimelineItem) -> bool,
 ) -> Option<(usize, &EventTimelineItem)> {
     items
@@ -456,13 +449,13 @@ fn rfind_event_item(
 }
 
 fn rfind_event_by_id<'a>(
-    items: &'a [Arc<TimelineItem>],
+    items: &'a Vector<Arc<TimelineItem>>,
     event_id: &EventId,
 ) -> Option<(usize, &'a EventTimelineItem)> {
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
-fn find_read_marker(items: &[Arc<TimelineItem>]) -> Option<usize> {
+fn find_read_marker(items: &Vector<Arc<TimelineItem>>) -> Option<usize> {
     items.iter().rposition(|item| item.is_read_marker())
 }
 

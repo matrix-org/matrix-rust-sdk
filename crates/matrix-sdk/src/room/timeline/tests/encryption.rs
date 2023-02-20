@@ -3,7 +3,7 @@
 use std::{io::Cursor, iter};
 
 use assert_matches::assert_matches;
-use futures_signals::signal_vec::VecDiff;
+use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{decrypt_room_key_export, OlmMachine};
 use matrix_sdk_test::async_test;
@@ -37,7 +37,7 @@ async fn retry_message_decryption() {
         -----END MEGOLM SESSION DATA-----";
 
     let timeline = TestTimeline::new();
-    let mut stream = timeline.stream();
+    let mut stream = timeline.subscribe().await;
 
     timeline
         .handle_live_message_event(
@@ -64,10 +64,11 @@ async fn retry_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().len(), 2);
+    assert_eq!(timeline.inner.items().await.len(), 2);
 
-    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event = item.as_event().unwrap();
     let session_id = assert_matches!(
         event.content(),
@@ -92,10 +93,10 @@ async fn retry_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().len(), 2);
+    assert_eq!(timeline.inner.items().await.len(), 2);
 
     let item =
-        assert_matches!(stream.next().await, Some(VecDiff::UpdateAt { index: 1, value }) => value);
+        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
     let event = item.as_event().unwrap().as_remote().unwrap();
     assert_matches!(&event.encryption_info, Some(_));
     let text = assert_matches!(&event.content, TimelineItemContent::Message(msg) => msg.body());
@@ -151,7 +152,8 @@ async fn retry_edit_decryption() {
     );
     timeline.handle_live_message_event(&BOB, RoomEncryptedEventContent::new(encrypted, None)).await;
 
-    let event_id = timeline.inner.items()[1].as_event().unwrap().event_id().unwrap().to_owned();
+    let event_id =
+        timeline.inner.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
 
     let encrypted = EncryptedEventScheme::MegolmV1AesSha2(
         MegolmV1AesSha2ContentInit {
@@ -194,7 +196,7 @@ async fn retry_edit_decryption() {
         )
         .await;
 
-    let items = timeline.inner.items();
+    let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
 
     let item = items[1].as_event().unwrap().as_remote().unwrap();

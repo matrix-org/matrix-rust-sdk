@@ -73,8 +73,8 @@ mod tests {
 
     use anyhow::{bail, Context};
     use assert_matches::assert_matches;
+    use eyeball_im::VectorDiff;
     use futures::{pin_mut, stream::StreamExt};
-    use futures_signals::signal_vec::VecDiff;
     use matrix_sdk::{
         room::timeline::EventTimelineItem,
         ruma::{
@@ -215,21 +215,17 @@ mod tests {
 
             // Test the `Timeline`.
             let timeline = room.timeline().await.unwrap();
-            let mut timeline_stream = timeline.stream();
+            let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
-            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::Replace { values }) => {
-                // First timeline item.
-                assert_matches!(values[0].as_virtual(), Some(_));
+            // First timeline item.
+            assert_matches!(timeline_items[0].as_virtual(), Some(_));
 
-                // Second timeline item.
-                let remote_event = assert_matches!(
-                    values[1].as_event(),
-                    Some(EventTimelineItem::Remote(remote_event)) => remote_event
-                );
-                all_event_ids.push(remote_event.event_id.clone());
-
-                remote_event.clone()
-            });
+            // Second timeline item.
+            let latest_remote_event = assert_matches!(
+                timeline_items[1].as_event(),
+                Some(EventTimelineItem::Remote(remote_event)) => remote_event
+            );
+            all_event_ids.push(latest_remote_event.event_id.clone());
 
             // Test the room to see the last event.
             assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
@@ -269,10 +265,13 @@ mod tests {
 
             // Test the `Timeline`.
 
-            // The first 19th items are `VecDiff::Push`.
+            // The first 19th items are `VectorDiff::PushBack`.
             for nth in 0..19 {
-                assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => {
-                    let remote_event = assert_matches!(value.as_event(), Some(EventTimelineItem::Remote(remote_event)) => remote_event);
+                assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => {
+                    let remote_event = assert_matches!(
+                        value.as_event(),
+                        Some(EventTimelineItem::Remote(remote_event)) => remote_event
+                    );
 
                     // Check messages arrived in the correct order.
                     assert_eq!(
@@ -284,16 +283,19 @@ mod tests {
                 });
             }
 
-            // The 20th item is a `VecDiff::RemoveAt`, i.e. the first message is removed.
-            assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index }) => {
+            // The 20th item is a `VectorDiff::Remove`, i.e. the first message is removed.
+            assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index }) => {
                 // Index 0 is for day divider. So our first event is at index 1.
                 assert_eq!(index, 1);
             });
 
             // And now, the initial message is pushed at the bottom, so the 21th item is a
-            // `VecDiff::Push`.
-            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => {
-                let remote_event = assert_matches!(value.as_event(), Some(EventTimelineItem::Remote(remote_event)) => remote_event);
+            // `VectorDiff::PushBack`.
+            let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => {
+                let remote_event = assert_matches!(
+                    value.as_event(),
+                    Some(EventTimelineItem::Remote(remote_event)) => remote_event
+                );
                 assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
                 assert_eq!(remote_event.event_id.clone(), all_event_ids[0]);
 

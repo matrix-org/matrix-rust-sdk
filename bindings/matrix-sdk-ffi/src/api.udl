@@ -120,9 +120,14 @@ interface SlidingSyncView {
 
 interface SlidingSyncRoom {
     [Throws=ClientError]
-    StoppableSpawn subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
+    SlidingSyncSubscribeResult subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
     [Throws=ClientError]
-    StoppableSpawn add_timeline_listener(TimelineListener listener);
+    SlidingSyncSubscribeResult add_timeline_listener(TimelineListener listener);
+};
+
+dictionary SlidingSyncSubscribeResult {
+    sequence<TimelineItem> items;
+    StoppableSpawn task_handle;
 };
 
 interface SlidingSync {
@@ -255,7 +260,7 @@ interface Room {
     [Throws=ClientError]
     string? member_display_name(string user_id);
 
-    void add_timeline_listener(TimelineListener listener);
+    sequence<TimelineItem> add_timeline_listener(TimelineListener listener);
 
     // Loads older messages into the timeline.
     //
@@ -291,9 +296,9 @@ callback interface TimelineListener {
     void on_update(TimelineDiff update);
 };
 
-interface TimelineDiff {
-    MoveData? move();
-};
+interface TimelineItem {};
+
+interface TimelineDiff {};
 
 dictionary MoveData {
     u32 old_index;

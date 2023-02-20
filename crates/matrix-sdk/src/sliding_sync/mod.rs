@@ -438,8 +438,7 @@
 //!
 //! The `Timeline` you can receive per room by calling
 //! [`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
-//! currently cached timeline events. It itself uses the `future_signals` for
-//! reactivity, too.
+//! currently cached timeline events.
 //!
 //! 👉 To learn more about [`future_signals` check out to their excellent
 //! tutorial][future-signals-tutorial].

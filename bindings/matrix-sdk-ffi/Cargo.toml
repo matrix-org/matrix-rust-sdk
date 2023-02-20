@@ -18,6 +18,7 @@ uniffi = { workspace = true, features = ["build"] }
 [dependencies]
 anyhow = { workspace = true }
 base64 = "0.21"
+eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-signals = { version = "0.3.30", default-features = false }

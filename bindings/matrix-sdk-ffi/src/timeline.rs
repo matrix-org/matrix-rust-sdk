@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use extension_trait::extension_trait;
-use futures_signals::signal_vec::VecDiff;
+use eyeball_im::VectorDiff;
 use matrix_sdk::room::timeline::{Profile, TimelineDetails};
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use tracing::warn;
+
+use crate::helpers::unwrap_or_clone_arc;
 
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
@@ -19,98 +22,135 @@ pub trait TimelineListener: Sync + Send {
     fn on_update(&self, diff: Arc<TimelineDiff>);
 }
 
-#[repr(transparent)]
 #[derive(Clone)]
-pub struct TimelineDiff(VecDiff<Arc<TimelineItem>>);
+pub enum TimelineDiff {
+    Append { values: Vec<Arc<TimelineItem>> },
+    Clear,
+    PushFront { value: Arc<TimelineItem> },
+    PushBack { value: Arc<TimelineItem> },
+    PopFront,
+    PopBack,
+    Insert { index: usize, value: Arc<TimelineItem> },
+    Set { index: usize, value: Arc<TimelineItem> },
+    Remove { index: usize },
+    Reset { values: Vec<Arc<TimelineItem>> },
+}
 
 impl TimelineDiff {
-    pub(crate) fn new(inner: VecDiff<Arc<matrix_sdk::room::timeline::TimelineItem>>) -> Self {
-        TimelineDiff(match inner {
-            // Note: It's _probably_ valid to only transmute here too but not
-            //       as clear, and less important because this only happens
-            //       once when constructing the timeline.
-            VecDiff::Replace { values } => VecDiff::Replace {
-                values: values.into_iter().map(TimelineItem::from_arc).collect(),
-            },
-            VecDiff::InsertAt { index, value } => {
-                VecDiff::InsertAt { index, value: TimelineItem::from_arc(value) }
+    pub(crate) fn new(inner: VectorDiff<Arc<matrix_sdk::room::timeline::TimelineItem>>) -> Self {
+        match inner {
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(TimelineItem::from_arc).collect() }
             }
-            VecDiff::UpdateAt { index, value } => {
-                VecDiff::UpdateAt { index, value: TimelineItem::from_arc(value) }
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index, value: TimelineItem::from_arc(value) }
             }
-            VecDiff::RemoveAt { index } => VecDiff::RemoveAt { index },
-            VecDiff::Move { old_index, new_index } => VecDiff::Move { old_index, new_index },
-            VecDiff::Push { value } => VecDiff::Push { value: TimelineItem::from_arc(value) },
-            VecDiff::Pop {} => VecDiff::Pop {},
-            VecDiff::Clear {} => VecDiff::Clear {},
-        })
+            VectorDiff::Set { index, value } => {
+                Self::Set { index, value: TimelineItem::from_arc(value) }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index },
+            VectorDiff::PushBack { value } => {
+                Self::PushBack { value: TimelineItem::from_arc(value) }
+            }
+            VectorDiff::PushFront { value } => {
+                Self::PushFront { value: TimelineItem::from_arc(value) }
+            }
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::Reset { values } => {
+                warn!("Timeline subscriber lagged behind and was reset");
+                Self::Reset { values: values.into_iter().map(TimelineItem::from_arc).collect() }
+            }
+        }
     }
 }
 
 #[uniffi::export]
 impl TimelineDiff {
     pub fn change(&self) -> TimelineChange {
-        match &self.0 {
-            VecDiff::Replace { .. } => TimelineChange::Replace,
-            VecDiff::InsertAt { .. } => TimelineChange::InsertAt,
-            VecDiff::UpdateAt { .. } => TimelineChange::UpdateAt,
-            VecDiff::RemoveAt { .. } => TimelineChange::RemoveAt,
-            VecDiff::Move { .. } => TimelineChange::Move,
-            VecDiff::Push { .. } => TimelineChange::Push,
-            VecDiff::Pop {} => TimelineChange::Pop,
-            VecDiff::Clear {} => TimelineChange::Clear,
+        match self {
+            Self::Append { .. } => TimelineChange::Append,
+            Self::Insert { .. } => TimelineChange::Insert,
+            Self::Set { .. } => TimelineChange::Set,
+            Self::Remove { .. } => TimelineChange::Remove,
+            Self::PushBack { .. } => TimelineChange::PushBack,
+            Self::PushFront { .. } => TimelineChange::PushFront,
+            Self::PopBack => TimelineChange::PopBack,
+            Self::PopFront => TimelineChange::PopFront,
+            Self::Clear => TimelineChange::Clear,
+            Self::Reset { .. } => TimelineChange::Reset,
         }
     }
 
-    pub fn replace(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
-        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::Replace { values } => values)
-    }
-
-    pub fn insert_at(self: Arc<Self>) -> Option<InsertAtData> {
-        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::InsertAt { index, value } => {
-            InsertAtData { index: index.try_into().unwrap(), item: value }
-        })
-    }
-
-    pub fn update_at(self: Arc<Self>) -> Option<UpdateAtData> {
-        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::UpdateAt { index, value } => {
-            UpdateAtData { index: index.try_into().unwrap(), item: value }
-        })
-    }
-
-    pub fn remove_at(&self) -> Option<u32> {
-        match &self.0 {
-            VecDiff::RemoveAt { index } => Some((*index).try_into().unwrap()),
+    pub fn append(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::Append { values } => Some(values),
             _ => None,
         }
     }
 
-    pub fn push(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
-        unwrap_or_clone_arc_into_variant!(self, .0, VecDiff::Push { value } => value)
+    pub fn insert(self: Arc<Self>) -> Option<InsertData> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::Insert { index, value } => {
+                Some(InsertData { index: index.try_into().unwrap(), item: value })
+            }
+            _ => None,
+        }
     }
-}
 
-// UniFFI currently chokes on the r#
-impl TimelineDiff {
-    pub fn r#move(&self) -> Option<MoveData> {
-        match &self.0 {
-            VecDiff::Move { old_index, new_index } => Some(MoveData {
-                old_index: (*old_index).try_into().unwrap(),
-                new_index: (*new_index).try_into().unwrap(),
-            }),
+    pub fn set(self: Arc<Self>) -> Option<SetData> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::Set { index, value } => {
+                Some(SetData { index: index.try_into().unwrap(), item: value })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn remove(&self) -> Option<u32> {
+        match self {
+            Self::Remove { index } => Some((*index).try_into().unwrap()),
+            _ => None,
+        }
+    }
+
+    pub fn push_back(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::PushBack { value } => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn push_front(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::PushFront { value } => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn reset(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
+        let this = unwrap_or_clone_arc(self);
+        match this {
+            Self::Reset { values } => Some(values),
             _ => None,
         }
     }
 }
 
 #[derive(uniffi::Record)]
-pub struct InsertAtData {
+pub struct InsertData {
     pub index: u32,
     pub item: Arc<TimelineItem>,
 }
 
 #[derive(uniffi::Record)]
-pub struct UpdateAtData {
+pub struct SetData {
     pub index: u32,
     pub item: Arc<TimelineItem>,
 }
@@ -122,22 +162,24 @@ pub struct MoveData {
 
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum TimelineChange {
-    Replace,
-    InsertAt,
-    UpdateAt,
-    RemoveAt,
-    Move,
-    Push,
-    Pop,
+    Append,
     Clear,
+    Insert,
+    Set,
+    Remove,
+    PushBack,
+    PushFront,
+    PopBack,
+    PopFront,
+    Reset,
 }
 
 #[repr(transparent)]
-#[derive(Clone, uniffi::Object)]
+#[derive(Clone)]
 pub struct TimelineItem(matrix_sdk::room::timeline::TimelineItem);
 
 impl TimelineItem {
-    fn from_arc(arc: Arc<matrix_sdk::room::timeline::TimelineItem>) -> Arc<Self> {
+    pub(crate) fn from_arc(arc: Arc<matrix_sdk::room::timeline::TimelineItem>) -> Arc<Self> {
         // SAFETY: This is valid because Self is a repr(transparent) wrapper
         //         around the other Timeline type.
         unsafe { Arc::from_raw(Arc::into_raw(arc) as _) }

@@ -183,7 +183,7 @@ impl SlidingSyncRoom {
     /// this `SlidingSyncRoom`.
     #[instrument(skip_all, parent = &self.client.root_span)]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.timeline_builder()?.build().await.latest_event()
+        self.timeline_builder()?.build().await.latest_event().await
     }
 
     /// This rooms name as calculated by the server, if any
