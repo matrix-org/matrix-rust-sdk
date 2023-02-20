@@ -434,6 +434,13 @@ impl Message {
                     info: c.info.as_deref().map(Into::into),
                 },
             }),
+            MTy::Audio(c) => Some(MessageType::Audio {
+                content: AudioMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            }),
             MTy::Video(c) => Some(MessageType::Video {
                 content: VideoMessageContent {
                     body: c.body.clone(),
@@ -482,6 +489,7 @@ impl Message {
 pub enum MessageType {
     Emote { content: EmoteMessageContent },
     Image { content: ImageMessageContent },
+    Audio { content: AudioMessageContent },
     Video { content: VideoMessageContent },
     File { content: FileMessageContent },
     Notice { content: NoticeMessageContent },
@@ -499,6 +507,13 @@ pub struct ImageMessageContent {
     pub body: String,
     pub source: Arc<MediaSource>,
     pub info: Option<ImageInfo>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct AudioMessageContent {
+    pub body: String,
+    pub source: Arc<MediaSource>,
+    pub info: Option<AudioInfo>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -524,6 +539,12 @@ pub struct ImageInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct AudioInfo {
+    pub duration: Option<u64>,
+    pub size: Option<u64>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -608,6 +629,12 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
             thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
             blurhash: info.blurhash.clone(),
         }
+    }
+}
+
+impl From<&matrix_sdk::ruma::events::room::message::AudioInfo> for AudioInfo {
+    fn from(info: &matrix_sdk::ruma::events::room::message::AudioInfo) -> Self {
+        Self { duration: info.duration.map(|d| d.as_secs()), size: info.size.map(Into::into) }
     }
 }
 
