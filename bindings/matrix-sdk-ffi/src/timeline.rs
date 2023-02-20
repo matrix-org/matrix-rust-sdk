@@ -543,6 +543,7 @@ pub struct ImageInfo {
 
 #[derive(Clone, uniffi::Record)]
 pub struct AudioInfo {
+    // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support for that
     pub duration: Option<u64>,
     pub size: Option<u64>,
 }
@@ -634,7 +635,7 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
 
 impl From<&matrix_sdk::ruma::events::room::message::AudioInfo> for AudioInfo {
     fn from(info: &matrix_sdk::ruma::events::room::message::AudioInfo) -> Self {
-        Self { duration: info.duration.map(|d| d.as_secs()), size: info.size.map(Into::into) }
+        Self { duration: info.duration.map(|d| d.as_millis()), size: info.size.map(Into::into) }
     }
 }
 
