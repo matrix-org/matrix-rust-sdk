@@ -3034,7 +3034,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "dashmap",
- "derive_builder",
  "fs_extra",
  "futures-core",
  "futures-util",
