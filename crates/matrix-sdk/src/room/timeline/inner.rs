@@ -20,7 +20,7 @@ use std::{
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
 use im::Vector;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use matrix_sdk_base::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
@@ -109,11 +109,25 @@ impl<P: ProfileProvider> TimelineInner<P> {
             return;
         }
 
-        debug!("Adding {} initial events", events.len());
+        // Temporary workaround for duplicate events from sliding sync that are
+        // somehow bypassing both the duplication filtering in sliding sync and
+        // in the timeline event handler.
+        let num_events_before = events.len();
+        let mut map = IndexMap::new();
+        for event in events {
+            let event_id = event.event_id();
+            map.shift_remove(&event_id);
+            map.insert(event.event_id(), event);
+        }
+        if num_events_before != map.len() {
+            debug!(num_events_before, num_events_after = map.len(), "Deduplicated events");
+        }
+
+        debug!("Adding {} initial events", map.len());
 
         let state = self.state.get_mut();
 
-        for event in events {
+        for event in map.into_values() {
             handle_remote_event(
                 event.event,
                 event.encryption_info,
