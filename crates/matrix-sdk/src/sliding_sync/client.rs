@@ -2,13 +2,13 @@ use matrix_sdk_base::sync::SyncResponse;
 use ruma::api::client::sync::sync_events::v4;
 use tracing::{debug, instrument};
 
-use super::SlidingSyncBuilder;
+use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result};
 
 impl Client {
-    /// Create a SlidingSyncBuilder tied to this client
+    /// Create a [`SlidingSyncBuilder`] tied to this client.
     pub async fn sliding_sync(&self) -> SlidingSyncBuilder {
-        SlidingSyncBuilder::default().client(self.clone())
+        SlidingSync::builder().client(self.clone())
     }
 
     #[instrument(skip(self, response))]

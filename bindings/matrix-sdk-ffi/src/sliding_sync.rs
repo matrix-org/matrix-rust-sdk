@@ -354,7 +354,8 @@ pub trait SlidingSyncViewRoomsCountObserver: Sync + Send {
 pub trait SlidingSyncViewStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
-#[derive(Clone, Default)]
+
+#[derive(Clone)]
 pub struct SlidingSyncViewBuilder {
     inner: matrix_sdk::SlidingSyncViewBuilder,
 }
@@ -396,7 +397,7 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
 
 impl SlidingSyncViewBuilder {
     pub fn new() -> Self {
-        Default::default()
+        Self { inner: matrix_sdk::SlidingSyncView::builder() }
     }
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {

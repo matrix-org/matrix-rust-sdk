@@ -82,7 +82,7 @@ mod tests {
             events::room::message::RoomMessageEventContent, UInt,
         },
         test_utils::force_sliding_sync_pos,
-        SlidingSyncMode, SlidingSyncState, SlidingSyncViewBuilder,
+        SlidingSyncMode, SlidingSyncState, SlidingSyncView,
     };
 
     use super::*;
@@ -109,7 +109,7 @@ mod tests {
             let sync = sync_builder
                 .clone()
                 .add_view(
-                    SlidingSyncViewBuilder::default()
+                    SlidingSyncView::builder()
                         .sync_mode(SlidingSyncMode::Selective)
                         .add_range(0u32, 1)
                         .timeline_limit(0u32)
@@ -170,7 +170,7 @@ mod tests {
         let sync = sync_builder
             .clone()
             .add_view(
-                SlidingSyncViewBuilder::default()
+                SlidingSyncView::builder()
                     .sync_mode(SlidingSyncMode::Selective)
                     .name("visible_rooms_view")
                     .add_range(0u32, 1)
@@ -329,7 +329,7 @@ mod tests {
 
         let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         let build_view = |name| {
-            SlidingSyncViewBuilder::default()
+            SlidingSyncView::builder()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(0u32, 10u32)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -415,7 +415,7 @@ mod tests {
 
         let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         let build_view = |name| {
-            SlidingSyncViewBuilder::default()
+            SlidingSyncView::builder()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(0u32, 10u32)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -526,14 +526,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn view_goes_live() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(21).await?;
-        let sliding_window_view = SlidingSyncViewBuilder::default()
+        let sliding_window_view = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
 
-        let full = SlidingSyncViewBuilder::default()
+        let full = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -574,7 +574,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn resizing_sliding_window() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-        let sliding_window_view = SlidingSyncViewBuilder::default()
+        let sliding_window_view = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -678,7 +678,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
         let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-        let sliding_window_view = SlidingSyncViewBuilder::default()
+        let sliding_window_view = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(1u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -828,13 +828,13 @@ mod tests {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(500).await?;
         print!("setup took its time");
         let build_views = || {
-            let sliding_window_view = SlidingSyncViewBuilder::default()
+            let sliding_window_view = SlidingSyncView::builder()
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(1u32, 10u32)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name("sliding")
                 .build()?;
-            let growing_sync = SlidingSyncViewBuilder::default()
+            let growing_sync = SlidingSyncView::builder()
                 .sync_mode(SlidingSyncMode::GrowingFullSync)
                 .limit(100)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -892,7 +892,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn growing_sync_keeps_going() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
-        let growing_sync = SlidingSyncViewBuilder::default()
+        let growing_sync = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -944,7 +944,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
-        let growing_sync = SlidingSyncViewBuilder::default()
+        let growing_sync = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -1004,7 +1004,7 @@ mod tests {
     async fn continue_on_reset() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
         print!("setup took its time");
-        let growing_sync = SlidingSyncViewBuilder::default()
+        let growing_sync = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -1086,7 +1086,7 @@ mod tests {
     async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
         let (client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
         print!("setup took its time");
-        let growing_sync = SlidingSyncViewBuilder::default()
+        let growing_sync = SlidingSyncView::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
             .limit(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -1165,7 +1165,7 @@ mod tests {
 
         let sync_proxy = sync_proxy_builder
             .add_view(
-                SlidingSyncViewBuilder::default()
+                SlidingSyncView::builder()
                     .sync_mode(SlidingSyncMode::Selective)
                     .set_range(0u32, 2u32)
                     .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])

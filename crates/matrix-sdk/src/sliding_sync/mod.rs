@@ -612,8 +612,8 @@
 //! [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
 //! [future-signals-tutorial]: https://docs.rs/futures-signals/latest/futures_signals/tutorial/index.html
 
+mod builder;
 mod client;
-mod config;
 mod room;
 mod view;
 
@@ -628,8 +628,8 @@ use std::{
     time::Duration,
 };
 
+pub use builder::*;
 pub use client::*;
-pub use config::*;
 use futures_core::stream::Stream;
 use futures_signals::signal::Mutable;
 pub use room::*;
@@ -659,9 +659,10 @@ pub enum Error {
     /// `sync`-restart might be required.
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
-    /// The builder couldn't build `SlidingSync`
-    #[error("Builder went wrong: {0}")]
-    SlidingSyncBuilder(#[from] SlidingSyncBuilderError),
+    /// Called `.build()` on a builder type, but the given required field was
+    /// missing.
+    #[error("Required field missing: `{0}`")]
+    BuildMissingField(&'static str),
 }
 
 /// The state the [`SlidingSyncView`] is in.
@@ -840,10 +841,15 @@ impl SlidingSync {
         Ok(())
     }
 
+    /// Create a new [`SlidingSyncBuilder`].
+    pub fn builder() -> SlidingSyncBuilder {
+        SlidingSyncBuilder::new()
+    }
+
     /// Generate a new SlidingSyncBuilder with the same inner settings and views
     /// but without the current state
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
-        let mut builder = SlidingSyncBuilder::default()
+        let mut builder = Self::builder()
             .client(self.client.clone())
             .subscriptions(self.subscriptions.read().unwrap().to_owned());
         for view in self
@@ -1190,11 +1196,8 @@ mod test {
 
     #[tokio::test]
     async fn check_find_room_in_view() -> Result<()> {
-        let view = SlidingSyncViewBuilder::default()
-            .name("testview")
-            .add_range(0u32, 9u32)
-            .build()
-            .unwrap();
+        let view =
+            SlidingSyncView::builder().name("testview").add_range(0u32, 9u32).build().unwrap();
         let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
             "op": "SYNC",
             "range": [0, 9],
