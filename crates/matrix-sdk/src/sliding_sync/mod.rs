@@ -342,7 +342,7 @@
 //! the [`SlidingSync`][] will only process new data and skip the processing
 //! even across restarts.
 //!
-//! To support this, in practice one probably wants to wrap its `loop` in a
+//! To support this, in practice one should usually wrap its `loop` in a
 //! spawn with an atomic flag that tells it to stop, which one can set upon
 //! restart. Something along the lines of:
 //!
