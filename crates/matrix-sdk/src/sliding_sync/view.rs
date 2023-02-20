@@ -9,8 +9,8 @@ use std::{
 
 use derive_builder::Builder;
 use futures_signals::{
-    signal::Mutable,
-    signal_vec::{MutableVec, MutableVecLockMut},
+    signal::{Mutable, MutableSignalCloned, SignalExt, SignalStream},
+    signal_vec::{MutableSignalVec, MutableVec, MutableVecLockMut, SignalVecExt, SignalVecStream},
 };
 use ruma::{
     api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, RoomId, UInt,
@@ -83,15 +83,15 @@ pub struct SlidingSyncView {
 
     /// The state this view is in
     #[builder(private, default)]
-    pub state: Mutable<SlidingSyncState>,
+    state: Mutable<SlidingSyncState>,
 
     /// The total known number of rooms,
     #[builder(private, default)]
-    pub rooms_count: Mutable<Option<u32>>,
+    rooms_count: Mutable<Option<u32>>,
 
     /// The rooms in order
     #[builder(private, default)]
-    pub rooms_list: Arc<MutableVec<RoomListEntry>>,
+    rooms_list: Arc<MutableVec<RoomListEntry>>,
 
     /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
@@ -158,6 +158,242 @@ impl SlidingSyncView {
         self.is_cold.store(true, Ordering::SeqCst);
         self.rooms_count.replace(rooms_count);
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
+    }
+
+    /// Return a builder with the same settings as before
+    pub fn new_builder(&self) -> SlidingSyncViewBuilder {
+        SlidingSyncViewBuilder::default()
+            .name(&self.name)
+            .sync_mode(self.sync_mode.clone())
+            .sort(self.sort.clone())
+            .required_state(self.required_state.clone())
+            .batch_size(self.batch_size)
+            .ranges(self.ranges.read_only().get_cloned())
+    }
+
+    /// Set the ranges to fetch
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
+        *self.ranges.lock_mut() = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        self
+    }
+
+    /// Reset the ranges to a particular set
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn set_range(&self, start: u32, end: u32) -> &Self {
+        *self.ranges.lock_mut() = vec![(start.into(), end.into())];
+        self
+    }
+
+    /// Set the ranges to fetch
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn add_range(&self, start: u32, end: u32) -> &Self {
+        self.ranges.lock_mut().push((start.into(), end.into()));
+        self
+    }
+
+    /// Set the ranges to fetch
+    ///
+    /// Note: sending an empty list of ranges is, according to the spec, to be
+    /// understood that the consumer doesn't care about changes of the room
+    /// order but you will only receive updates when for rooms entering or
+    /// leaving the set.
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn reset_ranges(&self) -> &Self {
+        self.ranges.lock_mut().clear();
+        self
+    }
+
+    /// Get the current state.
+    pub fn state(&self) -> SlidingSyncState {
+        self.state.get_cloned()
+    }
+
+    /// Get a stream of state.
+    pub fn state_stream(&self) -> SignalStream<MutableSignalCloned<SlidingSyncState>> {
+        self.state.signal_cloned().to_stream()
+    }
+
+    /// Get the current rooms list.
+    pub fn rooms_list<R>(&self) -> Vec<R>
+    where
+        R: for<'a> From<&'a RoomListEntry>,
+    {
+        self.rooms_list.lock_ref().iter().map(|e| R::from(e)).collect()
+    }
+
+    /// Get a stream of rooms list.
+    pub fn rooms_list_stream(&self) -> SignalVecStream<MutableSignalVec<RoomListEntry>> {
+        self.rooms_list.signal_vec_cloned().to_stream()
+    }
+
+    /// Get the current rooms count.
+    pub fn rooms_count(&self) -> Option<u32> {
+        self.rooms_count.get_cloned()
+    }
+
+    /// Get a stream of rooms count.
+    pub fn rooms_count_stream(&self) -> SignalStream<MutableSignalCloned<Option<u32>>> {
+        self.rooms_count.signal_cloned().to_stream()
+    }
+
+    /// Find the current valid position of the room in the view room_list.
+    ///
+    /// Only matches against the current ranges and only against filled items.
+    /// Invalid items are ignore. Return the total position the item was
+    /// found in the room_list, return None otherwise.
+    pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
+        let ranges = self.ranges.lock_ref();
+        let listing = self.rooms_list.lock_ref();
+        for (start_uint, end_uint) in ranges.iter() {
+            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let end: usize = (*end_uint).try_into().unwrap();
+            let iterator = listing.iter().skip(cur_pos);
+            for n in iterator {
+                if let RoomListEntry::Filled(r) = n {
+                    if room_id == r {
+                        return Some(cur_pos);
+                    }
+                }
+                if cur_pos == end {
+                    break;
+                }
+                cur_pos += 1;
+            }
+        }
+        None
+    }
+
+    /// Find the current valid position of the rooms in the views room_list.
+    ///
+    /// Only matches against the current ranges and only against filled items.
+    /// Invalid items are ignore. Return the total position the items that were
+    /// found in the room_list, will skip any room not found in the rooms_list.
+    pub fn find_rooms_in_view(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
+        let ranges = self.ranges.lock_ref();
+        let listing = self.rooms_list.lock_ref();
+        let mut rooms_found = Vec::new();
+        for (start_uint, end_uint) in ranges.iter() {
+            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let end: usize = (*end_uint).try_into().unwrap();
+            let iterator = listing.iter().skip(cur_pos);
+            for n in iterator {
+                if let RoomListEntry::Filled(r) = n {
+                    if room_ids.contains(r) {
+                        rooms_found.push((cur_pos, r.clone()));
+                    }
+                }
+                if cur_pos == end {
+                    break;
+                }
+                cur_pos += 1;
+            }
+        }
+        rooms_found
+    }
+
+    /// Return the room_id at the given index
+    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
+        self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
+    }
+
+    #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
+    pub(super) fn handle_response(
+        &self,
+        rooms_count: u32,
+        ops: &Vec<v4::SyncOp>,
+        ranges: &Vec<(usize, usize)>,
+        rooms: &Vec<OwnedRoomId>,
+    ) -> Result<bool, Error> {
+        let current_rooms_count = self.rooms_count.get();
+        if current_rooms_count.is_none()
+            || current_rooms_count == Some(0)
+            || self.is_cold.load(Ordering::SeqCst)
+        {
+            debug!("first run, replacing rooms list");
+            // first response, we do that slightly differently
+            let rooms_list =
+                MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
+            // then we apply it
+            let mut locked = rooms_list.lock_mut();
+            room_ops(&mut locked, ops, ranges)?;
+            self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
+            self.rooms_count.set(Some(rooms_count));
+            self.is_cold.store(false, Ordering::SeqCst);
+            return Ok(true);
+        }
+
+        debug!("regular update");
+        let mut missing =
+            rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
+        let mut changed = false;
+        if missing > 0 {
+            let mut list = self.rooms_list.lock_mut();
+            list.reserve_exact(missing as usize);
+            while missing > 0 {
+                list.push_cloned(RoomListEntry::Empty);
+                missing -= 1;
+            }
+            changed = true;
+        }
+
+        {
+            // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
+            let mut rooms_list = self.rooms_list.lock_mut();
+
+            if !ops.is_empty() {
+                room_ops(&mut rooms_list, ops, ranges)?;
+                changed = true;
+            } else {
+                debug!("no rooms operations found");
+            }
+        }
+
+        if self.rooms_count.get() != Some(rooms_count) {
+            self.rooms_count.set(Some(rooms_count));
+            changed = true;
+        }
+
+        if self.send_updates_for_items && !rooms.is_empty() {
+            let found_views = self.find_rooms_in_view(rooms);
+            if !found_views.is_empty() {
+                debug!("room details found");
+                let mut rooms_list = self.rooms_list.lock_mut();
+                for (pos, room_id) in found_views {
+                    // trigger an `UpdatedAt` update
+                    rooms_list.set_cloned(pos, RoomListEntry::Filled(room_id));
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            if let Err(e) = self.rooms_updated_signal.send(()) {
+                warn!("Could not inform about rooms updated: {:?}", e);
+            }
+        }
+
+        Ok(changed)
+    }
+
+    pub(super) fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
+        match &self.sync_mode {
+            SlidingSyncMode::PagingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
+            }
+            SlidingSyncMode::GrowingFullSync => {
+                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
+            }
+            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
+        }
     }
 }
 
@@ -579,209 +815,4 @@ fn room_ops(
     }
 
     Ok(())
-}
-
-impl SlidingSyncView {
-    /// Return a builder with the same settings as before
-    pub fn new_builder(&self) -> SlidingSyncViewBuilder {
-        SlidingSyncViewBuilder::default()
-            .name(&self.name)
-            .sync_mode(self.sync_mode.clone())
-            .sort(self.sort.clone())
-            .required_state(self.required_state.clone())
-            .batch_size(self.batch_size)
-            .ranges(self.ranges.read_only().get_cloned())
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
-        *self.ranges.lock_mut() = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
-        self
-    }
-
-    /// Reset the ranges to a particular set
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> &Self {
-        *self.ranges.lock_mut() = vec![(start.into(), end.into())];
-        self
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> &Self {
-        self.ranges.lock_mut().push((start.into(), end.into()));
-        self
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Note: sending an empty list of ranges is, according to the spec, to be
-    /// understood that the consumer doesn't care about changes of the room
-    /// order but you will only receive updates when for rooms entering or
-    /// leaving the set.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn reset_ranges(&self) -> &Self {
-        self.ranges.lock_mut().clear();
-        self
-    }
-
-    /// Find the current valid position of the room in the view room_list.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the item was
-    /// found in the room_list, return None otherwise.
-    pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
-        let ranges = self.ranges.lock_ref();
-        let listing = self.rooms_list.lock_ref();
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let iterator = listing.iter().skip(cur_pos);
-            for n in iterator {
-                if let RoomListEntry::Filled(r) = n {
-                    if room_id == r {
-                        return Some(cur_pos);
-                    }
-                }
-                if cur_pos == end {
-                    break;
-                }
-                cur_pos += 1;
-            }
-        }
-        None
-    }
-
-    /// Find the current valid position of the rooms in the views room_list.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the items that were
-    /// found in the room_list, will skip any room not found in the rooms_list.
-    pub fn find_rooms_in_view(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
-        let ranges = self.ranges.lock_ref();
-        let listing = self.rooms_list.lock_ref();
-        let mut rooms_found = Vec::new();
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let iterator = listing.iter().skip(cur_pos);
-            for n in iterator {
-                if let RoomListEntry::Filled(r) = n {
-                    if room_ids.contains(r) {
-                        rooms_found.push((cur_pos, r.clone()));
-                    }
-                }
-                if cur_pos == end {
-                    break;
-                }
-                cur_pos += 1;
-            }
-        }
-        rooms_found
-    }
-
-    /// Return the room_id at the given index
-    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
-    }
-
-    #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
-    pub(super) fn handle_response(
-        &self,
-        rooms_count: u32,
-        ops: &Vec<v4::SyncOp>,
-        ranges: &Vec<(usize, usize)>,
-        rooms: &Vec<OwnedRoomId>,
-    ) -> Result<bool, Error> {
-        let current_rooms_count = self.rooms_count.get();
-        if current_rooms_count.is_none()
-            || current_rooms_count == Some(0)
-            || self.is_cold.load(Ordering::SeqCst)
-        {
-            debug!("first run, replacing rooms list");
-            // first response, we do that slightly differently
-            let rooms_list =
-                MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
-            // then we apply it
-            let mut locked = rooms_list.lock_mut();
-            room_ops(&mut locked, ops, ranges)?;
-            self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
-            self.rooms_count.set(Some(rooms_count));
-            self.is_cold.store(false, Ordering::SeqCst);
-            return Ok(true);
-        }
-
-        debug!("regular update");
-        let mut missing =
-            rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
-        let mut changed = false;
-        if missing > 0 {
-            let mut list = self.rooms_list.lock_mut();
-            list.reserve_exact(missing as usize);
-            while missing > 0 {
-                list.push_cloned(RoomListEntry::Empty);
-                missing -= 1;
-            }
-            changed = true;
-        }
-
-        {
-            // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
-            let mut rooms_list = self.rooms_list.lock_mut();
-
-            if !ops.is_empty() {
-                room_ops(&mut rooms_list, ops, ranges)?;
-                changed = true;
-            } else {
-                debug!("no rooms operations found");
-            }
-        }
-
-        if self.rooms_count.get() != Some(rooms_count) {
-            self.rooms_count.set(Some(rooms_count));
-            changed = true;
-        }
-
-        if self.send_updates_for_items && !rooms.is_empty() {
-            let found_views = self.find_rooms_in_view(rooms);
-            if !found_views.is_empty() {
-                debug!("room details found");
-                let mut rooms_list = self.rooms_list.lock_mut();
-                for (pos, room_id) in found_views {
-                    // trigger an `UpdatedAt` update
-                    rooms_list.set_cloned(pos, RoomListEntry::Filled(room_id));
-                    changed = true;
-                }
-            }
-        }
-
-        if changed {
-            if let Err(e) = self.rooms_updated_signal.send(()) {
-                warn!("Could not inform about rooms updated: {:?}", e);
-            }
-        }
-
-        Ok(changed)
-    }
-
-    pub(super) fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
-        match &self.sync_mode {
-            SlidingSyncMode::PagingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
-            }
-            SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
-            }
-            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
-        }
-    }
 }
