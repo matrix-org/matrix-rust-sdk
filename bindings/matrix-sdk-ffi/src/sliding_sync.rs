@@ -4,10 +4,7 @@ use std::sync::{
 };
 
 use anyhow::Context;
-use futures_signals::{
-    signal::SignalExt,
-    signal_vec::{SignalVecExt, VecDiff},
-};
+use futures_signals::{signal::SignalExt, signal_vec::VecDiff};
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
@@ -28,7 +25,7 @@ use url::Url;
 use super::{Client, Room, RUNTIME};
 use crate::{
     helpers::unwrap_or_clone_arc, room::TimelineLock, EventTimelineItem, TimelineDiff,
-    TimelineListener,
+    TimelineItem, TimelineListener,
 };
 
 type StoppableSpawnCallback = Box<dyn FnOnce() + Send + Sync>;
@@ -167,27 +164,28 @@ impl SlidingSyncRoom {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> anyhow::Result<Arc<StoppableSpawn>> {
-        Ok(Arc::new(self.add_timeline_listener_inner(listener)?))
+    ) -> anyhow::Result<SlidingSyncSubscribeResult> {
+        let (items, stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
+        Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
     pub fn subscribe_and_add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
         settings: Option<RoomSubscription>,
-    ) -> anyhow::Result<Arc<StoppableSpawn>> {
-        let mut spawner = self.add_timeline_listener_inner(listener)?;
+    ) -> anyhow::Result<SlidingSyncSubscribeResult> {
+        let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
         self.runner.subscribe(room_id.clone(), settings.map(Into::into));
         let runner = self.runner.clone();
-        spawner.set_callback(Box::new(move || runner.unsubscribe(room_id)));
-        Ok(Arc::new(spawner))
+        stoppable_spawn.set_callback(Box::new(move || runner.unsubscribe(room_id)));
+        Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
     fn add_timeline_listener_inner(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> anyhow::Result<StoppableSpawn> {
+    ) -> anyhow::Result<(Vec<Arc<TimelineItem>>, StoppableSpawn)> {
         let mut timeline_lock = self.timeline.write().unwrap();
         let timeline = match &*timeline_lock {
             Some(timeline) => timeline,
@@ -198,23 +196,30 @@ impl SlidingSyncRoom {
                 timeline_lock.insert(Arc::new(timeline))
             }
         };
-        let timeline_signal = timeline.signal();
 
-        let listener: Arc<dyn TimelineListener> = listener.into();
-        let handle_events = timeline_signal.for_each(move |diff| {
-            let listener = listener.clone();
-            let fut = RUNTIME
-                .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+        let (timeline_items, timeline_stream) =
+            RUNTIME.block_on(async { timeline.subscribe().await });
 
-            async move {
-                if let Err(e) = fut.await {
-                    error!("Timeline listener error: {e}");
-                }
-            }
-        });
+        let handle_events = async move {
+            let listener: Arc<dyn TimelineListener> = listener.into();
+            timeline_stream
+                .for_each(move |diff| {
+                    let listener = listener.clone();
+                    let fut = RUNTIME.spawn_blocking(move || {
+                        listener.on_update(Arc::new(TimelineDiff::new(diff)))
+                    });
+
+                    async move {
+                        if let Err(e) = fut.await {
+                            error!("Timeline listener error: {e}");
+                        }
+                    }
+                })
+                .await;
+        };
 
         let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
-        let timeline = timeline.clone();
+        let timeline = timeline.to_owned();
         let handle_sliding_sync_reset = async move {
             loop {
                 match reset_broadcast_rx.recv().await {
@@ -224,10 +229,17 @@ impl SlidingSyncRoom {
             }
         };
 
-        Ok(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
+        let task_handle = StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
-        })))
+        }));
+        Ok((items, task_handle))
     }
+}
+
+pub struct SlidingSyncSubscribeResult {
+    pub items: Vec<Arc<TimelineItem>>,
+    pub task_handle: Arc<StoppableSpawn>,
 }
 
 pub struct UpdateSummary {

@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
-use futures_signals::signal_vec::{SignalVecExt, VecDiff};
+use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
@@ -50,7 +50,7 @@ async fn edit() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -69,10 +69,14 @@ async fn edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let first =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
     let msg = assert_matches!(
         first.as_event().unwrap().content(),
         TimelineItemContent::Message(msg) => msg
@@ -119,8 +123,7 @@ async fn edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let second =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = second.as_event().unwrap();
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert!(item.event_id().is_some());
@@ -134,7 +137,7 @@ async fn edit() {
 
     let edit = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 1, value }) => value
+        Some(VectorDiff::Set { index: 1, value }) => value
     );
     let edited = assert_matches!(
         edit.as_event().unwrap().content(),
@@ -161,7 +164,7 @@ async fn echo() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
@@ -183,10 +186,8 @@ async fn echo() {
             .await
     });
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let local_echo =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = local_echo.as_event().unwrap().as_local().unwrap();
     assert_matches!(&item.send_state, EventSendState::NotSentYet);
 
@@ -199,7 +200,7 @@ async fn echo() {
 
     let sent_confirmation = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 1, value }) => value
+        Some(VectorDiff::Set { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
     assert_matches!(&item.send_state, EventSendState::Sent { .. });
@@ -223,18 +224,22 @@ async fn echo() {
     server.reset().await;
 
     // Local echo is removed
-    assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 1 }));
     // Local echo day divider is removed
-    assert_matches!(timeline_stream.next().await, Some(VecDiff::Pop { .. }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
 
     // New day divider is added
-    let new_item =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let new_item = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
     assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     // Remote echo is added
-    let remote_echo =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let remote_echo = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
     let item = remote_echo.as_event().unwrap().as_remote().unwrap();
     assert!(item.is_own);
     assert_eq!(item.timestamp, MilliSecondsSinceUnixEpoch(uint!(152038280)));
@@ -255,7 +260,7 @@ async fn back_pagination() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -271,19 +276,19 @@ async fn back_pagination() {
 
     let loading = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::Push { value }) => value
+        Some(VectorDiff::PushFront { value }) => value
     );
     assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
 
     let day_divider = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::Push { value }) => value
+        Some(VectorDiff::Insert { index: 1, value }) => value
     );
     assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider(_));
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::Push { value }) => value
+        Some(VectorDiff::Insert { index: 2, value }) => value
     );
     let msg = assert_matches!(
         message.as_event().unwrap().content(),
@@ -294,7 +299,7 @@ async fn back_pagination() {
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 2, value }) => value
+        Some(VectorDiff::Insert { index: 2, value }) => value
     );
     let msg = assert_matches!(
         message.as_event().unwrap().content(),
@@ -305,7 +310,7 @@ async fn back_pagination() {
 
     let message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 2, value }) => value
+        Some(VectorDiff::Insert { index: 2, value }) => value
     );
     let state = assert_matches!(
         message.as_event().unwrap().content(),
@@ -322,7 +327,7 @@ async fn back_pagination() {
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
     // Removal of the loading indicator
-    assert_matches!(timeline_stream.next().await, Some(VecDiff::RemoveAt { index: 0 }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::PopFront));
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -342,13 +347,13 @@ async fn back_pagination() {
 
     let loading = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::InsertAt { index: 0, value }) => value
+        Some(VectorDiff::PushFront { value }) => value
     );
     assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
 
     let loading = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 0, value }) => value
+        Some(VectorDiff::Set { index: 0, value }) => value
     );
     assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::TimelineStart);
 }
@@ -368,7 +373,7 @@ async fn reaction() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -401,15 +406,19 @@ async fn reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let message =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let message = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 1, value }) => value
+        Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
     let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
@@ -439,7 +448,7 @@ async fn reaction() {
 
     let updated_message = assert_matches!(
         timeline_stream.next().await,
-        Some(VecDiff::UpdateAt { index: 1, value }) => value
+        Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
     let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
@@ -462,7 +471,7 @@ async fn redacted_message() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -497,10 +506,14 @@ async fn redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let first =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
     // TODO: After adding raw timeline items, check for one here
@@ -521,7 +534,7 @@ async fn read_marker() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -540,10 +553,8 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let message =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let message = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
     ev_builder.add_joined_room(
@@ -554,8 +565,10 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let marker =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let marker = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 2, value }) => value
+    );
     assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
 }
 
@@ -574,7 +587,7 @@ async fn in_reply_to_details() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let mut timeline_stream = timeline.signal().to_stream();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // The event doesn't exist.
     assert_matches!(
@@ -615,13 +628,10 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
-    let first =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let first = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
-    let second =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let second_event = second.as_event().unwrap().as_remote().unwrap();
     let message =
         assert_matches!(&second_event.content, TimelineItemContent::Message(message) => message);
@@ -632,7 +642,7 @@ async fn in_reply_to_details() {
     // Fetch details locally first.
     timeline.fetch_event_details(&second_event.event_id).await.unwrap();
 
-    let second = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 2, value }) => value);
+    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
     let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Ready(_));
 
@@ -658,8 +668,7 @@ async fn in_reply_to_details() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let third =
-        assert_matches!(timeline_stream.next().await, Some(VecDiff::Push { value }) => value);
+    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let third_event = third.as_event().unwrap().as_remote().unwrap();
     let message =
         assert_matches!(&third_event.content, TimelineItemContent::Message(message) => message);
@@ -682,11 +691,11 @@ async fn in_reply_to_details() {
     timeline.fetch_event_details(&third_event.event_id).await.unwrap();
     server.reset().await;
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Pending);
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Error(_));
 
@@ -710,11 +719,11 @@ async fn in_reply_to_details() {
 
     timeline.fetch_event_details(&third_event.event_id).await.unwrap();
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Pending);
 
-    let third = assert_matches!(timeline_stream.next().await, Some(VecDiff::UpdateAt { index: 3, value }) => value);
+    let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().details, TimelineDetails::Ready(_));
 }

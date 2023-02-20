@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use futures_signals::signal_vec::VecDiff;
+use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -19,11 +19,12 @@ use crate::room::timeline::TimelineItemContent;
 #[async_test]
 async fn invalid_edit() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.stream();
+    let mut stream = timeline.subscribe().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
-    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event = item.as_event().unwrap().as_remote().unwrap();
     let msg = event.content.as_message().unwrap();
     assert_eq!(msg.body(), "test");
@@ -41,13 +42,13 @@ async fn invalid_edit() {
 
     // Can't easily test the non-arrival of an item using the stream. Instead
     // just assert that there is still just a couple items in the timeline.
-    assert_eq!(timeline.inner.items().len(), 2);
+    assert_eq!(timeline.inner.items().await.len(), 2);
 }
 
 #[async_test]
 async fn invalid_event_content() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.stream();
+    let mut stream = timeline.subscribe().await;
 
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
@@ -61,8 +62,9 @@ async fn invalid_event_content() {
         }))
         .await;
 
-    let _day_divider = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event_item = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event_item.sender, "@alice:example.org");
     assert_eq!(event_item.event_id, event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned());
@@ -86,7 +88,7 @@ async fn invalid_event_content() {
         }))
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VecDiff::Push { value }) => value);
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event_item = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event_item.sender, "@alice:example.org");
     assert_eq!(event_item.event_id, event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned());
@@ -120,5 +122,5 @@ async fn invalid_event() {
             "type": "m.room.message",
         }))
         .await;
-    assert_eq!(timeline.inner.items().len(), 0);
+    assert_eq!(timeline.inner.items().await.len(), 0);
 }

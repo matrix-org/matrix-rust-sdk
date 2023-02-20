@@ -3,11 +3,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use eyeball_im::VectorDiff;
 use futures::{pin_mut, StreamExt};
-use futures_signals::{
-    signal::Mutable,
-    signal_vec::{MutableVec, VecDiff},
-};
+use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use matrix_sdk::{
     room::timeline::{Timeline, TimelineItem},
     ruma::{OwnedRoomId, RoomId},
@@ -71,34 +69,48 @@ impl SlidingSyncState {
             let room_timeline = self.room_timeline.clone();
             let handle = tokio::spawn(async move {
                 let timeline = room.timeline().await.unwrap();
-                let listener = timeline.stream();
+                let (items, listener) = timeline.subscribe().await;
                 *room_timeline.lock_mut() = Some(timeline);
+                current_timeline.lock_mut().replace_cloned(items.into_iter().collect());
                 pin_mut!(listener);
                 while let Some(diff) = listener.next().await {
                     match diff {
-                        VecDiff::Clear {} => {
+                        VectorDiff::Append { values } => {
+                            let mut lock = current_timeline.lock_mut();
+                            for v in values {
+                                lock.push_cloned(v);
+                            }
+                        }
+                        VectorDiff::Clear => {
                             current_timeline.lock_mut().clear();
                         }
-                        VecDiff::InsertAt { index, value } => {
+                        VectorDiff::Insert { index, value } => {
                             current_timeline.lock_mut().insert_cloned(index, value);
                         }
-                        VecDiff::Move { old_index, new_index } => {
-                            current_timeline.lock_mut().move_from_to(old_index, new_index);
-                        }
-                        VecDiff::Pop {} => {
+                        VectorDiff::PopBack => {
                             current_timeline.lock_mut().pop();
                         }
-                        VecDiff::Push { value } => {
+                        VectorDiff::PopFront => {
+                            current_timeline.lock_mut().remove(0);
+                        }
+                        VectorDiff::PushBack { value } => {
                             current_timeline.lock_mut().push_cloned(value);
                         }
-                        VecDiff::RemoveAt { index } => {
+                        VectorDiff::PushFront { value } => {
+                            current_timeline.lock_mut().insert_cloned(0, value);
+                        }
+                        VectorDiff::Remove { index } => {
                             current_timeline.lock_mut().remove(index);
                         }
-                        VecDiff::Replace { values } => {
-                            current_timeline.lock_mut().replace_cloned(values);
-                        }
-                        VecDiff::UpdateAt { index, value } => {
+                        VectorDiff::Set { index, value } => {
                             current_timeline.lock_mut().set_cloned(index, value);
+                        }
+                        VectorDiff::Reset { values } => {
+                            let mut lock = current_timeline.lock_mut();
+                            lock.clear();
+                            for v in values {
+                                lock.push_cloned(v);
+                            }
                         }
                     }
                 }

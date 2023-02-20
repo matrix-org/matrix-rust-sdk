@@ -95,11 +95,11 @@ mod uniffi_types {
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
             EventTimelineItem, FileInfo, FileMessageContent, FormattedBody, ImageInfo,
-            ImageMessageContent, InsertAtData, MembershipChange, Message, MessageFormat,
-            MessageType, NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction,
+            ImageMessageContent, InsertData, MembershipChange, Message, MessageFormat, MessageType,
+            NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction, SetData,
             TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, UpdateAtData, VideoInfo,
-            VideoMessageContent, VirtualTimelineItem,
+            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
+            VirtualTimelineItem,
         },
     };
 }

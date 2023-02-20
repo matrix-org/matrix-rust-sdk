@@ -71,11 +71,13 @@ chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 derive_builder = { version = "0.11.2", optional = true }
 event-listener = "2.5.2"
+eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
 http = { workspace = true }
+im = "15.1.0"
 indexmap = "1.9.1"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
