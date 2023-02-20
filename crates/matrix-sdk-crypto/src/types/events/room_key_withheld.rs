@@ -33,7 +33,7 @@ pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;
 /// Devices that purposely do not send megolm keys to a device may instead send
 /// an m.room_key.withheld event as a to-device message to the device to
 /// indicate that it should not expect to receive keys for the message.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(try_from = "WithheldHelper")]
 pub enum RoomKeyWithheldContent {
     /// The `m.megolm.v1.aes-sha2` variant of the `m.room_key.withheld` content.
@@ -172,7 +172,7 @@ struct WithheldHelper {
 /// Devices that purposely do not send megolm keys to a device may instead send
 /// an m.room_key.withheld event as a to-device message to the device to
 /// indicate that it should not expect to receive keys for the message.
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct MegolmV1AesSha2WithheldContent {
     /// The room where the key is used.
     /// Required if code is not m.no_olm.

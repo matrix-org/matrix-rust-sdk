@@ -78,12 +78,14 @@ mod traits;
 #[macro_use]
 #[allow(missing_docs)]
 pub mod integration_tests;
+pub mod withheld;
 
 pub use error::{CryptoStoreError, Result};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
+use crate::store::withheld::DirectWithheldInfo;
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -118,6 +120,8 @@ pub struct Changes {
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
     pub no_olm_sent: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+    /// Stores when a `m.room_key.withheld` is received
+    pub withheld_session_info: Vec<DirectWithheldInfo>,
 }
 
 /// A user for which we are tracking the list of devices.

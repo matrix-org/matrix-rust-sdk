@@ -18,7 +18,10 @@ use thiserror::Error;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::store::CryptoStoreError;
-use crate::{olm::SessionExportError, types::SignedKey};
+use crate::{
+    olm::SessionExportError,
+    types::{events::room_key_withheld::WithheldCode, SignedKey},
+};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -86,7 +89,7 @@ pub enum MegolmError {
     /// Decryption failed because we're missing the room key that was to encrypt
     /// the event.
     #[error("Can't find the room key to decrypt the event")]
-    MissingRoomKey,
+    MissingRoomKey(Option<WithheldCode>),
 
     /// Decryption failed because of a mismatch between the identity keys of the
     /// device we received the room key from and the identity keys recorded in

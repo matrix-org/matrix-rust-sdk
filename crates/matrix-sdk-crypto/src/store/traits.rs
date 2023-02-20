@@ -24,6 +24,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         Session,
     },
+    store::withheld::DirectWithheldInfo,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -79,6 +80,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>, Self::Error>;
+
+    /// Get withheld info for this key.
+    /// Allows to know if the session was not sent on purpose.
+    /// This only returns withheld info sent by the owner of the group session,
+    /// not the one you can get from a response to a key request from
+    /// another of your device.
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<DirectWithheldInfo>>;
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;

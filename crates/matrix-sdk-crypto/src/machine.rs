@@ -66,7 +66,7 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
+        withheld::DirectWithheldInfo, Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
         Result as StoreResult, SecretImportError, Store,
     },
     types::{
@@ -77,6 +77,10 @@ use crate::{
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
+            room_key_withheld::{
+                MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
+                WithheldCode,
+            },
             ToDeviceEvents,
         },
         Signatures,
@@ -645,6 +649,48 @@ impl OlmMachine {
         }
     }
 
+    // help: What should I do regarding the #instrument?
+    async fn add_withheld_info(
+        &self,
+        event: &RoomKeyWithheldEvent,
+    ) -> OlmResult<Option<DirectWithheldInfo>> {
+        match &event.content {
+            RoomKeyWithheldContent::MegolmV1AesSha2(content) => {
+                self.handle_withheld_room_key(content).await
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(content) => {
+                // TODO
+                Ok(None)
+            }
+            RoomKeyWithheldContent::Unknown(_) => {
+                warn!("Received a room key withheld event with an unsupported algorithm");
+                Ok(None)
+            }
+        }
+    }
+
+    async fn handle_withheld_room_key(
+        &self,
+        content: &MegolmV1AesSha2WithheldContent,
+    ) -> OlmResult<Option<DirectWithheldInfo>> {
+        let code = content.code;
+        match code {
+            WithheldCode::NoOlm => {
+                // NoOlm is special as it's not attached to a room or session
+                // TODO
+                Ok(None)
+            }
+            _ => match DirectWithheldInfo::try_from(content) {
+                Ok(info) => Ok(Some(info)),
+                Err(m) => {
+                    warn!("Received a malformed room key withheld event: <{}>", m);
+                    Ok(None)
+                }
+            },
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn create_outbound_group_session_with_defaults(
         &self,
@@ -845,7 +891,7 @@ impl OlmMachine {
         self.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
         self.group_session_manager.mark_request_as_sent(request_id).await?;
         self.session_manager.mark_outgoing_request_as_sent(request_id);
-
+        // TODO handle withheld sent?
         Ok(())
     }
 
@@ -876,12 +922,18 @@ impl OlmMachine {
         self.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
-    async fn handle_to_device_event(&self, event: &ToDeviceEvents) {
+    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
             RoomKeyRequest(e) => self.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.key_request_machine.receive_incoming_secret_request(e),
+            RoomKeyWithheld(e) => {
+                let result = self.add_withheld_info(e).await;
+                if let Ok(Some(info)) = result {
+                    changes.withheld_session_info.push(info);
+                }
+            }
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
             | KeyVerificationKey(..)
@@ -982,7 +1034,7 @@ impl OlmMachine {
 
                 match decrypted.result.raw_event.deserialize_as() {
                     Ok(event) => {
-                        self.handle_to_device_event(&event).await;
+                        self.handle_to_device_event(changes, &event).await;
 
                         raw_event = event
                             .serialize_zeroized()
@@ -996,7 +1048,7 @@ impl OlmMachine {
                 }
             }
 
-            e => self.handle_to_device_event(&e).await,
+            e => self.handle_to_device_event(changes, &e).await,
         }
 
         Ok(raw_event)
@@ -1175,7 +1227,12 @@ impl OlmMachine {
 
             Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
-            Err(MegolmError::MissingRoomKey)
+            let withheld_info = self
+                .store
+                .get_withheld_info(room_id, &content.session_id())
+                .await?
+                .map(|i| i.withheld_code);
+            Err(MegolmError::MissingRoomKey(withheld_info))
         }
     }
 
@@ -1214,7 +1271,9 @@ impl OlmMachine {
 
         if let Err(e) = &result {
             match e {
-                MegolmError::MissingRoomKey
+                // Optimisation should we request if we received a withheld code?
+                // Maybe for some code there is no point
+                MegolmError::MissingRoomKey(_)
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
@@ -1649,6 +1708,7 @@ pub(crate) mod tests {
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
                 ToDeviceEvent,
             },
             DeviceKeys, SignedKey, SigningKeys,
@@ -2113,6 +2173,72 @@ pub(crate) mod tests {
             }
         } else {
             panic!("Decrypted room event has the wrong type")
+        }
+    }
+
+    #[async_test]
+    async fn test_withheld_unverified() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = room_id!("!test:example.org");
+
+        let encryption_settings = EncryptionSettings::default();
+        let encryption_settings =
+            EncryptionSettings { only_allow_trusted_devices: true, ..encryption_settings };
+
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)
+            .await
+            .unwrap();
+
+        // Here there will be only one request, and it's for a m.room_key.withheld
+
+        // Transform that into an event to feed it back to bob machine
+        let wh_content = to_device_requests[0]
+            .messages
+            .values()
+            .next()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .deserialize_as::<RoomKeyWithheldContent>()
+            .unwrap();
+
+        let event = ToDeviceEvent::new(alice.user_id().to_owned(), wh_content);
+
+        let event = json_convert(&event).unwrap();
+
+        bob.receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .await
+            .unwrap();
+
+        let plaintext = "You shouldn't be able to decrypt that message";
+
+        let content = RoomMessageEventContent::text_plain(plaintext);
+
+        let content = alice
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .await
+            .unwrap();
+
+        let room_event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": content,
+        });
+        let room_event = json_convert(&room_event).unwrap();
+
+        let decrypt_result = bob.decrypt_room_event(&room_event, room_id).await;
+
+        assert_matches!(decrypt_result, Err(MegolmError::MissingRoomKey(Some(_))));
+
+        let err = decrypt_result.err().unwrap();
+        if let MegolmError::MissingRoomKey(Some(code)) = err {
+            assert_eq!(WithheldCode::Unverified, code);
+        } else {
+            assert!(false);
         }
     }
 

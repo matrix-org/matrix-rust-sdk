@@ -15,7 +15,7 @@
 use std::{collections::HashMap, convert::Infallible, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
-use dashmap::{DashMap, DashSet};
+use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
@@ -29,6 +29,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
+    store::withheld::DirectWithheldInfo,
     TrackedUser,
 };
 
@@ -52,6 +53,7 @@ pub struct MemoryStore {
     outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
     no_olm_sent: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    direct_withheld_info: Arc<DashMap<String, DirectWithheldInfo>>,
 }
 
 impl Default for MemoryStore {
@@ -65,6 +67,7 @@ impl Default for MemoryStore {
             outgoing_key_requests: Default::default(),
             key_requests_by_info: Default::default(),
             no_olm_sent: Default::default(),
+            direct_withheld_info: Default::default(),
         }
     }
 }
@@ -156,6 +159,10 @@ impl CryptoStore for MemoryStore {
                 .entry(user_id)
                 .or_insert_with(DashSet::new)
                 .extend(device_id_list.into_iter());
+        }
+
+        for info in changes.withheld_session_info {
+            self.direct_withheld_info.insert(info.session_id.to_owned(), info.to_owned());
         }
 
         Ok(())
@@ -289,16 +296,25 @@ impl CryptoStore for MemoryStore {
         Ok(self.no_olm_sent.entry(user_id).or_default().contains(&device_id))
     }
 
-    /*  async fn forget_no_olm_sent(
-         &self,
-         user_id: OwnedUserId,
-         device_id: OwnedDeviceId,
-     ) -> Result<()> {
-         self.no_olm_sent.entry(user_id).or_default().remove(&device_id);
-         Ok(())
-     }
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<DirectWithheldInfo>> {
+        let entry = self.direct_withheld_info.entry(session_id.to_owned());
 
-    */
+        match entry {
+            Entry::Occupied(e) => {
+                let found = e.get();
+                if found.room_id == room_id {
+                    Ok(Some(found.to_owned()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Entry::Vacant(_) => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
