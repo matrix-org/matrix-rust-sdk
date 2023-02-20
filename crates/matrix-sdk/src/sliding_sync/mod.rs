@@ -632,7 +632,7 @@ use std::{
 pub use client::*;
 pub use config::*;
 use futures_core::stream::Stream;
-use futures_signals::{signal::Mutable, signal_vec::MutableVec};
+use futures_signals::signal::Mutable;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -641,7 +641,7 @@ use ruma::{
             self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
         },
     },
-    assign, OwnedRoomId, RoomId, UInt,
+    assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -738,13 +738,6 @@ impl RoomListEntry {
     }
 }
 
-type ViewState = Mutable<SlidingSyncState>;
-type SyncMode = Mutable<SlidingSyncMode>;
-type StringState = Mutable<Option<String>>;
-type RangeState = Mutable<Vec<(UInt, UInt)>>;
-type RoomsCount = Mutable<Option<u32>>;
-type RoomsList = Arc<MutableVec<RoomListEntry>>;
-
 /// The Summary of a new SlidingSync Update received
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
@@ -766,8 +759,8 @@ pub struct SlidingSync {
     storage_key: Option<String>,
 
     // ------ Internal state
-    pub(crate) pos: StringState,
-    delta_token: StringState,
+    pub(crate) pos: Mutable<Option<String>>,
+    delta_token: Mutable<Option<String>>,
 
     /// The views of this sliding sync instance
     views: Arc<StdRwLock<BTreeMap<String, SlidingSyncView>>>,
