@@ -543,7 +543,8 @@ pub struct ImageInfo {
 
 #[derive(Clone, uniffi::Record)]
 pub struct AudioInfo {
-    // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support for that
+    // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support
+    // for that
     pub duration: Option<u64>,
     pub size: Option<u64>,
 }
