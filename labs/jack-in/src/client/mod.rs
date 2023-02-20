@@ -42,8 +42,7 @@ pub async fn run_client(
         .await?;
     let stream = syncer.stream();
     let view = syncer.view("full-sync").expect("we have the full syncer there").clone();
-    let state = view.state.clone();
-    let mut ssync_state = state::SlidingSyncState::new(syncer.clone(), view);
+    let mut ssync_state = state::SlidingSyncState::new(syncer.clone(), view.clone());
     tx.send(ssync_state.clone()).await?;
 
     info!("starting polling");
@@ -64,7 +63,7 @@ pub async fn run_client(
         match stream.next().await {
             Some(Ok(_)) => {
                 // we are switching into live updates mode next. ignoring
-                let state = state.read_only().get_cloned();
+                let state = view.state();
                 ssync_state.set_view_state(state.clone());
 
                 if state == SlidingSyncState::Live {
