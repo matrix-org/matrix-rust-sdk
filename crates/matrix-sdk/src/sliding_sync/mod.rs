@@ -423,25 +423,6 @@
 //! be a bit tedious though, so views and rooms have an additional way of
 //! subscribing to updates via [`futures_signals`][].
 //!
-//! As already touched on in
-//! description of [views](#views), their `state`, `rooms_list` and
-//! `rooms_count` are all various forms of `futures_signals::Mutable`, a
-//! low-cost, thread-safe futures based reactive API implementation.
-//! [`SlidingSync.rooms`][], too, are of a mutable implementation, namely the
-//! [`MutableBTreeMap`](`futures_signals::signal_map::MutableBTreeMap`) updated
-//! in real time (even before the summary comes around) allowing you to
-//! subscribe to their changes with a straight forward async API through the
-//! [`SignalExt`](`futures_signals::signal::SignalExt`) you can get from each by
-//! just calling `signal_cloned()` on it. For the most common use-cases you just
-//! want to have a stream of updates of the value you can poll for changes,
-//! which you then get by calling
-//! [`to_stream()`](`futures_signals::signal::SignalExt::to_stream`). You can do
-//! a lot more on the signal itself already, like
-//! [`map`](`futures_signals::signal::SignalExt::map`),
-//! [`for_each`](`futures_signals::signal::SignalExt::for_each`) or convert it
-//! into a [`Broadcaster`](futures_signals::signal::SignalExt::broadcast)
-//! depending on your needs.
-//!
 //! The `rooms_list` is of the more specialized
 //! [`MutableVec`](`futures_signals::signal_vec::MutableVec`) type. Rather than
 //! just signaling the latest state (which can be very inefficient, especially
@@ -793,10 +774,10 @@ pub struct SlidingSync {
     delta_token: StringState,
 
     /// The views of this sliding sync instance
-    pub views: Views,
+    views: Views,
 
     /// The rooms details
-    pub rooms: RoomsMap,
+    rooms: RoomsMap,
 
     subscriptions: RoomsSubscriptions,
     unsubscribe: RoomUnsubscribe,
