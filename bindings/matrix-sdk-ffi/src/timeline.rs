@@ -636,7 +636,10 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
 
 impl From<&matrix_sdk::ruma::events::room::message::AudioInfo> for AudioInfo {
     fn from(info: &matrix_sdk::ruma::events::room::message::AudioInfo) -> Self {
-        Self { duration: info.duration.map(|d| d.as_millis()), size: info.size.map(Into::into) }
+        Self {
+            duration: info.duration.map(|d| d.as_millis() as u64),
+            size: info.size.map(Into::into),
+        }
     }
 }
 
