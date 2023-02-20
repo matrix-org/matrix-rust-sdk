@@ -45,7 +45,7 @@ use crate::Result;
 pub struct SlidingSyncView {
     /// Which SlidingSyncMode to start this view under
     #[builder(setter(custom), default)]
-    sync_mode: Mutable<SlidingSyncMode>,
+    sync_mode: SlidingSyncMode,
 
     /// Sort the rooms list by this
     #[builder(default = "SlidingSyncViewBuilder::default_sort()")]
@@ -192,7 +192,7 @@ impl SlidingSyncViewBuilder {
 
     /// Set the Syncing mode
     pub fn sync_mode(mut self, sync_mode: SlidingSyncMode) -> Self {
-        self.sync_mode = Some(Mutable::new(sync_mode));
+        self.sync_mode = Some(sync_mode);
         self
     }
 
@@ -586,7 +586,7 @@ impl SlidingSyncView {
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
         SlidingSyncViewBuilder::default()
             .name(&self.name)
-            .sync_mode(self.sync_mode.lock_ref().clone())
+            .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .batch_size(self.batch_size)
@@ -774,7 +774,7 @@ impl SlidingSyncView {
     }
 
     pub(super) fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
-        match self.sync_mode.read_only().get_cloned() {
+        match &self.sync_mode {
             SlidingSyncMode::PagingFullSync => {
                 SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
             }
