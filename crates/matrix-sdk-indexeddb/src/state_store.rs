@@ -22,7 +22,6 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use derive_builder::Builder;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use js_sys::Date as JsDate;
@@ -306,27 +305,48 @@ async fn migrate_to_v1_2(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -
     tx.await.into_result().map_err(|e| e.into())
 }
 
-#[derive(Builder, Debug, PartialEq, Eq)]
-#[builder(name = "IndexeddbStateStoreBuilder", build_fn(skip))]
-pub struct IndexeddbStateStoreBuilderConfig {
-    /// The name for the indexeddb store to use, `state` is none given
-    name: String,
-    /// The password the indexeddb should be encrypted with. If not given, the
-    /// DB is not encrypted
-    passphrase: String,
-    /// The strategy to use when a merge conflict is found, see
-    /// [`MigrationConflictStrategy`] for details
-    #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
+/// Builder for [`IndexeddbStateStore`].
+#[derive(Debug)]
+pub struct IndexeddbStateStoreBuilder {
+    name: Option<String>,
+    passphrase: Option<String>,
     migration_conflict_strategy: MigrationConflictStrategy,
 }
 
 impl IndexeddbStateStoreBuilder {
-    pub async fn build(&mut self) -> Result<IndexeddbStateStore> {
-        let migration_strategy = self
-            .migration_conflict_strategy
-            .clone()
-            .unwrap_or(MigrationConflictStrategy::BackupAndDrop);
-        let name = self.name.clone().unwrap_or_else(|| "state".to_owned());
+    fn new() -> Self {
+        Self {
+            name: None,
+            passphrase: None,
+            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
+        }
+    }
+
+    /// Set the name for the indexeddb store to use, `state` is none given.
+    pub fn name(mut self, value: String) -> Self {
+        self.name = Some(value);
+        self
+    }
+
+    /// Set the password the indexeddb should be encrypted with.
+    ///
+    /// If not given, the DB is not encrypted.
+    pub fn passphrase(mut self, value: String) -> Self {
+        self.passphrase = Some(value);
+        self
+    }
+
+    /// The strategy to use when a merge conflict is found.
+    ///
+    /// See [`MigrationConflictStrategy`] for details.
+    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
+        self.migration_conflict_strategy = value;
+        self
+    }
+
+    pub async fn build(self) -> Result<IndexeddbStateStore> {
+        let migration_strategy = self.migration_conflict_strategy.clone();
+        let name = self.name.unwrap_or_else(|| "state".to_owned());
 
         let meta_name = format!("{name}::{}", KEYS::INTERNAL_STATE);
 
@@ -467,7 +487,7 @@ type Result<A, E = IndexeddbStateStoreError> = std::result::Result<A, E>;
 impl IndexeddbStateStore {
     /// Generate a IndexeddbStateStoreBuilder with default parameters
     pub fn builder() -> IndexeddbStateStoreBuilder {
-        IndexeddbStateStoreBuilder::default()
+        IndexeddbStateStoreBuilder::new()
     }
 
     /// Whether this database has any migration backups
