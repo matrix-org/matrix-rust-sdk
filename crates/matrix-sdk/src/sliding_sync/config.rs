@@ -1,11 +1,11 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock as StdRwLock},
 };
 
 use derive_builder::Builder;
-use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap};
+use futures_signals::signal::Mutable;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
@@ -110,9 +110,8 @@ impl SlidingSyncConfig {
         };
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
-        let rooms = Arc::new(MutableBTreeMap::with_values(rooms_found));
-
-        let views = Arc::new(MutableBTreeMap::with_values(views));
+        let rooms = Arc::new(StdRwLock::new(rooms_found));
+        let views = Arc::new(StdRwLock::new(views));
 
         Ok(SlidingSync {
             homeserver,
@@ -128,7 +127,7 @@ impl SlidingSyncConfig {
 
             pos: Mutable::new(None),
             delta_token: Mutable::new(delta_token_inner),
-            subscriptions: Arc::new(MutableBTreeMap::with_values(subscriptions)),
+            subscriptions: Arc::new(StdRwLock::new(subscriptions)),
             unsubscribe: Default::default(),
         })
     }

@@ -10,7 +10,6 @@ use std::{
 use derive_builder::Builder;
 use futures_signals::{
     signal::Mutable,
-    signal_map::MutableBTreeMapLockRef,
     signal_vec::{MutableVec, MutableVecLockMut},
 };
 use ruma::{
@@ -20,8 +19,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
-    Error, FrozenSlidingSyncRoom, RangeState, RoomListEntry, RoomsCount, RoomsList,
-    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, SyncMode, ViewState,
+    Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncMode, SlidingSyncRoom, SlidingSyncState,
 };
 use crate::Result;
 
@@ -45,9 +43,9 @@ use crate::Result;
 #[derive(Clone, Debug, Builder)]
 #[builder(build_fn(name = "finish_build"), pattern = "owned", derive(Clone, Debug))]
 pub struct SlidingSyncView {
-    /// Which SyncMode to start this view under
+    /// Which SlidingSyncMode to start this view under
     #[builder(setter(custom), default)]
-    sync_mode: SyncMode,
+    sync_mode: SlidingSyncMode,
 
     /// Sort the rooms list by this
     #[builder(default = "SlidingSyncViewBuilder::default_sort()")]
@@ -85,19 +83,19 @@ pub struct SlidingSyncView {
 
     /// The state this view is in
     #[builder(private, default)]
-    pub state: ViewState,
+    pub state: Mutable<SlidingSyncState>,
 
     /// The total known number of rooms,
     #[builder(private, default)]
-    pub rooms_count: RoomsCount,
+    pub rooms_count: Mutable<Option<u32>>,
 
     /// The rooms in order
     #[builder(private, default)]
-    pub rooms_list: RoomsList,
+    pub rooms_list: Arc<MutableVec<RoomListEntry>>,
 
     /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
-    ranges: RangeState,
+    ranges: Mutable<Vec<(UInt, UInt)>>,
 
     /// Signaling updates on the room list after processing
     #[builder(private)]
@@ -128,7 +126,7 @@ pub(super) struct FrozenSlidingSyncView {
 impl FrozenSlidingSyncView {
     pub(super) fn freeze(
         source_view: &SlidingSyncView,
-        rooms_map: &MutableBTreeMapLockRef<'_, OwnedRoomId, SlidingSyncRoom>,
+        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
         let mut rooms_list = Vec::new();
@@ -194,26 +192,26 @@ impl SlidingSyncViewBuilder {
 
     /// Set the Syncing mode
     pub fn sync_mode(mut self, sync_mode: SlidingSyncMode) -> Self {
-        self.sync_mode = Some(SyncMode::new(sync_mode));
+        self.sync_mode = Some(sync_mode);
         self
     }
 
     /// Set the ranges to fetch
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges =
-            Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
+            Some(Mutable::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
         self
     }
 
     /// Set a single range fetch
     pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges = Some(RangeState::new(vec![(from.into(), to.into())]));
+        self.ranges = Some(Mutable::new(vec![(from.into(), to.into())]));
         self
     }
 
     /// Set the ranges to fetch
     pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        let r = self.ranges.get_or_insert_with(|| RangeState::new(Vec::new()));
+        let r = self.ranges.get_or_insert_with(|| Mutable::new(Vec::new()));
         r.lock_mut().push((from.into(), to.into()));
         self
     }
@@ -588,7 +586,7 @@ impl SlidingSyncView {
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
         SlidingSyncViewBuilder::default()
             .name(&self.name)
-            .sync_mode(self.sync_mode.lock_ref().clone())
+            .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .batch_size(self.batch_size)
@@ -776,7 +774,7 @@ impl SlidingSyncView {
     }
 
     pub(super) fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
-        match self.sync_mode.read_only().get_cloned() {
+        match &self.sync_mode {
             SlidingSyncMode::PagingFullSync => {
                 SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
             }
