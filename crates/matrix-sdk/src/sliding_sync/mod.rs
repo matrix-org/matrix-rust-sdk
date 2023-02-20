@@ -621,10 +621,10 @@ mod view;
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    ops::Deref,
+    mem,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock as StdRwLock,
     },
     time::Duration,
 };
@@ -632,7 +632,7 @@ use std::{
 pub use client::*;
 pub use config::*;
 use futures_core::stream::Stream;
-use futures_signals::{signal::Mutable, signal_map::MutableBTreeMap, signal_vec::MutableVec};
+use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 pub use room::*;
 use ruma::{
     api::client::{
@@ -744,10 +744,6 @@ type StringState = Mutable<Option<String>>;
 type RangeState = Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = Mutable<Option<u32>>;
 type RoomsList = Arc<MutableVec<RoomListEntry>>;
-type RoomsMap = Arc<MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
-type RoomsSubscriptions = Arc<MutableBTreeMap<OwnedRoomId, v4::RoomSubscription>>;
-type RoomUnsubscribe = Arc<MutableVec<OwnedRoomId>>;
-type Views = Arc<MutableBTreeMap<String, SlidingSyncView>>;
 
 /// The Summary of a new SlidingSync Update received
 #[derive(Debug, Clone)]
@@ -774,13 +770,13 @@ pub struct SlidingSync {
     delta_token: StringState,
 
     /// The views of this sliding sync instance
-    views: Views,
+    views: Arc<StdRwLock<BTreeMap<String, SlidingSyncView>>>,
 
     /// The rooms details
-    rooms: RoomsMap,
+    rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>>,
 
-    subscriptions: RoomsSubscriptions,
-    unsubscribe: RoomUnsubscribe,
+    subscriptions: Arc<StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>>,
+    unsubscribe: Arc<StdRwLock<Vec<OwnedRoomId>>>,
 
     /// keeping track of retries and failure counts
     failure_count: Arc<AtomicU8>,
@@ -823,9 +819,10 @@ impl SlidingSync {
         let v = serde_json::to_vec(&FrozenSlidingSync::from(self))?;
         self.client.store().set_custom_value(storage_key.as_bytes(), v).await?;
         let frozen_views = {
-            let rooms_lock = self.rooms.lock_ref();
+            let rooms_lock = self.rooms.read().unwrap();
             self.views
-                .lock_ref()
+                .read()
+                .unwrap()
                 .iter()
                 .map(|(name, view)| {
                     (name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock))
@@ -850,10 +847,11 @@ impl SlidingSync {
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
         let mut builder = SlidingSyncBuilder::default()
             .client(self.client.clone())
-            .subscriptions(self.subscriptions.lock_ref().to_owned());
+            .subscriptions(self.subscriptions.read().unwrap().to_owned());
         for view in self
             .views
-            .lock_ref()
+            .read()
+            .unwrap()
             .values()
             .map(|v| v.new_builder().build().expect("builder worked before, builder works now"))
         {
@@ -873,7 +871,7 @@ impl SlidingSync {
     /// poll the stream after you've altered this. If you do that during, it
     /// might take one round trip to take effect.
     pub fn subscribe(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
-        self.subscriptions.lock_mut().insert_cloned(room_id, settings.unwrap_or_default());
+        self.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
     }
 
     /// Unsubscribe from a given room.
@@ -882,8 +880,8 @@ impl SlidingSync {
     /// poll the stream after you've altered this. If you do that during, it
     /// might take one round trip to take effect.
     pub fn unsubscribe(&self, room_id: OwnedRoomId) {
-        if self.subscriptions.lock_mut().remove(&room_id).is_some() {
-            self.unsubscribe.lock_mut().push_cloned(room_id);
+        if self.subscriptions.write().unwrap().remove(&room_id).is_some() {
+            self.unsubscribe.write().unwrap().push(room_id);
         }
     }
 
@@ -906,12 +904,12 @@ impl SlidingSync {
 
     /// Lookup a specific room
     pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.rooms.lock_ref().get(room_id).cloned()
+        self.rooms.read().unwrap().get(room_id).cloned()
     }
 
     /// Check the number of rooms.
     pub fn get_number_of_rooms(&self) -> usize {
-        self.rooms.lock_ref().len()
+        self.rooms.read().unwrap().len()
     }
 
     fn update_to_device_since(&self, since: String) {
@@ -930,7 +928,7 @@ impl SlidingSync {
     /// listening to the stream and is therefor not necessarily up to date
     /// with the views used for the stream.
     pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
-        self.views.lock_ref().get(view_name).cloned()
+        self.views.read().unwrap().get(view_name).cloned()
     }
 
     /// Remove the SlidingSyncView named `view_name` from the views list if
@@ -940,7 +938,7 @@ impl SlidingSync {
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
     pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncView> {
-        self.views.lock_mut().remove(view_name)
+        self.views.write().unwrap().remove(view_name)
     }
 
     /// Add the view to the list of views
@@ -953,7 +951,7 @@ impl SlidingSync {
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views
     pub fn add_view(&self, view: SlidingSyncView) -> Option<SlidingSyncView> {
-        self.views.lock_mut().insert_cloned(view.name.clone(), view)
+        self.views.write().unwrap().insert(view.name.clone(), view)
     }
 
     /// Lookup a set of rooms
@@ -961,13 +959,13 @@ impl SlidingSync {
         &self,
         room_ids: I,
     ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.rooms.lock_ref();
+        let rooms = self.rooms.read().unwrap();
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
     /// Get all rooms.
     pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.rooms.lock_ref().iter().map(|(_, room)| room.clone()).collect()
+        self.rooms.read().unwrap().values().cloned().collect()
     }
 
     #[instrument(skip_all, fields(views = views.len()))]
@@ -983,7 +981,7 @@ impl SlidingSync {
         self.delta_token.replace(resp.delta_token);
         let update = {
             let mut rooms = Vec::new();
-            let mut rooms_map = self.rooms.lock_mut();
+            let mut rooms_map = self.rooms.write().unwrap();
             for (id, mut room_data) in resp.rooms.into_iter() {
                 let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
                     joined_room.timeline.events
@@ -997,17 +995,17 @@ impl SlidingSync {
                     // The room existed before, let's update it.
 
                     room.update(&room_data, timeline);
-                    rooms_map.insert_cloned(id.clone(), room);
-                    rooms.push(id.clone());
+                    rooms_map.insert(id.clone(), room);
                 } else {
                     // First time we need this room, let's create it.
 
-                    rooms_map.insert_cloned(
+                    rooms_map.insert(
                         id.clone(),
                         SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
                     );
-                    rooms.push(id);
                 }
+
+                rooms.push(id);
             }
 
             let mut updated_views = Vec::new();
@@ -1068,14 +1066,8 @@ impl SlidingSync {
 
         let pos = self.pos.get_cloned();
         let delta_token = self.delta_token.get_cloned();
-        let room_subscriptions = self.subscriptions.lock_ref().clone();
-        let unsubscribe_rooms = {
-            let unsubs = self.unsubscribe.lock_ref().to_vec();
-            if !unsubs.is_empty() {
-                self.unsubscribe.lock_mut().clear();
-            }
-            unsubs
-        };
+        let room_subscriptions = self.subscriptions.read().unwrap().clone();
+        let unsubscribe_rooms = mem::take(&mut *self.unsubscribe.write().unwrap());
         let timeout = Duration::from_secs(30);
 
         // implement stickiness by only sending extensions if they have
@@ -1134,8 +1126,8 @@ impl SlidingSync {
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         let mut views = {
             let mut views = BTreeMap::new();
-            let views_lock = self.views.lock_ref();
-            for (name, view) in views_lock.deref().iter() {
+            let views_lock = self.views.read().unwrap();
+            for (name, view) in views_lock.iter() {
                 views.insert(name.clone(), view.request_generator());
             }
             views
