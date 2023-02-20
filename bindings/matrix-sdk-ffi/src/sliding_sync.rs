@@ -504,10 +504,11 @@ impl SlidingSyncView {
         &self,
         observer: Box<dyn SlidingSyncViewStateObserver>,
     ) -> Arc<StoppableSpawn> {
-        let mut signal = self.inner.state.signal_cloned().to_stream();
+        let mut state_stream = self.inner.state_stream();
+
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                if let Some(new_state) = signal.next().await {
+                if let Some(new_state) = state_stream.next().await {
                     observer.did_receive_update(new_state);
                 }
             }
@@ -518,10 +519,11 @@ impl SlidingSyncView {
         &self,
         observer: Box<dyn SlidingSyncViewRoomListObserver>,
     ) -> Arc<StoppableSpawn> {
-        let mut room_list = self.inner.rooms_list.signal_vec_cloned().to_stream();
+        let mut rooms_list_stream = self.inner.rooms_list_stream();
+
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                if let Some(diff) = room_list.next().await {
+                if let Some(diff) = rooms_list_stream.next().await {
                     observer.did_receive_update(diff.into());
                 }
             }
@@ -546,10 +548,11 @@ impl SlidingSyncView {
         &self,
         observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
     ) -> Arc<StoppableSpawn> {
-        let mut rooms_count = self.inner.rooms_count.signal_cloned().to_stream();
+        let mut rooms_count_stream = self.inner.rooms_count_stream();
+
         Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             loop {
-                if let Some(Some(new)) = rooms_count.next().await {
+                if let Some(Some(new)) = rooms_count_stream.next().await {
                     observer.did_receive_update(new);
                 }
             }
@@ -561,7 +564,7 @@ impl SlidingSyncView {
 impl SlidingSyncView {
     /// Get the current list of rooms
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
-        self.inner.rooms_list.lock_ref().as_slice().iter().map(|e| e.into()).collect()
+        self.inner.rooms_list()
     }
 
     /// Reset the ranges to a particular set
@@ -587,7 +590,7 @@ impl SlidingSyncView {
 
     /// Total of rooms matching the filter
     pub fn current_room_count(&self) -> Option<u32> {
-        self.inner.rooms_count.get_cloned()
+        self.inner.rooms_count()
     }
 
     /// The current timeline limit

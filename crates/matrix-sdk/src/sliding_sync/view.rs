@@ -9,8 +9,8 @@ use std::{
 
 use derive_builder::Builder;
 use futures_signals::{
-    signal::Mutable,
-    signal_vec::{MutableVec, MutableVecLockMut},
+    signal::{Mutable, MutableSignalCloned, SignalExt, SignalStream},
+    signal_vec::{MutableSignalVec, MutableVec, MutableVecLockMut, SignalVecExt, SignalVecStream},
 };
 use ruma::{
     api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, RoomId, UInt,
@@ -83,15 +83,15 @@ pub struct SlidingSyncView {
 
     /// The state this view is in
     #[builder(private, default)]
-    pub state: Mutable<SlidingSyncState>,
+    state: Mutable<SlidingSyncState>,
 
     /// The total known number of rooms,
     #[builder(private, default)]
-    pub rooms_count: Mutable<Option<u32>>,
+    rooms_count: Mutable<Option<u32>>,
 
     /// The rooms in order
     #[builder(private, default)]
-    pub rooms_list: Arc<MutableVec<RoomListEntry>>,
+    rooms_list: Arc<MutableVec<RoomListEntry>>,
 
     /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
@@ -210,6 +210,34 @@ impl SlidingSyncView {
     pub fn reset_ranges(&self) -> &Self {
         self.ranges.lock_mut().clear();
         self
+    }
+
+    /// Get a stream of state.
+    pub fn state_stream(&self) -> SignalStream<MutableSignalCloned<SlidingSyncState>> {
+        self.state.signal_cloned().to_stream()
+    }
+
+    /// Get the current rooms list.
+    pub fn rooms_list<R>(&self) -> Vec<R>
+    where
+        R: for<'a> From<&'a RoomListEntry>,
+    {
+        self.rooms_list.lock_ref().iter().map(|e| R::from(e)).collect()
+    }
+
+    /// Get a stream of rooms list.
+    pub fn rooms_list_stream(&self) -> SignalVecStream<MutableSignalVec<RoomListEntry>> {
+        self.rooms_list.signal_vec_cloned().to_stream()
+    }
+
+    /// Get the current rooms count.
+    pub fn rooms_count(&self) -> Option<u32> {
+        self.rooms_count.get_cloned()
+    }
+
+    /// Get a stream of rooms count.
+    pub fn rooms_count_stream(&self) -> SignalStream<MutableSignalCloned<Option<u32>>> {
+        self.rooms_count.signal_cloned().to_stream()
     }
 
     /// Find the current valid position of the room in the view room_list.
