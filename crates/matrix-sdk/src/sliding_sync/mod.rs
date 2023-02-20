@@ -558,9 +558,9 @@
 //!  // subscribe to the view APIs for updates
 //!
 //! let active_view = sliding_sync.view(&active_view_name).unwrap();
-//! let view_state_stream = active_view.state.signal_cloned().to_stream();
-//! let view_count_stream = active_view.rooms_count.signal_cloned().to_stream();
-//! let view_list_stream = active_view.rooms_list.signal_vec_cloned().to_stream();
+//! let view_state_stream = active_view.state_stream();
+//! let view_count_stream = active_view.rooms_count_stream();
+//! let view_list_stream = active_view.rooms_list_stream();
 //!
 //! tokio::spawn(async move {
 //!     pin_mut!(view_state_stream);
