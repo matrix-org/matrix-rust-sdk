@@ -286,7 +286,7 @@
 //! #    Client,
 //! # };
 //! # use ruma::{
-//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! #    api::client::sync::sync_events::v4, assign,
 //! # };
 //! # use tracing::{debug, error, info, warn};
 //! # use url::Url;
@@ -355,7 +355,7 @@
 //! #    Client,
 //! # };
 //! # use ruma::{
-//! #    api::client::sync::sync_events::v4, assign, events::TimelineEventType,
+//! #    api::client::sync::sync_events::v4, assign,
 //! # };
 //! # use tracing::{debug, error, info, warn};
 //! # use url::Url;
@@ -508,7 +508,7 @@
 //! ```no_run
 //! # use futures::executor::block_on;
 //! use matrix_sdk::{Client, sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode}};
-//! use ruma::{assign, {api::client::sync::sync_events::v4, events::TimelineEventType}};
+//! use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
 //! use tracing::{warn, error, info, debug};
 //! use futures::{StreamExt, pin_mut};
 //! use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
@@ -530,7 +530,7 @@
 //!     .name(&full_sync_view_name)    // needed to lookup again.
 //!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
 //!     .required_state(vec![
-//!         (TimelineEventType::RoomEncryption, "".to_owned())
+//!         (StateEventType::RoomEncryption, "".to_owned())
 //!      ]) // only want to know if the room is encrypted
 //!     .batch_size(50)   // grow the window by 50 items at a time
 //!     .limit(500)      // only sync up the top 500 rooms
@@ -543,9 +543,9 @@
 //!     .sort(vec!["by_recency".to_owned()]) // last active
 //!     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
 //!     .required_state(vec![ // we want to know immediately:
-//!         (TimelineEventType::RoomEncryption, "".to_owned()), // is it encrypted
-//!         (TimelineEventType::RoomTopic, "".to_owned()),      // any topic if known
-//!         (TimelineEventType::RoomAvatar, "".to_owned()),     // avatar if set
+//!         (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
+//!         (StateEventType::RoomTopic, "".to_owned()),      // any topic if known
+//!         (StateEventType::RoomAvatar, "".to_owned()),     // avatar if set
 //!      ])
 //!     .build()?;
 //!
