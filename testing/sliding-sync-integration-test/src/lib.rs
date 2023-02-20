@@ -143,7 +143,7 @@ mod tests {
             let room_id = update_summary.rooms[0].clone();
 
             // Let's fetch the room ID from the view too.
-            assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Filled(ref same_room_id)) => {
+            assert_matches!(view.rooms_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
                 assert_eq!(same_room_id, &room_id);
             });
 
@@ -263,7 +263,7 @@ mod tests {
             assert_eq!(room_id, update_summary.rooms[0]);
 
             // Let's fetch the room ID from the view too.
-            assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Filled(ref same_room_id)) => {
+            assert_matches!(view.rooms_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
                 assert_eq!(same_room_id, &room_id);
             });
 
@@ -375,7 +375,7 @@ mod tests {
         assert!(saw_update, "We didn't see the update come through the pipe");
 
         // and let's update the order of all views again
-        let room_id = assert_matches!(view1.rooms_list().get(4), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
+        let room_id = assert_matches!(view1.rooms_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
         let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -457,7 +457,7 @@ mod tests {
         // Let's trigger an update by sending a message to room pos=3, making it move to
         // pos 0
 
-        let room_id = assert_matches!(view1.rooms_list().get(3), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
+        let room_id = assert_matches!(view1.rooms_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
         let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -491,7 +491,7 @@ mod tests {
         pin_mut!(stream);
 
         // and let's update the order of all views again
-        let room_id = assert_matches!(view1.rooms_list().get(4), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
+        let room_id = assert_matches!(view1.rooms_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
         let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -754,7 +754,7 @@ mod tests {
         // now we "move" the room of pos 3 to pos 0;
         // this is a bordering case
 
-        let room_id = assert_matches!(view.rooms_list().get(3), Some(&RoomListEntry::Filled(ref room_id)) => room_id.clone());
+        let room_id = assert_matches!(view.rooms_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
         let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -1218,7 +1218,7 @@ mod tests {
 
         // let's get that first entry
 
-        let room_id = assert_matches!(view.rooms_list().get(0), Some(&RoomListEntry::Invalidated(ref room_id)) => room_id.clone());
+        let room_id = assert_matches!(view.rooms_list().get(0), Some(RoomListEntry::Invalidated(room_id)) => room_id.clone());
 
         // send a message
 
