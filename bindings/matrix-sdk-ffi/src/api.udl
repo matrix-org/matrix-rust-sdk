@@ -119,8 +119,10 @@ interface SlidingSyncView {
 };
 
 interface SlidingSyncRoom {
-    StoppableSpawn? subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
-    StoppableSpawn? add_timeline_listener(TimelineListener listener);
+    [Throws=ClientError]
+    StoppableSpawn subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
+    [Throws=ClientError]
+    StoppableSpawn add_timeline_listener(TimelineListener listener);
 };
 
 interface SlidingSync {

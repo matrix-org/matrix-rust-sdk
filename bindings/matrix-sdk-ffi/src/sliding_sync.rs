@@ -3,6 +3,7 @@ use std::sync::{
     Arc, RwLock,
 };
 
+use anyhow::Context;
 use futures_signals::{
     signal::SignalExt,
     signal_vec::{SignalVecExt, VecDiff},
@@ -166,38 +167,34 @@ impl SlidingSyncRoom {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Option<Arc<StoppableSpawn>> {
-        Some(Arc::new(self.add_timeline_listener_inner(listener)?))
+    ) -> anyhow::Result<Arc<StoppableSpawn>> {
+        Ok(Arc::new(self.add_timeline_listener_inner(listener)?))
     }
 
     pub fn subscribe_and_add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
         settings: Option<RoomSubscription>,
-    ) -> Option<Arc<StoppableSpawn>> {
+    ) -> anyhow::Result<Arc<StoppableSpawn>> {
         let mut spawner = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
         self.runner.subscribe(room_id.clone(), settings.map(Into::into));
         let runner = self.runner.clone();
         spawner.set_callback(Box::new(move || runner.unsubscribe(room_id)));
-        Some(Arc::new(spawner))
+        Ok(Arc::new(spawner))
     }
 
     fn add_timeline_listener_inner(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Option<StoppableSpawn> {
+    ) -> anyhow::Result<StoppableSpawn> {
         let mut timeline_lock = self.timeline.write().unwrap();
         let timeline = match &*timeline_lock {
             Some(timeline) => timeline,
             None => {
-                let Some(timeline) = RUNTIME.block_on(self.inner.timeline()) else {
-                    warn!(
-                        room_id = ?self.room_id(),
-                        "Could not set timeline listener: no timeline found."
-                    );
-                    return None;
-                };
+                let timeline = RUNTIME
+                    .block_on(self.inner.timeline())
+                    .context("Could not set timeline listener: room not found.")?;
                 timeline_lock.insert(Arc::new(timeline))
             }
         };
@@ -227,7 +224,7 @@ impl SlidingSyncRoom {
             }
         };
 
-        Some(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Ok(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         })))
     }
