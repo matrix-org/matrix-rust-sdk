@@ -77,7 +77,7 @@ pub struct SlidingSyncView {
     rooms_count: Mutable<Option<u32>>,
 
     /// The rooms in order
-    rooms_list: Arc<MutableVec<RoomListEntry>>,
+    rooms_list: MutableVec<RoomListEntry>,
 
     /// The ranges windows of the view
     ranges: Mutable<Vec<(UInt, UInt)>>,
@@ -533,7 +533,7 @@ impl SlidingSyncViewBuilder {
             name: self.name.ok_or(Error::BuildMissingField("name"))?,
             state: Mutable::new(self.state),
             rooms_count: Mutable::new(self.rooms_count),
-            rooms_list: Arc::new(MutableVec::new_with_values(self.rooms_list)),
+            rooms_list: MutableVec::new_with_values(self.rooms_list),
             ranges: Mutable::new(self.ranges),
             is_cold: Arc::new(AtomicBool::new(false)),
             rooms_updated_signal: sender,
