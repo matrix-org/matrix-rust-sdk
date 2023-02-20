@@ -7,7 +7,6 @@ use std::{
     },
 };
 
-use derive_builder::Builder;
 use futures_signals::{
     signal::{Mutable, MutableSignalCloned, SignalExt, SignalStream},
     signal_vec::{MutableSignalVec, MutableVec, MutableVecLockMut, SignalVecExt, SignalVecStream},
@@ -40,75 +39,58 @@ use crate::Result;
 /// # anyhow::Ok(())
 /// # });
 /// ```
-#[derive(Clone, Debug, Builder)]
-#[builder(build_fn(name = "finish_build"), pattern = "owned", derive(Clone, Debug))]
+#[derive(Clone, Debug)]
 pub struct SlidingSyncView {
     /// Which SlidingSyncMode to start this view under
-    #[builder(setter(custom), default)]
     sync_mode: SlidingSyncMode,
 
     /// Sort the rooms list by this
-    #[builder(default = "SlidingSyncViewBuilder::default_sort()")]
     sort: Vec<String>,
 
     /// Required states to return per room
-    #[builder(default = "SlidingSyncViewBuilder::default_required_state()")]
     required_state: Vec<(StateEventType, String)>,
 
     /// How many rooms request at a time when doing a full-sync catch up
-    #[builder(default = "20")]
     batch_size: u32,
 
     /// Whether the view should send `UpdatedAt`-Diff signals for rooms
     /// that have changed
-    #[builder(default = "false")]
     send_updates_for_items: bool,
 
     /// How many rooms request a total hen doing a full-sync catch up
-    #[builder(setter(into), default)]
     limit: Option<u32>,
 
     /// Any filters to apply to the query
-    #[builder(default)]
     filters: Option<v4::SyncRequestListFilters>,
 
     /// The maximum number of timeline events to query for
-    #[builder(setter(name = "timeline_limit_raw"), default)]
     pub timeline_limit: Mutable<Option<UInt>>,
 
     // ----- Public state
     /// Name of this view to easily recognize them
-    #[builder(setter(into))]
     pub name: String,
 
     /// The state this view is in
-    #[builder(private, default)]
     state: Mutable<SlidingSyncState>,
 
     /// The total known number of rooms,
-    #[builder(private, default)]
     rooms_count: Mutable<Option<u32>>,
 
     /// The rooms in order
-    #[builder(private, default)]
     rooms_list: Arc<MutableVec<RoomListEntry>>,
 
     /// The ranges windows of the view
-    #[builder(setter(name = "ranges_raw"), default)]
     ranges: Mutable<Vec<(UInt, UInt)>>,
 
     /// Signaling updates on the room list after processing
-    #[builder(private)]
     rooms_updated_signal: futures_signals::signal::Sender<()>,
 
-    #[builder(private)]
     is_cold: Arc<AtomicBool>,
 
     /// Get informed if anything in the room changed
     ///
     /// If you only care to know about changes once all of them have applied
     /// (including the total) listen to a clone of this signal.
-    #[builder(private)]
     pub rooms_updated_broadcaster:
         futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
 }
@@ -160,9 +142,14 @@ impl SlidingSyncView {
         self.rooms_list.lock_mut().replace_cloned(rooms_list);
     }
 
+    /// Create a new [`SlidingSyncViewBuilder`].
+    pub fn builder() -> SlidingSyncViewBuilder {
+        SlidingSyncViewBuilder::new()
+    }
+
     /// Return a builder with the same settings as before
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
-        SlidingSyncViewBuilder::default()
+        Self::builder()
             .name(&self.name)
             .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
@@ -400,75 +387,158 @@ impl SlidingSyncView {
 /// the default name for the full sync view
 pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 
+/// Builder for [`SlidingSyncView`].
+#[derive(Clone, Debug)]
+pub struct SlidingSyncViewBuilder {
+    sync_mode: SlidingSyncMode,
+    sort: Vec<String>,
+    required_state: Vec<(StateEventType, String)>,
+    batch_size: u32,
+    send_updates_for_items: bool,
+    limit: Option<u32>,
+    filters: Option<v4::SyncRequestListFilters>,
+    timeline_limit: Option<UInt>,
+    name: Option<String>,
+    state: SlidingSyncState,
+    rooms_count: Option<u32>,
+    rooms_list: Vec<RoomListEntry>,
+    ranges: Vec<(UInt, UInt)>,
+}
+
 impl SlidingSyncViewBuilder {
+    fn new() -> Self {
+        Self {
+            sync_mode: SlidingSyncMode::default(),
+            sort: vec!["by_recency".to_owned(), "by_name".to_owned()],
+            required_state: vec![
+                (StateEventType::RoomEncryption, "".to_owned()),
+                (StateEventType::RoomTombstone, "".to_owned()),
+            ],
+            batch_size: 20,
+            send_updates_for_items: false,
+            limit: None,
+            filters: None,
+            timeline_limit: None,
+            name: None,
+            state: SlidingSyncState::default(),
+            rooms_count: None,
+            rooms_list: Vec::new(),
+            ranges: Vec::new(),
+        }
+    }
+
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
-        Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
+        Self::new().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
     }
 
-    /// Build the view
-    pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
-        let (sender, receiver) = futures_signals::signal::channel(());
-        self.is_cold = Some(Arc::new(AtomicBool::new(false)));
-        self.rooms_updated_signal = Some(sender);
-        self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
-        self.finish_build()
-    }
-
-    fn default_sort() -> Vec<String> {
-        vec!["by_recency".to_owned(), "by_name".to_owned()]
-    }
-
-    fn default_required_state() -> Vec<(StateEventType, String)> {
-        vec![
-            (StateEventType::RoomEncryption, "".to_owned()),
-            (StateEventType::RoomTombstone, "".to_owned()),
-        ]
-    }
-
-    /// Set the Syncing mode
-    pub fn sync_mode(mut self, sync_mode: SlidingSyncMode) -> Self {
-        self.sync_mode = Some(sync_mode);
+    /// Which SlidingSyncMode to start this view under.
+    pub fn sync_mode(mut self, value: SlidingSyncMode) -> Self {
+        self.sync_mode = value;
         self
     }
 
-    /// Set the ranges to fetch
-    pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
-        self.ranges =
-            Some(Mutable::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
+    /// Sort the rooms list by this.
+    pub fn sort(mut self, value: Vec<String>) -> Self {
+        self.sort = value;
         self
     }
 
-    /// Set a single range fetch
-    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges = Some(Mutable::new(vec![(from.into(), to.into())]));
+    /// Required states to return per room.
+    pub fn required_state(mut self, value: Vec<(StateEventType, String)>) -> Self {
+        self.required_state = value;
         self
     }
 
-    /// Set the ranges to fetch
-    pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        let r = self.ranges.get_or_insert_with(|| Mutable::new(Vec::new()));
-        r.lock_mut().push((from.into(), to.into()));
+    /// How many rooms request at a time when doing a full-sync catch up.
+    pub fn batch_size(mut self, value: u32) -> Self {
+        self.batch_size = value;
         self
     }
 
-    /// Set the ranges to fetch
-    pub fn reset_ranges(mut self) -> Self {
-        self.ranges = None;
+    /// Whether the view should send `UpdatedAt`-Diff signals for rooms that
+    /// have changed.
+    pub fn send_updates_for_items(mut self, value: bool) -> Self {
+        self.send_updates_for_items = value;
+        self
+    }
+
+    /// How many rooms request a total hen doing a full-sync catch up.
+    pub fn limit(mut self, value: impl Into<Option<u32>>) -> Self {
+        self.limit = value.into();
+        self
+    }
+
+    /// Any filters to apply to the query.
+    pub fn filters(mut self, value: Option<v4::SyncRequestListFilters>) -> Self {
+        self.filters = value;
         self
     }
 
     /// Set the limit of regular events to fetch for the timeline.
     pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
-        self.timeline_limit = Some(Mutable::new(Some(timeline_limit.into())));
+        self.timeline_limit = Some(timeline_limit.into());
         self
     }
 
     /// Reset the limit of regular events to fetch for the timeline. It is left
     /// to the server to decide how many to send back
     pub fn no_timeline_limit(mut self) -> Self {
-        self.timeline_limit = None;
+        self.timeline_limit = Default::default();
         self
+    }
+
+    /// Set the name of this view, to easily recognize it.
+    pub fn name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+
+    /// Set the ranges to fetch
+    pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
+        self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        self
+    }
+
+    /// Set a single range fetch
+    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
+        self.ranges = vec![(from.into(), to.into())];
+        self
+    }
+
+    /// Set the ranges to fetch
+    pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
+        self.ranges.push((from.into(), to.into()));
+        self
+    }
+
+    /// Set the ranges to fetch
+    pub fn reset_ranges(mut self) -> Self {
+        self.ranges = Default::default();
+        self
+    }
+
+    /// Build the view
+    pub fn build(self) -> Result<SlidingSyncView> {
+        let (sender, receiver) = futures_signals::signal::channel(());
+        Ok(SlidingSyncView {
+            sync_mode: self.sync_mode,
+            sort: self.sort,
+            required_state: self.required_state,
+            batch_size: self.batch_size,
+            send_updates_for_items: self.send_updates_for_items,
+            limit: self.limit,
+            filters: self.filters,
+            timeline_limit: Mutable::new(self.timeline_limit),
+            name: self.name.ok_or(Error::BuildMissingField("name"))?,
+            state: Mutable::new(self.state),
+            rooms_count: Mutable::new(self.rooms_count),
+            rooms_list: Arc::new(MutableVec::new_with_values(self.rooms_list)),
+            ranges: Mutable::new(self.ranges),
+            is_cold: Arc::new(AtomicBool::new(false)),
+            rooms_updated_signal: sender,
+            rooms_updated_broadcaster: futures_signals::signal::Broadcaster::new(receiver),
+        })
     }
 }
 

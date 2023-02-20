@@ -49,7 +49,6 @@ experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "experimental-timeline",
     "reqwest/gzip",
-    "dep:derive_builder",
 ]
 
 docsrs = [
@@ -69,7 +68,6 @@ bytes = "1.1.0"
 bytesize = "1.1"
 chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
-derive_builder = { version = "0.11.2", optional = true }
 event-listener = "2.5.2"
 eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
