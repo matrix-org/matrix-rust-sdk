@@ -89,9 +89,17 @@ impl<P: ProfileProvider> TimelineInner<P> {
     }
 
     pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+        use itertools::Itertools;
+
         if events.is_empty() {
             return;
         }
+
+        // Temporary workaround for duplicate events from sliding sync that are
+        // somehow bypassing both the duplication filtering in sliding sync and
+        // in the timeline event handler.
+        let events: Vec<SyncTimelineEvent> =
+            events.into_iter().rev().unique_by(|e| e.event_id()).rev().collect();
 
         debug!("Adding {} initial events", events.len());
 

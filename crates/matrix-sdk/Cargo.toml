@@ -77,6 +77,7 @@ futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
 http = { workspace = true }
 indexmap = "1.9.1"
+itertools = "0.10.5"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }

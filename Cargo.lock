@@ -2691,6 +2691,7 @@ dependencies = [
  "hyper",
  "image 0.24.5",
  "indexmap",
+ "itertools",
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-indexeddb",
