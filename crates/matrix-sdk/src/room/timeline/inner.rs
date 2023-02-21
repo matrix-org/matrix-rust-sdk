@@ -35,7 +35,11 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, field::debug, info, warn};
+use tracing::{
+    debug, error,
+    field::{self, debug},
+    info, info_span, warn, Instrument as _,
+};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{instrument, trace};
 
@@ -312,6 +316,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     ) {
         use super::EncryptedMessage;
 
+        trace!("Retrying decryption");
         let should_retry = |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -320,63 +325,64 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         };
 
-        let mut state = self.state.lock().await;
+        let retry_one = |item: Arc<TimelineItem>| {
+            async move {
+                let event_item = item.as_event()?;
 
-        trace!("Collecting UTD timeline items");
-        let utds_for_session: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| {
-                let event_item = &item.as_event()?;
-                let utd = event_item.content().as_unable_to_decrypt()?;
-
-                match utd {
+                let session_id = match event_item.content().as_unable_to_decrypt()? {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
                         if should_retry(session_id) =>
                     {
-                        let EventTimelineItem::Remote(
-                            RemoteEventTimelineItem { event_id, raw, .. },
-                        ) = event_item else {
-                            error!("Key for unable-to-decrypt timeline item is not an event ID");
-                            return None;
-                        };
-
-                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw.clone()))
+                        session_id
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                    | EncryptedMessage::Unknown => None,
-                }
-            })
-            .collect();
+                    | EncryptedMessage::Unknown => return None,
+                };
 
-        if utds_for_session.is_empty() {
-            trace!("Found no events to retry decryption for");
-            return;
-        }
+                tracing::Span::current().record("session_id", session_id);
 
-        debug!("Retrying decryption for {} items", utds_for_session.len());
-        for (idx, event_id, session_id, utd) in utds_for_session {
-            let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
-                Ok(ev) => ev,
-                Err(e) => {
-                    info!(
-                        ?event_id,
-                        ?session_id,
-                        "Failed to decrypt event after receiving room key: {e}"
-                    );
-                    continue;
+                let EventTimelineItem::Remote(
+                    RemoteEventTimelineItem { event_id, raw, .. },
+                ) = event_item else {
+                    error!("Key for unable-to-decrypt timeline item is not an event ID");
+                    return None;
+                };
+
+                tracing::Span::current().record("event_id", debug(event_id));
+
+                let raw = raw.cast_ref();
+                match olm_machine.decrypt_room_event(raw, room_id).await {
+                    Ok(event) => {
+                        trace!("Successfully decrypted event that previously failed to decrypt");
+                        Some(event)
+                    }
+                    Err(e) => {
+                        info!("Failed to decrypt event after receiving room key: {e}");
+                        None
+                    }
                 }
+            }
+            .instrument(info_span!(
+                "retry_one",
+                session_id = field::Empty,
+                event_id = field::Empty
+            ))
+        };
+
+        let mut state = self.state.lock().await;
+
+        // We loop through all the items in the timeline, if we successfully
+        // decrypt a UTD item we either replace it or remove it and update
+        // another one.
+        let mut idx = 0;
+        while let Some(item) = state.items.get(idx) {
+            let Some(event) = retry_one(item.clone()).await else {
+                idx += 1;
+                continue;
             };
 
-            trace!(
-                ?event_id,
-                ?session_id,
-                "Successfully decrypted event that previously failed to decrypt"
-            );
-
-            handle_remote_event(
+            let result = handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
                 TimelineItemPosition::Update(idx),
@@ -384,6 +390,12 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 &self.profile_provider,
             )
             .await;
+
+            // If the UTD was removed rather than updated, run the loop again
+            // with the same index.
+            if !result.item_removed {
+                idx += 1;
+            }
         }
     }
 
