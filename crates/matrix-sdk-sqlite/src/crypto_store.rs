@@ -27,12 +27,15 @@ use matrix_sdk_crypto::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
-    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts},
+    store::{
+        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
+        CryptoStoreError, Result as StoreResult, RoomKeyCounts,
+    },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{room_id, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::fs;
@@ -172,7 +175,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -221,6 +224,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         .await?;
     }
 
+    if version < 3 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/003_withheld_code.sql"))
+        })
+        .await?;
+    }
+
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
@@ -257,6 +267,25 @@ trait SqliteConnectionExt {
         sent_out: bool,
         data: &[u8],
     ) -> rusqlite::Result<()>;
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
+
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>>;
+
+    async fn is_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<bool>;
+
+    async fn mark_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<()>;
+
+    async fn clear_no_olm_sent(&self, user_id: Key, device_id: key) -> Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -346,6 +375,66 @@ impl SqliteConnectionExt for rusqlite::Connection {
             ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
             (request_id, sent_out, data),
         )?;
+        Ok(())
+    }
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO direct_withheld_info (session_id, room_id, data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (session_id) DO UPDATE SET room_id = ?2, data = ?3",
+            (session_id, room_id, data),
+        )?;
+        Ok(())
+    }
+
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
+                (session_id, room_id),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
+    }
+
+    async fn is_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<bool> {
+        Ok(self
+            .query_row(
+                "SELECT count(*) FROM no_olm_sent WHERE user_id = ?1 AND device_id = ?2",
+                (user_id, device_id),
+                |row| row.get::<_, i32>(0),
+            )
+            .await?
+            > 0)
+    }
+
+    async fn mark_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<()> {
+        self.execute(
+            "INSERT INTO no_olm_sent (user_id, user_id) \
+             VALUES (?1, ?2)
+             ON CONFLICT DO NOTHING",
+            (user_id, device_id),
+        )?;
+        Ok(())
+    }
+
+    async fn clear_no_olm_sent(&self, user_id: Key, device_id: key) -> Result<()> {
+        self.execute(
+            "DELETE FROM no_olm_sent WHERE user_id = ?1 AND device_id = ?2",
+            (user_id, device_id),
+        )
+        .await?;
         Ok(())
     }
 }
@@ -591,6 +680,8 @@ impl CryptoStore for SqliteCryptoStore {
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let mut session_changes = Vec::new();
+
+        let mut clear_no_olm_sent: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
         for session in changes.sessions {
             let session_id = self.encode_key("session", session.session_id());
             let sender_key = self.encode_key("session", session.sender_key().to_base64());
@@ -598,6 +689,8 @@ impl CryptoStore for SqliteCryptoStore {
             session_changes.push((session_id, sender_key, pickle));
 
             self.session_cache.add(session).await;
+
+            clear_no_olm_sent.push((session.user_id.to_owned(), session.device_id.to_owned()));
         }
 
         let mut inbound_session_changes = Vec::new();
@@ -690,6 +783,28 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
                 }
 
+                for (user_id, device_id) in clear_no_olm_sent {
+                    let user_id = this.encode_key("no_olm_sent", user_id.as_bytes());
+                    let device_id = this.encode_key("no_olm_sent", device_id.as_bytes());
+                    txn.clear_no_olm_sent(user_id, device_id);
+                }
+
+                for (user_id, device_id_list) in changes.no_olm_sent {
+                    for device_id in device_id_list {
+                        let user_id = this.encode_key("no_olm_sent", user_id.as_bytes());
+                        let device_id = this.encode_key("no_olm_sent", device_id.as_bytes());
+                        txn.mark_no_olm_sent(user_id, device_id);
+                    }
+                }
+
+                for info in changes.withheld_session_info {
+                    let session_id =
+                        this.encode_key("direct_withheld_info", info.session_id.as_bytes());
+                    let room_id = this.encode_key("direct_withheld_info", info.room_id.as_bytes());
+                    let serialized_info = this.serialize_value(&info)?;
+                    txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                }
+
                 Ok::<_, Error>(())
             })
             .await?;
@@ -733,9 +848,9 @@ impl CryptoStore for SqliteCryptoStore {
         let session_id = self.encode_key("inbound_group_session", session_id);
         let Some((room_id_from_db, value)) =
             self.acquire().await?.get_inbound_group_session(session_id).await?
-        else {
-            return Ok(None);
-        };
+            else {
+                return Ok(None);
+            };
 
         let room_id = self.encode_key("inbound_group_session", room_id.as_bytes());
         if *room_id != room_id_from_db {
@@ -952,8 +1067,27 @@ impl CryptoStore for SqliteCryptoStore {
         user_id: OwnedUserId,
         device_id: OwnedDeviceId,
     ) -> StoreResult<bool> {
-        // TODO help I need some guidance here?
-        Ok(false)
+        let user_id = self.encode_key("no_olm_sent", user_id.as_bytes());
+        let device_id = self.encode_key("no_olm_sent", device_id.as_bytes());
+        Ok(self.acquire().await?.is_no_olm_sent(user_id, device_id))
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> StoreResult<Option<DirectWithheldInfo>> {
+        let session_id = self.encode_key("direct_withheld_info", session_id.as_bytes());
+        let room_id = self.encode_key("direct_withheld_info", room_id.as_str().as_bytes());
+        Ok(self
+            .acquire()
+            .await?
+            .get_direct_withheld_info(session_id, room_id)
+            .await?
+            .map(|value| {
+                self.deserialize_value::<DirectWithheldInfo>(&value)?;
+            })
+            .transpose()?)
     }
 }
 
