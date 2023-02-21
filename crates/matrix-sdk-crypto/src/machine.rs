@@ -823,7 +823,7 @@ impl OlmMachine {
                 }
             }
             AnyDecryptedOlmEvent::Dummy(_) => {
-                debug!("Received a `m.dummy` event");
+                debug!("Received an `m.dummy` event");
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
