@@ -27,8 +27,8 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
-        RoomKeyCounts,
+        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
+        CryptoStoreError, Result, RoomKeyCounts,
     },
     types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
@@ -1017,9 +1017,20 @@ impl CryptoStore for SledCryptoStore {
         Ok(key)
     }
 
-    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool> {
-        // TODO, help not sure how to to that?
-        Ok(false)
+    async fn is_no_olm_sent(
+        &self,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> Result<bool, Self::Error> {
+        todo!()
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<DirectWithheldInfo>, Self::Error> {
+        todo!()
     }
 }
 

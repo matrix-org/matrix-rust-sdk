@@ -66,8 +66,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        withheld::DirectWithheldInfo, Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
-        Result as StoreResult, SecretImportError, Store,
+        withheld::DirectWithheldInfo, Changes, DeviceChanges, DynCryptoStore, IdentityChanges,
+        IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError, Store,
     },
     types::{
         events::{

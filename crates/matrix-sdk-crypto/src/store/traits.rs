@@ -90,7 +90,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>>;
+    ) -> Result<Option<DirectWithheldInfo>, Self::Error>;
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
@@ -202,7 +202,11 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// it again.
     /// Help: Using user/device as key here because it's sent in clear, but
     /// should we use the sender_key?
-    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool>;
+    async fn is_no_olm_sent(
+        &self,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> Result<bool, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -328,6 +332,22 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<DirectWithheldInfo>, Self::Error> {
+        self.0.get_withheld_info(room_id, session_id).await.map_err(Into::into)
+    }
+
+    async fn is_no_olm_sent(
+        &self,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> Result<bool, Self::Error> {
+        self.0.is_no_olm_sent(user_id, device_id).await.map_err(Into::into)
     }
 }
 

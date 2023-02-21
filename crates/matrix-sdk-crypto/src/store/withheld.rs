@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! When an encrypted message is sent in a room, the group key might not be sent
+//! to all devices present in the room. Sometimes this may be inadvertent (for
+//! example, if the sending device is not aware of some devices that have
+//! joined), but some times, this may be purposeful.
 use ruma::{JsOption, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use vodozemac::Curve25519PublicKey;
@@ -21,10 +25,6 @@ use crate::types::{
     EventEncryptionAlgorithm,
 };
 
-/// When an encrypted message is sent in a room, the group key might not be sent
-/// to all devices present in the room. Sometimes this may be inadvertent (for
-/// example, if the sending device is not aware of some devices that have
-/// joined), but some times, this may be purposeful.
 ///
 /// We want to store when the owner of the group session sent us a withheld
 /// code. It's not storing withheld code that can be sent in a
