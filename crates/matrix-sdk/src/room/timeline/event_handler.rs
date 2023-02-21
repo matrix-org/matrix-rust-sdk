@@ -733,6 +733,7 @@ impl<'a> TimelineEventHandler<'a> {
 
             #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
+                trace!("Updating timeline item at position {idx}");
                 self.items.set(*idx, item);
             }
         }
