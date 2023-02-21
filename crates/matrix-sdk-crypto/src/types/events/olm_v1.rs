@@ -145,7 +145,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.content.event_type(),
-            AnyDecryptedOlmEvent::Dummy(e) => &e.content.event_type(),
+            AnyDecryptedOlmEvent::Dummy(e) => e.content.event_type(),
         }
     }
 }
