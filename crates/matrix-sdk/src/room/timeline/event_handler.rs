@@ -181,6 +181,7 @@ pub(super) enum TimelineItemPosition {
 #[derive(Default)]
 pub(super) struct HandleEventResult {
     pub(super) item_added: bool,
+    pub(super) item_removed: bool,
     pub(super) items_updated: u16,
 }
 
@@ -319,6 +320,7 @@ impl<'a> TimelineEventHandler<'a> {
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
                 self.items.remove(idx);
+                self.result.item_removed = true;
             }
 
             // TODO: Add event as raw
