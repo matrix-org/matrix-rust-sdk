@@ -1072,9 +1072,9 @@ impl Joined {
 /// Receipts to send all at once.
 #[derive(Debug, Clone, Default)]
 pub struct Receipts {
-    fully_read: Option<OwnedEventId>,
-    read_receipt: Option<OwnedEventId>,
-    private_read_receipt: Option<OwnedEventId>,
+    pub(super) fully_read: Option<OwnedEventId>,
+    pub(super) read_receipt: Option<OwnedEventId>,
+    pub(super) private_read_receipt: Option<OwnedEventId>,
 }
 
 impl Receipts {

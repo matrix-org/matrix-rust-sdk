@@ -29,6 +29,7 @@ use matrix_sdk_base::{
 #[cfg(feature = "e2e-encryption")]
 use ruma::RoomId;
 use ruma::{
+    api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         fully_read::FullyReadEvent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
@@ -45,13 +46,18 @@ use tracing::{debug, error, field::debug, instrument, trace, warn};
 use tracing::{field, info, info_span, Instrument as _};
 
 use super::{
+    compare_events_positions,
     event_handler::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    read_receipts::{handle_explicit_read_receipts, load_read_receipts_for_event},
+    read_receipts::{
+        handle_explicit_read_receipts, latest_user_read_receipt, load_read_receipts_for_event,
+        user_receipt,
+    },
     rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
-    Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
+    Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
+    TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -577,6 +583,80 @@ impl TimelineInner {
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
         Ok(item)
+    }
+
+    /// Get the latest read receipt for the given user.
+    ///
+    /// Useful to get the latest read receipt, whether it's private or public.
+    pub(super) async fn latest_user_read_receipt(
+        &self,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        let state = self.state.lock().await;
+        let room = self.room();
+
+        latest_user_read_receipt(user_id, &state, room).await
+    }
+
+    /// Check whether the given receipt should be sent.
+    ///
+    /// Returns `false` if the given receipt is older than the current one.
+    pub(super) async fn should_send_receipt(
+        &self,
+        receipt_type: &SendReceiptType,
+        thread: &ReceiptThread,
+        event_id: &EventId,
+    ) -> bool {
+        // We don't support threaded receipts yet.
+        if *thread != ReceiptThread::Unthreaded {
+            return true;
+        }
+
+        let own_user_id = self.room().own_user_id();
+        let state = self.state.lock().await;
+        let room = self.room();
+
+        match receipt_type {
+            SendReceiptType::Read => {
+                if let Some((old_pub_read, _)) =
+                    user_receipt(own_user_id, ReceiptType::Read, &state, room).await
+                {
+                    if let Some(relative_pos) =
+                        compare_events_positions(&old_pub_read, event_id, &state.items)
+                    {
+                        return relative_pos == RelativePosition::After;
+                    }
+                }
+            }
+            // Implicit read receipts are saved as public read receipts, so get the latest. It also
+            // doesn't make sense to have a private read receipt behind a public one.
+            SendReceiptType::ReadPrivate => {
+                if let Some((old_priv_read, _)) =
+                    latest_user_read_receipt(own_user_id, &state, room).await
+                {
+                    if let Some(relative_pos) =
+                        compare_events_positions(&old_priv_read, event_id, &state.items)
+                    {
+                        return relative_pos == RelativePosition::After;
+                    }
+                }
+            }
+            SendReceiptType::FullyRead => {
+                if let Some(old_fully_read) = self.fully_read_event().await {
+                    if let Some(relative_pos) = compare_events_positions(
+                        &old_fully_read.content.event_id,
+                        event_id,
+                        &state.items,
+                    ) {
+                        return relative_pos == RelativePosition::After;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Let the server handle unknown receipts.
+        true
     }
 }
 
