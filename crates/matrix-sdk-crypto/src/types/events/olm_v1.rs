@@ -23,6 +23,7 @@ use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
 
 use super::{
+    dummy::DummyEventContent,
     forwarded_room_key::ForwardedRoomKeyContent,
     room_key::RoomKeyContent,
     room_key_request::{self, SupportedKeyInfo},
@@ -30,6 +31,10 @@ use super::{
     EventType,
 };
 use crate::types::{deserialize_ed25519_key, events::from_str, serialize_ed25519_key};
+
+/// An `m.dummy` event that was decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm
+pub type DecryptedDummyEvent = DecryptedOlmV1Event<DummyEventContent>;
 
 /// An `m.room_key` event that was decrypted using the
 /// `m.olm.v1.curve25519-aes-sha2` algorithm
@@ -82,6 +87,8 @@ pub enum AnyDecryptedOlmEvent {
     ForwardedRoomKey(DecryptedForwardedRoomKeyEvent),
     /// The `m.secret.send` decrypted to-device event.
     SecretSend(DecryptedSecretSendEvent),
+    /// The `m.dummy` decrypted to-device event.
+    Dummy(DecryptedDummyEvent),
     /// A decrypted to-device event of an unknown or custom type.
     Custom(Box<ToDeviceCustomEvent>),
 }
@@ -94,6 +101,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.sender,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.sender,
             AnyDecryptedOlmEvent::Custom(e) => &e.sender,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.sender,
         }
     }
 
@@ -104,6 +112,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.recipient,
         }
     }
 
@@ -114,6 +123,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.keys,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.keys,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.keys,
         }
     }
 
@@ -124,6 +134,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient_keys,
+            AnyDecryptedOlmEvent::Dummy(e) => &e.recipient_keys,
         }
     }
 
@@ -134,6 +145,7 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::RoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.content.event_type(),
+            AnyDecryptedOlmEvent::Dummy(e) => e.content.event_type(),
         }
     }
 }

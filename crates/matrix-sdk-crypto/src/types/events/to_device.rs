@@ -16,7 +16,6 @@ use std::{collections::BTreeMap, fmt::Debug};
 
 use ruma::{
     events::{
-        dummy::ToDeviceDummyEvent,
         key::verification::{
             accept::ToDeviceKeyVerificationAcceptEvent, cancel::ToDeviceKeyVerificationCancelEvent,
             done::ToDeviceKeyVerificationDoneEvent, key::ToDeviceKeyVerificationKeyEvent,
@@ -37,6 +36,7 @@ use serde_json::{
 use zeroize::Zeroize;
 
 use super::{
+    dummy::DummyEvent,
     forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
     room::encrypted::EncryptedToDeviceEvent,
     room_key::RoomKeyEvent,
@@ -52,7 +52,7 @@ pub enum ToDeviceEvents {
     /// A to-device event of an unknown or custom type.
     Custom(ToDeviceCustomEvent),
     /// The `m.dummy` to-device event.
-    Dummy(ToDeviceDummyEvent),
+    Dummy(DummyEvent),
 
     /// The `m.key.verification.accept` to-device event.
     KeyVerificationAccept(ToDeviceKeyVerificationAcceptEvent),
@@ -115,7 +115,7 @@ impl ToDeviceEvents {
     pub fn event_type(&self) -> ToDeviceEventType {
         match self {
             ToDeviceEvents::Custom(e) => ToDeviceEventType::from(e.event_type.to_owned()),
-            ToDeviceEvents::Dummy(e) => e.content.event_type(),
+            ToDeviceEvents::Dummy(_) => ToDeviceEventType::Dummy,
 
             ToDeviceEvents::KeyVerificationAccept(e) => e.content.event_type(),
             ToDeviceEvents::KeyVerificationCancel(e) => e.content.event_type(),

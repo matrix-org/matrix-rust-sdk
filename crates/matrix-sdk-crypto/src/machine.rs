@@ -822,6 +822,9 @@ impl OlmMachine {
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
                 }
             }
+            AnyDecryptedOlmEvent::Dummy(_) => {
+                debug!("Received an `m.dummy` event");
+            }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
             }
