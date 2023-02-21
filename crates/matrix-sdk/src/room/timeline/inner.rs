@@ -302,27 +302,28 @@ impl<P: ProfileProvider> TimelineInner<P> {
         );
     }
 
-    /// Collect events and their metadata that are unable-to-decrypt (UTD)
-    /// events in the timeline.
-    async fn collect_utds(
+    #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip(self, olm_machine))]
+    pub(super) async fn retry_event_decryption(
         &self,
+        room_id: &RoomId,
+        olm_machine: &OlmMachine,
         session_ids: Option<BTreeSet<&str>>,
-    ) -> Vec<(usize, OwnedEventId, String, Raw<AnySyncTimelineEvent>)> {
+    ) {
         use super::EncryptedMessage;
 
         let should_retry = |session_id: &str| {
-            let session_ids = &session_ids;
-
-            if let Some(session_ids) = session_ids {
+            if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
             } else {
                 true
             }
         };
 
-        self.state
-            .lock()
-            .await
+        let mut state = self.state.lock().await;
+
+        trace!("Collecting UTD timeline items");
+        let utds_for_session: Vec<_> = state
             .items
             .iter()
             .enumerate()
@@ -348,27 +349,14 @@ impl<P: ProfileProvider> TimelineInner<P> {
                     | EncryptedMessage::Unknown => None,
                 }
             })
-            .collect()
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip(self, olm_machine))]
-    pub(super) async fn retry_event_decryption(
-        &self,
-        room_id: &RoomId,
-        olm_machine: &OlmMachine,
-        session_ids: Option<BTreeSet<&str>>,
-    ) {
-        debug!("Retrying decryption");
-
-        let utds_for_session = self.collect_utds(session_ids).await;
+            .collect();
 
         if utds_for_session.is_empty() {
             trace!("Found no events to retry decryption for");
             return;
         }
 
-        let mut state = self.state.lock().await;
+        debug!("Retrying decryption for {} items", utds_for_session.len());
         for (idx, event_id, session_id, utd) in utds_for_session {
             let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
                 Ok(ev) => ev,
