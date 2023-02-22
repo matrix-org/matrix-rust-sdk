@@ -17,11 +17,12 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::RwLockReadGuard as StdRwLockReadGuard,
 };
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
-use futures_signals::signal::ReadOnlyMutable;
+use eyeball::Observable;
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -136,7 +137,7 @@ impl BaseClient {
     /// If the client is currently logged in, this will return a
     /// [`SessionTokens`] object which contains the access token and optional
     /// refresh token. Otherwise it returns `None`.
-    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
         self.store.session_tokens()
     }
 

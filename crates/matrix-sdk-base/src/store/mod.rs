@@ -28,10 +28,10 @@ use std::{
     pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard},
 };
 
-use futures_signals::signal::{Mutable, ReadOnlyMutable};
+use eyeball::Observable;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -505,7 +505,7 @@ where
 pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
-    pub(super) session_tokens: Mutable<Option<SessionTokens>>,
+    pub(super) session_tokens: Arc<StdRwLock<Observable<Option<SessionTokens>>>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
@@ -567,22 +567,22 @@ impl Store {
         self.session_meta.get()
     }
 
-    /// The current [`SessionTokens`] containing our access token and optional
-    /// refresh token.
-    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
-        self.session_tokens.read_only()
+    /// The [`SessionTokens`] containing our access token and optional refresh
+    /// token.
+    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
+        self.session_tokens.read().unwrap()
     }
 
     /// Set the current [`SessionTokens`].
     pub fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.session_tokens.set(Some(tokens));
+        Observable::set(&mut self.session_tokens.write().unwrap(), Some(tokens));
     }
 
     /// The current [`Session`] containing our user id, device ID, access
     /// token and optional refresh token.
     pub fn session(&self) -> Option<Session> {
         let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens.get_cloned()?;
+        let tokens = self.session_tokens().clone()?;
         Some(Session::from_parts(meta.to_owned(), tokens))
     }
 

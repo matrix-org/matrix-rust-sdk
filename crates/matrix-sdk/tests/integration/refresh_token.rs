@@ -1,11 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use futures::{
-    channel::{mpsc, oneshot},
-    StreamExt,
-};
-use futures_signals::signal::SignalExt;
+use futures::{channel::mpsc, StreamExt};
 use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
@@ -248,27 +244,16 @@ async fn refresh_token_handled_success() {
     };
     client.restore_session(session).await.unwrap();
 
-    let mut tokens_stream = client.session_tokens_signal().to_stream();
-    let (tokens_sender, tokens_receiver) = oneshot::channel::<()>();
-    spawn(async move {
-        let tokens = tokens_stream.next().await.flatten().unwrap();
-        assert_eq!(tokens.access_token, "1234");
-        assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
-
+    let mut tokens_stream = client.session_tokens_stream();
+    let tokens_join_handle = spawn(async move {
         let tokens = tokens_stream.next().await.flatten().unwrap();
         assert_eq!(tokens.access_token, "5678");
         assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
-
-        tokens_sender.send(()).unwrap();
     });
 
-    let mut tokens_changed_stream = client.session_tokens_changed_signal().to_stream();
-    let (changed_sender, changed_receiver) = oneshot::channel::<()>();
-    spawn(async move {
+    let mut tokens_changed_stream = client.session_tokens_changed_stream();
+    let changed_join_handle = spawn(async move {
         tokens_changed_stream.next().await.unwrap();
-        tokens_changed_stream.next().await.unwrap();
-
-        changed_sender.send(()).unwrap();
     });
 
     Mock::given(method("POST"))
@@ -300,8 +285,8 @@ async fn refresh_token_handled_success() {
         .await;
 
     client.whoami().await.unwrap();
-    tokens_receiver.await.unwrap();
-    changed_receiver.await.unwrap();
+    tokens_join_handle.await.unwrap();
+    changed_join_handle.await.unwrap();
 }
 
 #[async_test]

@@ -24,8 +24,9 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use futures_core::stream::Stream;
-use futures_signals::signal::Signal;
+use eyeball::Observable;
+use futures_core::Stream;
+use futures_util::StreamExt;
 use matrix_sdk_base::{
     BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
     SyncOutsideWasm,
@@ -353,7 +354,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens(&self) -> Option<SessionTokens> {
-        self.base_client().session_tokens().get_cloned()
+        self.base_client().session_tokens().clone()
     }
 
     /// Get the current access token for this session.
@@ -381,7 +382,7 @@ impl Client {
         self.session_tokens().and_then(|tokens| tokens.refresh_token)
     }
 
-    /// [`Signal`] to get notified when the current access token and optional
+    /// [`Stream`] to get notified when the current access token and optional
     /// refresh token for this session change.
     ///
     /// This can be used with [`Client::session()`] to persist the [`Session`]
@@ -393,7 +394,7 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// use futures_signals::signal::SignalExt;
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::Session;
     /// # use futures::executor::block_on;
@@ -417,7 +418,7 @@ impl Client {
     /// persist_session(client.session());
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let future = client.session_tokens_changed_signal().for_each(move |_| {
+    /// let future = client.session_tokens_changed_stream().for_each(move |_| {
     ///     let client = client.clone();
     ///     async move {
     ///         persist_session(client.session());
@@ -430,15 +431,12 @@ impl Client {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_changed_signal(&self) -> impl Signal<Item = ()> {
-        self.base_client().session_tokens().signal_ref(|_| ())
+    pub fn session_tokens_changed_stream(&self) -> impl Stream<Item = ()> {
+        self.session_tokens_stream().map(|_| ())
     }
 
-    /// Get the current access token and optional refresh token for this
-    /// session as a [`Signal`].
-    ///
-    /// This can be used to watch changes of the tokens by calling methods like
-    /// `for_each()` or `to_stream()`.
+    /// Get changes to the access token and optional refresh token for this
+    /// session as a [`Stream`].
     ///
     /// The value will be `None` if the client has not been logged in.
     ///
@@ -449,7 +447,6 @@ impl Client {
     ///
     /// ```no_run
     /// use futures::StreamExt;
-    /// use futures_signals::signal::SignalExt;
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::Session;
     /// # use futures::executor::block_on;
@@ -474,7 +471,7 @@ impl Client {
     /// persist_session(&session);
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let mut tokens_stream = client.session_tokens_signal().to_stream();
+    /// let mut tokens_stream = client.session_tokens_stream();
     /// loop {
     ///     if let Some(tokens) = tokens_stream.next().await.flatten() {
     ///         session.access_token = tokens.access_token;
@@ -491,8 +488,8 @@ impl Client {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_signal(&self) -> impl Signal<Item = Option<SessionTokens>> {
-        self.base_client().session_tokens().signal_cloned()
+    pub fn session_tokens_stream(&self) -> impl Stream<Item = Option<SessionTokens>> {
+        Observable::subscribe(&self.base_client().session_tokens())
     }
 
     /// Get the whole session info of this client.
