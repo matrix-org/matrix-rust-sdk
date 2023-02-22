@@ -1203,7 +1203,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
 
             // we only heard about the ones we had asked for
-            if room_summary.views.iter().any(|s| s == "sliding") {
+            if room_summary.views.iter().any(|s| s == "sliding_view") {
                 break;
             }
         }
