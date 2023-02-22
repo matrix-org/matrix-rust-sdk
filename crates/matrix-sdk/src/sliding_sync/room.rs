@@ -57,6 +57,7 @@ impl SlidingSyncRoom {
     ) -> Self {
         // we overwrite to only keep one copy
         inner.timeline = vec![];
+
         Self {
             client,
             room_id,
@@ -78,7 +79,7 @@ impl SlidingSyncRoom {
         *self.is_loading_more.lock_ref()
     }
 
-    /// the `prev_batch` key to fetch more timeline events for this room
+    /// The `prev_batch` key to fetch more timeline events for this room.
     pub fn prev_batch(&self) -> Option<String> {
         self.prev_batch.lock_ref().clone()
     }
@@ -90,9 +91,10 @@ impl SlidingSyncRoom {
 
     fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
-            let timeline_queue = self.timeline_queue.lock_ref().to_vec();
-            let prev_batch = self.prev_batch.lock_ref().clone();
-            Some(Timeline::builder(&room).events(prev_batch, timeline_queue))
+            Some(
+                Timeline::builder(&room)
+                    .events(self.prev_batch.get_cloned(), self.timeline_queue.lock_ref().to_vec()),
+            )
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::builder(&invited_room).events(None, vec![]))
         } else {
@@ -100,6 +102,7 @@ impl SlidingSyncRoom {
                 room_id = ?self.room_id,
                 "Room not found in client. Can't provide a timeline for it"
             );
+
             None
         }
     }
