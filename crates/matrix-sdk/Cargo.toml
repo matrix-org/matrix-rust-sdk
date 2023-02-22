@@ -69,6 +69,7 @@ bytesize = "1.1"
 chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 event-listener = "2.5.2"
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
