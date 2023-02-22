@@ -106,3 +106,6 @@ pub mod vodozemac {
         DecodeError, KeyError, PickleError, SignatureError,
     };
 }
+
+/// The version of matrix-sdk-cypto being used
+pub static VERSION: &str = env!("CARGO_PKG_VERSION");
