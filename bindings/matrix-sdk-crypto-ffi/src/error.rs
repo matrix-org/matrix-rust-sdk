@@ -1,8 +1,9 @@
 #![allow(missing_docs)]
 
 use matrix_sdk_crypto::{
-    store::CryptoStoreError as InnerStoreError, KeyExportError, MegolmError, OlmError,
-    SecretImportError as RustSecretImportError, SignatureError as InnerSignatureError,
+    store::CryptoStoreError as InnerStoreError, types::events::room_key_withheld::WithheldCode,
+    KeyExportError, MegolmError, OlmError, SecretImportError as RustSecretImportError,
+    SignatureError as InnerSignatureError,
 };
 use matrix_sdk_sqlite::OpenStoreError;
 use ruma::{IdParseError, OwnedUserId};
@@ -65,7 +66,7 @@ pub enum DecryptionError {
     #[error("Megolm decryption error: {error_message}")]
     Megolm { error_message: String },
     #[error("Can't find the room key to decrypt the event")]
-    MissingRoomKey,
+    MissingRoomKey { withheld_code: Option<WithheldCode> },
     #[error(transparent)]
     Store(#[from] InnerStoreError),
 }
@@ -73,7 +74,7 @@ pub enum DecryptionError {
 impl From<MegolmError> for DecryptionError {
     fn from(value: MegolmError) -> Self {
         match value {
-            MegolmError::MissingRoomKey => Self::MissingRoomKey,
+            MegolmError::MissingRoomKey(withheld_code) => Self::MissingRoomKey { withheld_code },
             _ => Self::Megolm { error_message: value.to_string() },
         }
     }
