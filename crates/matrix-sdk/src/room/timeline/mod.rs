@@ -435,6 +435,18 @@ impl TimelineItem {
     }
 }
 
+impl From<EventTimelineItem> for TimelineItem {
+    fn from(item: EventTimelineItem) -> Self {
+        Self::Event(item)
+    }
+}
+
+impl From<VirtualTimelineItem> for TimelineItem {
+    fn from(item: VirtualTimelineItem) -> Self {
+        Self::Virtual(item)
+    }
+}
+
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
 fn rfind_event_item(
