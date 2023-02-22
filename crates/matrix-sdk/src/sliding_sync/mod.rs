@@ -690,11 +690,13 @@ pub enum SlidingSyncState {
 /// The mode by which the the [`SlidingSyncView`] is in fetching the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
-    /// fully sync all rooms in the background, page by page of `batch_size`
+    /// Fully sync all rooms in the background, page by page of `batch_size`,
+    /// like `0..20`, `21..40`, 41..60` etc. assuming the `batch_size` is 20.
     #[serde(alias = "FullSync")]
     PagingFullSync,
-    /// fully sync all rooms in the background, with a growing window of
-    /// `batch_size`,
+    /// Fully sync all rooms in the background, with a growing window of
+    /// `batch_size`, like `0..20`, `0..40`, `0..60` etc. assuming the
+    /// `batch_size` is 20.
     GrowingFullSync,
     /// Only sync the specific windows defined
     #[default]
@@ -764,8 +766,9 @@ pub struct SlidingSync {
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
 
-    // ------ Internal state
-    pub(crate) pos: Mutable<Option<String>>,
+    /// The `pos` marker.
+    pos: Mutable<Option<String>>,
+
     delta_token: Mutable<Option<String>>,
 
     /// The views of this sliding sync instance
@@ -1151,11 +1154,14 @@ impl SlidingSync {
                 match self.sync_once(&mut views).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.failure_count.store(0, Ordering::SeqCst);
+
                         yield Ok(updates)
-                    },
+                    }
+
                     Ok(None) => {
                         break;
                     }
+
                     Err(e) => {
                         if e.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                             // session expired, let's reset
@@ -1184,6 +1190,19 @@ impl SlidingSync {
                 }
             }
         }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl SlidingSync {
+    /// Get a copy of the `pos` value.
+    pub fn pos(&self) -> Option<String> {
+        self.pos.get_cloned()
+    }
+
+    /// Set a new value for `pos`.
+    pub fn set_pos(&self, new_pos: String) {
+        self.pos.set(Some(new_pos))
     }
 }
 

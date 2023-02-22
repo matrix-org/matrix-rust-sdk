@@ -4,8 +4,6 @@
 use matrix_sdk_base::Session;
 use ruma::{api::MatrixVersion, device_id, user_id};
 
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::sliding_sync::SlidingSync;
 use crate::{config::RequestConfig, Client, ClientBuilder};
 
 pub(crate) fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
@@ -32,10 +30,4 @@ pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
     client.restore_session(session).await.unwrap();
 
     client
-}
-
-/// Force a specific pos-value to be used for the given sliding-sync instance.
-#[cfg(feature = "experimental-sliding-sync")]
-pub fn force_sliding_sync_pos(sliding_sync: &SlidingSync, new_pos: String) {
-    sliding_sync.pos.set(Some(new_pos));
 }
