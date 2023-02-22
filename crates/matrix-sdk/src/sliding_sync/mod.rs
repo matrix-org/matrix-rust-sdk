@@ -1005,7 +1005,7 @@ impl SlidingSync {
 
                     rooms_map.insert(
                         id.clone(),
-                        SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
+                        SlidingSyncRoom::new(self.client.clone(), id.clone(), room_data, timeline),
                     );
                 }
 

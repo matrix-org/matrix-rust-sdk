@@ -49,7 +49,7 @@ impl SlidingSyncRoom {
         }
     }
 
-    pub(crate) fn from(
+    pub(super) fn new(
         client: Client,
         room_id: OwnedRoomId,
         mut inner: v4::SlidingSyncRoom,
