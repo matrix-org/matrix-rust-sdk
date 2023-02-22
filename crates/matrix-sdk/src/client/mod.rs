@@ -1030,7 +1030,6 @@ impl Client {
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use serde_json::json;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// use matrix_sdk::Client;
