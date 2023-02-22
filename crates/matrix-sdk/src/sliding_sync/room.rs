@@ -36,19 +36,6 @@ pub struct SlidingSyncRoom {
 }
 
 impl SlidingSyncRoom {
-    pub(super) fn from_frozen(val: FrozenSlidingSyncRoom, client: Client) -> Self {
-        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline_queue: timeline } = val;
-        SlidingSyncRoom {
-            client,
-            room_id,
-            inner,
-            is_loading_more: Mutable::new(false),
-            is_cold: Arc::new(AtomicBool::new(true)),
-            prev_batch: Mutable::new(prev_batch),
-            timeline_queue: Arc::new(MutableVec::new_with_values(timeline)),
-        }
-    }
-
     pub(super) fn new(
         client: Client,
         room_id: OwnedRoomId,
@@ -277,6 +264,21 @@ impl SlidingSyncRoom {
             // existing timeline.
 
             self.timeline_queue.lock_mut().clear();
+        }
+    }
+
+    pub(super) fn from_frozen(frozen_room: FrozenSlidingSyncRoom, client: Client) -> Self {
+        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline_queue: timeline } =
+            frozen_room;
+
+        Self {
+            client,
+            room_id,
+            inner,
+            is_loading_more: Mutable::new(false),
+            is_cold: Arc::new(AtomicBool::new(true)),
+            prev_batch: Mutable::new(prev_batch),
+            timeline_queue: Arc::new(MutableVec::new_with_values(timeline)),
         }
     }
 }

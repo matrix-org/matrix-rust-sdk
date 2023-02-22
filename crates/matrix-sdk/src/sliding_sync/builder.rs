@@ -226,8 +226,8 @@ impl SlidingSyncBuilder {
 
     /// Build the Sliding Sync.
     ///
-    /// If `self.storage_key` has some value, load the cached data from
-    /// cold storage.
+    /// If `self.storage_key` is `Some(_)`, load the cached data from cold
+    /// storage.
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
