@@ -148,7 +148,7 @@ impl SlidingSyncRoom {
 
     pub(super) fn update(
         &mut self,
-        room_data: &v4::SlidingSyncRoom,
+        room_data: v4::SlidingSyncRoom,
         timeline_updates: Vec<SyncTimelineEvent>,
     ) {
         let v4::SlidingSyncRoom {
@@ -163,23 +163,12 @@ impl SlidingSyncRoom {
             ..
         } = room_data;
 
-        self.inner.unread_notifications = unread_notifications.clone();
-
-        if name.is_some() {
-            self.inner.name = name.clone();
-        }
-        if initial.is_some() {
-            self.inner.initial = *initial;
-        }
-        if is_dm.is_some() {
-            self.inner.is_dm = *is_dm;
-        }
-        if !invite_state.is_empty() {
-            self.inner.invite_state = invite_state.clone();
-        }
-        if !required_state.is_empty() {
-            self.inner.required_state = required_state.clone();
-        }
+        self.inner.unread_notifications = unread_notifications;
+        self.inner.name = name;
+        self.inner.initial = initial;
+        self.inner.is_dm = is_dm;
+        self.inner.invite_state = invite_state;
+        self.inner.required_state = required_state;
 
         if let Some(batch) = prev_batch {
             self.prev_batch.lock_mut().replace(batch.clone());
@@ -193,7 +182,7 @@ impl SlidingSyncRoom {
 
                 self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
                 self.is_cold.store(false, Ordering::SeqCst);
-            } else if *limited {
+            } else if limited {
                 // The server alerted us that we missed items in between.
 
                 self.timeline_queue.lock_mut().replace_cloned(timeline_updates);
@@ -282,7 +271,7 @@ impl SlidingSyncRoom {
                     }
                 }
             }
-        } else if *limited {
+        } else if limited {
             // The timeline updates are empty. But `limited` is set to true. It's a way to
             // alert that we are stale. In this case, we should just clear the
             // existing timeline.
