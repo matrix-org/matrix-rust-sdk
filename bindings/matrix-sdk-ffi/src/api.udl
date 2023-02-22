@@ -1,8 +1,7 @@
 namespace matrix_sdk_ffi {};
 
 
-/// Cancels on drop
-interface StoppableSpawn {};
+interface TaskHandle {};
 
 [Error]
 interface ClientError {
@@ -112,10 +111,10 @@ interface SlidingSyncViewBuilder {
 };
 
 interface SlidingSyncView {
-    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver observer);
-    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
-    StoppableSpawn observe_state(SlidingSyncViewStateObserver observer);
-    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
+    TaskHandle observe_room_list(SlidingSyncViewRoomListObserver observer);
+    TaskHandle observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
+    TaskHandle observe_state(SlidingSyncViewStateObserver observer);
+    TaskHandle observe_room_items(SlidingSyncViewRoomItemsObserver observer);
 };
 
 interface SlidingSyncRoom {
@@ -127,7 +126,7 @@ interface SlidingSyncRoom {
 
 dictionary SlidingSyncSubscribeResult {
     sequence<TimelineItem> items;
-    StoppableSpawn task_handle;
+    TaskHandle task_handle;
 };
 
 interface SlidingSync {
