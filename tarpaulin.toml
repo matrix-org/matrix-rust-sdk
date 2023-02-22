@@ -23,7 +23,6 @@ exclude = [
     "matrix-sdk-test-macros",
     # labs
     "jack-in",
-    "sled-state-inspector",
     # repo automation (ci, codegen)
     "uniffi-bindgen",
     "xtask",
