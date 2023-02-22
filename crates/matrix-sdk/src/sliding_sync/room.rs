@@ -23,9 +23,7 @@ use crate::{
     Client,
 };
 
-type AliveRoomTimeline = Arc<MutableVec<SyncTimelineEvent>>;
-
-/// Room info as giving by the SlidingSync Feature.
+/// Room details, provided by a [`SlidingSync`] instance.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
     client: Client,
@@ -34,76 +32,7 @@ pub struct SlidingSyncRoom {
     is_loading_more: Mutable<bool>,
     is_cold: Arc<AtomicBool>,
     prev_batch: Mutable<Option<String>>,
-    timeline_queue: AliveRoomTimeline,
-}
-
-#[derive(Serialize, Deserialize)]
-pub(super) struct FrozenSlidingSyncRoom {
-    room_id: OwnedRoomId,
-    inner: v4::SlidingSyncRoom,
-    prev_batch: Option<String>,
-    #[serde(rename = "timeline")]
-    timeline_queue: Vec<SyncTimelineEvent>,
-}
-
-#[cfg(test)]
-mod tests {
-    use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, RoomId};
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn test_frozen_sliding_sync_room_serialize() {
-        let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
-            room_id: <&RoomId>::try_from("!29fhd83h92h0:example.com").unwrap().to_owned(),
-            inner: v4::SlidingSyncRoom::default(),
-            prev_batch: Some("let it go!".to_owned()),
-            timeline_queue: vec![TimelineEvent {
-                event: Raw::new(&json! ({
-                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
-                    "type": "m.room.message",
-                    "event_id": "$xxxxx:example.org",
-                    "room_id": "!someroom:example.com",
-                    "origin_server_ts": 2189,
-                    "sender": "@bob:example.com",
-                }))
-                .unwrap()
-                .cast(),
-                encryption_info: None,
-            }
-            .into()],
-        };
-
-        assert_eq!(
-            serde_json::to_string(&frozen_sliding_sync_room).unwrap(),
-            "{\"room_id\":\"!29fhd83h92h0:example.com\",\"inner\":{},\"prev_batch\":\"let it go!\",\"timeline\":[{\"event\":{\"content\":{\"body\":\"let it gooo!\",\"msgtype\":\"m.text\"},\"event_id\":\"$xxxxx:example.org\",\"origin_server_ts\":2189,\"room_id\":\"!someroom:example.com\",\"sender\":\"@bob:example.com\",\"type\":\"m.room.message\"},\"encryption_info\":null}]}",
-        );
-    }
-}
-
-impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
-    fn from(value: &SlidingSyncRoom) -> Self {
-        let locked_tl = value.timeline_queue.lock_ref();
-        let tl_len = locked_tl.len();
-        // To not overflow the database, we only freeze the newest 10 items. On doing
-        // so, we must drop the `prev_batch` key however, as we'd otherwise
-        // create a gap between what we have loaded and where the
-        // prev_batch-key will start loading when paginating backwards.
-        let (prev_batch, timeline) = if tl_len > 10 {
-            let pos = tl_len - 10;
-            (None, locked_tl.iter().skip(pos).cloned().collect())
-        } else {
-            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
-        };
-        FrozenSlidingSyncRoom {
-            prev_batch,
-            timeline_queue: timeline,
-            room_id: value.room_id.clone(),
-            inner: value.inner.clone(),
-        }
-    }
+    timeline_queue: Arc<MutableVec<SyncTimelineEvent>>,
 }
 
 impl SlidingSyncRoom {
@@ -119,9 +48,7 @@ impl SlidingSyncRoom {
             timeline_queue: Arc::new(MutableVec::new_with_values(timeline)),
         }
     }
-}
 
-impl SlidingSyncRoom {
     pub(crate) fn from(
         client: Client,
         room_id: OwnedRoomId,
@@ -359,5 +286,78 @@ impl SlidingSyncRoom {
 
             self.timeline_queue.lock_mut().clear();
         }
+    }
+}
+
+/// A “frozen” [`SlidingSyncRoom`], i.e. that can be written into, or read from
+/// a store.
+#[derive(Serialize, Deserialize)]
+pub(super) struct FrozenSlidingSyncRoom {
+    room_id: OwnedRoomId,
+    inner: v4::SlidingSyncRoom,
+    prev_batch: Option<String>,
+    #[serde(rename = "timeline")]
+    timeline_queue: Vec<SyncTimelineEvent>,
+}
+
+impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
+    fn from(value: &SlidingSyncRoom) -> Self {
+        let locked_tl = value.timeline_queue.lock_ref();
+        let tl_len = locked_tl.len();
+
+        // To not overflow the database, we only freeze the newest 10 items. On doing
+        // so, we must drop the `prev_batch` key however, as we'd otherwise
+        // create a gap between what we have loaded and where the
+        // prev_batch-key will start loading when paginating backwards.
+        let (prev_batch, timeline) = if tl_len > 10 {
+            let pos = tl_len - 10;
+            (None, locked_tl.iter().skip(pos).cloned().collect())
+        } else {
+            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
+        };
+
+        Self {
+            prev_batch,
+            timeline_queue: timeline,
+            room_id: value.room_id.clone(),
+            inner: value.inner.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use ruma::{events::room::message::RoomMessageEventContent, RoomId};
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_frozen_sliding_sync_room_serialize() {
+        let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
+            room_id: <&RoomId>::try_from("!29fhd83h92h0:example.com").unwrap().to_owned(),
+            inner: v4::SlidingSyncRoom::default(),
+            prev_batch: Some("let it go!".to_owned()),
+            timeline_queue: vec![TimelineEvent {
+                event: Raw::new(&json! ({
+                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
+                    "type": "m.room.message",
+                    "event_id": "$xxxxx:example.org",
+                    "room_id": "!someroom:example.com",
+                    "origin_server_ts": 2189,
+                    "sender": "@bob:example.com",
+                }))
+                .unwrap()
+                .cast(),
+                encryption_info: None,
+            }
+            .into()],
+        };
+
+        assert_eq!(
+            serde_json::to_string(&frozen_sliding_sync_room).unwrap(),
+            "{\"room_id\":\"!29fhd83h92h0:example.com\",\"inner\":{},\"prev_batch\":\"let it go!\",\"timeline\":[{\"event\":{\"content\":{\"body\":\"let it gooo!\",\"msgtype\":\"m.text\"},\"event_id\":\"$xxxxx:example.org\",\"origin_server_ts\":2189,\"room_id\":\"!someroom:example.com\",\"sender\":\"@bob:example.com\",\"type\":\"m.room.message\"},\"encryption_info\":null}]}",
+        );
     }
 }
