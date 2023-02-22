@@ -81,7 +81,6 @@ mod tests {
             api::client::error::ErrorKind as RumaError,
             events::room::message::RoomMessageEventContent, UInt,
         },
-        test_utils::force_sliding_sync_pos,
         SlidingSyncMode, SlidingSyncState, SlidingSyncView,
     };
 
@@ -1042,7 +1041,7 @@ mod tests {
         );
 
         // force the pos to be invalid and thus this being reset internally
-        force_sliding_sync_pos(&sync_proxy, "100".to_owned());
+        sync_proxy.set_pos("100".to_string());
         let mut error_seen = false;
 
         for _n in 0..2 {
@@ -1249,7 +1248,7 @@ mod tests {
         assert!(room_updated, "Room update has not been seen");
 
         // force the pos to be invalid and thus this being reset internally
-        force_sliding_sync_pos(&sync_proxy, "100".to_owned());
+        sync_proxy.set_pos("100".to_owned());
 
         let mut error_seen = false;
         let mut room_updated = false;
