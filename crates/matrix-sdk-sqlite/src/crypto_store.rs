@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    ops::Deref,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -29,13 +30,13 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        CryptoStoreError, Result as StoreResult, RoomKeyCounts,
+        RoomKeyCounts,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{room_id, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::fs;
@@ -275,17 +276,18 @@ trait SqliteConnectionExt {
         data: &[u8],
     ) -> rusqlite::Result<()>;
 
-    async fn get_direct_withheld_info(
-        &self,
-        session_id: Key,
-        room_id: Key,
-    ) -> Result<Option<Vec<u8>>>;
+    // fn get_direct_withheld_info(
+    //     &self,
+    //     session_id: Key,
+    //     room_id: Key,
+    // ) -> rusqlite::Result<Option<Vec<u8>>>;
 
-    async fn is_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<bool>;
+    // fn is_no_olm_sent(&self, user_id: Key, device_id: Key) ->
+    // rusqlite::Result<bool>;
 
-    async fn mark_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<()>;
+    fn mark_no_olm_sent(&self, user_id: Key, device_id: Key) -> rusqlite::Result<()>;
 
-    async fn clear_no_olm_sent(&self, user_id: Key, device_id: key) -> Result<()>;
+    fn clear_no_olm_sent(&self, user_id: Key, device_id: Key) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -393,33 +395,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
         Ok(())
     }
 
-    async fn get_direct_withheld_info(
-        &self,
-        session_id: Key,
-        room_id: Key,
-    ) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .query_row(
-                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
-                (session_id, room_id),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?)
-    }
-
-    async fn is_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<bool> {
-        Ok(self
-            .query_row(
-                "SELECT count(*) FROM no_olm_sent WHERE user_id = ?1 AND device_id = ?2",
-                (user_id, device_id),
-                |row| row.get::<_, i32>(0),
-            )
-            .await?
-            > 0)
-    }
-
-    async fn mark_no_olm_sent(&self, user_id: key, device_id: Key) -> Result<()> {
+    fn mark_no_olm_sent(&self, user_id: Key, device_id: Key) -> rusqlite::Result<()> {
         self.execute(
             "INSERT INTO no_olm_sent (user_id, user_id) \
              VALUES (?1, ?2)
@@ -429,12 +405,11 @@ impl SqliteConnectionExt for rusqlite::Connection {
         Ok(())
     }
 
-    async fn clear_no_olm_sent(&self, user_id: Key, device_id: key) -> Result<()> {
+    fn clear_no_olm_sent(&self, user_id: Key, device_id: Key) -> rusqlite::Result<()> {
         self.execute(
             "DELETE FROM no_olm_sent WHERE user_id = ?1 AND device_id = ?2",
             (user_id, device_id),
-        )
-        .await?;
+        )?;
         Ok(())
     }
 }
@@ -604,6 +579,32 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
         self.execute("DELETE FROM key_requests WHERE request_id = ?", (request_id,)).await?;
         Ok(())
     }
+
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
+                (session_id, room_id),
+                |row| Ok(row.get(0)?),
+            )
+            .await
+            .optional()?)
+    }
+
+    async fn is_no_olm_sent(&self, user_id: Key, device_id: Key) -> Result<bool> {
+        let total = self
+            .query_row(
+                "SELECT count(*) FROM no_olm_sent WHERE user_id = ?1 AND device_id = ?2",
+                (user_id, device_id),
+                |row| row.get::<_, u32>(0),
+            )
+            .await?;
+        Ok(total > 0)
+    }
 }
 
 #[async_trait]
@@ -688,9 +689,11 @@ impl CryptoStore for SqliteCryptoStore {
             let pickle = session.pickle().await;
             session_changes.push((session_id, sender_key, pickle));
 
-            self.session_cache.add(session).await;
+            // Help is deref() the correct thing to do? it's an Arc
+            clear_no_olm_sent
+                .push((session.user_id.deref().to_owned(), session.device_id.deref().to_owned()));
 
-            clear_no_olm_sent.push((session.user_id.to_owned(), session.device_id.to_owned()));
+            self.session_cache.add(session).await;
         }
 
         let mut inbound_session_changes = Vec::new();
@@ -786,14 +789,14 @@ impl CryptoStore for SqliteCryptoStore {
                 for (user_id, device_id) in clear_no_olm_sent {
                     let user_id = this.encode_key("no_olm_sent", user_id.as_bytes());
                     let device_id = this.encode_key("no_olm_sent", device_id.as_bytes());
-                    txn.clear_no_olm_sent(user_id, device_id);
+                    txn.clear_no_olm_sent(user_id, device_id)?;
                 }
 
                 for (user_id, device_id_list) in changes.no_olm_sent {
                     for device_id in device_id_list {
                         let user_id = this.encode_key("no_olm_sent", user_id.as_bytes());
                         let device_id = this.encode_key("no_olm_sent", device_id.as_bytes());
-                        txn.mark_no_olm_sent(user_id, device_id);
+                        txn.mark_no_olm_sent(user_id, device_id)?;
                     }
                 }
 
@@ -1062,32 +1065,28 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }
 
-    async fn is_no_olm_sent(
-        &self,
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
-    ) -> StoreResult<bool> {
+    async fn is_no_olm_sent(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) -> Result<bool> {
         let user_id = self.encode_key("no_olm_sent", user_id.as_bytes());
         let device_id = self.encode_key("no_olm_sent", device_id.as_bytes());
-        Ok(self.acquire().await?.is_no_olm_sent(user_id, device_id))
+        Ok(self.acquire().await?.is_no_olm_sent(user_id, device_id).await?)
     }
 
     async fn get_withheld_info(
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> StoreResult<Option<DirectWithheldInfo>> {
+    ) -> Result<Option<DirectWithheldInfo>> {
         let session_id = self.encode_key("direct_withheld_info", session_id.as_bytes());
         let room_id = self.encode_key("direct_withheld_info", room_id.as_str().as_bytes());
-        Ok(self
-            .acquire()
+        self.acquire()
             .await?
             .get_direct_withheld_info(session_id, room_id)
             .await?
             .map(|value| {
-                self.deserialize_value::<DirectWithheldInfo>(&value)?;
+                let info = self.deserialize_value::<DirectWithheldInfo>(&value)?;
+                Ok(info)
             })
-            .transpose()?)
+            .transpose()
     }
 }
 
