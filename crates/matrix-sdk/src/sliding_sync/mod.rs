@@ -1001,14 +1001,14 @@ impl SlidingSync {
                 if let Some(mut room) = rooms_map.remove(&id) {
                     // The room existed before, let's update it.
 
-                    room.update(&room_data, timeline);
+                    room.update(room_data, timeline);
                     rooms_map.insert(id.clone(), room);
                 } else {
                     // First time we need this room, let's create it.
 
                     rooms_map.insert(
                         id.clone(),
-                        SlidingSyncRoom::from(self.client.clone(), id.clone(), room_data, timeline),
+                        SlidingSyncRoom::new(self.client.clone(), id.clone(), room_data, timeline),
                     );
                 }
 

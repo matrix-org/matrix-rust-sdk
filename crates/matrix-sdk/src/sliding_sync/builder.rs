@@ -21,7 +21,10 @@ use super::{
 };
 use crate::{Client, Result};
 
-/// Configuration for a Sliding Sync Instance
+/// Configuration for a Sliding Sync instance.
+///
+/// Get a new builder with methods like [`crate::Client::sliding_sync`], or
+/// [`crate::SlidingSync::builder`].
 #[derive(Clone, Debug)]
 pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
@@ -223,7 +226,8 @@ impl SlidingSyncBuilder {
 
     /// Build the Sliding Sync.
     ///
-    /// If configured, load the cached data from cold storage.
+    /// If `self.storage_key` is `Some(_)`, load the cached data from cold
+    /// storage.
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
@@ -245,6 +249,7 @@ impl SlidingSyncBuilder {
 
                     let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
                     view.set_from_cold(rooms_count, rooms_list);
+
                     for (key, frozen_room) in rooms.into_iter() {
                         rooms_found.entry(key).or_insert_with(|| {
                             SlidingSyncRoom::from_frozen(frozen_room, client.clone())
@@ -263,6 +268,7 @@ impl SlidingSyncBuilder {
                 .transpose()?
             {
                 trace!("frozen for generic found");
+
                 if let Some(since) = to_device_since {
                     if let Some(to_device_ext) =
                         self.extensions.get_or_insert_with(Default::default).to_device.as_mut()
@@ -270,12 +276,15 @@ impl SlidingSyncBuilder {
                         to_device_ext.since = Some(since);
                     }
                 }
+
                 delta_token_inner = delta_token;
             }
+
             trace!("sync unfrozen done");
         };
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
+
         let rooms = Arc::new(StdRwLock::new(rooms_found));
         let views = Arc::new(StdRwLock::new(self.views));
 
