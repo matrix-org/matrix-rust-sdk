@@ -1041,7 +1041,7 @@ impl Client {
     /// let response = client
     ///     .login_custom(
     ///         "org.matrix.login.jwt",
-    ///         [("token".to_string(), json!("jwt_token_content"))].into_iter().collect(),
+    ///         [("token".to_owned(), "jwt_token_content".into())].into_iter().collect(),
     ///     )?
     ///     .initial_device_display_name("My bot")
     ///     .await?;
