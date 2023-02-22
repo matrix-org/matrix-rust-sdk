@@ -103,6 +103,6 @@ pub mod vodozemac {
         olm::{
             DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
         },
-        DecodeError, KeyError, PickleError, SignatureError,
+        DecodeError, KeyError, PickleError, SignatureError, VERSION,
     };
 }
