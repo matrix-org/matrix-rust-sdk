@@ -28,34 +28,35 @@ use crate::{
     TimelineItem, TimelineListener,
 };
 
-type StoppableSpawnCallback = Box<dyn FnOnce() + Send + Sync>;
+type TaskHandleCallback = Box<dyn FnOnce() + Send + Sync>;
 
-pub struct StoppableSpawn {
+pub struct TaskHandle {
     handle: Option<JoinHandle<()>>,
-    callback: RwLock<Option<StoppableSpawnCallback>>,
+    callback: RwLock<Option<TaskHandleCallback>>,
 }
 
-impl StoppableSpawn {
-    fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
-        StoppableSpawn { handle: Some(handle), callback: Default::default() }
-    }
-    fn with_callback(callback: StoppableSpawnCallback) -> StoppableSpawn {
-        StoppableSpawn { handle: Default::default(), callback: RwLock::new(Some(callback)) }
+impl TaskHandle {
+    fn with_handle(handle: JoinHandle<()>) -> Self {
+        Self { handle: Some(handle), callback: Default::default() }
     }
 
-    fn set_callback(&mut self, f: StoppableSpawnCallback) {
+    fn with_callback(callback: TaskHandleCallback) -> Self {
+        Self { handle: Default::default(), callback: RwLock::new(Some(callback)) }
+    }
+
+    fn set_callback(&mut self, f: TaskHandleCallback) {
         *self.callback.write().unwrap() = Some(f)
     }
 }
 
-impl From<JoinHandle<()>> for StoppableSpawn {
+impl From<JoinHandle<()>> for TaskHandle {
     fn from(value: JoinHandle<()>) -> Self {
-        StoppableSpawn::with_handle(value)
+        Self::with_handle(value)
     }
 }
 
 #[uniffi::export]
-impl StoppableSpawn {
+impl TaskHandle {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
         if let Some(handle) = &self.handle {
@@ -65,12 +66,13 @@ impl StoppableSpawn {
             callback();
         }
     }
+
     pub fn is_finished(&self) -> bool {
         self.handle.as_ref().map(|h| h.is_finished()).unwrap_or_default()
     }
 }
 
-impl Drop for StoppableSpawn {
+impl Drop for TaskHandle {
     fn drop(&mut self) {
         self.cancel();
     }
@@ -185,7 +187,7 @@ impl SlidingSyncRoom {
     fn add_timeline_listener_inner(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> anyhow::Result<(Vec<Arc<TimelineItem>>, StoppableSpawn)> {
+    ) -> anyhow::Result<(Vec<Arc<TimelineItem>>, TaskHandle)> {
         let mut timeline_lock = self.timeline.write().unwrap();
         let timeline = match &*timeline_lock {
             Some(timeline) => timeline,
@@ -230,7 +232,7 @@ impl SlidingSyncRoom {
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
-        let task_handle = StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        let task_handle = TaskHandle::with_handle(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         }));
         Ok((items, task_handle))
@@ -239,7 +241,7 @@ impl SlidingSyncRoom {
 
 pub struct SlidingSyncSubscribeResult {
     pub items: Vec<Arc<TimelineItem>>,
-    pub task_handle: Arc<StoppableSpawn>,
+    pub task_handle: Arc<TaskHandle>,
 }
 
 pub struct UpdateSummary {
@@ -516,10 +518,10 @@ impl SlidingSyncView {
     pub fn observe_state(
         &self,
         observer: Box<dyn SlidingSyncViewStateObserver>,
-    ) -> Arc<StoppableSpawn> {
+    ) -> Arc<TaskHandle> {
         let mut state_stream = self.inner.state_stream();
 
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(new_state) = state_stream.next().await {
                     observer.did_receive_update(new_state);
@@ -531,10 +533,10 @@ impl SlidingSyncView {
     pub fn observe_room_list(
         &self,
         observer: Box<dyn SlidingSyncViewRoomListObserver>,
-    ) -> Arc<StoppableSpawn> {
+    ) -> Arc<TaskHandle> {
         let mut rooms_list_stream = self.inner.rooms_list_stream();
 
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(diff) = rooms_list_stream.next().await {
                     observer.did_receive_update(diff.into());
@@ -546,9 +548,9 @@ impl SlidingSyncView {
     pub fn observe_room_items(
         &self,
         observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
-    ) -> Arc<StoppableSpawn> {
+    ) -> Arc<TaskHandle> {
         let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
                     observer.did_receive_update();
@@ -560,10 +562,10 @@ impl SlidingSyncView {
     pub fn observe_rooms_count(
         &self,
         observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
-    ) -> Arc<StoppableSpawn> {
+    ) -> Arc<TaskHandle> {
         let mut rooms_count_stream = self.inner.rooms_count_stream();
 
-        Arc::new(StoppableSpawn::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             loop {
                 if let Some(Some(new)) = rooms_count_stream.next().await {
                     observer.did_receive_update(new);
@@ -713,14 +715,14 @@ impl SlidingSync {
         self.inner.add_common_extensions();
     }
 
-    pub fn sync(&self) -> Arc<StoppableSpawn> {
+    pub fn sync(&self) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
         let client = self.client.clone();
         let observer = self.observer.clone();
         let stop_loop = Arc::new(AtomicBool::new(false));
         let remote_stopper = stop_loop.clone();
 
-        let stoppable = Arc::new(StoppableSpawn::with_callback(Box::new(move || {
+        let stoppable = Arc::new(TaskHandle::with_callback(Box::new(move || {
             remote_stopper.store(true, Ordering::Relaxed);
         })));
 
