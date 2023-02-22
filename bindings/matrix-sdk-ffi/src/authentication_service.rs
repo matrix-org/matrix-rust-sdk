@@ -115,29 +115,45 @@ impl AuthenticationService {
     pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
         let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
 
-        if server_name.starts_with("http://") || server_name.starts_with("https://") {
-            builder = builder.homeserver_url(server_name)
+        // Remove any URL scheme from the name to attempt discovery first.
+        let (sanitized_name, is_url) = if server_name.starts_with("http://") {
+            (server_name.trim_start_matches("http://").to_string(), true)
+        } else if server_name.starts_with("https://") {
+            (server_name.trim_start_matches("https://").to_string(), true)
         } else {
-            builder = builder.server_name(server_name);
-        }
+            (server_name.clone(), false)
+        };
 
-        let client = builder.build().map_err(AuthenticationError::from)?;
+        builder = builder.server_name(sanitized_name);
 
-        // Make sure there's a sliding sync proxy available one way or another.
+        let client = builder
+            .build()
+            .or_else(|e| {
+                if !is_url {
+                    return Err(e);
+                }
+                // When discovery fails, fallback to the homeserver URL if supplied.
+                let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+                builder = builder.homeserver_url(server_name);
+                builder.build()
+            })
+            .map_err(AuthenticationError::from)?;
+
+        let details =
+            RUNTIME.block_on(async /*move*/ { self.details_from_client(&client).await })?;
+
+        // Now we've verified that it's a valid homeserver, make sure
+        // there's a sliding sync proxy available one way or another.
         if self.custom_sliding_sync_proxy.read().unwrap().is_none()
             && client.discovered_sliding_sync_proxy().is_none()
         {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
         }
 
-        RUNTIME.block_on(async move {
-            let details = Arc::new(self.details_from_client(&client).await?);
+        *self.client.write().unwrap() = Some(client);
+        *self.homeserver_details.write().unwrap() = Some(Arc::new(details));
 
-            *self.client.write().unwrap() = Some(client);
-            *self.homeserver_details.write().unwrap() = Some(details);
-
-            Ok(())
-        })
+        Ok(())
     }
 
     /// Performs a password login using the current homeserver.
