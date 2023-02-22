@@ -101,8 +101,8 @@ section aims at listing all the scopes used inside this project:
     </tr>
     <tr>
       <td>Labs</td>
-      <td><code>sled-state-inspector</code></td>
-      <td>About the <code>sled-state-inspector</code> project.</td>
+      <td><code>jack-in</code></td>
+      <td>About the <code>jack-in</code> project.</td>
     </tr>
     <tr>
       <td>Continuous Integration</td>
