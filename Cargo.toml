@@ -23,13 +23,14 @@ rust-version = "1.65"
 anyhow = "1.0.68"
 async-stream = "0.3.3"
 async-trait = "0.1.60"
-base64 = "0.20.0"
+base64 = "0.21.0"
 byteorder = "1.4.3"
 ctor = "0.1.26"
 dashmap = "5.2.0"
+eyeball-im = "0.1.0"
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "00045e559f864eabff08295d603f7b3238288b6f", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "00045e559f864eabff08295d603f7b3238288b6f" }
+ruma = { version = "0.8.0", features = ["client-api-c"] }
+ruma-common = "0.11.2"
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"

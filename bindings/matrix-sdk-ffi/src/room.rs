@@ -4,12 +4,14 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use futures_signals::signal_vec::SignalVecExt;
+use futures_util::StreamExt;
 use matrix_sdk::{
-    room::{timeline::Timeline, Room as SdkRoom},
+    room::{timeline::Timeline, Receipts, Room as SdkRoom},
     ruma::{
+        api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             reaction::ReactionEventContent,
+            receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
                 ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
@@ -21,7 +23,7 @@ use matrix_sdk::{
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{TimelineDiff, TimelineListener};
+use crate::{TimelineDiff, TimelineItem, TimelineListener};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -158,6 +160,20 @@ impl Room {
             timeline.retry_decryption(&session_ids).await;
         });
     }
+
+    pub fn fetch_members(&self) {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't fetch members");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            timeline.fetch_members().await;
+        });
+    }
 }
 
 impl Room {
@@ -224,8 +240,11 @@ impl Room {
         })
     }
 
-    pub fn add_timeline_listener(&self, listener: Box<dyn TimelineListener>) {
-        let timeline_signal = self
+    pub fn add_timeline_listener(
+        &self,
+        listener: Box<dyn TimelineListener>,
+    ) -> Vec<Arc<TimelineItem>> {
+        let timeline = self
             .timeline
             .write()
             .unwrap()
@@ -234,20 +253,26 @@ impl Room {
                 let timeline = RUNTIME.block_on(async move { room.timeline().await });
                 Arc::new(timeline)
             })
-            .signal();
+            .clone();
 
-        let listener: Arc<dyn TimelineListener> = listener.into();
-        RUNTIME.spawn(timeline_signal.for_each(move |diff| {
-            let listener = listener.clone();
-            let fut = RUNTIME
-                .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+        RUNTIME.block_on(async move {
+            let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
-            async move {
-                if let Err(e) = fut.await {
-                    error!("Timeline listener error: {e}");
+            let listener: Arc<dyn TimelineListener> = listener.into();
+            RUNTIME.spawn(timeline_stream.for_each(move |diff| {
+                let listener = listener.clone();
+                let fut = RUNTIME
+                    .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+
+                async move {
+                    if let Err(e) = fut.await {
+                        error!("Timeline listener error: {e}");
+                    }
                 }
-            }
-        }));
+            }));
+
+            timeline_items.into_iter().map(TimelineItem::from_arc).collect()
+        })
     }
 
     pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<()> {
@@ -267,7 +292,8 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async move {
-            room.read_receipt(&event_id).await?;
+            room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                .await?;
             Ok(())
         })
     }
@@ -288,9 +314,11 @@ impl Room {
             .map(EventId::parse)
             .transpose()
             .context("parsing read receipt event ID")?;
+        let receipts =
+            Receipts::new().fully_read_marker(fully_read).public_read_receipt(read_receipt);
 
         RUNTIME.block_on(async move {
-            room.read_marker(&fully_read, read_receipt.as_deref()).await?;
+            room.send_multiple_receipts(receipts).await?;
             Ok(())
         })
     }
@@ -435,6 +463,41 @@ impl Room {
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
             room.send(ReactionEventContent::new(Annotation::new(event_id, key)), None).await?;
+            Ok(())
+        })
+    }
+
+    /// Reports an event from the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to report
+    ///
+    /// * `reason` - The reason for the event being reported (optional).
+    ///
+    /// * `score` - The score to rate this content as where -100 is most
+    ///   offensive and 0 is inoffensive (optional).
+    pub fn report_content(
+        &self,
+        event_id: String,
+        score: Option<i32>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let int_score = score.map(|value| value.into());
+        RUNTIME.block_on(async move {
+            let event_id = EventId::parse(event_id)?;
+            self.room
+                .client()
+                .send(
+                    report_content::v3::Request::new(
+                        self.room_id().into(),
+                        event_id,
+                        int_score,
+                        reason,
+                    ),
+                    None,
+                )
+                .await?;
             Ok(())
         })
     }

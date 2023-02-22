@@ -247,3 +247,44 @@ where
         .concat()
     }
 }
+
+impl<A, B, C, D, E> EncodeKey for (A, B, C, D, E)
+where
+    A: EncodeKey,
+    B: EncodeKey,
+    C: EncodeKey,
+    D: EncodeKey,
+    E: EncodeKey,
+{
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.0.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+            self.1.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+            self.2.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+            self.3.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+            self.4.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, &self.0.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.1.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.2.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.3.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.4.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+}

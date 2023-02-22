@@ -1,10 +1,12 @@
 use std::{error::Error, fmt, time::Duration};
 
 use futures_core::Future;
+#[cfg(target_arch = "wasm32")]
+use futures_util::future::{select, Either};
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::timeout as tokio_timeout;
-#[cfg(target_arch = "wasm32")]
-use wasm_timer::ext::TryFutureExt;
 
 /// Error type notifying that a timeout has elapsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,21 +27,24 @@ impl Error for ElapsedError {}
 /// an error.
 pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
 where
-    F: Future<Output = T>,
+    F: Future<Output = T> + Unpin,
 {
     #[cfg(not(target_arch = "wasm32"))]
     return tokio_timeout(duration, future).await.map_err(|_| ElapsedError(()));
 
     #[cfg(target_arch = "wasm32")]
     {
-        let try_future = async { Ok::<T, std::io::Error>(future.await) };
-        try_future.timeout(duration).await.map_err(|_| ElapsedError(()))
+        let timeout_future =
+            TimeoutFuture::new(u32::try_from(duration.as_millis()).expect("Overlong duration"));
+
+        match select(future, timeout_future).await {
+            Either::Left((res, _)) => Ok(res),
+            Either::Right((_, _)) => Err(ElapsedError(())),
+        }
     }
 }
 
-// TODO: Enable tests for wasm32 and debug why
-// `with_timeout` test fails https://github.com/matrix-org/matrix-rust-sdk/issues/896
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test))]
 pub(crate) mod tests {
     use std::{future, time::Duration};
 

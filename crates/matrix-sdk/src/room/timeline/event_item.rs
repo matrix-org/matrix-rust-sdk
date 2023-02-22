@@ -140,7 +140,7 @@ impl EventTimelineItem {
     }
 
     /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &Profile {
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         match self {
             Self::Local(local_event) => &local_event.sender_profile,
             Self::Remote(remote_event) => &remote_event.sender_profile,
@@ -209,6 +209,18 @@ impl EventTimelineItem {
             }
         }
     }
+
+    /// Clone the current event item, and update its `sender_profile`.
+    pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
+        match self {
+            EventTimelineItem::Local(item) => {
+                Self::Local(LocalEventTimelineItem { sender_profile, ..item.clone() })
+            }
+            EventTimelineItem::Remote(item) => {
+                Self::Remote(RemoteEventTimelineItem { sender_profile, ..item.clone() })
+            }
+        }
+    }
 }
 
 /// This type represents the "send state" of a local event timeline item.
@@ -238,7 +250,7 @@ pub struct LocalEventTimelineItem {
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -275,7 +287,7 @@ pub struct RemoteEventTimelineItem {
     /// The sender of the event.
     pub sender: OwnedUserId,
     /// The sender's profile of the event.
-    pub sender_profile: Profile,
+    pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -326,6 +338,7 @@ impl From<RemoteEventTimelineItem> for EventTimelineItem {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteEventTimelineItem")
@@ -342,7 +355,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
 }
 
 /// The display name and avatar URL of a room member.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,
@@ -373,6 +386,26 @@ pub enum TimelineDetails<T> {
 
     /// An error occurred when fetching the details.
     Error(Arc<Error>),
+}
+
+impl<T> TimelineDetails<T> {
+    pub(crate) fn from_initial_value(value: Option<T>) -> Self {
+        match value {
+            Some(v) => Self::Ready(v),
+            None => Self::Unavailable,
+        }
+    }
+
+    pub(crate) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+
+    pub(crate) fn contains<U>(&self, value: &U) -> bool
+    where
+        T: PartialEq<U>,
+    {
+        matches!(self, Self::Ready(v) if v == value)
+    }
 }
 
 /// The content of an [`EventTimelineItem`].
@@ -477,6 +510,7 @@ impl Message {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // since timeline items are logged, don't include all fields here so
@@ -518,7 +552,7 @@ impl InReplyToDetails {
 pub struct RepliedToEvent {
     pub(super) message: Message,
     pub(super) sender: OwnedUserId,
-    pub(super) sender_profile: Profile,
+    pub(super) sender_profile: TimelineDetails<Profile>,
 }
 
 impl RepliedToEvent {
@@ -533,7 +567,7 @@ impl RepliedToEvent {
     }
 
     /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &Profile {
+    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         &self.sender_profile
     }
 
@@ -558,7 +592,8 @@ impl RepliedToEvent {
             edited: event.relations().replace.is_some(),
         };
         let sender = event.sender().to_owned();
-        let sender_profile = profile_provider.profile(&sender).await;
+        let sender_profile =
+            TimelineDetails::from_initial_value(profile_provider.profile(&sender).await);
 
         Ok(Self { message, sender, sender_profile })
     }

@@ -33,7 +33,7 @@ pub use matrix_sdk_base::crypto::{
     },
     vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
     MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError,
+    SessionCreationError, SignatureError, VERSION,
 };
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,

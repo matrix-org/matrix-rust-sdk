@@ -42,7 +42,11 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tracing::{debug, error, field::debug, info, instrument, warn};
+use tracing::{
+    debug, error,
+    field::{debug, display},
+    info, instrument, warn, Span,
+};
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
@@ -62,8 +66,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
-        SecretImportError, Store,
+        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Result as StoreResult, SecretImportError, Store,
     },
     types::{
         events::{
@@ -78,7 +82,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
+    SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -140,9 +145,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-
-        OlmMachine::with_store(user_id, device_id, store)
+        OlmMachine::with_store(user_id, device_id, MemoryStore::new())
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -150,7 +153,7 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<dyn CryptoStore>,
+        store: Arc<DynCryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
@@ -226,33 +229,51 @@ impl OlmMachine {
     /// the encryption keys.
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
+    #[instrument(skip(store), fields(ed25519_key, curve25519_key))]
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<dyn CryptoStore>,
+        store: impl IntoCryptoStore,
     ) -> StoreResult<Self> {
+        let store = store.into_crypto_store();
         let account = match store.load_account().await? {
-            Some(a) => {
-                debug!(
-                    ed25519_key = a.identity_keys().ed25519.to_base64().as_str(),
-                    "Restored an Olm account"
-                );
-                a
+            Some(account) => {
+                if user_id != account.user_id() || device_id != account.device_id() {
+                    return Err(CryptoStoreError::MismatchedAccount {
+                        expected: (account.user_id().to_owned(), account.device_id().to_owned()),
+                        got: (user_id.to_owned(), device_id.to_owned()),
+                    });
+                } else {
+                    Span::current()
+                        .record("ed25519_key", display(account.identity_keys().ed25519))
+                        .record("curve25519_key", display(account.identity_keys().curve25519));
+                    debug!("Restored an Olm account");
+
+                    account
+                }
             }
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
                 let device = ReadOnlyDevice::from_account(&account).await;
 
-                debug!(
-                    ed25519_key = account.identity_keys().ed25519.to_base64().as_str(),
-                    "Created a new Olm account"
-                );
+                // We just created this device from our own Olm `Account`. Since we are the
+                // owners of the private keys of this device we can safely mark
+                // the device as verified.
+                device.set_trust_state(LocalTrust::Verified);
+
+                Span::current()
+                    .record("ed25519_key", display(account.identity_keys().ed25519))
+                    .record("curve25519_key", display(account.identity_keys().curve25519));
+
+                debug!("Created a new Olm account");
+
                 let changes = Changes {
                     account: Some(account.clone()),
                     devices: DeviceChanges { new: vec![device], ..Default::default() },
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
+
                 account
             }
         };
@@ -800,6 +821,9 @@ impl OlmMachine {
                     e.content.secret_name = name;
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
                 }
+            }
+            AnyDecryptedOlmEvent::Dummy(_) => {
+                debug!("Received an `m.dummy` event");
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
@@ -1757,6 +1781,14 @@ pub(crate) mod tests {
     async fn create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         assert!(!machine.account().shared());
+
+        let own_device = machine
+            .get_device(machine.user_id(), machine.device_id(), None)
+            .await
+            .unwrap()
+            .expect("We should always have our own device in the store");
+
+        assert!(own_device.is_locally_trusted(), "Our own device should always be locally trusted");
     }
 
     #[async_test]

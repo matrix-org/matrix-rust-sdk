@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::btree_map::Iter,
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -23,22 +22,19 @@ use std::{
 
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    encryption::KeyUsage,
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, RoomId, UserId,
+    EventId, OwnedDeviceId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
-use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    olm::VerifyJson,
     store::{Changes, IdentityChanges},
-    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKey, SigningKeys},
+    types::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -273,344 +269,6 @@ impl UserIdentity {
     }
 }
 
-/// Wrapper for a cross signing key marking it as the master key.
-///
-/// Master keys are used to sign other cross signing keys, the self signing and
-/// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(try_from = "CrossSigningKey")]
-pub struct MasterPubkey(Arc<CrossSigningKey>);
-
-macro_rules! impl_partial_eq {
-    ($key_type: ty) => {
-        impl PartialEq for $key_type {
-            /// The `PartialEq` implementation compares the user ID, the usage and the
-            /// key material, ignoring signatures.
-            ///
-            /// The usage could be safely ignored since the type guarantees it has the
-            /// correct usage by construction -- it is impossible to construct a
-            /// value of a particular key type with an incorrect usage. However, we
-            /// check it anyway, to codify the notion that the same key material
-            /// with a different usage results in a logically different key.
-            ///
-            /// The signatures are provided by other devices and don't alter the
-            /// identity of the key itself.
-            fn eq(&self, other: &Self) -> bool {
-                self.user_id() == other.user_id()
-                    && self.keys() == other.keys()
-                    && self.usage() == other.usage()
-            }
-        }
-        impl Eq for $key_type {}
-    };
-}
-
-impl_partial_eq!(MasterPubkey);
-impl_partial_eq!(SelfSigningPubkey);
-impl_partial_eq!(UserSigningPubkey);
-
-/// Wrapper for a cross signing key marking it as a self signing key.
-///
-/// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(try_from = "CrossSigningKey")]
-pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
-
-/// Wrapper for a cross signing key marking it as a user signing key.
-///
-/// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(try_from = "CrossSigningKey")]
-pub struct UserSigningPubkey(Arc<CrossSigningKey>);
-
-impl TryFrom<CrossSigningKey> for MasterPubkey {
-    type Error = serde_json::Error;
-
-    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::Master) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "Expected cross signing key usage {} was not found",
-                KeyUsage::Master
-            )))
-        }
-    }
-}
-
-impl TryFrom<CrossSigningKey> for SelfSigningPubkey {
-    type Error = serde_json::Error;
-
-    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::SelfSigning) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "Expected cross signing key usage {} was not found",
-                KeyUsage::SelfSigning
-            )))
-        }
-    }
-}
-
-impl TryFrom<CrossSigningKey> for UserSigningPubkey {
-    type Error = serde_json::Error;
-
-    fn try_from(key: CrossSigningKey) -> Result<Self, Self::Error> {
-        if key.usage.contains(&KeyUsage::UserSigning) && key.usage.len() == 1 {
-            Ok(Self(key.into()))
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "Expected cross signing key usage {} was not found",
-                KeyUsage::UserSigning
-            )))
-        }
-    }
-}
-
-impl AsRef<CrossSigningKey> for MasterPubkey {
-    fn as_ref(&self) -> &CrossSigningKey {
-        &self.0
-    }
-}
-
-impl AsRef<CrossSigningKey> for SelfSigningPubkey {
-    fn as_ref(&self) -> &CrossSigningKey {
-        &self.0
-    }
-}
-
-impl AsRef<CrossSigningKey> for UserSigningPubkey {
-    fn as_ref(&self) -> &CrossSigningKey {
-        &self.0
-    }
-}
-
-impl<'a> From<&'a SelfSigningPubkey> for CrossSigningSubKeys<'a> {
-    fn from(key: &'a SelfSigningPubkey) -> Self {
-        CrossSigningSubKeys::SelfSigning(key)
-    }
-}
-
-impl<'a> From<&'a UserSigningPubkey> for CrossSigningSubKeys<'a> {
-    fn from(key: &'a UserSigningPubkey) -> Self {
-        CrossSigningSubKeys::UserSigning(key)
-    }
-}
-
-/// Enum over the cross signing sub-keys.
-pub(crate) enum CrossSigningSubKeys<'a> {
-    /// The self signing subkey.
-    SelfSigning(&'a SelfSigningPubkey),
-    /// The user signing subkey.
-    UserSigning(&'a UserSigningPubkey),
-}
-
-impl<'a> CrossSigningSubKeys<'a> {
-    /// Get the id of the user that owns this cross signing subkey.
-    fn user_id(&self) -> &UserId {
-        match self {
-            CrossSigningSubKeys::SelfSigning(key) => &key.0.user_id,
-            CrossSigningSubKeys::UserSigning(key) => &key.0.user_id,
-        }
-    }
-
-    /// Get the `CrossSigningKey` from an sub-keys enum
-    pub(crate) fn cross_signing_key(&self) -> &CrossSigningKey {
-        match self {
-            CrossSigningSubKeys::SelfSigning(key) => &key.0,
-            CrossSigningSubKeys::UserSigning(key) => &key.0,
-        }
-    }
-}
-
-impl MasterPubkey {
-    /// Get the user id of the master key's owner.
-    pub fn user_id(&self) -> &UserId {
-        &self.0.user_id
-    }
-
-    /// Get the keys map of containing the master keys.
-    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
-        &self.0.keys
-    }
-
-    /// Get the list of `KeyUsage` that is set for this key.
-    pub fn usage(&self) -> &[KeyUsage] {
-        &self.0.usage
-    }
-
-    /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &Signatures {
-        &self.0.signatures
-    }
-
-    /// Get the master key with the given key id.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_id` - The id of the key that should be fetched.
-    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&SigningKey> {
-        self.0.keys.get(key_id)
-    }
-
-    /// Get the first available master key.
-    ///
-    /// There's usually only a single master key so this will usually fetch the
-    /// only key.
-    pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
-        self.0.get_first_key_and_id().map(|(_, k)| k)
-    }
-
-    /// Check if the given JSON is signed by this master key.
-    ///
-    /// This method should only be used if an object's signature needs to be
-    /// checked multiple times, and you'd like to avoid performing the
-    /// canonicalization step each time.
-    ///
-    /// **Note**: Use this method with caution, the `canonical_json` needs to be
-    /// correctly canonicalized and make sure that the object you are checking
-    /// the signature for is allowed to be signed by a master key.
-    #[cfg(any(feature = "backups_v1", test))]
-    pub(crate) fn has_signed_raw(
-        &self,
-        signatures: &Signatures,
-        canonical_json: &str,
-    ) -> Result<(), SignatureError> {
-        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_canonicalized_json(&self.0.user_id, key_id, signatures, canonical_json)
-        } else {
-            Err(SignatureError::UnsupportedAlgorithm)
-        }
-    }
-
-    /// Check if the given cross signing sub-key is signed by the master key.
-    ///
-    /// # Arguments
-    ///
-    /// * `subkey` - The subkey that should be checked for a valid signature.
-    ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn verify_subkey<'a>(
-        &self,
-        subkey: impl Into<CrossSigningSubKeys<'a>>,
-    ) -> Result<(), SignatureError> {
-        let subkey: CrossSigningSubKeys<'_> = subkey.into();
-
-        if self.0.user_id != subkey.user_id() {
-            return Err(SignatureError::UserIdMismatch);
-        }
-
-        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_json(&self.0.user_id, key_id, subkey.cross_signing_key())
-        } else {
-            Err(SignatureError::UnsupportedAlgorithm)
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a MasterPubkey {
-    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
-    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.keys().iter()
-    }
-}
-
-impl UserSigningPubkey {
-    /// Get the user id of the user signing key's owner.
-    pub fn user_id(&self) -> &UserId {
-        &self.0.user_id
-    }
-
-    /// Get the list of `KeyUsage` that is set for this key.
-    pub fn usage(&self) -> &[KeyUsage] {
-        &self.0.usage
-    }
-
-    /// Get the keys map of containing the user signing keys.
-    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
-        &self.0.keys
-    }
-
-    /// Check if the given master key is signed by this user signing key.
-    ///
-    /// # Arguments
-    ///
-    /// * `master_key` - The master key that should be checked for a valid
-    /// signature.
-    ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn verify_master_key(
-        &self,
-        master_key: &MasterPubkey,
-    ) -> Result<(), SignatureError> {
-        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_json(&self.0.user_id, key_id, master_key.0.as_ref())
-        } else {
-            Err(SignatureError::UnsupportedAlgorithm)
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a UserSigningPubkey {
-    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
-    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.keys().iter()
-    }
-}
-
-impl SelfSigningPubkey {
-    /// Get the user id of the self signing key's owner.
-    pub fn user_id(&self) -> &UserId {
-        &self.0.user_id
-    }
-
-    /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
-        &self.0.keys
-    }
-
-    /// Get the list of `KeyUsage` that is set for this key.
-    pub fn usage(&self) -> &[KeyUsage] {
-        &self.0.usage
-    }
-
-    fn verify_device_keys(&self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
-        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_json(&self.0.user_id, key_id, device_keys)
-        } else {
-            Err(SignatureError::UnsupportedAlgorithm)
-        }
-    }
-
-    /// Check if the given device is signed by this self signing key.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device that should be checked for a valid signature.
-    ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        self.verify_device_keys(device.as_device_keys())
-    }
-}
-
-impl<'a> IntoIterator for &'a SelfSigningPubkey {
-    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
-    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.keys().iter()
-    }
-}
-
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ReadOnlyUserIdentities {
@@ -727,7 +385,7 @@ impl ReadOnlyUserIdentity {
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self { user_id: (*master_key.0.user_id).into(), master_key, self_signing_key })
+        Ok(Self { user_id: master_key.user_id().into(), master_key, self_signing_key })
     }
 
     #[cfg(test)]
@@ -840,7 +498,7 @@ impl ReadOnlyOwnUserIdentity {
         master_key.verify_subkey(&user_signing_key)?;
 
         Ok(Self {
-            user_id: (*master_key.0.user_id).into(),
+            user_id: master_key.user_id().into(),
             master_key,
             self_signing_key,
             user_signing_key,
@@ -1046,23 +704,18 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
+    use ruma::user_id;
     use serde_json::{json, Value};
-    use vodozemac::Ed25519Signature;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
         ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
     };
     use crate::{
-        identities::{
-            manager::testing::{own_key_query, own_key_query_with_user_id},
-            user::testing::get_other_own_identity,
-            Device, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
-        },
+        identities::{manager::testing::own_key_query, Device},
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::MemoryStore,
-        types::CrossSigningKey,
+        store::{IntoCryptoStore, MemoryStore},
+        types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
         verification::VerificationMachine,
     };
 
@@ -1105,7 +758,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity,
-            Arc::new(MemoryStore::new()),
+            MemoryStore::new().into_crypto_store(),
         );
 
         let first = Device {
@@ -1146,7 +799,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(device.user_id(), device.device_id()),
             id.clone(),
-            Arc::new(MemoryStore::new()),
+            MemoryStore::new().into_crypto_store(),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();
@@ -1221,56 +874,5 @@ pub(crate) mod tests {
             serde_json::from_value::<UserSigningPubkey>(user_signing_key_json.clone()),
             Err(_)
         );
-    }
-
-    #[async_test]
-    async fn partial_eq_cross_signing_keys() {
-        macro_rules! test_partial_eq {
-            ($key_type:ident, $key_field:ident, $field:ident, $usage:expr) => {
-                let user_id = user_id!("@example:localhost");
-                let response = own_key_query();
-                let raw = response.$field.get(user_id).unwrap();
-                let key: $key_type = raw.deserialize_as().unwrap();
-
-                // A different key is naturally not the same as our key.
-                let other_identity = get_other_own_identity().await;
-                let other_key = other_identity.$key_field;
-                assert_ne!(key, other_key);
-
-                // However, not even our own key material with another user ID is the same.
-                let other_user_id = user_id!("@example2:localhost");
-                let other_response = own_key_query_with_user_id(&other_user_id);
-                let other_raw = other_response.$field.get(other_user_id).unwrap();
-                let other_key: $key_type = other_raw.deserialize_as().unwrap();
-                assert_ne!(key, other_key);
-
-                // Now let's add another signature to our key.
-                let signature = Ed25519Signature::from_base64(
-                    "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
-                ).expect("The signature can always be decoded");
-                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
-                other_key.signatures.add_signature(
-                    user_id.to_owned(),
-                    DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, "DEVICEID".into()),
-                    signature,
-                );
-                let other_key = other_key.try_into().unwrap();
-
-                // Additional signatures are fine, adding more does not change the key's identity.
-                assert_eq!(key, other_key);
-
-                // However changing the usage results in a different key.
-                let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
-                other_key.usage.push($usage);
-                let other_key = $key_type { 0: other_key.into() };
-                assert_ne!(key, other_key);
-            };
-        }
-
-        // The last argument is deliberately some usage which is *not* correct for the
-        // type.
-        test_partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
-        test_partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
-        test_partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);
     }
 }

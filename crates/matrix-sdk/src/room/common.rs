@@ -28,6 +28,7 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
             server_acl::RoomServerAclEventContent, MediaSource,
@@ -39,7 +40,8 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
+    UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 
@@ -270,7 +272,7 @@ impl Common {
     /// independent events.
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
-        Timeline::new(self).with_fully_read_tracking().await
+        Timeline::builder(self).track_fully_read().build().await
     }
 
     /// Fetch the event with the given `EventId` in this room.
@@ -390,7 +392,7 @@ impl Common {
         }
     }
 
-    async fn ensure_members(&self) -> Result<()> {
+    pub(crate) async fn ensure_members(&self) -> Result<()> {
         if !self.are_events_visible() {
             return Ok(());
         }
@@ -972,6 +974,48 @@ impl Common {
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
         Ok(self.room_id().matrix_event_uri_via(event_id, via))
+    }
+
+    /// Get the latest receipt of a user in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to get.
+    ///
+    /// * `thread` - The thread containing the event of the receipt, if any.
+    ///
+    /// * `user_id` - The ID of the user.
+    ///
+    /// Returns the ID of the event on which the receipt applies and the
+    /// receipt.
+    pub async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+        self.inner.user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+    }
+
+    /// Get the receipts for an event in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to get.
+    ///
+    /// * `thread` - The thread containing the event of the receipt, if any.
+    ///
+    /// * `event_id` - The ID of the event.
+    ///
+    /// Returns a list of IDs of users who have sent a receipt for the event and
+    /// the corresponding receipts.
+    pub async fn event_receipts(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: &EventId,
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+        self.inner.event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 }
 

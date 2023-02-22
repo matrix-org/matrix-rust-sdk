@@ -14,6 +14,7 @@ pub struct AuthenticationService {
     passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
+    custom_sliding_sync_proxy: RwLock<Option<String>>,
 }
 
 impl Drop for AuthenticationService {
@@ -25,8 +26,10 @@ impl Drop for AuthenticationService {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum AuthenticationError {
-    #[error("A successful call to use_server must be made first.")]
+    #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
+    #[error("The homeserver doesn't provide a trusted a sliding sync proxy in its well-known configuration.")]
+    SlidingSyncNotAvailable,
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
     #[error("An error occurred: {message}")]
@@ -67,12 +70,17 @@ impl HomeserverLoginDetails {
 
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
-    pub fn new(base_path: String, passphrase: Option<String>) -> Self {
+    pub fn new(
+        base_path: String,
+        passphrase: Option<String>,
+        custom_sliding_sync_proxy: Option<String>,
+    ) -> Self {
         AuthenticationService {
             base_path,
             passphrase,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
+            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
         }
     }
 
@@ -115,6 +123,13 @@ impl AuthenticationService {
 
         let client = builder.build().map_err(AuthenticationError::from)?;
 
+        // Make sure there's a sliding sync proxy available one way or another.
+        if self.custom_sliding_sync_proxy.read().unwrap().is_none()
+            && client.discovered_sliding_sync_proxy().is_none()
+        {
+            return Err(AuthenticationError::SlidingSyncNotAvailable);
+        }
+
         RUNTIME.block_on(async move {
             let details = Arc::new(self.details_from_client(&client).await?);
 
@@ -147,10 +162,21 @@ impl AuthenticationService {
         // Create a new client to setup the store path now the user ID is known.
         let homeserver_url = client.homeserver();
         let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
+
+        let sliding_sync_proxy: Option<String>;
+        if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
+            sliding_sync_proxy = Some(custom_proxy);
+        } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
+            sliding_sync_proxy = Some(discovered_proxy);
+        } else {
+            sliding_sync_proxy = None;
+        }
+
         let client = Arc::new(ClientBuilder::new())
             .base_path(self.base_path.clone())
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
+            .sliding_sync_proxy(sliding_sync_proxy)
             .username(whoami.user_id.to_string())
             .build()
             .map_err(AuthenticationError::from)?;

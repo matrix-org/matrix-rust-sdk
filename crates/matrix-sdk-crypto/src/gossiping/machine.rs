@@ -1011,7 +1011,7 @@ mod tests {
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, OutboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
-        store::{Changes, CryptoStore, MemoryStore, Store},
+        store::{Changes, IntoCryptoStore, MemoryStore, Store},
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent,
@@ -1068,7 +1068,7 @@ mod tests {
         let device_id = DeviceId::new();
 
         let account = ReadOnlyAccount::new(&user_id, &device_id);
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let store = MemoryStore::new().into_crypto_store();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.to_owned(), identity, store, verification);
@@ -1090,7 +1090,7 @@ mod tests {
         let another_device =
             ReadOnlyDevice::from_account(&ReadOnlyAccount::new(&user_id, alice2_device_id())).await;
 
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let store = MemoryStore::new().into_crypto_store();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
 

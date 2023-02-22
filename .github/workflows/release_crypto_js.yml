@@ -29,15 +29,12 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v3

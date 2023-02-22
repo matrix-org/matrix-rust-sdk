@@ -53,7 +53,7 @@ use super::{
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
-    identities::{MasterPubkey, ReadOnlyDevice},
+    identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     types::{
@@ -64,20 +64,20 @@ use crate::{
                 ToDeviceEncryptedEventContent,
             },
         },
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
     utilities::encode,
     CryptoStoreError, OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
-pub struct Account {
+pub(crate) struct Account {
     pub inner: ReadOnlyAccount,
     pub store: Store,
 }
 
 #[derive(Debug, Clone)]
-pub enum SessionType {
+pub(crate) enum SessionType {
     New(Session),
     Existing(Session),
 }

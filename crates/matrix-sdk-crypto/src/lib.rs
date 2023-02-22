@@ -75,7 +75,7 @@ pub use file_encryption::{
 };
 pub use gossiping::GossipRequest;
 pub use identities::{
-    Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
@@ -103,6 +103,9 @@ pub mod vodozemac {
         olm::{
             DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
         },
-        DecodeError, KeyError, PickleError, SignatureError,
+        DecodeError, KeyError, PickleError, SignatureError, VERSION,
     };
 }
+
+/// The version of the matrix-sdk-cypto crate being used
+pub static VERSION: &str = env!("CARGO_PKG_VERSION");

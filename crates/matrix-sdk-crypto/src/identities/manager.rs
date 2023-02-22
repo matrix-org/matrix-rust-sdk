@@ -28,26 +28,30 @@ use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
     OwnedDeviceId, OwnedServerName, OwnedUserId, ServerName, UserId,
 };
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     error::OlmResult,
     identities::{
-        MasterPubkey, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
-        ReadOnlyUserIdentity, SelfSigningPubkey, UserSigningPubkey,
+        ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
     },
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::DeviceKeys,
+    types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
-    LocalTrust,
+    LocalTrust, SignatureError,
 };
 
 enum DeviceChange {
     New(ReadOnlyDevice),
     Updated(ReadOnlyDevice),
     None,
+}
+
+struct IdentityChange {
+    public: ReadOnlyUserIdentities,
+    private: Option<PrivateCrossSigningIdentity>,
 }
 
 /// A listener that can notify if a `/keys/query` response has been received.
@@ -414,14 +418,204 @@ impl IdentityManager {
         Ok(changes)
     }
 
-    /// Handle the device keys part of a key query response.
+    /// Check if the given public identity matches our private one.
+    ///
+    /// If they don't match remove the private keys since our identity got
+    /// rotated.
+    ///
+    /// If they do match, mark the public identity as verified.
+    async fn check_private_identity(
+        &self,
+        identity: &ReadOnlyOwnUserIdentity,
+    ) -> Option<PrivateCrossSigningIdentity> {
+        let private_identity = self.store.private_identity();
+        let private_identity = private_identity.lock().await;
+        let result = private_identity.clear_if_differs(identity).await;
+
+        if result.any_cleared() {
+            info!(cleared = ?result, "Removed some or all of our private cross signing keys");
+            Some((*private_identity).clone())
+        } else {
+            // If the master key didn't rotate above (`clear_if_differs`),
+            // then this means that the public part and the private parts of
+            // the master key match. We previously did a signature check, so
+            // this means that the private part of the master key has signed
+            // the identity. We can safely mark the public part of the
+            // identity as verified.
+            if private_identity.has_master_key().await {
+                trace!("Marked our own identity as verified");
+                identity.mark_as_verified()
+            }
+
+            None
+        }
+    }
+
+    async fn handle_changed_identity(
+        &self,
+        response: &KeysQueryResponse,
+        master_key: MasterPubkey,
+        self_signing: SelfSigningPubkey,
+        i: ReadOnlyUserIdentities,
+    ) -> Result<IdentityChange, SignatureError> {
+        match i {
+            ReadOnlyUserIdentities::Own(mut identity) => {
+                if let Some(user_signing) = response
+                    .user_signing_keys
+                    .get(self.user_id())
+                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+                {
+                    if user_signing.user_id() != self.user_id() {
+                        warn!(
+                            expected = ?self.user_id(),
+                            got = ?user_signing.user_id(),
+                            "User ID mismatch in our user-signing key",
+                        );
+
+                        Err(SignatureError::UserIdMismatch)
+                    } else {
+                        identity.update(master_key, self_signing, user_signing)?;
+
+                        let private = self.check_private_identity(&identity).await;
+
+                        Ok(IdentityChange { public: identity.into(), private })
+                    }
+                } else {
+                    warn!(
+                        "User identity for our own user didn't contain a user signing public key"
+                    );
+
+                    Err(SignatureError::MissingSigningKey)
+                }
+            }
+            ReadOnlyUserIdentities::Other(mut identity) => {
+                identity.update(master_key, self_signing)?;
+                Ok(IdentityChange { public: identity.into(), private: None })
+            }
+        }
+    }
+
+    async fn handle_new_identity(
+        &self,
+        response: &KeysQueryResponse,
+        master_key: MasterPubkey,
+        self_signing: SelfSigningPubkey,
+    ) -> Result<IdentityChange, SignatureError> {
+        if master_key.user_id() == self.user_id() {
+            if let Some(user_signing) = response
+                .user_signing_keys
+                .get(self.user_id())
+                .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+            {
+                if user_signing.user_id() != self.user_id() {
+                    warn!(
+                        expected = ?self.user_id(),
+                        got = ?user_signing.user_id(),
+                        "User ID mismatch in our user-signing key",
+                    );
+                    Err(SignatureError::UserIdMismatch)
+                } else {
+                    let identity =
+                        ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
+
+                    let private = self.check_private_identity(&identity).await;
+
+                    Ok(IdentityChange { public: identity.into(), private })
+                }
+            } else {
+                warn!(
+                    "User identity for our own user didn't contain a user signing pubkey or the key \
+                    isn't valid",
+                );
+
+                Err(SignatureError::MissingSigningKey)
+            }
+        } else {
+            let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
+            Ok(IdentityChange { public: identity.into(), private: None })
+        }
+    }
+
+    /// Try to deserialize the the master key and self-signing key of a
+    /// identity.
+    ///
+    /// Each user identity *must* at least contain a master and self-signing
+    /// key. Our own identity, in addition to those two, also contains a
+    /// user-signing key.
+    fn get_minimal_set_of_keys(
+        master_key: &Raw<CrossSigningKey>,
+        response: &KeysQueryResponse,
+    ) -> Option<(MasterPubkey, SelfSigningPubkey)> {
+        match master_key.deserialize_as::<MasterPubkey>() {
+            Ok(master_key) => {
+                if let Some(self_signing) = response
+                    .self_signing_keys
+                    .get(master_key.user_id())
+                    .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
+                {
+                    Some((master_key, self_signing))
+                } else {
+                    warn!("A user identity didn't contain a self signing pubkey or the key was invalid");
+                    None
+                }
+            }
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    "Couldn't update or create new user identity"
+                );
+                None
+            }
+        }
+    }
+
+    #[instrument(skip_all, fields(user_id))]
+    async fn update_or_create_identity(
+        &self,
+        response: &KeysQueryResponse,
+        changes: &mut IdentityChanges,
+        changed_identity: &mut Option<PrivateCrossSigningIdentity>,
+        user_id: &UserId,
+        master_key: MasterPubkey,
+        self_signing: SelfSigningPubkey,
+    ) -> StoreResult<()> {
+        if master_key.user_id() != user_id || self_signing.user_id() != user_id {
+            warn!(?user_id, "User ID mismatch in one of the cross signing keys",);
+        } else if let Some(i) = self.store.get_user_identity(user_id).await? {
+            match self.handle_changed_identity(response, master_key, self_signing, i).await {
+                Ok(c) => {
+                    trace!(identity = ?c.public, "Updated a user identity");
+                    changes.changed.push(c.public);
+                    *changed_identity = c.private;
+                }
+                Err(e) => {
+                    warn!(error = ?e, "Couldn't update an existing user identity");
+                }
+            }
+        } else {
+            match self.handle_new_identity(response, master_key, self_signing).await {
+                Ok(c) => {
+                    trace!(identity = ?c.public, "Created new user identity");
+                    changes.new.push(c.public);
+                    *changed_identity = c.private;
+                }
+                Err(e) => {
+                    warn!(error = ?e, "Couldn't create new user identity");
+                }
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Handle the cross signing keys part of a key query response.
     ///
     /// # Arguments
     ///
     /// * `response` - The keys query response.
     ///
     /// Returns a list of identities that changed. Changed here means either
-    /// they are new, one of their properties has changed or they got deleted.
+    /// they are new or one of their properties has changed.
     async fn handle_cross_singing_keys(
         &self,
         response: &KeysQueryResponse,
@@ -429,136 +623,22 @@ impl IdentityManager {
         let mut changes = IdentityChanges::default();
         let mut changed_identity = None;
 
-        // TODO: this is a bit chunky, refactor this into smaller methods.
-
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize_as::<MasterPubkey>() {
-                Ok(master_key) => {
-                    let Some(self_signing) = response
-                        .self_signing_keys
-                        .get(user_id)
-                        .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
-                    else {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            "A user identity didn't contain a self signing pubkey \
-                            or the key was invalid"
-                        );
-                        continue;
-                    };
+            // Get the master and self-signing key for each identity, those are required for
+            // every user identity type, if we don't have those we skip over.
+            let Some((master_key, self_signing)) = Self::get_minimal_set_of_keys(master_key.cast_ref(), response) else {
+                continue;
+            };
 
-                    let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
-                        match &mut i {
-                            ReadOnlyUserIdentities::Own(identity) => {
-                                let Some(user_signing) = response
-                                    .user_signing_keys
-                                    .get(user_id)
-                                    .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-                                else {
-                                    warn!(
-                                        user_id = user_id.as_str(),
-                                        "User identity for our own user didn't \
-                                        contain a user signing pubkey",
-                                    );
-                                    continue;
-                                };
-
-                                identity
-                                    .update(master_key, self_signing, user_signing)
-                                    .map(|_| (i, false))
-                            }
-                            ReadOnlyUserIdentities::Other(identity) => {
-                                identity.update(master_key, self_signing).map(|_| (i, false))
-                            }
-                        }
-                    } else if user_id == self.user_id() {
-                        if let Some(user_signing) = response
-                            .user_signing_keys
-                            .get(user_id)
-                            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
-                        {
-                            if master_key.user_id() != user_id
-                                || self_signing.user_id() != user_id
-                                || user_signing.user_id() != user_id
-                            {
-                                warn!(
-                                    user_id = user_id.as_str(),
-                                    "User ID mismatch in one of the cross signing keys",
-                                );
-                                continue;
-                            }
-
-                            ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)
-                                .map(|i| (ReadOnlyUserIdentities::Own(i), true))
-                        } else {
-                            warn!(
-                                user_id = user_id.as_str(),
-                                "User identity for our own user didn't contain a \
-                                user signing pubkey or the key isn't valid",
-                            );
-                            continue;
-                        }
-                    } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                        warn!(
-                            user = user_id.as_str(),
-                            "User ID mismatch in one of the cross signing keys",
-                        );
-                        continue;
-                    } else {
-                        ReadOnlyUserIdentity::new(master_key, self_signing)
-                            .map(|i| (ReadOnlyUserIdentities::Other(i), true))
-                    };
-
-                    match result {
-                        Ok((i, new)) => {
-                            if let Some(identity) = i.own() {
-                                let private_identity = self.store.private_identity();
-                                let private_identity = private_identity.lock().await;
-
-                                let result = private_identity.clear_if_differs(identity).await;
-
-                                if result.any_cleared() {
-                                    changed_identity = Some((*private_identity).clone());
-                                    info!(cleared = ?result, "Removed some or all of our private cross signing keys");
-                                } else if new && private_identity.has_master_key().await {
-                                    // If the master key didn't rotate above (`clear_if_differs`),
-                                    // then this means that the public part and the private parts of
-                                    // the master key match. We previously did a signature check, so
-                                    // this means that the private part of the master key has signed
-                                    // the identity. We can safely mark the public part of the
-                                    // identity as verified.
-                                    identity.mark_as_verified();
-                                    trace!("Received our own user identity, for which we possess the private key. Marking as verified.");
-                                }
-                            }
-
-                            if new {
-                                trace!(user_id = user_id.as_str(), identity = ?i, "Created new user identity");
-                                changes.new.push(i);
-                            } else {
-                                trace!(user_id = user_id.as_str(), identity = ?i, "Updated a user identity");
-                                changes.changed.push(i);
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                user_id = user_id.as_str(),
-                                error = ?e,
-                                "Couldn't update or create new user identity"
-                            );
-                            continue;
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        user_id = user_id.as_str(),
-                        error = ?e,
-                        "Couldn't update or create new user identity"
-                    );
-                    continue;
-                }
-            }
+            self.update_or_create_identity(
+                response,
+                &mut changes,
+                &mut changed_identity,
+                user_id,
+                master_key,
+                self_signing,
+            )
+            .await?;
         }
 
         Ok((changes, changed_identity))
@@ -667,7 +747,7 @@ pub(crate) mod testing {
         identities::IdentityManager,
         machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{CryptoStore, MemoryStore, Store},
+        store::{DynCryptoStore, IntoCryptoStore, MemoryStore, Store},
         types::DeviceKeys,
         verification::VerificationMachine,
         UploadSigningKeysRequest,
@@ -690,10 +770,14 @@ pub(crate) mod testing {
         let identity = Arc::new(Mutex::new(identity));
         let user_id = Arc::from(user_id());
         let account = ReadOnlyAccount::new(&user_id, device_id());
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let store: Arc<DynCryptoStore> = MemoryStore::new().into_crypto_store();
         let verification = VerificationMachine::new(account, identity.clone(), store);
-        let store =
-            Store::new(user_id.clone(), identity, Arc::new(MemoryStore::new()), verification);
+        let store = Store::new(
+            user_id.clone(),
+            identity,
+            MemoryStore::new().into_crypto_store(),
+            verification,
+        );
         IdentityManager::new(user_id, device_id().into(), store)
     }
 

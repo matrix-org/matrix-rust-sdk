@@ -6,12 +6,14 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
+    room::Receipts,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    api::client::membership::Invite3pidInit, assign, event_id,
-    events::room::message::RoomMessageEventContent, mxc_uri, thirdparty, uint, user_id,
-    TransactionId,
+    api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
+    assign, event_id,
+    events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
+    mxc_uri, thirdparty, uint, user_id, TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -145,7 +147,7 @@ async fn kick_user() {
 }
 
 #[async_test]
-async fn read_receipt() {
+async fn send_single_receipt() {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("POST"))
@@ -161,14 +163,14 @@ async fn read_receipt() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let event_id = event_id!("$xxxxxx:example.org");
+    let event_id = event_id!("$xxxxxx:example.org").to_owned();
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    room.read_receipt(event_id).await.unwrap();
+    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await.unwrap();
 }
 
 #[async_test]
-async fn read_marker() {
+async fn send_multiple_receipts() {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("POST"))
@@ -184,10 +186,11 @@ async fn read_marker() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let event_id = event_id!("$xxxxxx:example.org");
+    let event_id = event_id!("$xxxxxx:example.org").to_owned();
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    room.read_marker(event_id, None).await.unwrap();
+    let receipts = Receipts::new().fully_read_marker(event_id);
+    room.send_multiple_receipts(receipts).await.unwrap();
 }
 
 #[async_test]

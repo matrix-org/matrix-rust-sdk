@@ -855,7 +855,7 @@ mod tests {
 
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{Changes, CryptoStore, MemoryStore},
+        store::{Changes, DynCryptoStore, IntoCryptoStore, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
             FlowId, VerificationStore,
@@ -867,8 +867,8 @@ mod tests {
         user_id!("@example:localhost")
     }
 
-    fn memory_store() -> Arc<dyn CryptoStore> {
-        Arc::new(MemoryStore::new())
+    fn memory_store() -> Arc<DynCryptoStore> {
+        MemoryStore::new().into_crypto_store()
     }
 
     fn device_id() -> &'static DeviceId {

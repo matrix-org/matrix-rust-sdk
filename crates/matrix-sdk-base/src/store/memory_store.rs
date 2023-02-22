@@ -25,7 +25,7 @@ use ruma::{
     canonical_json::redact,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptType},
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
@@ -66,10 +66,17 @@ pub struct MemoryStore {
     stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
-    room_user_receipts:
-        Arc<DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedUserId, (OwnedEventId, Receipt)>>>>,
+    room_user_receipts: Arc<
+        DashMap<
+            OwnedRoomId,
+            DashMap<(String, Option<String>), DashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
+        >,
+    >,
     room_event_receipts: Arc<
-        DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>>,
+        DashMap<
+            OwnedRoomId,
+            DashMap<(String, Option<String>), DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>,
+        >,
     >,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
@@ -138,7 +145,9 @@ impl MemoryStore {
                 let event = match raw_event.deserialize() {
                     Ok(ev) => ev,
                     Err(e) => {
-                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        let event_id: Option<String> =
+                            raw_event.get_field("event_id").ok().flatten();
+                        debug!(event_id, "Failed to deserialize member event: {e}");
                         continue;
                     }
                 };
@@ -251,7 +260,9 @@ impl MemoryStore {
                 let event = match raw_event.deserialize() {
                     Ok(ev) => ev,
                     Err(e) => {
-                        debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                        let event_id: Option<String> =
+                            raw_event.get_field("event_id").ok().flatten();
+                        debug!(event_id, "Failed to deserialize stripped member event: {e}");
                         continue;
                     }
                 };
@@ -313,18 +324,21 @@ impl MemoryStore {
             for (event_id, receipts) in &content.0 {
                 for (receipt_type, receipts) in receipts {
                     for (user_id, receipt) in receipts {
+                        let thread = receipt.thread.as_str().map(ToOwned::to_owned);
                         // Add the receipt to the room user receipts
                         if let Some((old_event, _)) = self
                             .room_user_receipts
                             .entry(room.clone())
                             .or_default()
-                            .entry(receipt_type.to_string())
+                            .entry((receipt_type.to_string(), thread.clone()))
                             .or_default()
                             .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
                         {
                             // Remove the old receipt from the room event receipts
                             if let Some(receipt_map) = self.room_event_receipts.get(room) {
-                                if let Some(event_map) = receipt_map.get(receipt_type.as_ref()) {
+                                if let Some(event_map) =
+                                    receipt_map.get(&(receipt_type.to_string(), thread.clone()))
+                                {
                                     if let Some(user_map) = event_map.get_mut(&old_event) {
                                         user_map.remove(user_id);
                                     }
@@ -336,7 +350,7 @@ impl MemoryStore {
                         self.room_event_receipts
                             .entry(room.clone())
                             .or_default()
-                            .entry(receipt_type.to_string())
+                            .entry((receipt_type.to_string(), thread))
                             .or_default()
                             .entry(event_id.clone())
                             .or_default()
@@ -505,10 +519,12 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
         Ok(self.room_user_receipts.get(room_id).and_then(|m| {
-            m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
+            m.get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))
+                .and_then(|m| m.get(user_id).map(|r| r.clone()))
         }))
     }
 
@@ -516,16 +532,20 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
             .room_event_receipts
             .get(room_id)
             .and_then(|m| {
-                m.get(receipt_type.as_ref()).and_then(|m| {
-                    m.get(event_id)
-                        .map(|m| m.iter().map(|r| (r.key().clone(), r.value().clone())).collect())
-                })
+                m.get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned))).and_then(
+                    |m| {
+                        m.get(event_id).map(|m| {
+                            m.iter().map(|r| (r.key().clone(), r.value().clone())).collect()
+                        })
+                    },
+                )
             })
             .unwrap_or_default())
     }
@@ -686,18 +706,20 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {

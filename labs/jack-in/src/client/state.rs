@@ -3,15 +3,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use eyeball_im::VectorDiff;
 use futures::{pin_mut, StreamExt};
-use futures_signals::{
-    signal::Mutable,
-    signal_vec::{MutableVec, VecDiff},
-};
+use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use matrix_sdk::{
     room::timeline::{Timeline, TimelineItem},
-    ruma::OwnedRoomId,
-    SlidingSyncState as ViewState, SlidingSyncView,
+    ruma::{OwnedRoomId, RoomId},
+    SlidingSync, SlidingSyncRoom, SlidingSyncState as ViewState, SlidingSyncView,
 };
 use tokio::task::JoinHandle;
 
@@ -25,6 +23,7 @@ pub struct CurrentRoomSummary {
 #[derive(Clone, Debug)]
 pub struct SlidingSyncState {
     started: Instant,
+    syncer: SlidingSync,
     view: SlidingSyncView,
     /// the current list selector for the room
     first_render: Option<Duration>,
@@ -37,9 +36,10 @@ pub struct SlidingSyncState {
 }
 
 impl SlidingSyncState {
-    pub fn new(view: SlidingSyncView) -> Self {
+    pub fn new(syncer: SlidingSync, view: SlidingSyncView) -> Self {
         Self {
             started: Instant::now(),
+            syncer,
             view,
             first_render: None,
             full_sync: None,
@@ -64,41 +64,53 @@ impl SlidingSyncState {
         if let Some(c) = self.tl_handle.lock_mut().take() {
             c.abort();
         }
-        if let Some(room) =
-            r.as_ref().and_then(|room_id| self.view.rooms.lock_ref().get(room_id).cloned())
-        {
+        if let Some(room) = r.as_ref().and_then(|room_id| self.get_room(room_id)) {
             let current_timeline = self.current_timeline.clone();
             let room_timeline = self.room_timeline.clone();
             let handle = tokio::spawn(async move {
                 let timeline = room.timeline().await.unwrap();
-                let listener = timeline.stream();
+                let (items, listener) = timeline.subscribe().await;
                 *room_timeline.lock_mut() = Some(timeline);
+                current_timeline.lock_mut().replace_cloned(items.into_iter().collect());
                 pin_mut!(listener);
                 while let Some(diff) = listener.next().await {
                     match diff {
-                        VecDiff::Clear {} => {
+                        VectorDiff::Append { values } => {
+                            let mut lock = current_timeline.lock_mut();
+                            for v in values {
+                                lock.push_cloned(v);
+                            }
+                        }
+                        VectorDiff::Clear => {
                             current_timeline.lock_mut().clear();
                         }
-                        VecDiff::InsertAt { index, value } => {
+                        VectorDiff::Insert { index, value } => {
                             current_timeline.lock_mut().insert_cloned(index, value);
                         }
-                        VecDiff::Move { old_index, new_index } => {
-                            current_timeline.lock_mut().move_from_to(old_index, new_index);
-                        }
-                        VecDiff::Pop {} => {
+                        VectorDiff::PopBack => {
                             current_timeline.lock_mut().pop();
                         }
-                        VecDiff::Push { value } => {
+                        VectorDiff::PopFront => {
+                            current_timeline.lock_mut().remove(0);
+                        }
+                        VectorDiff::PushBack { value } => {
                             current_timeline.lock_mut().push_cloned(value);
                         }
-                        VecDiff::RemoveAt { index } => {
+                        VectorDiff::PushFront { value } => {
+                            current_timeline.lock_mut().insert_cloned(0, value);
+                        }
+                        VectorDiff::Remove { index } => {
                             current_timeline.lock_mut().remove(index);
                         }
-                        VecDiff::Replace { values } => {
-                            current_timeline.lock_mut().replace_cloned(values);
-                        }
-                        VecDiff::UpdateAt { index, value } => {
+                        VectorDiff::Set { index, value } => {
                             current_timeline.lock_mut().set_cloned(index, value);
+                        }
+                        VectorDiff::Reset { values } => {
+                            let mut lock = current_timeline.lock_mut();
+                            lock.clear();
+                            for v in values {
+                                lock.push_cloned(v);
+                            }
                         }
                     }
                 }
@@ -120,11 +132,11 @@ impl SlidingSyncState {
     }
 
     pub fn loaded_rooms_count(&self) -> usize {
-        self.view.rooms.lock_ref().len()
+        self.syncer.get_number_of_rooms()
     }
 
     pub fn total_rooms_count(&self) -> Option<u32> {
-        self.view.rooms_count.get()
+        self.view.rooms_count()
     }
 
     pub fn set_first_render_now(&mut self) {
@@ -133,6 +145,14 @@ impl SlidingSyncState {
 
     pub fn view(&self) -> &SlidingSyncView {
         &self.view
+    }
+
+    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
+        self.syncer.get_room(room_id)
+    }
+
+    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.syncer.get_all_rooms()
     }
 
     pub fn set_full_sync_now(&mut self) {

@@ -41,8 +41,12 @@ type MacKeySeed = [u8; 32];
 /// Error type for the `StoreCipher` operations.
 #[derive(Debug, Display, thiserror::Error)]
 pub enum Error {
-    /// Failed to serialize or deserialize a value {0}
-    Serialization(#[from] serde_json::Error),
+    /// Failed to serialize a value {0}
+    Serialization(#[from] rmp_serde::encode::Error),
+    /// Failed to deserialize a value {0}
+    Deserialization(#[from] rmp_serde::decode::Error),
+    /// Failed to deserialize or serialize a JSON value {0}
+    Json(#[from] serde_json::Error),
     /// Error encrypting or decrypting a value {0}
     Encryption(#[from] EncryptionError),
     /// Coulnd't generate enough randomness for a cryptographic operation: {0}
@@ -51,6 +55,11 @@ pub enum Error {
     Version(u8, u8),
     /// The ciphertext had an invalid length, expected {0}, got {1}
     Length(usize, usize),
+    /**
+     * Failed to import a store cipher, the export used a passphrase while
+     * we're trying to import it using a key or vice-versa.
+     */
+    KdfMismatch,
 }
 
 /// An encryption key that can be used to encrypt data for key/value stores.
@@ -90,8 +99,8 @@ impl StoreCipher {
 
     /// Encrypt the store cipher using the given passphrase and export it.
     ///
-    /// This method can be used to persist the `StoreCipher` in the key/value
-    /// store in a safe manner.
+    /// This method can be used to persist the `StoreCipher` in an unencrypted
+    /// key/value store in a safe manner.
     ///
     /// The `StoreCipher` can later on be restored using
     /// [`StoreCipher::import`].
@@ -117,21 +126,47 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn export(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
-        self.export_impl(passphrase, KDF_ROUNDS)
+        self.export_kdf(passphrase, KDF_ROUNDS)
     }
 
-    #[doc(hidden)]
-    pub fn _insecure_export_fast_for_testing(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
-        self.export_impl(passphrase, 1000)
+    /// Encrypt the store cipher using the given key and export it.
+    ///
+    /// This method can be used to persist the `StoreCipher` in an unencrypted
+    /// key/value store in a safe manner.
+    ///
+    /// The `StoreCipher` can later on be restored using
+    /// [`StoreCipher::import_with_key`].
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The 32-byte key to be used to encrypt the store cipher. It's
+    /// recommended to use a freshly and securely generated random key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::json;
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// // Export the store cipher and persist it in your key/value store
+    /// let export = store_cipher.export_with_key(&[0u8; 32]);
+    ///
+    /// // Save the export in your key/value store.
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn export_with_key(&self, key: &[u8; 32]) -> Result<Vec<u8>, Error> {
+        let store_cipher = self.export_helper(key, KdfInfo::None)?;
+        Ok(rmp_serde::to_vec_named(&store_cipher).expect("Can't serialize the store cipher"))
     }
 
-    fn export_impl(&self, passphrase: &str, kdf_rounds: u32) -> Result<Vec<u8>, Error> {
-        let mut rng = thread_rng();
-
-        let mut salt = [0u8; KDF_SALT_SIZE];
-        salt.try_fill(&mut rng)?;
-
-        let key = StoreCipher::expand_key(passphrase, &salt, kdf_rounds);
+    fn export_helper(
+        &self,
+        key: &[u8; 32],
+        kdf_info: KdfInfo,
+    ) -> Result<EncryptedStoreCipher, Error> {
         let key = ChachaKey::from_slice(key.as_ref());
         let cipher = XChaCha20Poly1305::new(key);
 
@@ -146,15 +181,62 @@ impl StoreCipher {
 
         keys.zeroize();
 
-        let store_cipher = EncryptedStoreCipher {
-            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: kdf_rounds, kdf_salt: salt },
+        Ok(EncryptedStoreCipher {
+            kdf_info,
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
-        };
-
-        Ok(serde_json::to_vec(&store_cipher).expect("Can't serialize the store cipher"))
+        })
     }
 
-    /// Restore a store cipher from an encrypted export.
+    #[doc(hidden)]
+    pub fn _insecure_export_fast_for_testing(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
+        self.export_kdf(passphrase, 1000)
+    }
+
+    fn export_kdf(&self, passphrase: &str, kdf_rounds: u32) -> Result<Vec<u8>, Error> {
+        let mut rng = thread_rng();
+
+        let mut salt = [0u8; KDF_SALT_SIZE];
+        salt.try_fill(&mut rng)?;
+
+        let key = StoreCipher::expand_key(passphrase, &salt, kdf_rounds);
+
+        let store_cipher = self.export_helper(
+            &key,
+            KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: kdf_rounds, kdf_salt: salt },
+        )?;
+
+        Ok(rmp_serde::to_vec_named(&store_cipher).expect("Can't serialize the store cipher"))
+    }
+
+    fn import_helper(key: &ChachaKey, encrypted: EncryptedStoreCipher) -> Result<Self, Error> {
+        let mut decrypted = match encrypted.ciphertext_info {
+            CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
+                let cipher = XChaCha20Poly1305::new(key);
+                let nonce = XNonce::from_slice(&nonce);
+                cipher.decrypt(nonce, ciphertext.as_ref())?
+            }
+        };
+
+        if decrypted.len() != 64 {
+            decrypted.zeroize();
+
+            Err(Error::Length(64, decrypted.len()))
+        } else {
+            let mut encryption_key = Box::new([0u8; 32]);
+            let mut mac_key_seed = Box::new([0u8; 32]);
+
+            encryption_key.copy_from_slice(&decrypted[0..32]);
+            mac_key_seed.copy_from_slice(&decrypted[32..64]);
+
+            let keys = Keys { encryption_key, mac_key_seed };
+
+            decrypted.zeroize();
+
+            Ok(Self { inner: keys })
+        }
+    }
+
+    /// Restore a store cipher from an export encrypted with a passphrase.
     ///
     /// # Arguments
     ///
@@ -182,41 +264,66 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
-        let encrypted: EncryptedStoreCipher = serde_json::from_slice(encrypted)?;
+        // Our old export format used serde_json for the serialization format. Let's
+        // first try the new format and if that fails, try the old one.
+        let encrypted: EncryptedStoreCipher =
+            if let Ok(deserialized) = rmp_serde::from_slice(encrypted) {
+                deserialized
+            } else {
+                serde_json::from_slice(encrypted)?
+            };
 
         let key = match encrypted.kdf_info {
             KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds, kdf_salt } => {
                 Self::expand_key(passphrase, &kdf_salt, rounds)
             }
+            KdfInfo::None => {
+                return Err(Error::KdfMismatch);
+            }
         };
 
         let key = ChachaKey::from_slice(key.as_ref());
 
-        let mut decrypted = match encrypted.ciphertext_info {
-            CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
-                let cipher = XChaCha20Poly1305::new(key);
-                let nonce = XNonce::from_slice(&nonce);
-                cipher.decrypt(nonce, ciphertext.as_ref())?
-            }
+        Self::import_helper(key, encrypted)
+    }
+
+    /// Restore a store cipher from an export encrypted with a random key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The 32-byte decryption key that was previously used to
+    /// encrypt the store cipher.
+    ///
+    /// * `encrypted` - The exported and encrypted version of the store cipher.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::json;
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// // Export the store cipher and persist it in your key/value store
+    /// let export = store_cipher.export_with_key(&[0u8; 32])?;
+    ///
+    /// // This is now the same as `store_cipher`.
+    /// let imported = StoreCipher::import_with_key(&[0u8; 32], &export)?;
+    ///
+    /// // Save the export in your key/value store.
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn import_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Self, Error> {
+        let encrypted: EncryptedStoreCipher = rmp_serde::from_slice(encrypted).unwrap();
+
+        if let KdfInfo::Pbkdf2ToChaCha20Poly1305 { .. } = encrypted.kdf_info {
+            return Err(Error::KdfMismatch);
         };
 
-        if decrypted.len() != 64 {
-            decrypted.zeroize();
+        let key = ChachaKey::from_slice(key.as_ref());
 
-            Err(Error::Length(64, decrypted.len()))
-        } else {
-            let mut encryption_key = Box::new([0u8; 32]);
-            let mut mac_key_seed = Box::new([0u8; 32]);
-
-            encryption_key.copy_from_slice(&decrypted[0..32]);
-            mac_key_seed.copy_from_slice(&decrypted[32..64]);
-
-            let keys = Keys { encryption_key, mac_key_seed };
-
-            decrypted.zeroize();
-
-            Ok(Self { inner: keys })
-        }
+        Self::import_helper(key, encrypted)
     }
 
     /// Hash a key before it is inserted into the key/value store.
@@ -567,6 +674,7 @@ impl Keys {
 /// Version specific info for the key derivation method that is used.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum KdfInfo {
+    None,
     /// The PBKDF2 to Chacha key derivation variant.
     Pbkdf2ToChaCha20Poly1305 {
         /// The number of PBKDF rounds that were used when deriving the store
@@ -634,6 +742,63 @@ mod tests {
         let decrypted_value: Value = decrypted.decrypt_value(&encrypted_value)?;
 
         assert_eq!(value, decrypted_value);
+
+        // Can't use assert matches here since we don't have a Debug implementation for
+        // StoreCipher.
+        match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
+            Err(Error::KdfMismatch) => {}
+            _ => panic!(
+                "Invalid error when importing a passphrase-encrypted store cipher with a key"
+            ),
+        }
+
+        let store_cipher = StoreCipher::new()?;
+        let encrypted_value = store_cipher.encrypt_value(&value)?;
+
+        let export = store_cipher.export_with_key(&[0u8; 32])?;
+        let decrypted = StoreCipher::import_with_key(&[0u8; 32], &export)?;
+
+        let decrypted_value: Value = decrypted.decrypt_value(&encrypted_value)?;
+        assert_eq!(value, decrypted_value);
+
+        // Same as above, can't use assert_matches.
+        match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
+            Err(Error::KdfMismatch) => {}
+            _ => panic!(
+                "Invalid error when importing a key-encrypted store cipher with a passphrase"
+            ),
+        }
+
+        let old_export = json!({
+            "ciphertext_info": {
+                "ChaCha20Poly1305":{
+                    "ciphertext":[
+                        136,202,212,194,9,223,171,109,152,84,140,183,14,55,198,22,150,130,80,135,
+                        161,202,79,205,151,202,120,91,108,154,252,94,56,178,108,216,186,179,167,128,
+                        154,107,243,195,14,138,86,78,140,159,245,170,204,227,27,84,255,161,196,69,
+                        60,150,69,123,67,134,28,50,10,179,250,141,221,19,202,132,28,122,92,116
+                    ],
+                    "nonce":[
+                        108,3,115,54,65,135,250,188,212,204,93,223,78,11,52,46,
+                        124,140,218,73,88,167,50,230
+                    ]
+                }
+            },
+            "kdf_info":{
+                "Pbkdf2ToChaCha20Poly1305":{
+                    "kdf_salt":[
+                        221,133,149,116,199,122,172,189,236,42,26,204,53,164,245,158,137,113,
+                        31,220,239,66,64,51,242,164,185,166,176,218,209,245
+                    ],
+                    "rounds":1000
+                }
+            }
+        });
+
+        let old_export = serde_json::to_vec(&old_export)?;
+
+        StoreCipher::import(passphrase, &old_export)
+            .expect("We can import the old store-cipher export");
 
         Ok(())
     }

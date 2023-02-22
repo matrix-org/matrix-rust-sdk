@@ -20,7 +20,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use derive_builder::Builder;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
@@ -34,7 +33,7 @@ use ruma::{
     canonical_json::redact,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptType},
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
@@ -44,6 +43,7 @@ use ruma::{
     RoomVersionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
@@ -115,7 +115,7 @@ impl From<SledStoreError> for StoreError {
         }
     }
 }
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 const VERSION_KEY: &str = "state-store-version";
 
@@ -176,25 +176,27 @@ enum DbOrPath {
     Path(PathBuf),
 }
 
-#[derive(Builder, Debug)]
-#[builder(name = "SledStateStoreBuilder", build_fn(skip))]
-#[allow(dead_code)]
-pub struct SledStateStoreBuilderConfig {
-    #[builder(setter(custom))]
-    db_or_path: DbOrPath,
-    /// Set the password the sled store is encrypted with (if any)
-    passphrase: String,
-    /// The strategy to use when a merge conflict is found, see
-    /// [`MigrationConflictStrategy`] for details
-    #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
+/// Builder for [`SledStateStore`].
+#[derive(Debug)]
+pub struct SledStateStoreBuilder {
+    db_or_path: Option<DbOrPath>,
+    passphrase: Option<String>,
     migration_conflict_strategy: MigrationConflictStrategy,
 }
 
 impl SledStateStoreBuilder {
+    fn new() -> Self {
+        Self {
+            db_or_path: None,
+            passphrase: None,
+            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
+        }
+    }
+
     /// Path to the sled store files, created if not it doesn't exist yet.
     ///
     /// Mutually exclusive with [`db`][Self::db], whichever is called last wins.
-    pub fn path(&mut self, path: PathBuf) -> &mut SledStateStoreBuilder {
+    pub fn path(mut self, path: PathBuf) -> Self {
         self.db_or_path = Some(DbOrPath::Path(path));
         self
     }
@@ -203,8 +205,22 @@ impl SledStateStoreBuilder {
     ///
     /// Mutually exclusive with [`path`][Self::path], whichever is called last
     /// wins.
-    pub fn db(&mut self, db: Db) -> &mut SledStateStoreBuilder {
+    pub fn db(mut self, db: Db) -> Self {
         self.db_or_path = Some(DbOrPath::Db(db));
+        self
+    }
+
+    /// Set the password the sled store is encrypted with (if any).
+    pub fn passphrase(mut self, value: String) -> Self {
+        self.passphrase = Some(value);
+        self
+    }
+
+    /// Set the strategy to use when a merge conflict is found.
+    ///
+    /// See [`MigrationConflictStrategy`] for details.
+    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
+        self.migration_conflict_strategy = value;
         self
     }
 
@@ -218,7 +234,7 @@ impl SledStateStoreBuilder {
     ///   path.
     /// * Migration error: The migration to a newer version of the schema
     ///   failed, see `SledStoreError::MigrationConflict`.
-    pub fn build(&mut self) -> Result<SledStateStore> {
+    pub fn build(self) -> Result<SledStateStore> {
         let (db, path) = match &self.db_or_path {
             None => {
                 let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
@@ -253,11 +269,7 @@ impl SledStateStoreBuilder {
         let migration_res = store.upgrade();
         if let Err(SledStoreError::MigrationConflict { path, .. }) = &migration_res {
             // how  are supposed to react about this?
-            match self
-                .migration_conflict_strategy
-                .as_ref()
-                .unwrap_or(&MigrationConflictStrategy::BackupAndDrop)
-            {
+            match self.migration_conflict_strategy {
                 MigrationConflictStrategy::BackupAndDrop => {
                     let mut new_path = path.clone();
                     new_path.set_extension(format!(
@@ -396,9 +408,9 @@ impl SledStateStore {
         })
     }
 
-    /// Generate a SledStateStoreBuilder with default parameters
+    /// Create a [`SledStateStoreBuilder`] with default parameters.
     pub fn builder() -> SledStateStoreBuilder {
-        SledStateStoreBuilder::default()
+        SledStateStoreBuilder::new()
     }
 
     fn drop_tables(self) -> StoreResult<()> {
@@ -438,17 +450,17 @@ impl SledStateStore {
 
         debug!(old_version, new_version = DATABASE_VERSION, "Upgrading the Sled state store");
 
-        if old_version == 1 {
-            if self.store_cipher.is_some() {
-                // we stored some fields un-encrypted. Drop them to force re-creation
-                return Err(SledStoreError::MigrationConflict {
-                    path: self.path.take().expect("Path must exist for a migration to fail"),
-                    old_version: old_version.into(),
-                    new_version: DATABASE_VERSION.into(),
-                });
-            }
-            // no migration to handle
-            self.set_db_version(2u8)?;
+        if old_version == 1 && self.store_cipher.is_some() {
+            // we stored some fields un-encrypted. Drop them to force re-creation
+            return Err(SledStoreError::MigrationConflict {
+                path: self.path.take().expect("Path must exist for a migration to fail"),
+                old_version: old_version.into(),
+                new_version: DATABASE_VERSION.into(),
+            });
+        }
+
+        if old_version < 3 {
+            self.migrate_to_v3()?;
             return Ok(());
         }
 
@@ -460,6 +472,54 @@ impl SledStateStore {
             old_version: old_version.into(),
             new_version: DATABASE_VERSION.into(),
         })
+    }
+
+    fn v3_fix_tree(&self, tree: &Tree, batch: &mut sled::Batch) -> Result<()> {
+        fn maybe_fix_json(raw_json: &RawJsonValue) -> Result<Option<JsonValue>> {
+            let json = raw_json.get();
+
+            if json.contains(r#""content":null"#) {
+                let mut value: JsonValue = serde_json::from_str(json)?;
+                if let Some(content) = value.get_mut("content") {
+                    if matches!(content, JsonValue::Null) {
+                        *content = JsonValue::Object(Default::default());
+                        return Ok(Some(value));
+                    }
+                }
+            }
+
+            Ok(None)
+        }
+
+        for entry in tree.iter() {
+            let (key, value) = entry?;
+            let raw_json: Box<RawJsonValue> = self.deserialize_value(&value)?;
+
+            if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
+                batch.insert(key, self.serialize_value(&fixed_json)?);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn migrate_to_v3(&self) -> Result<()> {
+        let mut room_info_batch = sled::Batch::default();
+        self.v3_fix_tree(&self.room_info, &mut room_info_batch)?;
+
+        let mut room_state_batch = sled::Batch::default();
+        self.v3_fix_tree(&self.room_state, &mut room_state_batch)?;
+
+        let ret: Result<(), TransactionError<SledStoreError>> = (&self.room_info, &self.room_state)
+            .transaction(|(room_info, room_state)| {
+                room_info.apply_batch(&room_info_batch)?;
+                room_state.apply_batch(&room_state_batch)?;
+
+                Ok(())
+            });
+        ret?;
+
+        self.set_db_version(3u8)
     }
 
     /// Open a `SledCryptoStore` that uses the same database as this store.
@@ -557,7 +617,9 @@ impl SledStateStore {
                             let event = match raw_event.deserialize() {
                                 Ok(ev) => ev,
                                 Err(e) => {
-                                    debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(event_id, "Failed to deserialize member event: {e}");
                                     continue;
                                 }
                             };
@@ -670,7 +732,12 @@ impl SledStateStore {
                             let event = match raw_event.deserialize() {
                                 Ok(ev) => ev,
                                 Err(e) => {
-                                    debug!(event = ?raw_event, "Failed to deserialize event: {e}");
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(
+                                        event_id,
+                                        "Failed to deserialize stripped member event: {e}"
+                                    );
                                     continue;
                                 }
                             };
@@ -738,7 +805,7 @@ impl SledStateStore {
 
             let make_room_version = |room_id| {
                 self.room_info
-                    .get(self.encode_key(ROOM_INFO, room_id))
+                    .get(self.encode_key(ROOM, room_id))
                     .ok()
                     .flatten()
                     .map(|r| self.deserialize_value::<RoomInfo>(&r))
@@ -789,11 +856,18 @@ impl SledStateStore {
                             for (receipt_type, receipts) in receipts {
                                 for (user_id, receipt) in receipts {
                                     // Add the receipt to the room user receipts
-                                    if let Some(old) = room_user_receipts.insert(
-                                        self.encode_key(
+                                    let key = match receipt.thread.as_str() {
+                                        Some(thread_id) => self.encode_key(
+                                            ROOM_USER_RECEIPT,
+                                            (room, receipt_type, thread_id, user_id),
+                                        ),
+                                        None => self.encode_key(
                                             ROOM_USER_RECEIPT,
                                             (room, receipt_type, user_id),
                                         ),
+                                    };
+                                    if let Some(old) = room_user_receipts.insert(
+                                        key,
                                         self.serialize_value(&(event_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
@@ -801,18 +875,32 @@ impl SledStateStore {
                                         let (old_event, _): (OwnedEventId, Receipt) = self
                                             .deserialize_value(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
-                                        room_event_receipts.remove(self.encode_key(
-                                            ROOM_EVENT_RECEIPT,
-                                            (room, receipt_type, old_event, user_id),
-                                        ))?;
+                                        let key = match receipt.thread.as_str() {
+                                            Some(thread_id) => self.encode_key(
+                                                ROOM_EVENT_RECEIPT,
+                                                (room, receipt_type, thread_id, old_event, user_id),
+                                            ),
+                                            None => self.encode_key(
+                                                ROOM_EVENT_RECEIPT,
+                                                (room, receipt_type, old_event, user_id),
+                                            ),
+                                        };
+                                        room_event_receipts.remove(key)?;
                                     }
 
                                     // Add the receipt to the room event receipts
-                                    room_event_receipts.insert(
-                                        self.encode_key(
+                                    let key = match receipt.thread.as_str() {
+                                        Some(thread_id) => self.encode_key(
+                                            ROOM_EVENT_RECEIPT,
+                                            (room, receipt_type, thread_id, event_id, user_id),
+                                        ),
+                                        None => self.encode_key(
                                             ROOM_EVENT_RECEIPT,
                                             (room, receipt_type, event_id, user_id),
                                         ),
+                                    };
+                                    room_event_receipts.insert(
+                                        key,
                                         self.serialize_value(&(user_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
@@ -1088,10 +1176,16 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let db = self.clone();
-        let key = self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, user_id));
+        let key = match thread.as_str() {
+            Some(thread_id) => {
+                self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, thread_id, user_id))
+            }
+            None => self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, user_id)),
+        };
         spawn_blocking(move || {
             db.room_user_receipts.get(key)?.map(|m| db.deserialize_value(&m)).transpose()
         })
@@ -1102,10 +1196,16 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         let db = self.clone();
-        let key = self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, event_id));
+        let key = match thread.as_str() {
+            Some(thread_id) => {
+                self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, thread_id, event_id))
+            }
+            None => self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, event_id)),
+        };
         spawn_blocking(move || {
             db.room_event_receipts
                 .scan_prefix(key)
@@ -1470,18 +1570,22 @@ impl StateStore for SledStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(Into::into)
+        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
+        thread: ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
             .await
             .map_err(Into::into)
     }
@@ -1544,9 +1648,15 @@ mod encrypted_tests {
 #[cfg(test)]
 mod migration {
     use matrix_sdk_test::async_test;
+    use ruma::{
+        events::{AnySyncStateEvent, StateEventType},
+        room_id,
+    };
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::{MigrationConflictStrategy, Result, SledStateStore, SledStoreError};
+    use crate::state_store::ROOM_STATE;
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
@@ -1630,5 +1740,59 @@ mod migration {
         }
         assert_eq!(std::fs::read_dir(folder.path())?.count(), 1);
         Ok(())
+    }
+
+    #[async_test]
+    pub async fn migrating_v2_to_v3() {
+        // An event that fails to deserialize.
+        let wrong_redacted_state_event = json!({
+            "content": null,
+            "event_id": "$wrongevent",
+            "origin_server_ts": 1673887516047_u64,
+            "sender": "@example:localhost",
+            "state_key": "",
+            "type": "m.room.topic",
+            "unsigned": {
+                "redacted_because": {
+                    "type": "m.room.redaction",
+                    "sender": "@example:localhost",
+                    "content": {},
+                    "redacts": "$wrongevent",
+                    "origin_server_ts": 1673893816047_u64,
+                    "unsigned": {},
+                    "event_id": "$redactionevent",
+                },
+            },
+        });
+        serde_json::from_value::<AnySyncStateEvent>(wrong_redacted_state_event.clone())
+            .unwrap_err();
+
+        let room_id = room_id!("!some_room:localhost");
+        let folder = TempDir::new().unwrap();
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        store
+            .room_state
+            .insert(
+                store.encode_key(ROOM_STATE, (room_id, StateEventType::RoomTopic, "")),
+                store.serialize_value(&wrong_redacted_state_event).unwrap(),
+            )
+            .unwrap();
+        store.set_db_version(2u8).unwrap();
+        drop(store);
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+        let event =
+            store.get_state_event(room_id, StateEventType::RoomTopic, "").await.unwrap().unwrap();
+        event.deserialize().unwrap();
     }
 }

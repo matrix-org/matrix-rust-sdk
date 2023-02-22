@@ -38,18 +38,12 @@ jobs:
 
       - name: Install rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xtask
+        run: |
+          cargo build -p xtask
 
   test-uniffi-codegen:
     name: Test UniFFI bindings generation
@@ -67,14 +61,10 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
         uses: actions/cache@v3
@@ -84,6 +74,34 @@ jobs:
 
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings
+
+  lint-js-bindings:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: "[m]-crypto-nodejs"
+            path: "bindings/matrix-sdk-crypto-nodejs"
+          - name: "[m]-crypto-js"
+            path: "bindings/matrix-sdk-crypto-js"
+
+    name: lint ${{ matrix.name }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+
+      - name: Install NPM dependencies
+        working-directory: ${{ matrix.path }}
+        run: npm install
+
+      - name: run lint
+        working-directory: ${{ matrix.path }}
+        run: npm run lint
 
   test-matrix-sdk-crypto-nodejs:
     name: ${{ matrix.os-name }} [m]-crypto-nodejs, v${{ matrix.node-version }}
@@ -111,14 +129,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -169,15 +183,12 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -220,18 +231,12 @@ jobs:
 
       - name: Install rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xtask
+        run: |
+          cargo build -p xtask
 
   test-apple:
     name: matrix-rust-components-swift
@@ -249,17 +254,13 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Install aarch64-apple-ios target
         run: rustup target install aarch64-apple-ios
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
         uses: actions/cache@v3

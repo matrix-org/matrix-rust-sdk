@@ -119,8 +119,15 @@ interface SlidingSyncView {
 };
 
 interface SlidingSyncRoom {
-    StoppableSpawn? subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
-    StoppableSpawn? add_timeline_listener(TimelineListener listener);
+    [Throws=ClientError]
+    SlidingSyncSubscribeResult subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
+    [Throws=ClientError]
+    SlidingSyncSubscribeResult add_timeline_listener(TimelineListener listener);
+};
+
+dictionary SlidingSyncSubscribeResult {
+    sequence<TimelineItem> items;
+    StoppableSpawn task_handle;
 };
 
 interface SlidingSync {
@@ -211,6 +218,7 @@ dictionary Session {
     string device_id;
     string homeserver_url;
     boolean is_soft_logout;
+    string? sliding_sync_proxy;
 };
 
 enum MembershipState {
@@ -252,7 +260,7 @@ interface Room {
     [Throws=ClientError]
     string? member_display_name(string user_id);
 
-    void add_timeline_listener(TimelineListener listener);
+    sequence<TimelineItem> add_timeline_listener(TimelineListener listener);
 
     // Loads older messages into the timeline.
     //
@@ -278,6 +286,9 @@ interface Room {
     void redact(string event_id, string? reason, string? txn_id);
 
     [Throws=ClientError]
+    void report_content(string event_id, i32? score, string? reason);
+
+    [Throws=ClientError]
     void send_reaction(string event_id, string key);
 };
 
@@ -285,9 +296,9 @@ callback interface TimelineListener {
     void on_update(TimelineDiff update);
 };
 
-interface TimelineDiff {
-    MoveData? move();
-};
+interface TimelineItem {};
+
+interface TimelineDiff {};
 
 dictionary MoveData {
     u32 old_index;
@@ -307,7 +318,7 @@ interface MediaSource {
 };
 
 interface AuthenticationService {
-    constructor(string base_path, string? passphrase);
+    constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
 
 interface SessionVerificationEmoji {};

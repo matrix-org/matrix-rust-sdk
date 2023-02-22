@@ -1,6 +1,9 @@
 // TODO: target-os conditional would be good.
 
-#![allow(unused_qualifications)]
+#![allow(unused_qualifications, clippy::new_without_default)]
+// Triggers false positives.
+// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
+#![allow(clippy::extra_unused_type_parameters)]
 
 macro_rules! unwrap_or_clone_arc_into_variant {
     (
@@ -90,12 +93,13 @@ mod uniffi_types {
             SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
         },
         timeline::{
-            EmoteMessageContent, EncryptedMessage, EventSendState, EventTimelineItem, FileInfo,
-            FileMessageContent, FormattedBody, ImageInfo, ImageMessageContent, InsertAtData,
-            MembershipChange, Message, MessageFormat, MessageType, NoticeMessageContent,
-            OtherState, Profile, Reaction, TextMessageContent, ThumbnailInfo, TimelineChange,
-            TimelineDiff, TimelineItem, TimelineItemContent, TimelineItemContentKind, UpdateAtData,
-            VideoInfo, VideoMessageContent, VirtualTimelineItem,
+            AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
+            EventTimelineItem, FileInfo, FileMessageContent, FormattedBody, ImageInfo,
+            ImageMessageContent, InsertData, MembershipChange, Message, MessageFormat, MessageType,
+            NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction, SetData,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
+            VirtualTimelineItem,
         },
     };
 }
