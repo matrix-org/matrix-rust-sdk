@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 
+use eyeball::Observable;
 use futures_core::Stream;
-use futures_signals::signal::{Mutable, SignalExt};
 use futures_util::StreamExt;
 use matrix_sdk_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
@@ -135,7 +135,7 @@ impl From<&InnerState> for QrVerificationState {
 pub struct QrVerification {
     flow_id: FlowId,
     inner: Arc<QrVerificationData>,
-    state: Arc<Mutable<InnerState>>,
+    state: Arc<StdRwLock<Observable<InnerState>>>,
     identities: IdentitiesBeingVerified,
     request_handle: Option<RequestHandle>,
     we_started: bool,
@@ -145,8 +145,8 @@ impl std::fmt::Debug for QrVerification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QrVerification")
             .field("flow_id", &self.flow_id)
-            .field("inner", self.inner.as_ref())
-            .field("state", &self.state.lock_ref())
+            .field("inner", &self.inner)
+            .field("state", &self.state)
             .finish()
     }
 }
@@ -157,12 +157,12 @@ impl QrVerification {
     /// When the verification object is in this state it's required that the
     /// user confirms that the other side has scanned the QR code.
     pub fn has_been_scanned(&self) -> bool {
-        matches!(&*self.state.lock_ref(), InnerState::Scanned(_))
+        matches!(**self.state.read().unwrap(), InnerState::Scanned(_))
     }
 
     /// Has the scanning of the QR code been confirmed by us.
     pub fn has_been_confirmed(&self) -> bool {
-        matches!(&*self.state.lock_ref(), InnerState::Confirmed(_))
+        matches!(**self.state.read().unwrap(), InnerState::Confirmed(_))
     }
 
     /// Get our own user id.
@@ -189,7 +189,7 @@ impl QrVerification {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerState::Cancelled(c) = &*self.state.lock_ref() {
+        if let InnerState::Cancelled(c) = &**self.state.read().unwrap() {
             Some(c.state.clone().into())
         } else {
             None
@@ -198,12 +198,12 @@ impl QrVerification {
 
     /// Has the verification flow completed.
     pub fn is_done(&self) -> bool {
-        matches!(&*self.state.lock_ref(), InnerState::Done(_))
+        matches!(**self.state.read().unwrap(), InnerState::Done(_))
     }
 
     /// Has the verification flow been cancelled.
     pub fn is_cancelled(&self) -> bool {
-        matches!(&*self.state.lock_ref(), InnerState::Cancelled(_))
+        matches!(**self.state.read().unwrap(), InnerState::Cancelled(_))
     }
 
     /// Is this a verification that is veryfying one of our own devices
@@ -214,7 +214,7 @@ impl QrVerification {
     /// Have we successfully scanned the QR code and are able to send a
     /// reciprocation event.
     pub fn reciprocated(&self) -> bool {
-        matches!(&*self.state.lock_ref(), InnerState::Reciprocated(_))
+        matches!(**self.state.read().unwrap(), InnerState::Reciprocated(_))
     }
 
     /// Get the unique ID that identifies this QR code verification flow.
@@ -268,7 +268,7 @@ impl QrVerification {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let mut state = self.state.lock_mut();
+        let mut state = self.state.write().unwrap();
 
         if let Some(request) = &self.request_handle {
             request.cancel_with_code(&code);
@@ -277,13 +277,13 @@ impl QrVerification {
         let new_state = QrState::<Cancelled>::new(true, code);
         let content = new_state.as_content(self.flow_id());
 
-        match &*state {
+        match &**state {
             InnerState::Confirmed(_)
             | InnerState::Created(_)
             | InnerState::Scanned(_)
             | InnerState::Reciprocated(_)
             | InnerState::Done(_) => {
-                *state = InnerState::Cancelled(new_state);
+                Observable::set(&mut state, InnerState::Cancelled(new_state));
                 Some(self.content_to_request(content))
             }
             InnerState::Cancelled(_) => None,
@@ -296,7 +296,7 @@ impl QrVerification {
     /// This will return some `OutgoingContent` if the object is in the correct
     /// state to start the verification flow, otherwise `None`.
     pub fn reciprocate(&self) -> Option<OutgoingVerificationRequest> {
-        match &*self.state.lock_ref() {
+        match &**self.state.read().unwrap() {
             InnerState::Reciprocated(s) => {
                 Some(self.content_to_request(s.as_content(self.flow_id())))
             }
@@ -310,13 +310,13 @@ impl QrVerification {
 
     /// Confirm that the other side has scanned our QR code.
     pub fn confirm_scanning(&self) -> Option<OutgoingVerificationRequest> {
-        let mut state = self.state.lock_mut();
+        let mut state = self.state.write().unwrap();
 
-        match &*state {
+        match &**state {
             InnerState::Scanned(s) => {
                 let new_state = s.clone().confirm_scanning();
                 let content = new_state.as_content(&self.flow_id);
-                *state = InnerState::Confirmed(new_state);
+                Observable::set(&mut state, InnerState::Confirmed(new_state));
 
                 Some(self.content_to_request(content))
             }
@@ -366,9 +366,7 @@ impl QrVerification {
                 VerificationResult::SignatureUpload(s) => (None, Some(s)),
             };
 
-        let mut guard = self.state.lock_mut();
-        *guard = new_state;
-
+        Observable::set(&mut self.state.write().unwrap(), new_state);
         Ok((content.map(|c| self.content_to_request(c)), request))
     }
 
@@ -379,7 +377,7 @@ impl QrVerification {
         (Option<OutgoingVerificationRequest>, Option<SignatureUploadRequest>),
         CryptoStoreError,
     > {
-        let state = (*self.state.lock_ref()).clone();
+        let state = (*self.state.read().unwrap()).clone();
 
         Ok(match state {
             InnerState::Confirmed(s) => {
@@ -432,17 +430,17 @@ impl QrVerification {
         &self,
         content: &StartContent<'_>,
     ) -> Option<OutgoingVerificationRequest> {
-        let mut state = self.state.lock_mut();
+        let mut state = self.state.write().unwrap();
 
-        match &*state {
+        match &**state {
             InnerState::Created(s) => match s.clone().receive_reciprocate(content) {
                 Ok(s) => {
-                    *state = InnerState::Scanned(s);
+                    Observable::set(&mut state, InnerState::Scanned(s));
                     None
                 }
                 Err(s) => {
                     let content = s.as_content(self.flow_id());
-                    *state = InnerState::Cancelled(s);
+                    Observable::set(&mut state, InnerState::Cancelled(s));
                     Some(self.content_to_request(content))
                 }
             },
@@ -456,9 +454,9 @@ impl QrVerification {
 
     pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
         if sender == self.other_user_id() {
-            let mut state = self.state.lock_mut();
+            let mut state = self.state.write().unwrap();
 
-            let new_state = match &*state {
+            let new_state = match &**state {
                 InnerState::Created(s) => s.clone().into_cancelled(content),
                 InnerState::Scanned(s) => s.clone().into_cancelled(content),
                 InnerState::Confirmed(s) => s.clone().into_cancelled(content),
@@ -472,7 +470,7 @@ impl QrVerification {
                 "Cancelling a QR verification, other user has cancelled"
             );
 
-            *state = InnerState::Cancelled(new_state);
+            Observable::set(&mut state, InnerState::Cancelled(new_state));
         }
     }
 
@@ -630,10 +628,9 @@ impl QrVerification {
         Ok(Self {
             flow_id,
             inner: qr_code.into(),
-            state: Mutable::new(InnerState::Reciprocated(QrState {
+            state: Arc::new(StdRwLock::new(Observable::new(InnerState::Reciprocated(QrState {
                 state: Reciprocated { secret, own_device_id },
-            }))
-            .into(),
+            })))),
             identities,
             we_started,
             request_handle,
@@ -652,7 +649,9 @@ impl QrVerification {
         Self {
             flow_id,
             inner: inner.into(),
-            state: Mutable::new(InnerState::Created(QrState { state: Created { secret } })).into(),
+            state: Arc::new(StdRwLock::new(Observable::new(InnerState::Created(QrState {
+                state: Created { secret },
+            })))),
             identities,
             we_started,
             request_handle,
@@ -663,7 +662,7 @@ impl QrVerification {
     ///
     /// The changes are presented as a stream of [`QrVerificationState`] values.
     pub fn changes(&self) -> impl Stream<Item = QrVerificationState> {
-        self.state.signal_cloned().to_stream().map(|s| (&s).into())
+        Observable::subscribe(&self.state.read().unwrap()).map(|s| (&s).into())
     }
 
     /// Get the current state the verification process is in.
@@ -671,7 +670,7 @@ impl QrVerification {
     /// To listen to changes to the [`QrVerificationState`] use the
     /// [`QrVerification::changes`] method.
     pub fn state(&self) -> QrVerificationState {
-        (&*self.state.lock_ref()).into()
+        (&**self.state.read().unwrap()).into()
     }
 }
 

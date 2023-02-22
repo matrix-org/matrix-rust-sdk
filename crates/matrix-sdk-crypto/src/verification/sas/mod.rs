@@ -16,10 +16,10 @@ mod helpers;
 mod inner_sas;
 mod sas_state;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 
+use eyeball::Observable;
 use futures_core::Stream;
-use futures_signals::signal::{Mutable, SignalExt};
 use futures_util::StreamExt;
 use inner_sas::InnerSas;
 use ruma::{
@@ -49,7 +49,7 @@ use crate::{
 /// Short authentication string object.
 #[derive(Clone, Debug)]
 pub struct Sas {
-    inner: Arc<Mutable<InnerSas>>,
+    inner: Arc<StdRwLock<Observable<InnerSas>>>,
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
@@ -268,12 +268,12 @@ impl Sas {
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
-        self.inner.lock_ref().supports_emoji()
+        self.inner.read().unwrap().supports_emoji()
     }
 
     /// Did this verification flow start from a verification request.
     pub fn started_from_request(&self) -> bool {
-        self.inner.lock_ref().started_from_request()
+        self.inner.read().unwrap().started_from_request()
     }
 
     /// Is this a verification that is veryfying one of our own devices.
@@ -283,18 +283,18 @@ impl Sas {
 
     /// Have we confirmed that the short auth string matches.
     pub fn have_we_confirmed(&self) -> bool {
-        self.inner.lock_ref().have_we_confirmed()
+        self.inner.read().unwrap().have_we_confirmed()
     }
 
     /// Has the verification been accepted by both parties.
     pub fn has_been_accepted(&self) -> bool {
-        self.inner.lock_ref().has_been_accepted()
+        self.inner.read().unwrap().has_been_accepted()
     }
 
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &*self.inner.lock_ref() {
+        if let InnerSas::Cancelled(c) = &**self.inner.read().unwrap() {
             Some(c.state.as_ref().clone().into())
         } else {
             None
@@ -309,7 +309,9 @@ impl Sas {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: matrix_sdk_common::instant::Instant) {
-        self.inner.lock_mut().set_creation_time(time)
+        Observable::update(&mut self.inner.write().unwrap(), |inner| {
+            inner.set_creation_time(time);
+        });
     }
 
     fn start_helper(
@@ -331,7 +333,7 @@ impl Sas {
 
         (
             Sas {
-                inner: Arc::new(Mutable::new(inner)),
+                inner: Arc::new(StdRwLock::new(Observable::new(inner))),
                 account,
                 identities_being_verified: identities,
                 flow_id: flow_id.into(),
@@ -415,7 +417,7 @@ impl Sas {
         let account = identities.store.account.clone();
 
         Ok(Sas {
-            inner: Arc::new(Mutable::new(inner)),
+            inner: Arc::new(StdRwLock::new(Observable::new(inner))),
             account,
             identities_being_verified: identities,
             flow_id: flow_id.into(),
@@ -445,12 +447,12 @@ impl Sas {
         let old_state = self.state_debug();
 
         let request = {
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
             let sas: InnerSas = (*guard).clone();
             let methods = settings.allowed_methods;
 
             if let Some((sas, content)) = sas.accept(methods) {
-                *guard = sas;
+                Observable::set(&mut guard, sas);
 
                 Some(match content {
                     OwnedAcceptContent::ToDevice(c) => {
@@ -493,12 +495,12 @@ impl Sas {
     ) -> Result<(Vec<OutgoingVerificationRequest>, Option<SignatureUploadRequest>), CryptoStoreError>
     {
         let (contents, done) = {
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
 
             let sas: InnerSas = (*guard).clone();
             let (sas, contents) = sas.confirm();
 
-            *guard = sas;
+            Observable::set(&mut guard, sas);
             (contents, guard.is_done())
         };
 
@@ -565,7 +567,7 @@ impl Sas {
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let content = {
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
 
             if let Some(request) = &self.request_handle {
                 request.cancel_with_code(&code);
@@ -573,7 +575,7 @@ impl Sas {
 
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(true, code);
-            *guard = sas;
+            Observable::set(&mut guard, sas);
 
             content.map(|c| match c {
                 OutgoingContent::Room(room_id, content) => {
@@ -598,22 +600,22 @@ impl Sas {
 
     /// Has the SAS verification flow timed out.
     pub fn timed_out(&self) -> bool {
-        self.inner.lock_ref().timed_out()
+        self.inner.read().unwrap().timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
     pub fn can_be_presented(&self) -> bool {
-        self.inner.lock_ref().can_be_presented()
+        self.inner.read().unwrap().can_be_presented()
     }
 
     /// Is the SAS flow done.
     pub fn is_done(&self) -> bool {
-        self.inner.lock_ref().is_done()
+        self.inner.read().unwrap().is_done()
     }
 
     /// Is the SAS flow canceled.
     pub fn is_cancelled(&self) -> bool {
-        self.inner.lock_ref().is_cancelled()
+        self.inner.read().unwrap().is_cancelled()
     }
 
     /// Get the emoji version of the short auth string.
@@ -621,7 +623,7 @@ impl Sas {
     /// Returns None if we can't yet present the short auth string, otherwise
     /// seven tuples containing the emoji and description.
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
-        self.inner.lock_ref().emoji()
+        self.inner.read().unwrap().emoji()
     }
 
     /// Get the index of the emoji representing the short auth string
@@ -631,7 +633,7 @@ impl Sas {
     /// converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
-        self.inner.lock_ref().emoji_index()
+        self.inner.read().unwrap().emoji_index()
     }
 
     /// Get the decimal version of the short auth string.
@@ -640,7 +642,7 @@ impl Sas {
     /// tuple containing three 4-digit integers that represent the short auth
     /// string.
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
-        self.inner.lock_ref().decimals()
+        self.inner.read().unwrap().decimals()
     }
 
     /// Listen for changes in the SAS verification process.
@@ -732,16 +734,16 @@ impl Sas {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
-        self.inner.signal_cloned().to_stream().map(|s| (&s).into())
+        Observable::subscribe(&self.inner.read().unwrap()).map(|s| (&s).into())
     }
 
     /// Get the current state of the verification process.
     pub fn state(&self) -> SasState {
-        (&*self.inner.lock_ref()).into()
+        (&**self.inner.read().unwrap()).into()
     }
 
     fn state_debug(&self) -> State {
-        (&*self.inner.lock_ref()).into()
+        (&**self.inner.read().unwrap()).into()
     }
 
     pub(crate) fn receive_any_event(
@@ -752,11 +754,11 @@ impl Sas {
         let old_state = self.state_debug();
 
         let content = {
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.receive_any_event(sender, content);
 
-            *guard = sas;
+            Observable::set(&mut guard, sas);
 
             content
         };
@@ -776,12 +778,12 @@ impl Sas {
         let old_state = self.state_debug();
 
         {
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
 
             let sas: InnerSas = (*guard).clone();
 
             if let Some(sas) = sas.mark_request_as_sent(request_id) {
-                *guard = sas;
+                Observable::set(&mut guard, sas);
             } else {
                 error!(
                     flow_id = self.flow_id().as_str(),
@@ -803,11 +805,11 @@ impl Sas {
     }
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
-        self.inner.lock_ref().verified_devices()
+        self.inner.read().unwrap().verified_devices()
     }
 
     pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
-        self.inner.lock_ref().verified_identities()
+        self.inner.read().unwrap().verified_identities()
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
