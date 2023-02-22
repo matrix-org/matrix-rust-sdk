@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
+};
 
+use eyeball::Observable;
 use futures_core::Stream;
-use futures_signals::signal::{Mutable, SignalExt};
 use futures_util::StreamExt;
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "qrcode")]
@@ -136,7 +139,7 @@ pub struct VerificationRequest {
     account: ReadOnlyAccount,
     flow_id: Arc<FlowId>,
     other_user_id: Arc<UserId>,
-    inner: Arc<Mutable<InnerRequest>>,
+    inner: Arc<StdRwLock<Observable<InnerRequest>>>,
     creation_time: Arc<Instant>,
     we_started: bool,
     recipient_devices: Arc<Vec<OwnedDeviceId>>,
@@ -152,20 +155,20 @@ pub struct VerificationRequest {
 /// `VerificationRequest` object.
 #[derive(Clone, Debug)]
 pub(crate) struct RequestHandle {
-    inner: Arc<Mutable<InnerRequest>>,
+    inner: Arc<StdRwLock<Observable<InnerRequest>>>,
 }
 
 impl RequestHandle {
     pub fn cancel_with_code(&self, cancel_code: &CancelCode) {
-        let mut guard = self.inner.lock_mut();
+        let mut guard = self.inner.write().unwrap();
         if let Some(updated) = guard.cancel(true, cancel_code) {
-            *guard = updated;
+            Observable::set(&mut guard, updated);
         }
     }
 }
 
-impl From<Arc<Mutable<InnerRequest>>> for RequestHandle {
-    fn from(inner: Arc<Mutable<InnerRequest>>) -> Self {
+impl From<Arc<StdRwLock<Observable<InnerRequest>>>> for RequestHandle {
+    fn from(inner: Arc<StdRwLock<Observable<InnerRequest>>>) -> Self {
         Self { inner }
     }
 }
@@ -180,14 +183,9 @@ impl VerificationRequest {
         methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
         let account = store.account.clone();
-        let inner = Mutable::new(InnerRequest::Created(RequestState::new(
-            cache.clone(),
-            store,
-            other_user,
-            &flow_id,
-            methods,
-        )))
-        .into();
+        let inner = Arc::new(StdRwLock::new(Observable::new(InnerRequest::Created(
+            RequestState::new(cache.clone(), store, other_user, &flow_id, methods),
+        ))));
 
         Self {
             account,
@@ -206,9 +204,9 @@ impl VerificationRequest {
     /// self-verifications and it should be sent to the specific device that we
     /// want to verify.
     pub(crate) fn request_to_device(&self) -> ToDeviceRequest {
-        let inner = self.inner.lock_ref();
+        let inner = self.inner.read().unwrap();
 
-        let methods = if let InnerRequest::Created(c) = &*inner {
+        let methods = if let InnerRequest::Created(c) = &**inner {
             c.state.our_methods.clone()
         } else {
             SUPPORTED_METHODS.to_vec()
@@ -264,7 +262,7 @@ impl VerificationRequest {
 
     /// The id of the other device that is participating in this verification.
     pub fn other_device_id(&self) -> Option<OwnedDeviceId> {
-        match &*self.inner.lock_ref() {
+        match &**self.inner.read().unwrap() {
             InnerRequest::Requested(r) => Some(r.state.other_device_id.clone()),
             InnerRequest::Ready(r) => Some(r.state.other_device_id.clone()),
             InnerRequest::Created(_)
@@ -285,7 +283,7 @@ impl VerificationRequest {
     /// Get info about the cancellation if the verification request has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerRequest::Cancelled(c) = &*self.inner.lock_ref() {
+        if let InnerRequest::Cancelled(c) = &**self.inner.read().unwrap() {
             Some(c.state.clone().into())
         } else {
             None
@@ -294,12 +292,12 @@ impl VerificationRequest {
 
     /// Has the verification request been answered by another device.
     pub fn is_passive(&self) -> bool {
-        matches!(&*self.inner.lock_ref(), InnerRequest::Passive(_))
+        matches!(**self.inner.read().unwrap(), InnerRequest::Passive(_))
     }
 
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
-        matches!(&*self.inner.lock_ref(), InnerRequest::Ready(_))
+        matches!(**self.inner.read().unwrap(), InnerRequest::Ready(_))
     }
 
     /// Has the verification flow timed out.
@@ -312,7 +310,7 @@ impl VerificationRequest {
     /// Will be present only if the other side requested the verification or if
     /// we're in the ready state.
     pub fn their_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
-        match &*self.inner.lock_ref() {
+        match &**self.inner.read().unwrap() {
             InnerRequest::Requested(r) => Some(r.state.their_methods.clone()),
             InnerRequest::Ready(r) => Some(r.state.their_methods.clone()),
             InnerRequest::Created(_)
@@ -327,7 +325,7 @@ impl VerificationRequest {
     /// Will be present only we requested the verification or if we're in the
     /// ready state.
     pub fn our_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
-        match &*self.inner.lock_ref() {
+        match &**self.inner.read().unwrap() {
             InnerRequest::Created(r) => Some(r.state.our_methods.clone()),
             InnerRequest::Ready(r) => Some(r.state.our_methods.clone()),
             InnerRequest::Requested(_)
@@ -354,20 +352,20 @@ impl VerificationRequest {
 
     /// Has the verification flow that was started with this request finished.
     pub fn is_done(&self) -> bool {
-        matches!(&*self.inner.lock_ref(), InnerRequest::Done(_))
+        matches!(**self.inner.read().unwrap(), InnerRequest::Done(_))
     }
 
     /// Has the verification flow that was started with this request been
     /// cancelled.
     pub fn is_cancelled(&self) -> bool {
-        matches!(&*self.inner.lock_ref(), InnerRequest::Cancelled(_))
+        matches!(**self.inner.read().unwrap(), InnerRequest::Cancelled(_))
     }
 
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     #[cfg(feature = "qrcode")]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        let inner = self.inner.lock_ref().clone();
+        let inner = self.inner.read().unwrap().clone();
 
         inner.generate_qr_code(self.we_started, self.inner.clone().into()).await
     }
@@ -384,7 +382,7 @@ impl VerificationRequest {
         &self,
         data: QrVerificationData,
     ) -> Result<Option<QrVerification>, ScanError> {
-        let future = if let InnerRequest::Ready(r) = &*self.inner.lock_ref() {
+        let future = if let InnerRequest::Ready(r) = &**self.inner.read().unwrap() {
             QrVerification::from_scan(
                 r.store.clone(),
                 r.other_user_id.clone(),
@@ -437,9 +435,9 @@ impl VerificationRequest {
 
         Self {
             verification_cache: cache.clone(),
-            inner: Arc::new(Mutable::new(InnerRequest::Requested(
+            inner: Arc::new(StdRwLock::new(Observable::new(InnerRequest::Requested(
                 RequestState::from_request_event(cache, store, sender, &flow_id, content),
-            ))),
+            )))),
             account,
             other_user_id: sender.into(),
             flow_id: flow_id.into(),
@@ -459,13 +457,13 @@ impl VerificationRequest {
         &self,
         methods: Vec<VerificationMethod>,
     ) -> Option<OutgoingVerificationRequest> {
-        let mut guard = self.inner.lock_mut();
+        let mut guard = self.inner.write().unwrap();
 
         let Some((updated, content)) = guard.accept(methods) else {
             return None;
         };
 
-        *guard = updated;
+        Observable::set(&mut guard, updated);
 
         let request = match content {
             OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
@@ -505,16 +503,16 @@ impl VerificationRequest {
     }
 
     fn cancel_with_code(&self, cancel_code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let mut guard = self.inner.lock_mut();
+        let mut guard = self.inner.write().unwrap();
 
-        let send_to_everyone = self.we_started() && matches!(&*guard, InnerRequest::Created(_));
+        let send_to_everyone = self.we_started() && matches!(**guard, InnerRequest::Created(_));
         let other_device = guard.other_device_id();
 
         if let Some(updated) = guard.cancel(true, &cancel_code) {
-            *guard = updated;
+            Observable::set(&mut guard, updated);
         }
 
-        let content = if let InnerRequest::Cancelled(c) = &*guard {
+        let content = if let InnerRequest::Cancelled(c) = &**guard {
             Some(c.state.as_content(self.flow_id()))
         } else {
             None
@@ -630,11 +628,12 @@ impl VerificationRequest {
     }
 
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
-        let mut guard = self.inner.lock_mut();
+        let mut guard = self.inner.write().unwrap();
 
-        match &*guard {
+        match &**guard {
             InnerRequest::Created(s) => {
-                *guard = InnerRequest::Ready(s.clone().into_ready(sender, content));
+                let new_value = InnerRequest::Ready(s.clone().into_ready(sender, content));
+                Observable::set(&mut guard, new_value);
 
                 if let Some(request) =
                     self.cancel_for_other_devices(CancelCode::Accepted, Some(content.from_device()))
@@ -645,7 +644,8 @@ impl VerificationRequest {
             InnerRequest::Requested(s) => {
                 if sender == self.own_user_id() && content.from_device() != self.account.device_id()
                 {
-                    *guard = InnerRequest::Passive(s.clone().into_passive(content))
+                    let new_value = InnerRequest::Passive(s.clone().into_passive(content));
+                    Observable::set(&mut guard, new_value);
                 }
             }
             InnerRequest::Ready(_)
@@ -660,7 +660,7 @@ impl VerificationRequest {
         sender: &UserId,
         content: &StartContent<'_>,
     ) -> Result<(), CryptoStoreError> {
-        let inner = self.inner.lock_ref().clone();
+        let inner = self.inner.read().unwrap().clone();
 
         let InnerRequest::Ready(s) = inner else {
             warn!(
@@ -682,9 +682,9 @@ impl VerificationRequest {
                 "Marking a verification request as done"
             );
 
-            let mut guard = self.inner.lock_mut();
+            let mut guard = self.inner.write().unwrap();
             if let Some(updated) = guard.receive_done(content) {
-                *guard = updated;
+                Observable::set(&mut guard, updated);
             }
         }
     }
@@ -699,9 +699,9 @@ impl VerificationRequest {
             code = content.cancel_code().as_str(),
             "Cancelling a verification request, other user has cancelled"
         );
-        let mut guard = self.inner.lock_mut();
+        let mut guard = self.inner.write().unwrap();
         if let Some(updated) = guard.cancel(false, content.cancel_code()) {
-            *guard = updated;
+            Observable::set(&mut guard, updated);
         }
 
         if self.we_started() {
@@ -717,7 +717,7 @@ impl VerificationRequest {
     pub async fn start_sas(
         &self,
     ) -> Result<Option<(Sas, OutgoingVerificationRequest)>, CryptoStoreError> {
-        let inner = self.inner.lock_ref().clone();
+        let inner = self.inner.read().unwrap().clone();
 
         Ok(match &inner {
             InnerRequest::Ready(s) => {
@@ -771,7 +771,7 @@ impl VerificationRequest {
     /// The changes are presented as a stream of [`VerificationRequestState`]
     /// values.
     pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> {
-        self.inner.signal_cloned().to_stream().map(|s| (&s).into())
+        Observable::subscribe(&self.inner.read().unwrap()).map(|s| (&s).into())
     }
 
     /// Get the current state the verification request is in.
@@ -779,7 +779,7 @@ impl VerificationRequest {
     /// To listen to changes to the [`VerificationRequestState`] use the
     /// [`VerificationRequest::changes`] method.
     pub fn state(&self) -> VerificationRequestState {
-        (&*self.inner.lock_ref()).into()
+        (&**self.inner.read().unwrap()).into()
     }
 }
 
