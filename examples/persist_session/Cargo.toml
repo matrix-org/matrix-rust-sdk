@@ -1,0 +1,22 @@
+[package]
+name = "example-persist-session"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "example-persist-session"
+test = false
+
+[dependencies]
+anyhow = "1"
+dirs = "4.0.0"
+rand = "0.8.5"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = "0.3.15"
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+version = "0.6.0"

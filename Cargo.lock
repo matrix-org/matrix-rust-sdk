@@ -1445,6 +1445,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-persist-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "matrix-sdk",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "example-timeline"
 version = "0.1.0"
 dependencies = [
