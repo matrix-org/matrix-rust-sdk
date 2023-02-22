@@ -38,7 +38,7 @@ markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["dep:hyper", "dep:rand", "dep:tokio-stream", "dep:tower"]
+sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
@@ -92,7 +92,6 @@ serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio-stream = { version = "0.1.8", features = ["net"], optional = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"

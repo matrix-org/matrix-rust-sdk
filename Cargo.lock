@@ -2602,7 +2602,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tower",
  "tracing",
  "tracing-subscriber",
