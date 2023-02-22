@@ -41,7 +41,7 @@ use ruma::{
         client::{
             account::{register, whoami},
             alias::get_alias,
-            device::{delete_devices, get_devices},
+            device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 get_capabilities::{self, Capabilities},
@@ -1924,6 +1924,26 @@ impl Client {
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
         request.auth = auth_data;
+
+        self.send(request, None).await
+    }
+
+    /// Change the display name of a device owned by the current user.
+    ///
+    /// Returns a `update_device::Response` which specifies the result
+    /// of the operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The ID of the device to change the display name of.
+    /// * `display_name` - The new display name to set.
+    pub async fn rename_device(
+        &self,
+        device_id: &DeviceId,
+        display_name: &str,
+    ) -> HttpResult<update_device::v3::Response> {
+        let mut request = update_device::v3::Request::new(device_id.to_owned());
+        request.display_name = Some(display_name.to_owned());
 
         self.send(request, None).await
     }
