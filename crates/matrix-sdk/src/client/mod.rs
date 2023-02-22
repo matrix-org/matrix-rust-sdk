@@ -1023,9 +1023,11 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `login_type` - Identifier of the custom login type, e.g. `org.matrix.login.jwt`
+    /// * `login_type` - Identifier of the custom login type, e.g.
+    ///   `org.matrix.login.jwt`
     ///
-    /// * `data` - The additional data which should be attached to the login request.
+    /// * `data` - The additional data which should be attached to the login
+    ///   request.
     ///
     /// ```no_run
     /// # use futures::executor::block_on;
@@ -1040,7 +1042,9 @@ impl Client {
     /// let response = client
     ///     .login_custom(
     ///         "org.matrix.login.jwt",
-    ///         [("token".to_owned(), "jwt_token_content".into())].into_iter().collect(),
+    ///         [("token".to_owned(), "jwt_token_content".into())]
+    ///             .into_iter()
+    ///             .collect(),
     ///     )?
     ///     .initial_device_display_name("My bot")
     ///     .await?;
