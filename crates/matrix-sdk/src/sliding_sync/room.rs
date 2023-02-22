@@ -158,7 +158,7 @@ impl SlidingSyncRoom {
         self.inner.required_state = required_state;
 
         if let Some(batch) = prev_batch {
-            self.prev_batch.lock_mut().replace(batch.clone());
+            self.prev_batch.lock_mut().replace(batch);
         }
 
         // There is timeline updates.
