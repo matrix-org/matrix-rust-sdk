@@ -294,18 +294,18 @@ pub(super) struct FrozenSlidingSyncRoom {
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
-        let locked_tl = value.timeline_queue.lock_ref();
-        let tl_len = locked_tl.len();
+        let timeline = value.timeline_queue.lock_ref();
+        let timeline_length = timeline.len();
 
         // To not overflow the database, we only freeze the newest 10 items. On doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
         // create a gap between what we have loaded and where the
         // prev_batch-key will start loading when paginating backwards.
-        let (prev_batch, timeline) = if tl_len > 10 {
-            let pos = tl_len - 10;
-            (None, locked_tl.iter().skip(pos).cloned().collect())
+        let (prev_batch, timeline) = if timeline_length > 10 {
+            let pos = timeline_length - 10;
+            (None, timeline.iter().skip(pos).cloned().collect())
         } else {
-            (value.prev_batch.lock_ref().clone(), locked_tl.to_vec())
+            (value.prev_batch.lock_ref().clone(), timeline.to_vec())
         };
 
         Self {
