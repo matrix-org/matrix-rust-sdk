@@ -91,7 +91,7 @@ impl BaseClient {
             self.preprocess_to_device_events(
                 to_device_events,
                 &device_lists,
-                &device_one_time_keys_count,
+                device_one_time_keys_count,
                 device_unused_fallback_key_types.as_deref(),
             )
             .await?
@@ -109,14 +109,14 @@ impl BaseClient {
 
         let mut new_rooms = Rooms::default();
 
-        for (room_id, room_data) in rooms.into_iter() {
+        for (room_id, room_data) in rooms {
             if !room_data.invite_state.is_empty() {
                 let invite_states = &room_data.invite_state;
-                let room = store.get_or_create_stripped_room(&room_id).await;
+                let room = store.get_or_create_stripped_room(room_id).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_state_partially_synced();
 
-                if let Some(r) = store.get_room(&room_id) {
+                if let Some(r) = store.get_room(room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     room_info.mark_state_partially_synced();
@@ -130,7 +130,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
@@ -164,8 +164,8 @@ impl BaseClient {
                 // }
 
                 let room_account_data = if let Some(inner_account_data) = &account_data {
-                    if let Some(events) = inner_account_data.rooms.get(&*room_id) {
-                        self.handle_room_account_data(&room_id, events, &mut changes).await;
+                    if let Some(events) = inner_account_data.rooms.get(room_id) {
+                        self.handle_room_account_data(room_id, events, &mut changes).await;
                         Some(events.to_vec())
                     } else {
                         None
@@ -199,8 +199,8 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
-                            let joined = store.get_joined_user_ids(&room_id).await?;
-                            let invited = store.get_invited_user_ids(&room_id).await?;
+                            let joined = store.get_joined_user_ids(room_id).await?;
+                            let invited = store.get_invited_user_ids(room_id).await?;
 
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
