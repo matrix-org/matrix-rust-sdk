@@ -556,6 +556,19 @@ impl SledStateStore {
         }
     }
 
+    pub async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        self.session
+            .insert(self.encode_key(SESSION, ("user_id", user_id)), self.serialize_value(&url)?)?;
+        Ok(())
+    }
+
+    pub async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
+        self.session
+            .get(self.encode_key(SESSION, ("user_id", user_id)))?
+            .map(|u| self.deserialize_value(&u))
+            .transpose()
+    }
+
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.session.insert(
             self.encode_key(SESSION, ("filter", filter_name)),
@@ -1442,6 +1455,14 @@ impl SledStateStore {
 
 #[async_trait]
 impl StateStore for SledStateStore {
+    async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<Option<String>> {
+        self.get_owned_avatar_url(user_id).await.map_err(Into::into)
+    }
+
+    async fn set_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
+        self.set_owned_avatar_url(user_id, url).await
+    }
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(Into::into)
     }

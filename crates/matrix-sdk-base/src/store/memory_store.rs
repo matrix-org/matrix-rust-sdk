@@ -45,6 +45,7 @@ use crate::{deserialized_responses::RawMemberEvent, media::MediaRequest, Minimal
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
+    owned_avatar_url: Arc<DashMap<OwnedUserId, String>>,
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
@@ -92,6 +93,7 @@ impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
+            owned_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
@@ -117,6 +119,15 @@ impl MemoryStore {
             ))),
             custom: DashMap::new().into(),
         }
+    }
+
+    async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
+        Ok(self.owned_avatar_url.get(user_id).map(|u| u.to_string()))
+    }
+
+    async fn set_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        self.owned_avatar_url.insert(user_id.to_owned(), url.to_owned());
+        Ok(())
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -594,6 +605,14 @@ impl MemoryStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl StateStore for MemoryStore {
+    async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
+        self.get_owned_avatar_url(user_id).await
+    }
+
+    async fn set_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        self.set_owned_avatar_url(user_id, url).await
+    }
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.save_filter(filter_name, filter_id).await
     }
