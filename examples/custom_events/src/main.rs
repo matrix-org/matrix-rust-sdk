@@ -103,9 +103,7 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-    let client =
-        Client::builder().homeserver_url(homeserver_url).sled_store(home, None).build().await?;
+    let client = Client::builder().homeserver_url(homeserver_url).build().await?;
     client
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
