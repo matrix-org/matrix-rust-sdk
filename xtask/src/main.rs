@@ -1,14 +1,14 @@
 mod ci;
 mod fixup;
-mod swift;
 mod kotlin;
+mod swift;
 mod workspace;
 
 use ci::CiArgs;
 use clap::{Parser, Subcommand};
 use fixup::FixupArgs;
-use swift::SwiftArgs;
 use kotlin::KotlinArgs;
+use swift::SwiftArgs;
 use xshell::cmd;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
@@ -32,8 +32,7 @@ enum Command {
         open: bool,
     },
     Swift(SwiftArgs),
-    Kotlin(KotlinArgs)
-
+    Kotlin(KotlinArgs),
 }
 
 fn main() -> Result<()> {

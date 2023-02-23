@@ -22,13 +22,13 @@ enum Package {
 impl Package {
     fn values(self) -> PackageValues {
         match self {
-            Package::CryptoSDK => PackageValues { 
+            Package::CryptoSDK => PackageValues {
                 name: "matrix-sdk-crypto-ffi",
-                udl_path : "bindings/matrix-sdk-crypto-ffi/src/olm.udl",
+                udl_path: "bindings/matrix-sdk-crypto-ffi/src/olm.udl",
             },
-            Package::FullSDK => PackageValues { 
+            Package::FullSDK => PackageValues {
                 name: "matrix-sdk-ffi",
-                udl_path : "bindings/matrix-sdk-ffi/src/api.udl",
+                udl_path: "bindings/matrix-sdk-ffi/src/api.udl",
             },
         }
     }
@@ -58,7 +58,7 @@ enum KotlinCommand {
         #[clap(long)]
         only_target: Option<String>,
 
-        /// Move the generated files into the given src direct 
+        /// Move the generated files into the given src direct
         #[clap(long)]
         src_dir: PathBuf,
     },
@@ -69,7 +69,13 @@ impl KotlinArgs {
         let _p = pushd(workspace::root_path()?)?;
 
         match self.cmd {
-            KotlinCommand::BuildAndroidLibrary { release, profile, src_dir, only_target,package } => {
+            KotlinCommand::BuildAndroidLibrary {
+                release,
+                profile,
+                src_dir,
+                only_target,
+                package,
+            } => {
                 let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
                 build_android_library(profile, only_target, src_dir, package)
             }
@@ -83,9 +89,8 @@ fn build_android_library(
     src_dir: PathBuf,
     package: Package,
 ) -> Result<()> {
-
     let root_dir = workspace::root_path()?;
-    
+
     let package_values = package.values();
     let package_name = package_values.name;
     let udl_path = root_dir.join(package_values.udl_path);
@@ -98,16 +103,21 @@ fn build_android_library(
 
     let uniffi_lib_path = if let Some(target) = only_target {
         println!("-- Building for {target} [1/1]");
-        build_for_android_target(target.as_str(), profile,jni_libs_dir_str, package_name)?
+        build_for_android_target(target.as_str(), profile, jni_libs_dir_str, package_name)?
     } else {
         println!("-- Building for x86_64-linux-android[1/4]");
-        build_for_android_target("x86_64-linux-android", profile,jni_libs_dir_str, package_name)?;
+        build_for_android_target("x86_64-linux-android", profile, jni_libs_dir_str, package_name)?;
         println!("-- Building for aarch64-linux-android[2/4]");
-        build_for_android_target("aarch64-linux-android", profile,jni_libs_dir_str, package_name)?;
+        build_for_android_target("aarch64-linux-android", profile, jni_libs_dir_str, package_name)?;
         println!("-- Building for armv7-linux-androideabi[3/4]");
-        build_for_android_target("armv7-linux-androideabi", profile,jni_libs_dir_str, package_name)?;
+        build_for_android_target(
+            "armv7-linux-androideabi",
+            profile,
+            jni_libs_dir_str,
+            package_name,
+        )?;
         println!("-- Building for i686-linux-android[4/4]");
-        build_for_android_target("i686-linux-android", profile,jni_libs_dir_str, package_name)?
+        build_for_android_target("i686-linux-android", profile, jni_libs_dir_str, package_name)?
     };
 
     println!("-- Generate uniffi files");
@@ -117,7 +127,11 @@ fn build_android_library(
     Ok(())
 }
 
-fn generate_uniffi_bindings(udl_path: &Path, library_path: &Path, ffi_generated_dir: &Path) -> Result<()> {
+fn generate_uniffi_bindings(
+    udl_path: &Path,
+    library_path: &Path,
+    ffi_generated_dir: &Path,
+) -> Result<()> {
     println!("-- library_path = {}", library_path.to_string_lossy());
     let udl_file = camino::Utf8Path::from_path(udl_path).unwrap();
     let out_dir_overwrite = camino::Utf8Path::from_path(ffi_generated_dir).unwrap();
@@ -134,14 +148,19 @@ fn generate_uniffi_bindings(udl_path: &Path, library_path: &Path, ffi_generated_
     Ok(())
 }
 
-fn build_for_android_target(target: &str, profile: &str, dest_dir: &str, package_name: &str) -> Result<PathBuf> {
-
-    cmd!("cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}").run()?;
+fn build_for_android_target(
+    target: &str,
+    profile: &str,
+    dest_dir: &str,
+    package_name: &str,
+) -> Result<PathBuf> {
+    cmd!("cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}")
+        .run()?;
 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    let package_camel = package_name.replace("-","_");
+    let package_camel = package_name.replace("-", "_");
     let lib_name = format!("lib{package_camel}.so");
     Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(lib_name))
 }
