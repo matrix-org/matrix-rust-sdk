@@ -1,12 +1,16 @@
+use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-use ruma::api::client::sync::sync_events::{
-    v3::{self, Ephemeral},
-    v4,
-};
 #[cfg(feature = "e2e-encryption")]
 use ruma::UserId;
+use ruma::{
+    api::client::sync::sync_events::{
+        v3::{self, Ephemeral},
+        v4, DeviceLists,
+    },
+    DeviceKeyAlgorithm, UInt,
+};
 use tracing::{debug, info, instrument};
 
 use super::BaseClient;
@@ -60,8 +64,8 @@ impl BaseClient {
         // We declare default values that can be referenced hereinbelow. When we try to
         // extract values from `e2ee`, that would be unfortunate to clone the
         // value just to pass them (to remove them `e2ee`) as a reference later.
-        let device_one_time_keys_count = Default::default();
-        let device_unused_fallback_key_types = Default::default();
+        let device_one_time_keys_count = BTreeMap::<DeviceKeyAlgorithm, UInt>::default();
+        let device_unused_fallback_key_types = None;
 
         let (device_lists, device_one_time_keys_count, device_unused_fallback_key_types) = e2ee
             .as_ref()
@@ -73,7 +77,11 @@ impl BaseClient {
                 )
             })
             .unwrap_or_else(|| {
-                (Default::default(), &device_one_time_keys_count, &device_unused_fallback_key_types)
+                (
+                    DeviceLists::default(),
+                    &device_one_time_keys_count,
+                    &device_unused_fallback_key_types,
+                )
             });
 
         info!(
