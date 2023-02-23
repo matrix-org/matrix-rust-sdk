@@ -609,8 +609,8 @@ impl StateStore for MemoryStore {
         self.get_owned_avatar_url(user_id).await
     }
 
-    async fn set_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
-        self.set_owned_avatar_url(user_id, url).await
+    async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        self.save_owned_avatar_url(user_id, url).await
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {

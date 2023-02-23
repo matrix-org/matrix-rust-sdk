@@ -135,7 +135,7 @@ impl Account {
 
         let response = self.client.send(request, config).await?;
         if let Some(url) = response.avatar_url.clone() {
-            self.client.store().set_owned_avatar_url(&user_id, url.as_ref()).await?;
+            self.client.store().save_owned_avatar_url(&user_id, url.as_ref()).await?;
         }
         Ok(response.avatar_url)
     }

@@ -142,7 +142,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 pub trait StateStore: AsyncTraitDeps {
     async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>>;
 
-    async fn set_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()>;
+    async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()>;
 
     /// Save the given filter id under the given name.
     ///
