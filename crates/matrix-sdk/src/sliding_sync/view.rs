@@ -1,16 +1,17 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
+    iter,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock as StdRwLock,
     },
 };
 
-use futures_signals::{
-    signal::{Mutable, MutableSignalCloned, SignalExt, SignalStream},
-    signal_vec::{MutableSignalVec, MutableVec, MutableVecLockMut, SignalVecExt, SignalVecStream},
-};
+use eyeball::Observable;
+use eyeball_im::{ObservableVector, VectorDiff};
+use futures_core::Stream;
+use im::Vector;
 use ruma::{
     api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, RoomId, UInt,
 };
@@ -64,43 +65,40 @@ pub struct SlidingSyncView {
     filters: Option<v4::SyncRequestListFilters>,
 
     /// The maximum number of timeline events to query for
-    pub timeline_limit: Mutable<Option<UInt>>,
+    pub timeline_limit: Arc<StdRwLock<Observable<Option<UInt>>>>,
 
     // ----- Public state
     /// Name of this view to easily recognize them
     pub name: String,
 
     /// The state this view is in
-    state: Mutable<SlidingSyncState>,
+    state: Arc<StdRwLock<Observable<SlidingSyncState>>>,
 
     /// The total known number of rooms,
-    rooms_count: Mutable<Option<u32>>,
+    rooms_count: Arc<StdRwLock<Observable<Option<u32>>>>,
 
     /// The rooms in order
-    rooms_list: MutableVec<RoomListEntry>,
+    rooms_list: Arc<StdRwLock<ObservableVector<RoomListEntry>>>,
 
     /// The ranges windows of the view
-    ranges: Mutable<Vec<(UInt, UInt)>>,
+    #[allow(clippy::type_complexity)] // temporarily
+    ranges: Arc<StdRwLock<Observable<Vec<(UInt, UInt)>>>>,
 
-    /// Signaling updates on the room list after processing
-    rooms_updated_signal: futures_signals::signal::Sender<()>,
-
-    is_cold: Arc<AtomicBool>,
-
-    /// Get informed if anything in the room changed
+    /// Get informed if anything in the room changed.
     ///
     /// If you only care to know about changes once all of them have applied
-    /// (including the total) listen to a clone of this signal.
-    pub rooms_updated_broadcaster:
-        futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
+    /// (including the total), subscribe to this observable.
+    pub rooms_updated_broadcast: Arc<StdRwLock<Observable<()>>>,
+
+    is_cold: Arc<AtomicBool>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct FrozenSlidingSyncView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) rooms_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) rooms_list: Vec<RoomListEntry>,
+    #[serde(default, skip_serializing_if = "Vector::is_empty")]
+    pub(super) rooms_list: Vector<RoomListEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
@@ -111,8 +109,8 @@ impl FrozenSlidingSyncView {
         rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
-        let mut rooms_list = Vec::new();
-        for entry in source_view.rooms_list.lock_ref().iter() {
+        let mut rooms_list = Vector::new();
+        for entry in source_view.rooms_list.read().unwrap().iter() {
             match entry {
                 RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
                     rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
@@ -120,10 +118,10 @@ impl FrozenSlidingSyncView {
                 _ => {}
             };
 
-            rooms_list.push(entry.freeze());
+            rooms_list.push_back(entry.freeze());
         }
         FrozenSlidingSyncView {
-            rooms_count: *source_view.rooms_count.lock_ref(),
+            rooms_count: **source_view.rooms_count.read().unwrap(),
             rooms_list,
             rooms,
         }
@@ -134,12 +132,15 @@ impl SlidingSyncView {
     pub(crate) fn set_from_cold(
         &mut self,
         rooms_count: Option<u32>,
-        rooms_list: Vec<RoomListEntry>,
+        rooms_list: Vector<RoomListEntry>,
     ) {
-        self.state.set(SlidingSyncState::Preload);
+        Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::Preload);
         self.is_cold.store(true, Ordering::SeqCst);
-        self.rooms_count.replace(rooms_count);
-        self.rooms_list.lock_mut().replace_cloned(rooms_list);
+        Observable::set(&mut self.rooms_count.write().unwrap(), rooms_count);
+
+        let mut lock = self.rooms_list.write().unwrap();
+        lock.clear();
+        lock.append(rooms_list);
     }
 
     /// Create a new [`SlidingSyncViewBuilder`].
@@ -155,7 +156,7 @@ impl SlidingSyncView {
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .batch_size(self.batch_size)
-            .ranges(self.ranges.read_only().get_cloned())
+            .ranges(self.ranges.read().unwrap().clone())
     }
 
     /// Set the ranges to fetch
@@ -163,7 +164,8 @@ impl SlidingSyncView {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
-        *self.ranges.lock_mut() = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        Observable::set(&mut self.ranges.write().unwrap(), value);
         self
     }
 
@@ -172,7 +174,8 @@ impl SlidingSyncView {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn set_range(&self, start: u32, end: u32) -> &Self {
-        *self.ranges.lock_mut() = vec![(start.into(), end.into())];
+        let value = vec![(start.into(), end.into())];
+        Observable::set(&mut self.ranges.write().unwrap(), value);
         self
     }
 
@@ -181,7 +184,9 @@ impl SlidingSyncView {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn add_range(&self, start: u32, end: u32) -> &Self {
-        self.ranges.lock_mut().push((start.into(), end.into()));
+        Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
+            ranges.push((start.into(), end.into()));
+        });
         self
     }
 
@@ -195,18 +200,18 @@ impl SlidingSyncView {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn reset_ranges(&self) -> &Self {
-        self.ranges.lock_mut().clear();
+        Observable::set(&mut self.ranges.write().unwrap(), Vec::new());
         self
     }
 
     /// Get the current state.
     pub fn state(&self) -> SlidingSyncState {
-        self.state.get_cloned()
+        self.state.read().unwrap().clone()
     }
 
     /// Get a stream of state.
-    pub fn state_stream(&self) -> SignalStream<MutableSignalCloned<SlidingSyncState>> {
-        self.state.signal_cloned().to_stream()
+    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
+        Observable::subscribe(&self.state.read().unwrap())
     }
 
     /// Get the current rooms list.
@@ -214,22 +219,22 @@ impl SlidingSyncView {
     where
         R: for<'a> From<&'a RoomListEntry>,
     {
-        self.rooms_list.lock_ref().iter().map(|e| R::from(e)).collect()
+        self.rooms_list.read().unwrap().iter().map(|e| R::from(e)).collect()
     }
 
     /// Get a stream of rooms list.
-    pub fn rooms_list_stream(&self) -> SignalVecStream<MutableSignalVec<RoomListEntry>> {
-        self.rooms_list.signal_vec_cloned().to_stream()
+    pub fn rooms_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
+        ObservableVector::subscribe(&self.rooms_list.read().unwrap())
     }
 
     /// Get the current rooms count.
     pub fn rooms_count(&self) -> Option<u32> {
-        self.rooms_count.get_cloned()
+        **self.rooms_count.read().unwrap()
     }
 
     /// Get a stream of rooms count.
-    pub fn rooms_count_stream(&self) -> SignalStream<MutableSignalCloned<Option<u32>>> {
-        self.rooms_count.signal_cloned().to_stream()
+    pub fn rooms_count_stream(&self) -> impl Stream<Item = Option<u32>> {
+        Observable::subscribe(&self.rooms_count.read().unwrap())
     }
 
     /// Find the current valid position of the room in the view room_list.
@@ -238,8 +243,8 @@ impl SlidingSyncView {
     /// Invalid items are ignore. Return the total position the item was
     /// found in the room_list, return None otherwise.
     pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
-        let ranges = self.ranges.lock_ref();
-        let listing = self.rooms_list.lock_ref();
+        let ranges = self.ranges.read().unwrap();
+        let listing = self.rooms_list.read().unwrap();
         for (start_uint, end_uint) in ranges.iter() {
             let mut cur_pos: usize = (*start_uint).try_into().unwrap();
             let end: usize = (*end_uint).try_into().unwrap();
@@ -265,8 +270,8 @@ impl SlidingSyncView {
     /// Invalid items are ignore. Return the total position the items that were
     /// found in the room_list, will skip any room not found in the rooms_list.
     pub fn find_rooms_in_view(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
-        let ranges = self.ranges.lock_ref();
-        let listing = self.rooms_list.lock_ref();
+        let ranges = self.ranges.read().unwrap();
+        let listing = self.rooms_list.read().unwrap();
         let mut rooms_found = Vec::new();
         for (start_uint, end_uint) in ranges.iter() {
             let mut cur_pos: usize = (*start_uint).try_into().unwrap();
@@ -289,7 +294,11 @@ impl SlidingSyncView {
 
     /// Return the room_id at the given index
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.rooms_list.lock_ref().get(index).and_then(|e| e.as_room_id().map(ToOwned::to_owned))
+        self.rooms_list
+            .read()
+            .unwrap()
+            .get(index)
+            .and_then(|e| e.as_room_id().map(ToOwned::to_owned))
     }
 
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
@@ -300,33 +309,39 @@ impl SlidingSyncView {
         ranges: &Vec<(usize, usize)>,
         rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
-        let current_rooms_count = self.rooms_count.get();
+        let current_rooms_count = **self.rooms_count.read().unwrap();
         if current_rooms_count.is_none()
             || current_rooms_count == Some(0)
             || self.is_cold.load(Ordering::SeqCst)
         {
             debug!("first run, replacing rooms list");
             // first response, we do that slightly differently
-            let rooms_list =
-                MutableVec::new_with_values(vec![RoomListEntry::Empty; rooms_count as usize]);
+            let mut rooms_list = ObservableVector::new();
+            rooms_list
+                .append(iter::repeat(RoomListEntry::Empty).take(rooms_count as usize).collect());
             // then we apply it
-            let mut locked = rooms_list.lock_mut();
-            room_ops(&mut locked, ops, ranges)?;
-            self.rooms_list.lock_mut().replace_cloned(locked.as_slice().to_vec());
-            self.rooms_count.set(Some(rooms_count));
+            room_ops(&mut rooms_list, ops, ranges)?;
+
+            {
+                let mut lock = self.rooms_list.write().unwrap();
+                lock.clear();
+                lock.append(rooms_list.into_inner());
+            }
+
+            Observable::set(&mut self.rooms_count.write().unwrap(), Some(rooms_count));
             self.is_cold.store(false, Ordering::SeqCst);
             return Ok(true);
         }
 
         debug!("regular update");
-        let mut missing =
-            rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
+        let mut missing = rooms_count
+            .checked_sub(self.rooms_list.read().unwrap().len() as u32)
+            .unwrap_or_default();
         let mut changed = false;
         if missing > 0 {
-            let mut list = self.rooms_list.lock_mut();
-            list.reserve_exact(missing as usize);
+            let mut list = self.rooms_list.write().unwrap();
             while missing > 0 {
-                list.push_cloned(RoomListEntry::Empty);
+                list.push_back(RoomListEntry::Empty);
                 missing -= 1;
             }
             changed = true;
@@ -334,7 +349,7 @@ impl SlidingSyncView {
 
         {
             // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
-            let mut rooms_list = self.rooms_list.lock_mut();
+            let mut rooms_list = self.rooms_list.write().unwrap();
 
             if !ops.is_empty() {
                 room_ops(&mut rooms_list, ops, ranges)?;
@@ -344,28 +359,29 @@ impl SlidingSyncView {
             }
         }
 
-        if self.rooms_count.get() != Some(rooms_count) {
-            self.rooms_count.set(Some(rooms_count));
-            changed = true;
+        {
+            let mut lock = self.rooms_count.write().unwrap();
+            if **lock != Some(rooms_count) {
+                Observable::set(&mut lock, Some(rooms_count));
+                changed = true;
+            }
         }
 
         if self.send_updates_for_items && !rooms.is_empty() {
             let found_views = self.find_rooms_in_view(rooms);
             if !found_views.is_empty() {
                 debug!("room details found");
-                let mut rooms_list = self.rooms_list.lock_mut();
+                let mut rooms_list = self.rooms_list.write().unwrap();
                 for (pos, room_id) in found_views {
                     // trigger an `UpdatedAt` update
-                    rooms_list.set_cloned(pos, RoomListEntry::Filled(room_id));
+                    rooms_list.set(pos, RoomListEntry::Filled(room_id));
                     changed = true;
                 }
             }
         }
 
         if changed {
-            if let Err(e) = self.rooms_updated_signal.send(()) {
-                warn!("Could not inform about rooms updated: {:?}", e);
-            }
+            Observable::set(&mut self.rooms_updated_broadcast.write().unwrap(), ());
         }
 
         Ok(changed)
@@ -401,7 +417,7 @@ pub struct SlidingSyncViewBuilder {
     name: Option<String>,
     state: SlidingSyncState,
     rooms_count: Option<u32>,
-    rooms_list: Vec<RoomListEntry>,
+    rooms_list: Vector<RoomListEntry>,
     ranges: Vec<(UInt, UInt)>,
 }
 
@@ -422,7 +438,7 @@ impl SlidingSyncViewBuilder {
             name: None,
             state: SlidingSyncState::default(),
             rooms_count: None,
-            rooms_list: Vec::new(),
+            rooms_list: Vector::new(),
             ranges: Vec::new(),
         }
     }
@@ -520,7 +536,9 @@ impl SlidingSyncViewBuilder {
 
     /// Build the view
     pub fn build(self) -> Result<SlidingSyncView> {
-        let (sender, receiver) = futures_signals::signal::channel(());
+        let mut rooms_list = ObservableVector::new();
+        rooms_list.append(self.rooms_list);
+
         Ok(SlidingSyncView {
             sync_mode: self.sync_mode,
             sort: self.sort,
@@ -529,15 +547,14 @@ impl SlidingSyncViewBuilder {
             send_updates_for_items: self.send_updates_for_items,
             limit: self.limit,
             filters: self.filters,
-            timeline_limit: Mutable::new(self.timeline_limit),
+            timeline_limit: Arc::new(StdRwLock::new(Observable::new(self.timeline_limit))),
             name: self.name.ok_or(Error::BuildMissingField("name"))?,
-            state: Mutable::new(self.state),
-            rooms_count: Mutable::new(self.rooms_count),
-            rooms_list: MutableVec::new_with_values(self.rooms_list),
-            ranges: Mutable::new(self.ranges),
+            state: Arc::new(StdRwLock::new(Observable::new(self.state))),
+            rooms_count: Arc::new(StdRwLock::new(Observable::new(self.rooms_count))),
+            rooms_list: Arc::new(StdRwLock::new(rooms_list)),
+            ranges: Arc::new(StdRwLock::new(Observable::new(self.ranges))),
             is_cold: Arc::new(AtomicBool::new(false)),
-            rooms_updated_signal: sender,
-            rooms_updated_broadcaster: futures_signals::signal::Broadcaster::new(receiver),
+            rooms_updated_broadcast: Arc::new(StdRwLock::new(Observable::new(()))),
         })
     }
 }
@@ -560,7 +577,8 @@ impl SlidingSyncViewRequestGenerator {
         let limit = view.limit;
         let position = view
             .ranges
-            .get_cloned()
+            .read()
+            .unwrap()
             .first()
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
@@ -582,7 +600,8 @@ impl SlidingSyncViewRequestGenerator {
         let limit = view.limit;
         let position = view
             .ranges
-            .get_cloned()
+            .read()
+            .unwrap()
             .first()
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
@@ -625,7 +644,7 @@ impl SlidingSyncViewRequestGenerator {
     fn make_request_for_ranges(&mut self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
         let sort = self.view.sort.clone();
         let required_state = self.view.required_state.clone();
-        let timeline_limit = self.view.timeline_limit.get_cloned();
+        let timeline_limit = **self.view.timeline_limit.read().unwrap();
         let filters = self.view.filters.clone();
 
         self.ranges = ranges
@@ -651,7 +670,7 @@ impl SlidingSyncViewRequestGenerator {
 
     // generate the next live request
     fn live_request(&mut self) -> v4::SyncRequestList {
-        let ranges = self.view.ranges.read_only().get_cloned();
+        let ranges = self.view.ranges.read().unwrap().clone();
         self.make_request_for_ranges(ranges)
     }
 
@@ -693,21 +712,21 @@ impl SlidingSyncViewRequestGenerator {
                     *position = max;
                     *live = true;
 
-                    self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                        !matches!(before, SlidingSyncState::Live)
+                    Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                        *state = SlidingSyncState::Live;
                     });
                 } else {
                     *position = end;
                     *live = false;
                     self.view.set_range(0, end);
-                    self.view.state.set_if(SlidingSyncState::CatchingUp, |before, _now| {
-                        !matches!(before, SlidingSyncState::CatchingUp)
+                    Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                        *state = SlidingSyncState::CatchingUp;
                     });
                 }
             }
             InnerSlidingSyncViewRequestGenerator::Live => {
-                self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
-                    !matches!(before, SlidingSyncState::Live)
+                Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                    *state = SlidingSyncState::Live;
                 });
             }
         }
@@ -744,7 +763,7 @@ impl Iterator for SlidingSyncViewRequestGenerator {
 
 #[instrument(skip(ops))]
 fn room_ops(
-    rooms_list: &mut MutableVecLockMut<'_, RoomListEntry>,
+    rooms_list: &mut ObservableVector<RoomListEntry>,
     ops: &Vec<v4::SyncOp>,
     room_ranges: &Vec<(usize, usize)>,
 ) -> Result<(), Error> {
@@ -769,9 +788,9 @@ fn room_ops(
                     .map(|(i, r)| {
                         let idx = start as usize + i;
                         if idx >= rooms_list.len() {
-                            rooms_list.insert_cloned(idx, RoomListEntry::Filled(r));
+                            rooms_list.insert(idx, RoomListEntry::Filled(r));
                         } else {
-                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
+                            rooms_list.set(idx, RoomListEntry::Filled(r));
                         }
                     })
                     .count();
@@ -788,7 +807,7 @@ fn room_ops(
                     .map_err(|e| {
                         Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
                     })?;
-                rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+                rooms_list.set(pos as usize, RoomListEntry::Empty);
             }
             v4::SlidingOp::Insert => {
                 let pos: usize = op
@@ -802,7 +821,7 @@ fn room_ops(
                     .map_err(|e| {
                         Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
                     })?;
-                let sliced = rooms_list.as_slice();
+
                 let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
                     Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
                 })?);
@@ -812,7 +831,8 @@ fn room_ops(
                     let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
                     let check_prev = !prev_overflow && index_in_range(prev_p);
                     let (next_p, overflown) = pos.overflowing_add(dif);
-                    let check_after = !overflown && next_p < sliced.len() && index_in_range(next_p);
+                    let check_after =
+                        !overflown && next_p < rooms_list.len() && index_in_range(next_p);
                     if !check_prev && !check_after {
                         return Err(Error::BadResponse(
                             "We were asked to insert but could not find any direction to shift to"
@@ -820,11 +840,11 @@ fn room_ops(
                         ));
                     }
 
-                    if check_prev && sliced[prev_p].empty_or_invalidated() {
+                    if check_prev && rooms_list[prev_p].empty_or_invalidated() {
                         // we only check for previous, if there are items left
                         rooms_list.remove(prev_p);
                         break;
-                    } else if check_after && sliced[next_p].empty_or_invalidated() {
+                    } else if check_after && rooms_list[next_p].empty_or_invalidated() {
                         rooms_list.remove(next_p);
                         break;
                     } else {
@@ -832,7 +852,7 @@ fn room_ops(
                         dif += 1;
                     }
                 }
-                rooms_list.insert_cloned(pos, room);
+                rooms_list.insert(pos, room);
             }
             v4::SlidingOp::Invalidate => {
                 let max_len = rooms_list.len();
@@ -871,9 +891,9 @@ fn room_ops(
                     };
 
                     if let Some(b) = entry {
-                        rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b));
+                        rooms_list.set(pos as usize, RoomListEntry::Invalidated(b));
                     } else {
-                        rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+                        rooms_list.set(pos as usize, RoomListEntry::Empty);
                     }
                     pos += 1;
                 }

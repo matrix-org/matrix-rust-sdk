@@ -1248,12 +1248,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "discard"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
-
-[[package]]
 name = "displaydoc"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1457,7 +1451,6 @@ dependencies = [
  "anyhow",
  "clap 4.1.6",
  "futures",
- "futures-signals",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -1682,21 +1675,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "futures-signals"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3acc659ba666cff13fdf65242d16428f2f11935b688f82e4024ad39667a5132"
-dependencies = [
- "discard",
- "futures-channel",
- "futures-core",
- "futures-util",
- "log",
- "pin-project",
- "serde",
 ]
 
 [[package]]
@@ -2095,6 +2073,7 @@ dependencies = [
  "bitmaps",
  "rand_core 0.6.4",
  "rand_xoshiro",
+ "serde",
  "sized-chunks",
  "typenum",
  "version_check",
@@ -2271,10 +2250,10 @@ dependencies = [
  "chrono",
  "clap 4.1.6",
  "dialoguer",
+ "eyeball",
  "eyeball-im",
  "eyre",
  "futures",
- "futures-signals",
  "log4rs",
  "matrix-sdk",
  "matrix-sdk-common",
@@ -2576,7 +2555,6 @@ dependencies = [
  "eyre",
  "futures",
  "futures-core",
- "futures-signals",
  "futures-util",
  "getrandom 0.2.8",
  "gloo-timers",
@@ -2803,9 +2781,9 @@ dependencies = [
  "anyhow",
  "base64 0.21.0",
  "extension-trait",
+ "eyeball",
  "eyeball-im",
  "futures-core",
- "futures-signals",
  "futures-util",
  "log-panics",
  "matrix-sdk",
@@ -4679,6 +4657,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_matches",
+ "eyeball",
  "eyeball-im",
  "futures",
  "matrix-sdk",

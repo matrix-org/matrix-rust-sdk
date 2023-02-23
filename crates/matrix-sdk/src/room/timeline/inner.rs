@@ -108,7 +108,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
         (items, stream)
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+    pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
         }

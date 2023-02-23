@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex, RwLock as StdRwLock},
 };
 
-use futures_signals::signal::Mutable;
+use eyeball::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
@@ -300,8 +300,8 @@ impl SlidingSyncBuilder {
             sent_extensions: Mutex::new(None).into(),
             failure_count: Default::default(),
 
-            pos: Mutable::new(None),
-            delta_token: Mutable::new(delta_token_inner),
+            pos: Arc::new(StdRwLock::new(Observable::new(None))),
+            delta_token: Arc::new(StdRwLock::new(Observable::new(delta_token_inner))),
             subscriptions: Arc::new(StdRwLock::new(self.subscriptions)),
             unsubscribe: Default::default(),
         })

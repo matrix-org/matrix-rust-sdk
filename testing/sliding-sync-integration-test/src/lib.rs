@@ -73,13 +73,14 @@ mod tests {
 
     use anyhow::{bail, Context};
     use assert_matches::assert_matches;
+    use eyeball::Observable;
     use eyeball_im::VectorDiff;
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{
         room::timeline::EventTimelineItem,
         ruma::{
             api::client::error::ErrorKind as RumaError,
-            events::room::message::RoomMessageEventContent, UInt,
+            events::room::message::RoomMessageEventContent, uint,
         },
         SlidingSyncMode, SlidingSyncState, SlidingSyncView,
     };
@@ -237,7 +238,7 @@ mod tests {
 
         // Sync to receive messages with a `timeline_limit` set to 20.
         {
-            view.timeline_limit.set(Some(UInt::try_from(20u32).unwrap()));
+            Observable::set(&mut view.timeline_limit.write().unwrap(), Some(uint!(20)));
 
             let mut update_summary;
 
@@ -1041,7 +1042,7 @@ mod tests {
         );
 
         // force the pos to be invalid and thus this being reset internally
-        sync_proxy.set_pos("100".to_string());
+        sync_proxy.set_pos("100".to_owned());
         let mut error_seen = false;
 
         for _n in 0..2 {

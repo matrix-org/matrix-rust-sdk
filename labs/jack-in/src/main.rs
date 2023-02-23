@@ -7,8 +7,8 @@ use std::{path::Path, time::Duration};
 use app_dirs2::{app_root, AppDataType, AppInfo};
 use clap::Parser;
 use dialoguer::{theme::ColorfulTheme, Password};
+use eyeball_im::VectorDiff;
 use eyre::{eyre, Result};
-use futures_signals::signal_vec::VecDiff;
 use matrix_sdk::{
     config::RequestConfig,
     room::timeline::TimelineItem,
@@ -51,7 +51,7 @@ pub enum Msg {
 pub enum JackInEvent {
     Any, // match all
     SyncUpdate(client::state::SlidingSyncState),
-    RoomDataUpdate(VecDiff<TimelineItem>),
+    RoomDataUpdate(VectorDiff<TimelineItem>),
 }
 
 impl PartialOrd for JackInEvent {

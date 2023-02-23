@@ -66,23 +66,16 @@ interface RoomListEntry {
 
 [Enum]
 interface SlidingSyncViewRoomsListDiff {
-    Replace(sequence<RoomListEntry> values);
-    InsertAt(
-        u32 index,
-        RoomListEntry value
-    );
-    UpdateAt(
-        u32 index,
-        RoomListEntry value
-    );
-    RemoveAt(u32 index);
-    Move(
-        u32 old_index,
-        u32 new_index
-    );
-    Push(RoomListEntry value);
-    Pop();
+    Append(sequence<RoomListEntry> values);
+    Insert(u32 index, RoomListEntry value);
+    Set(u32 index, RoomListEntry value);
+    Remove(u32 index);
+    PushBack(RoomListEntry value);
+    PushFront(RoomListEntry value);
+    PopBack();
+    PopFront();
     Clear();
+    Reset(sequence<RoomListEntry> values);
 };
 
 callback interface SlidingSyncViewRoomListObserver {
