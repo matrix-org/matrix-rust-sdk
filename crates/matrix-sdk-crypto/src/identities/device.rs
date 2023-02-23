@@ -31,7 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{debug, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -666,7 +666,7 @@ impl ReadOnlyDevice {
 
         let Some(mut session) = session else {
             warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
+                "Trying to encrypt a Megolm session for user `{}` on device `{}`, \
                 but no Olm session is found",
                 self.user_id(),
                 self.device_id()
@@ -675,6 +675,13 @@ impl ReadOnlyDevice {
         };
 
         let message = session.encrypt(self, event_type, content).await?;
+
+        debug!(
+            "Encrypted a Megolm session for user `{}` on device `{}` with Olm session `{}`",
+            self.user_id(),
+            self.device_id(),
+            session.session_id()
+        );
 
         Ok((session, message))
     }
