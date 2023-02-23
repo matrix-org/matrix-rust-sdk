@@ -978,12 +978,8 @@ impl SlidingSync {
     /// Handle the HTTP response.
     ///
     /// But which response? `v4::Response`, aka the Sliding Sync response, or
-    /// `SyncResponse` which still relies on `v3`?
-    /// Well that's tricky. We have both here, because this Sliding Sync
-    /// implementation is still experimental, and we didn't want to be too
-    /// invasive. Thus, `SyncResponse` doesn't support Sliding Sync yet. Hence
-    /// the fact this method handles both at the same time. It's not super
-    /// annoying but it was important to clarify that.
+    /// `SyncResponse`? We have both because `SyncResponse` doesn't support
+    /// Sliding Sync yet.
     #[instrument(skip_all, fields(views = views.len()))]
     async fn handle_response(
         &self,
