@@ -630,8 +630,8 @@ use std::{
 
 pub use builder::*;
 pub use client::*;
+use eyeball::Observable;
 use futures_core::stream::Stream;
-use futures_signals::signal::Mutable;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -767,9 +767,9 @@ pub struct SlidingSync {
     storage_key: Option<String>,
 
     /// The `pos` marker.
-    pos: Mutable<Option<String>>,
+    pos: Arc<StdRwLock<Observable<Option<String>>>>,
 
-    delta_token: Mutable<Option<String>>,
+    delta_token: Arc<StdRwLock<Observable<Option<String>>>>,
 
     /// The views of this sliding sync instance
     views: Arc<StdRwLock<BTreeMap<String, SlidingSyncView>>>,
@@ -803,7 +803,7 @@ struct FrozenSlidingSync {
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(v: &SlidingSync) -> Self {
         FrozenSlidingSync {
-            delta_token: v.delta_token.get_cloned(),
+            delta_token: v.delta_token.read().unwrap().clone(),
             to_device_since: v
                 .extensions
                 .lock()
@@ -984,8 +984,9 @@ impl SlidingSync {
     ) -> Result<UpdateSummary, crate::Error> {
         let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
         debug!("main client processed.");
-        self.pos.replace(Some(resp.pos));
-        self.delta_token.replace(resp.delta_token);
+        Observable::set(&mut self.pos.write().unwrap(), Some(resp.pos));
+        Observable::set(&mut self.delta_token.write().unwrap(), resp.delta_token);
+
         let update = {
             let mut rooms = Vec::new();
             let mut rooms_map = self.rooms.write().unwrap();
@@ -1071,8 +1072,8 @@ impl SlidingSync {
             return Ok(None);
         }
 
-        let pos = self.pos.get_cloned();
-        let delta_token = self.delta_token.get_cloned();
+        let pos = self.pos.read().unwrap().clone();
+        let delta_token = self.delta_token.read().unwrap().clone();
         let room_subscriptions = self.subscriptions.read().unwrap().clone();
         let unsubscribe_rooms = mem::take(&mut *self.unsubscribe.write().unwrap());
         let timeout = Duration::from_secs(30);
@@ -1174,7 +1175,7 @@ impl SlidingSync {
 
                             sync_span.in_scope(|| {
                                 warn!("Session expired. Restarting sliding sync.");
-                                *self.pos.lock_mut() = None;
+                                Observable::set(&mut self.pos.write().unwrap(), None);
 
                                 // reset our extensions to the last known good ones.
                                 *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
@@ -1197,12 +1198,12 @@ impl SlidingSync {
 impl SlidingSync {
     /// Get a copy of the `pos` value.
     pub fn pos(&self) -> Option<String> {
-        self.pos.get_cloned()
+        self.pos.read().unwrap().clone()
     }
 
     /// Set a new value for `pos`.
     pub fn set_pos(&self, new_pos: String) {
-        self.pos.set(Some(new_pos))
+        Observable::set(&mut self.pos.write().unwrap(), Some(new_pos));
     }
 }
 

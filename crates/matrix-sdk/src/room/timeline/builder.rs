@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use im::Vector;
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,
@@ -35,7 +36,7 @@ use crate::room;
 pub(crate) struct TimelineBuilder {
     room: room::Common,
     prev_token: Option<String>,
-    events: Vec<SyncTimelineEvent>,
+    events: Vector<SyncTimelineEvent>,
     track_fully_read: bool,
 }
 
@@ -44,7 +45,7 @@ impl TimelineBuilder {
         Self {
             room: room.clone(),
             prev_token: None,
-            events: Vec::default(),
+            events: Vector::new(),
             track_fully_read: false,
         }
     }
@@ -54,7 +55,7 @@ impl TimelineBuilder {
     pub(crate) fn events(
         mut self,
         prev_token: Option<String>,
-        events: Vec<SyncTimelineEvent>,
+        events: Vector<SyncTimelineEvent>,
     ) -> Self {
         self.prev_token = prev_token;
         self.events = events;
