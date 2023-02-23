@@ -1077,18 +1077,21 @@ impl SlidingSync {
         views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<Option<UpdateSummary>> {
         let mut requests = BTreeMap::new();
-        let mut to_remove = Vec::new();
 
-        for (name, generator) in views.iter_mut() {
-            if let Some(request) = generator.next() {
-                requests.insert(name.clone(), request);
-            } else {
-                to_remove.push(name.clone());
+        {
+            let mut views_to_remove = Vec::new();
+
+            for (name, generator) in views.iter_mut() {
+                if let Some(request) = generator.next() {
+                    requests.insert(name.clone(), request);
+                } else {
+                    views_to_remove.push(name.clone());
+                }
             }
-        }
 
-        for n in to_remove {
-            views.remove(&n);
+            for view_name in views_to_remove {
+                views.remove(&view_name);
+            }
         }
 
         if views.is_empty() {
