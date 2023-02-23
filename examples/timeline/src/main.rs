@@ -32,8 +32,10 @@ struct Cli {
 }
 
 async fn login(cli: Cli) -> Result<Client> {
-    let mut builder =
-        Client::builder().homeserver_url(cli.homeserver).sled_store("./", Some("some password"));
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
+    let mut builder = Client::builder().homeserver_url(cli.homeserver);
 
     if let Some(proxy) = cli.proxy {
         builder = builder.proxy(proxy);
