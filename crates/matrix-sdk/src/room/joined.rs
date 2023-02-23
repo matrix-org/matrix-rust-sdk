@@ -24,19 +24,22 @@ use ruma::{
     },
     assign,
     events::{
-        receipt::ReceiptThread, room::message::RoomMessageEventContent, EmptyStateKey,
-        MessageLikeEventContent, StateEventContent,
+        receipt::ReceiptThread,
+        room::{message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent},
+        EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, Int, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, instrument};
 
 use super::Left;
 use crate::{
-    attachment::AttachmentConfig, error::HttpResult, room::Common, BaseRoom, Client, Result,
-    RoomType,
+    attachment::AttachmentConfig,
+    error::{Error, HttpResult},
+    room::Common,
+    BaseRoom, Client, Result, RoomType,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -823,6 +826,36 @@ impl Joined {
             .await?;
 
         self.send(RoomMessageEventContent::new(content), config.txn_id.as_deref()).await
+    }
+
+    /// Update the power levels of a select set of users of this room.
+    ///
+    /// Issue a `power_levels` state event request to the server, changing the
+    /// given UserId -> Int levels. May fail if the `power_levels` aren't
+    /// locally known yet or the server rejects the state event update, e.g.
+    /// because of insufficient permissions. Neither permissions to update
+    /// nor whether the data might be stale is checked prior to issuing the
+    /// request.
+    pub async fn update_power_levels(
+        &self,
+        updates: Vec<(&UserId, Int)>,
+    ) -> Result<send_state_event::v3::Response> {
+        let raw_pl_event = self
+            .get_state_event_static::<RoomPowerLevelsEventContent>()
+            .await?
+            .ok_or(Error::InsufficientData)?;
+
+        let mut power_levels = raw_pl_event.deserialize()?.power_levels();
+
+        for (user_id, new_level) in updates {
+            if new_level == power_levels.users_default {
+                power_levels.users.remove(user_id);
+            } else {
+                power_levels.users.insert(user_id.to_owned(), new_level);
+            }
+        }
+
+        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
     /// Send a state event with an empty state key to the homeserver.
