@@ -1460,7 +1460,7 @@ impl StateStore for SledStateStore {
     }
 
     async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
-        self.save_owned_avatar_url(user_id, url).await
+        self.save_owned_avatar_url(user_id, url).await.map_err(Into::into)
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
