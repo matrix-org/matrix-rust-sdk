@@ -618,8 +618,7 @@ impl GroupSessionManager {
         // needed because each encryption step will mutate the Olm session,
         // ratcheting its state forward.
         for result in join_all(tasks).await {
-            let result: OlmResult<(Vec<Session>, BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>)> =
-                result.expect("Encryption task panicked");
+            let result = result.expect("Encryption task panicked");
 
             let (used_sessions, failed_no_olm) = result?;
             changes.sessions.extend(used_sessions);
@@ -655,7 +654,7 @@ impl GroupSessionManager {
             .map(|chunk| {
                 let mut messages = BTreeMap::new();
 
-                chunk.into_iter().for_each(|(user_id, device_id, code)| {
+                chunk.iter().for_each(|(user_id, device_id, code)| {
                     let content = RoomKeyWithheldContent::create(
                         algorithm.to_owned(),
                         code.to_owned(),

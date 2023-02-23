@@ -467,12 +467,14 @@ impl OutboundGroupSession {
         }
     }
 
+    // TODO as for sharing we should check if its not in the process of beeing
     /// Has or will this device receive a withheld code for that session
+    /*
     pub(crate) fn is_withheld_to(&self, device: &Device) -> Option<WithheldCode> {
         // Check if we shared the session.
         let shared_state = self.withheld_to_set.get(device.user_id()).and_then(|d| {
             d.get(device.device_id()).map(|s| {
-                s.value().clone()
+                *s.value()
                 // if Some(s.sender_key) == device.curve25519_key() {
                 //     ShareState::Shared(s.message_index)
                 // } else {
@@ -480,37 +482,10 @@ impl OutboundGroupSession {
                 // }
             })
         });
-
-        // TODO as for sharing we should check if its not in the process of beeing
         // withtheld?
-
-        return shared_state;
-
-        /*       if let Some(state) = shared_state {
-            state
-        } else {
-            // If we haven't shared the session, check if we're going to share
-            // the session.
-
-            // Find the first request that contains the given user id and
-            // device ID.
-            let shared = self.to_share_with_set.iter().find_map(|item| {
-                let share_info = &item.value().1;
-
-                share_info.get(device.user_id()).and_then(|d| {
-                    d.get(device.device_id()).map(|info| {
-                        if Some(info.sender_key) == device.curve25519_key() {
-                            ShareState::Shared(info.message_index)
-                        } else {
-                            ShareState::SharedButChangedSenderKey
-                        }
-                    })
-                })
-            });
-
-            shared.unwrap_or(ShareState::NotShared)*/
-        //}
+        shared_state
     }
+    */
 
     /// Mark the session as shared with the given user/device pair, starting
     /// from some message index.
@@ -648,7 +623,7 @@ impl OutboundGroupSession {
                 .map(|u| {
                     (
                         u.key().clone(),
-                        u.value().iter().map(|d| (d.key().clone(), d.value().clone())).collect(),
+                        u.value().iter().map(|d| (d.key().clone(), *d.value())).collect(),
                     )
                 })
                 .collect(),

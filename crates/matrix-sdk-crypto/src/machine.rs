@@ -1229,7 +1229,7 @@ impl OlmMachine {
         } else {
             let withheld_info = self
                 .store
-                .get_withheld_info(room_id, &content.session_id())
+                .get_withheld_info(room_id, content.session_id())
                 .await?
                 .map(|i| i.withheld_code);
             Err(MegolmError::MissingRoomKey(withheld_info))
