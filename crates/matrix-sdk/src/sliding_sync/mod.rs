@@ -975,28 +975,45 @@ impl SlidingSync {
         self.rooms.read().unwrap().values().cloned().collect()
     }
 
+    /// Handle the HTTP response.
+    ///
+    /// But which response? `v4::Response`, aka the Sliding Sync response, or
+    /// `SyncResponse` which still relies on `v3`?
+    /// Well that's tricky. We have both here, because this Sliding Sync
+    /// implementation is still experimental, and we didn't want to be too
+    /// invasive. Thus, `SyncResponse` doesn't support Sliding Sync yet. Hence
+    /// the fact this method handles both at the same time. It's not super
+    /// annoying but it was important to clarify that.
     #[instrument(skip_all, fields(views = views.len()))]
     async fn handle_response(
         &self,
-        resp: v4::Response,
+        sliding_sync_response: v4::Response,
         extensions: Option<ExtensionsConfig>,
         views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
-        let mut processed = self.client.process_sliding_sync(resp.clone()).await?;
-        debug!("main client processed.");
-        Observable::set(&mut self.pos.write().unwrap(), Some(resp.pos));
-        Observable::set(&mut self.delta_token.write().unwrap(), resp.delta_token);
+        // We may not need the `sync_response` in the future (once `SyncResponse` will
+        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
+        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
+        // happens here.
+        let mut sync_response = self.client.process_sliding_sync(&sliding_sync_response).await?;
 
-        let update = {
+        debug!("sliding sync response has been processed");
+
+        Observable::set(&mut self.pos.write().unwrap(), Some(sliding_sync_response.pos));
+        Observable::set(&mut self.delta_token.write().unwrap(), sliding_sync_response.delta_token);
+
+        let update_summary = {
             let mut rooms = Vec::new();
             let mut rooms_map = self.rooms.write().unwrap();
-            for (id, mut room_data) in resp.rooms.into_iter() {
-                let timeline = if let Some(joined_room) = processed.rooms.join.remove(&id) {
+
+            for (id, mut room_data) in sliding_sync_response.rooms.into_iter() {
+                // `sync_response` contains the rooms with decrypted events if any, so look at
+                // the timeline events here first if the room exists.
+                // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
+                let timeline = if let Some(joined_room) = sync_response.rooms.join.remove(&id) {
                     joined_room.timeline.events
                 } else {
-                    let events = room_data.timeline.into_iter().map(Into::into).collect();
-                    room_data.timeline = vec![];
-                    events
+                    room_data.timeline.drain(..).map(Into::into).collect()
                 };
 
                 if let Some(mut room) = rooms_map.remove(&id) {
@@ -1018,7 +1035,7 @@ impl SlidingSync {
 
             let mut updated_views = Vec::new();
 
-            for (name, updates) in resp.lists {
+            for (name, updates) in sliding_sync_response.lists {
                 let Some(generator) = views.get_mut(&name) else {
                     error!("Response for view {name} - unknown to us. skipping");
                     continue
@@ -1031,7 +1048,9 @@ impl SlidingSync {
             }
 
             // Update the `to-device` next-batch if found.
-            if let Some(to_device_since) = resp.extensions.to_device.map(|t| t.next_batch) {
+            if let Some(to_device_since) =
+                sliding_sync_response.extensions.to_device.map(|t| t.next_batch)
+            {
                 self.update_to_device_since(to_device_since)
             }
 
@@ -1046,7 +1065,7 @@ impl SlidingSync {
 
         self.cache_to_storage().await?;
 
-        Ok(update)
+        Ok(update_summary)
     }
 
     async fn sync_once(

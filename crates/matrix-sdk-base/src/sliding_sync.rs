@@ -26,7 +26,7 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
     #[instrument(skip_all, level = "trace")]
-    pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
+    pub async fn process_sliding_sync(&self, response: &v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let v4::Response {
             // FIXME not yet supported by sliding sync. see
@@ -39,6 +39,7 @@ impl BaseClient {
             //presence,
             ..
         } = response;
+
         info!(rooms = rooms.len(), lists = lists.len(), extensions = !extensions.is_empty());
 
         if rooms.is_empty() && extensions.is_empty() {
@@ -49,21 +50,31 @@ impl BaseClient {
 
         let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
 
-        let to_device_events = to_device.map(|v4| v4.events).unwrap_or_default();
+        let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
         // Destructure the single `None` of the E2EE extension into separate objects
-        // since that's what the OlmMachine API expects. Passing in the default
-        // empty maps and vecs for this is completely fine, since the OlmMachine
+        // since that's what the `OlmMachine` API expects. Passing in the default
+        // empty maps and vecs for this is completely fine, since the `OlmMachine`
         // assumes empty maps/vecs mean no change in the one-time key counts.
+
+        // We declare default values that can be referenced hereinbelow. When we try to
+        // extract values from `e2ee`, that would be unfortunate to clone the
+        // value just to pass them (to remove them `e2ee`) as a reference later.
+        let device_one_time_keys_count = Default::default();
+        let device_unused_fallback_key_types = Default::default();
+
         let (device_lists, device_one_time_keys_count, device_unused_fallback_key_types) = e2ee
+            .as_ref()
             .map(|e2ee| {
                 (
-                    e2ee.device_lists,
-                    e2ee.device_one_time_keys_count,
-                    e2ee.device_unused_fallback_key_types,
+                    e2ee.device_lists.clone(),
+                    &e2ee.device_one_time_keys_count,
+                    &e2ee.device_unused_fallback_key_types,
                 )
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                (Default::default(), &device_one_time_keys_count, &device_unused_fallback_key_types)
+            });
 
         info!(
             to_device_events = to_device_events.len(),
@@ -153,7 +164,7 @@ impl BaseClient {
                 // }
 
                 let room_account_data = if let Some(inner_account_data) = &account_data {
-                    if let Some(events) = inner_account_data.rooms.get(&room_id) {
+                    if let Some(events) = inner_account_data.rooms.get(&*room_id) {
                         self.handle_room_account_data(&room_id, events, &mut changes).await;
                         Some(events.to_vec())
                     } else {
@@ -171,8 +182,8 @@ impl BaseClient {
                     .handle_timeline(
                         &room,
                         room_data.limited,
-                        room_data.timeline,
-                        room_data.prev_batch,
+                        room_data.timeline.clone(),
+                        room_data.prev_batch.clone(),
                         &push_rules,
                         &mut user_ids,
                         &mut room_info,
@@ -246,7 +257,7 @@ impl BaseClient {
         debug!("applied changes");
 
         let device_one_time_keys_count =
-            device_one_time_keys_count.into_iter().map(|(k, v)| (k, v.into())).collect();
+            device_one_time_keys_count.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
 
         Ok(SyncResponse {
             rooms: new_rooms,
@@ -254,7 +265,7 @@ impl BaseClient {
             notifications: changes.notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
-            account_data: account_data.map(|a| a.global).unwrap_or_default(),
+            account_data: account_data.as_ref().map(|a| a.global.clone()).unwrap_or_default(),
             to_device_events,
             device_lists,
             device_one_time_keys_count,
