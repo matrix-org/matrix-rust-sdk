@@ -128,12 +128,23 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let user_id = user_id.to_owned();
         let request = get_avatar_url::v3::Request::new(user_id.to_owned());
 
         let config = Some(RequestConfig::new().force_auth());
 
         let response = self.client.send(request, config).await?;
+        if let Some(url) = response.avatar_url.clone() {
+            self.client.store().set_owned_avatar_url(&user_id, url.as_ref()).await?;
+        }
         Ok(response.avatar_url)
+    }
+
+    pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let user_id = user_id.to_owned();
+        let url = self.client.store().get_owned_avatar_url(&user_id).await?;
+        Ok(url)
     }
 
     /// Set the MXC URI of the account's avatar.

@@ -232,6 +232,15 @@ impl Client {
         })
     }
 
+    pub fn cached_avatar_url(&self) -> anyhow::Result<String> {
+        let l = self.client.clone();
+        RUNTIME.block_on(async move {
+            let url =
+                l.account().get_cached_avatar_url().await?.context("No cached avatar url found")?;
+            Ok(url)
+        })
+    }
+
     pub fn device_id(&self) -> anyhow::Result<String> {
         let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
