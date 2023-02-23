@@ -61,8 +61,10 @@ use ruma::{
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
-    assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    assign,
+    serde::JsonObject,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1015,6 +1017,50 @@ impl Client {
     /// its localpart.
     pub fn login_identifier(&self, id: UserIdentifier, password: &str) -> LoginBuilder {
         LoginBuilder::new_password(self.clone(), id, password.to_owned())
+    }
+
+    /// Login to the server with a custom login type
+    ///
+    /// # Arguments
+    ///
+    /// * `login_type` - Identifier of the custom login type, e.g.
+    ///   `org.matrix.login.jwt`
+    ///
+    /// * `data` - The additional data which should be attached to the login
+    ///   request.
+    ///
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// use matrix_sdk::Client;
+    ///
+    /// let client = Client::new(homeserver).await?;
+    /// let user = "example";
+    ///
+    /// let response = client
+    ///     .login_custom(
+    ///         "org.matrix.login.jwt",
+    ///         [("token".to_owned(), "jwt_token_content".into())]
+    ///             .into_iter()
+    ///             .collect(),
+    ///     )?
+    ///     .initial_device_display_name("My bot")
+    ///     .await?;
+    ///
+    /// println!(
+    ///     "Logged in as {user}, got device_id {} and access_token {}",
+    ///     response.device_id, response.access_token,
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn login_custom(
+        &self,
+        login_type: &str,
+        data: JsonObject,
+    ) -> serde_json::Result<LoginBuilder> {
+        LoginBuilder::new_custom(self.clone(), login_type, data)
     }
 
     /// Login to the server with a token.
