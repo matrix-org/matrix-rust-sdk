@@ -212,7 +212,7 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::SendMessage(m) => {
-                    if let Some(tl) = &**self.sliding_sync.room_timeline.read().unwrap() {
+                    if let Some(tl) = &**self.sliding_sync.room_timeline.read() {
                         block_on(async move {
                             // fire and forget
                             tl.send(RoomMessageEventContent::text_plain(m).into(), None).await;
