@@ -228,41 +228,47 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
-            .await?;
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))
+        })
+        .await?;
     }
 
     if version < 2 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/002_reset_olm_hash.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))
         })
         .await?;
     }
 
     if version < 3 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))
         })
         .await?;
     }
 
     if version < 4 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/004_drop_outbound_group_sessions.sql"))
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
+            ))
         })
         .await?;
     }
 
     if version < 5 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/005_withheld_code.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))
         })
         .await?;
     }
 
     if version < 6 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/006_drop_outbound_group_sessions.sql"))
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
+            ))
         })
         .await?;
     }
