@@ -27,13 +27,14 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
+        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
+        CryptoStoreError, RoomKeyCounts,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
@@ -60,6 +61,9 @@ mod KEYS {
     pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
     pub const KEY_REQUEST: &str = "key_request";
+
+    pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
+    pub const NO_OLM_SENT: &str = "no_olm_sent";
 
     // KEYS
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -143,7 +147,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.1)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.2)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let old_version = evt.old_version();
 
@@ -177,6 +181,13 @@ impl IndexeddbCryptoStore {
 
                 db.delete_object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
+            } else if old_version < 1.2 {
+                // Help? Migration of outbound session that store the outgoing withhelds
+
+                let db = evt.db();
+                // Support for MSC2399 withheld codes
+                db.create_object_store(KEYS::DIRECT_WITHHELD_INFO)?;
+                db.create_object_store(KEYS::NO_OLM_SENT)?;
             }
 
             Ok(())
@@ -367,6 +378,8 @@ impl_crypto_store! {
             (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
+            (!changes.withheld_session_info.is_empty(), KEYS::DIRECT_WITHHELD_INFO),
+            (!changes.no_olm_sent.is_empty(), KEYS::NO_OLM_SENT),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -433,6 +446,7 @@ impl_crypto_store! {
 
         if !changes.sessions.is_empty() {
             let sessions = tx.object_store(KEYS::SESSION)?;
+            let no_olms = tx.object_store(KEYS::NO_OLM_SENT)?;
 
             for session in &changes.sessions {
                 let sender_key = session.sender_key().to_base64();
@@ -442,6 +456,13 @@ impl_crypto_store! {
                 let key = self.encode_key(KEYS::SESSION, (&sender_key, session_id));
 
                 sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
+
+                // Clear no_olm_sent when a new session is added
+
+                let user_id = session.user_id.to_owned();
+                let device_id = session.user_id.to_owned();
+                let no_olm_key = self.encode_key(KEYS::NO_OLM_SENT, (user_id.as_str(), device_id.as_str()));
+                no_olms.delete(&no_olm_key)?;
             }
         }
 
@@ -538,6 +559,28 @@ impl_crypto_store! {
                 }
             }
         }
+
+        if !changes.withheld_session_info.is_empty() {
+            let withhelds = tx.object_store(KEYS::DIRECT_WITHHELD_INFO)?;
+
+            for info in changes.withheld_session_info {
+                let room_id = info.room_id.to_owned();
+                let session_id = info.session_id.to_owned();
+                let key = self.encode_key(KEYS::DIRECT_WITHHELD_INFO, (session_id, room_id));
+                withhelds.put_key_val(&key, &self.serialize_value(&info)?)?;
+            }
+        }
+
+        if !changes.no_olm_sent.is_empty() {
+            let no_olms = tx.object_store(KEYS::NO_OLM_SENT)?;
+            for (user_id, device_list) in changes.no_olm_sent {
+                for device_id in device_list {
+                    let key = self.encode_key(KEYS::NO_OLM_SENT, (user_id.as_str(), device_id.as_str()));
+                    no_olms.put_key_val(&key, &JsValue::NULL)?;
+                }
+            }
+        }
+
 
         tx.await.into_result()?;
 
@@ -951,6 +994,38 @@ impl_crypto_store! {
 
         Ok(key)
     }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<DirectWithheldInfo>> {
+        let key = self.encode_key(KEYS::DIRECT_WITHHELD_INFO, (session_id, room_id));
+        if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(
+                KEYS::DIRECT_WITHHELD_INFO,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(KEYS::DIRECT_WITHHELD_INFO)?
+            .get(&key)?
+            .await?
+        {
+            let info = self.deserialize_value(pickle)?;
+            Ok(Some(info))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn is_no_olm_sent(
+        &self,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> Result<bool> {
+        Ok(false)
+    }
+
 }
 
 impl Drop for IndexeddbCryptoStore {
