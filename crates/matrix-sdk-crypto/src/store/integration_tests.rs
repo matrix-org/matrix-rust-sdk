@@ -3,12 +3,12 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
 
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, encryption::SignedKey, room_id, serde::Base64, user_id, DeviceId,
-                TransactionId, UserId,
+                OwnedDeviceId, OwnedUserId, TransactionId, UserId,
             };
             use $crate::{
                 olm::{
@@ -16,11 +16,16 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{
-                    Changes, CryptoStore, DeviceChanges, GossipRequest, IdentityChanges,
-                    RecoveryKey,
+                    withheld::DirectWithheldInfo, Changes, CryptoStore, DeviceChanges,
+                    GossipRequest, IdentityChanges, RecoveryKey,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
-                types::events::room_key_request::MegolmV1AesSha2Content,
+                types::{
+                    events::{
+                        room_key_request::MegolmV1AesSha2Content, room_key_withheld::WithheldCode,
+                    },
+                    EventEncryptionAlgorithm,
+                },
                 ReadOnlyDevice, SecretInfo, TrackedUser,
             };
 
@@ -615,36 +620,131 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn recovery_key_saving() {
+            async fn withheld_info_storage() {
                 let (account, store) = get_loaded_store("recovery_key_saving").await;
 
-                let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-                let encoded_key = recovery_key.to_base64();
+                let mut info_list: Vec<DirectWithheldInfo> = Vec::new();
 
-                let changes = Changes {
-                    recovery_key: Some(recovery_key),
-                    backup_version: Some("1".to_owned()),
-                    ..Default::default()
+                let room_id = room_id!("!DwLygpkclUAfQNnfva:example.com");
+                let session_id_1 = "GBnDxGP9i3IkPsz3/ihNr6P7qjIXxSRVWZ1MYmSn09w";
+                let session_id_2 = "IDLtnNCH2kIr3xIf1B7JFkGpQmTjyMca2jww+X6zeOE";
+
+                let info = DirectWithheldInfo {
+                    room_id: room_id.to_owned(),
+                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    session_id: session_id_1.into(),
+                    claimed_sender_key: Curve25519PublicKey::from_base64(
+                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                    )
+                    .unwrap(),
+                    withheld_code: WithheldCode::Unverified,
                 };
+
+                info_list.push(info);
+
+                let info = DirectWithheldInfo {
+                    room_id: room_id.to_owned(),
+                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    session_id: session_id_2.into(),
+                    claimed_sender_key: Curve25519PublicKey::from_base64(
+                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                    )
+                    .unwrap(),
+                    withheld_code: WithheldCode::Blacklisted,
+                };
+
+                info_list.push(info);
+
+                let changes = Changes { withheld_session_info: info_list, ..Default::default() };
 
                 store.save_changes(changes).await.unwrap();
 
-                let loded_backup = store.load_backup_keys().await.unwrap();
+                let is_withheld = store.get_withheld_info(room_id, session_id_1).await.unwrap();
 
-                assert_eq!(
-                    encoded_key,
-                    loded_backup
-                        .recovery_key
-                        .expect("The recovery key wasn't loaded from the store")
-                        .to_base64(),
-                    "The loaded key matches to the one we stored"
+                if let Some(info) = is_withheld {
+                    let actual_code = info.withheld_code;
+                    assert_eq!(EventEncryptionAlgorithm::MegolmV1AesSha2, info.algorithm);
+                    assert_eq!(room_id, info.room_id);
+                    assert_eq!(WithheldCode::Unverified, actual_code);
+                } else {
+                    assert!(false)
+                }
+
+                let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
+
+                if let Some(info) = is_withheld {
+                    let actual_code = info.withheld_code;
+                    assert_eq!(WithheldCode::Blacklisted, actual_code);
+                } else {
+                    assert!(false)
+                }
+
+                let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");
+
+                let is_withheld =
+                    store.get_withheld_info(other_room_id, session_id_2).await.unwrap();
+
+                assert_eq!(is_withheld, None);
+            }
+
+            #[async_test]
+            async fn no_olm_sent() {
+                let (account, store) = get_loaded_store("recovery_key_saving").await;
+
+                let mut no_olm_change: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+
+                let alice_id = alice_id();
+                let alice_device_1 = alice_device_id();
+                let alice_device_2 = device_id!("ALICEDEVICE2");
+
+                let bob_id = user_id!("@bob:example.org");
+                let bob_device = device_id!("BOBDEVICE");
+
+                no_olm_change.insert(
+                    alice_id.to_owned(),
+                    vec![alice_device_1.to_owned(), alice_device_2.to_owned()],
                 );
 
-                assert_eq!(
-                    Some("1"),
-                    loded_backup.backup_version.as_deref(),
-                    "The loaded version matches to the one we stored"
-                );
+                no_olm_change.insert(bob_id.to_owned(), vec![bob_device.to_owned()]);
+
+                let changes = Changes { no_olm_sent: no_olm_change, ..Default::default() };
+
+                store.save_changes(changes).await.unwrap();
+
+                let is_no_olm_sent = store
+                    .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
+                    .await
+                    .unwrap();
+                assert!(is_no_olm_sent);
+
+                let is_no_olm_sent = store
+                    .is_no_olm_sent(alice_id.to_owned(), alice_device_2.to_owned())
+                    .await
+                    .unwrap();
+                assert!(is_no_olm_sent);
+
+                let is_no_olm_sent =
+                    store.is_no_olm_sent(bob_id.to_owned(), bob_device.to_owned()).await.unwrap();
+                assert!(is_no_olm_sent);
+
+                let is_no_olm_sent = store
+                    .is_no_olm_sent(bob_id.to_owned(), alice_device_2.to_owned())
+                    .await
+                    .unwrap();
+                assert!(!is_no_olm_sent);
+
+                let (account, session) = get_account_and_session().await;
+                // simulate the fact that there is a new session with alice_device_1 and that it
+                // clears the no_olm_sent
+                let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+
+                store.save_changes(changes).await.unwrap();
+
+                let is_no_olm_sent = store
+                    .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
+                    .await
+                    .unwrap();
+                assert!(!is_no_olm_sent);
             }
         }
     };

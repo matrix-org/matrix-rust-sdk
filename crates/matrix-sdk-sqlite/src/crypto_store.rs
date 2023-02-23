@@ -397,7 +397,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
 
     fn mark_no_olm_sent(&self, user_id: Key, device_id: Key) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO no_olm_sent (user_id, user_id) \
+            "INSERT INTO no_olm_sent (user_id, device_id) \
              VALUES (?1, ?2)
              ON CONFLICT DO NOTHING",
             (user_id, device_id),
