@@ -41,7 +41,7 @@ impl SlidingSyncRoom {
     pub(super) fn new(
         client: Client,
         room_id: OwnedRoomId,
-        mut inner: v4::SlidingSyncRoom,
+        inner: v4::SlidingSyncRoom,
         timeline: Vec<SyncTimelineEvent>,
     ) -> Self {
         let mut timeline_queue = ObservableVector::new();
