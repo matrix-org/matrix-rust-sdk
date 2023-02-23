@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use eyeball::Observable;
+use eyeball::SharedObservable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
@@ -29,10 +29,10 @@ pub struct SlidingSyncState {
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_state: ViewState,
-    tl_handle: Arc<StdRwLock<Observable<Option<JoinHandle<()>>>>>,
-    pub selected_room: Arc<StdRwLock<Observable<Option<OwnedRoomId>>>>,
+    tl_handle: SharedObservable<Option<JoinHandle<()>>>,
+    pub selected_room: SharedObservable<Option<OwnedRoomId>>,
     pub current_timeline: Arc<StdRwLock<ObservableVector<Arc<TimelineItem>>>>,
-    pub room_timeline: Arc<StdRwLock<Observable<Option<Timeline>>>>,
+    pub room_timeline: SharedObservable<Option<Timeline>>,
 }
 
 impl SlidingSyncState {
@@ -56,12 +56,12 @@ impl SlidingSyncState {
     }
 
     pub fn has_selected_room(&self) -> bool {
-        self.selected_room.read().unwrap().is_some()
+        self.selected_room.read().is_some()
     }
 
     pub fn select_room(&self, r: Option<OwnedRoomId>) {
         self.current_timeline.write().unwrap().clear();
-        if let Some(c) = Observable::replace(&mut self.tl_handle.write().unwrap(), None) {
+        if let Some(c) = self.tl_handle.take() {
             c.abort();
         }
         if let Some(room) = r.as_ref().and_then(|room_id| self.get_room(room_id)) {
@@ -70,7 +70,7 @@ impl SlidingSyncState {
             let handle = tokio::spawn(async move {
                 let timeline = room.timeline().await.unwrap();
                 let (items, listener) = timeline.subscribe().await;
-                Observable::set(&mut room_timeline.write().unwrap(), Some(timeline));
+                room_timeline.set(Some(timeline));
                 {
                     let mut lock = current_timeline.write().unwrap();
                     lock.clear();
@@ -114,9 +114,9 @@ impl SlidingSyncState {
                     }
                 }
             });
-            Observable::set(&mut self.tl_handle.write().unwrap(), Some(handle));
+            self.tl_handle.set(Some(handle));
         }
-        Observable::set(&mut self.selected_room.write().unwrap(), r);
+        self.selected_room.set(r);
     }
 
     pub fn time_to_first_render(&self) -> Option<Duration> {

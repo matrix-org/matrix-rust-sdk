@@ -46,7 +46,7 @@ impl Details {
     }
 
     pub fn refresh_data(&mut self) {
-        let Some(room_id) = self.sstate.selected_room.read().unwrap().clone() else { return };
+        let Some(room_id) = self.sstate.selected_room.get() else { return };
         let Some(room_data) = self.sstate.get_room(&room_id) else {
             return;
         };

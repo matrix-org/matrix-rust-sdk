@@ -95,7 +95,7 @@ pub async fn run_client(
 
     while let Some(update) = stream.next().await {
         {
-            let selected_room = ssync_state.selected_room.read().unwrap().clone();
+            let selected_room = ssync_state.selected_room.get();
             if let Some(room_id) = selected_room {
                 if let Some(prev) = &prev_selected_room {
                     if prev != &room_id {

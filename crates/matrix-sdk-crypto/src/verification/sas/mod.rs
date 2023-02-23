@@ -16,9 +16,9 @@ mod helpers;
 mod inner_sas;
 mod sas_state;
 
-use std::sync::{Arc, RwLock as StdRwLock};
+use std::sync::Arc;
 
-use eyeball::Observable;
+use eyeball::{Observable, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use inner_sas::InnerSas;
@@ -49,7 +49,7 @@ use crate::{
 /// Short authentication string object.
 #[derive(Clone, Debug)]
 pub struct Sas {
-    inner: Arc<StdRwLock<Observable<InnerSas>>>,
+    inner: SharedObservable<InnerSas>,
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
@@ -268,12 +268,12 @@ impl Sas {
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
-        self.inner.read().unwrap().supports_emoji()
+        self.inner.read().supports_emoji()
     }
 
     /// Did this verification flow start from a verification request.
     pub fn started_from_request(&self) -> bool {
-        self.inner.read().unwrap().started_from_request()
+        self.inner.read().started_from_request()
     }
 
     /// Is this a verification that is veryfying one of our own devices.
@@ -283,18 +283,18 @@ impl Sas {
 
     /// Have we confirmed that the short auth string matches.
     pub fn have_we_confirmed(&self) -> bool {
-        self.inner.read().unwrap().have_we_confirmed()
+        self.inner.read().have_we_confirmed()
     }
 
     /// Has the verification been accepted by both parties.
     pub fn has_been_accepted(&self) -> bool {
-        self.inner.read().unwrap().has_been_accepted()
+        self.inner.read().has_been_accepted()
     }
 
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &**self.inner.read().unwrap() {
+        if let InnerSas::Cancelled(c) = &**self.inner.read() {
             Some(c.state.as_ref().clone().into())
         } else {
             None
@@ -309,7 +309,7 @@ impl Sas {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: matrix_sdk_common::instant::Instant) {
-        Observable::update(&mut self.inner.write().unwrap(), |inner| {
+        self.inner.update(|inner| {
             inner.set_creation_time(time);
         });
     }
@@ -333,7 +333,7 @@ impl Sas {
 
         (
             Sas {
-                inner: Arc::new(StdRwLock::new(Observable::new(inner))),
+                inner: SharedObservable::new(inner),
                 account,
                 identities_being_verified: identities,
                 flow_id: flow_id.into(),
@@ -417,7 +417,7 @@ impl Sas {
         let account = identities.store.account.clone();
 
         Ok(Sas {
-            inner: Arc::new(StdRwLock::new(Observable::new(inner))),
+            inner: SharedObservable::new(inner),
             account,
             identities_being_verified: identities,
             flow_id: flow_id.into(),
@@ -447,7 +447,7 @@ impl Sas {
         let old_state = self.state_debug();
 
         let request = {
-            let mut guard = self.inner.write().unwrap();
+            let mut guard = self.inner.write();
             let sas: InnerSas = (*guard).clone();
             let methods = settings.allowed_methods;
 
@@ -495,7 +495,7 @@ impl Sas {
     ) -> Result<(Vec<OutgoingVerificationRequest>, Option<SignatureUploadRequest>), CryptoStoreError>
     {
         let (contents, done) = {
-            let mut guard = self.inner.write().unwrap();
+            let mut guard = self.inner.write();
 
             let sas: InnerSas = (*guard).clone();
             let (sas, contents) = sas.confirm();
@@ -567,7 +567,7 @@ impl Sas {
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let content = {
-            let mut guard = self.inner.write().unwrap();
+            let mut guard = self.inner.write();
 
             if let Some(request) = &self.request_handle {
                 request.cancel_with_code(&code);
@@ -600,22 +600,22 @@ impl Sas {
 
     /// Has the SAS verification flow timed out.
     pub fn timed_out(&self) -> bool {
-        self.inner.read().unwrap().timed_out()
+        self.inner.read().timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
     pub fn can_be_presented(&self) -> bool {
-        self.inner.read().unwrap().can_be_presented()
+        self.inner.read().can_be_presented()
     }
 
     /// Is the SAS flow done.
     pub fn is_done(&self) -> bool {
-        self.inner.read().unwrap().is_done()
+        self.inner.read().is_done()
     }
 
     /// Is the SAS flow canceled.
     pub fn is_cancelled(&self) -> bool {
-        self.inner.read().unwrap().is_cancelled()
+        self.inner.read().is_cancelled()
     }
 
     /// Get the emoji version of the short auth string.
@@ -623,7 +623,7 @@ impl Sas {
     /// Returns None if we can't yet present the short auth string, otherwise
     /// seven tuples containing the emoji and description.
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
-        self.inner.read().unwrap().emoji()
+        self.inner.read().emoji()
     }
 
     /// Get the index of the emoji representing the short auth string
@@ -633,7 +633,7 @@ impl Sas {
     /// converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
-        self.inner.read().unwrap().emoji_index()
+        self.inner.read().emoji_index()
     }
 
     /// Get the decimal version of the short auth string.
@@ -642,7 +642,7 @@ impl Sas {
     /// tuple containing three 4-digit integers that represent the short auth
     /// string.
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
-        self.inner.read().unwrap().decimals()
+        self.inner.read().decimals()
     }
 
     /// Listen for changes in the SAS verification process.
@@ -734,16 +734,16 @@ impl Sas {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
-        Observable::subscribe(&self.inner.read().unwrap()).map(|s| (&s).into())
+        self.inner.subscribe().map(|s| (&s).into())
     }
 
     /// Get the current state of the verification process.
     pub fn state(&self) -> SasState {
-        (&**self.inner.read().unwrap()).into()
+        (&**self.inner.read()).into()
     }
 
     fn state_debug(&self) -> State {
-        (&**self.inner.read().unwrap()).into()
+        (&**self.inner.read()).into()
     }
 
     pub(crate) fn receive_any_event(
@@ -754,7 +754,7 @@ impl Sas {
         let old_state = self.state_debug();
 
         let content = {
-            let mut guard = self.inner.write().unwrap();
+            let mut guard = self.inner.write();
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.receive_any_event(sender, content);
 
@@ -778,7 +778,7 @@ impl Sas {
         let old_state = self.state_debug();
 
         {
-            let mut guard = self.inner.write().unwrap();
+            let mut guard = self.inner.write();
 
             let sas: InnerSas = (*guard).clone();
 
@@ -805,11 +805,11 @@ impl Sas {
     }
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
-        self.inner.read().unwrap().verified_devices()
+        self.inner.read().verified_devices()
     }
 
     pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
-        self.inner.read().unwrap().verified_identities()
+        self.inner.read().verified_identities()
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {

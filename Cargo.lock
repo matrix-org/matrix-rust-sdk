@@ -1470,9 +1470,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "705cca477a21fef6fb7359c13ad9008e087787c7a3faca0e2e75507326e15bd7"
+checksum = "e7293923c1e4c768a56358441174001e3805a808fc453d3a93b20a5d3ebde347"
 dependencies = [
  "futures-core",
  "readlock",
