@@ -1039,25 +1039,27 @@ impl SlidingSync {
 
             for (name, updates) in sliding_sync_response.lists {
                 let Some(generator) = views.get_mut(&name) else {
-                    error!("Response for view {name} - unknown to us. skipping");
+                    error!("Response for view `{name}` - unknown to us; skipping");
+
                     continue
                 };
+
                 let count: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
+
                 if generator.handle_response(count, &updates.ops, &rooms)? {
                     updated_views.push(name.clone());
                 }
             }
 
             // Update the `to-device` next-batch if found.
-            if let Some(to_device_since) =
-                sliding_sync_response.extensions.to_device.map(|t| t.next_batch)
-            {
-                self.update_to_device_since(to_device_since)
-            }
+            sliding_sync_response
+                .extensions
+                .to_device
+                .map(|to_device| self.update_to_device_since(to_device.next_batch));
 
-            // track the most recently successfully sent extensions (needed for sticky
-            // semantics)
+            // Track the most recently successfully sent extensions (needed for sticky
+            // semantics).
             if extensions.is_some() {
                 *self.sent_extensions.lock().unwrap() = extensions;
             }
