@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::future::join3;
 use matrix_sdk::{
-    ruma::{OwnedDeviceId, UserId},
+    ruma::{IdParseError, OwnedDeviceId, UserId},
     Session,
 };
 use zeroize::Zeroize;
@@ -28,6 +28,8 @@ impl Drop for AuthenticationService {
 pub enum AuthenticationError {
     #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
+    #[error("{message}")]
+    InvalidServerName { message: String },
     #[error("The homeserver doesn't provide a trusted a sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
@@ -39,6 +41,12 @@ pub enum AuthenticationError {
 impl From<anyhow::Error> for AuthenticationError {
     fn from(e: anyhow::Error) -> AuthenticationError {
         AuthenticationError::Generic { message: e.to_string() }
+    }
+}
+
+impl From<IdParseError> for AuthenticationError {
+    fn from(e: IdParseError) -> AuthenticationError {
+        AuthenticationError::InvalidServerName { message: e.to_string() }
     }
 }
 
@@ -112,29 +120,29 @@ impl AuthenticationService {
 
     /// Updates the service to authenticate with the homeserver for the
     /// specified address.
-    pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
+    pub fn configure_homeserver(
+        &self,
+        server_name_or_homeserver_url: String,
+    ) -> Result<(), AuthenticationError> {
         let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
 
         // Remove any URL scheme from the name to attempt discovery first.
-        let (sanitized_name, is_url) = if server_name.starts_with("http://") {
-            (server_name.trim_start_matches("http://").to_string(), true)
-        } else if server_name.starts_with("https://") {
-            (server_name.trim_start_matches("https://").to_string(), true)
-        } else {
-            (server_name.clone(), false)
-        };
+        let server_name = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url)
+            .map_err(AuthenticationError::from)?;
 
-        builder = builder.server_name(sanitized_name);
+        builder = builder.server_name(server_name.to_string());
 
         let client = builder
             .build()
             .or_else(|e| {
-                if !is_url {
+                if !server_name_or_homeserver_url.starts_with("http://")
+                    && !server_name_or_homeserver_url.starts_with("http://")
+                {
                     return Err(e);
                 }
                 // When discovery fails, fallback to the homeserver URL if supplied.
                 let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
-                builder = builder.homeserver_url(server_name);
+                builder = builder.homeserver_url(server_name_or_homeserver_url);
                 builder.build()
             })
             .map_err(AuthenticationError::from)?;
