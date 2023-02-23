@@ -1002,31 +1002,37 @@ impl SlidingSync {
             let mut rooms = Vec::new();
             let mut rooms_map = self.rooms.write().unwrap();
 
-            for (id, mut room_data) in sliding_sync_response.rooms.into_iter() {
+            for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
                 // `sync_response` contains the rooms with decrypted events if any, so look at
                 // the timeline events here first if the room exists.
                 // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
-                let timeline = if let Some(joined_room) = sync_response.rooms.join.remove(&id) {
+                let timeline = if let Some(joined_room) = sync_response.rooms.join.remove(&room_id)
+                {
                     joined_room.timeline.events
                 } else {
                     room_data.timeline.drain(..).map(Into::into).collect()
                 };
 
-                if let Some(mut room) = rooms_map.remove(&id) {
+                if let Some(mut room) = rooms_map.remove(&room_id) {
                     // The room existed before, let's update it.
 
                     room.update(room_data, timeline);
-                    rooms_map.insert(id.clone(), room);
+                    rooms_map.insert(room_id.clone(), room);
                 } else {
                     // First time we need this room, let's create it.
 
                     rooms_map.insert(
-                        id.clone(),
-                        SlidingSyncRoom::new(self.client.clone(), id.clone(), room_data, timeline),
+                        room_id.clone(),
+                        SlidingSyncRoom::new(
+                            self.client.clone(),
+                            room_id.clone(),
+                            room_data,
+                            timeline,
+                        ),
                     );
                 }
 
-                rooms.push(id);
+                rooms.push(room_id);
             }
 
             let mut updated_views = Vec::new();
