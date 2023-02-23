@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
+use im::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -39,7 +40,7 @@ async fn initial_events() {
 
     timeline
         .inner
-        .add_initial_events(vec![
+        .add_initial_events(vector![
             sync_timeline_event(
                 timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
             ),
@@ -273,7 +274,7 @@ async fn dedup_initial() {
         timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
 
-    timeline.inner.add_initial_events(vec![event_a.clone(), event_b, event_a]).await;
+    timeline.inner.add_initial_events(vector![event_a.clone(), event_b, event_a]).await;
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 3);

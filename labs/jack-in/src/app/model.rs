@@ -2,7 +2,7 @@
 //!
 //! app model
 
-use std::{ops::Deref, time::Duration};
+use std::time::Duration;
 
 use futures::executor::block_on;
 use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
@@ -212,7 +212,7 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::SendMessage(m) => {
-                    if let Some(tl) = self.sliding_sync.room_timeline.lock_ref().deref() {
+                    if let Some(tl) = &**self.sliding_sync.room_timeline.read().unwrap() {
                         block_on(async move {
                             // fire and forget
                             tl.send(RoomMessageEventContent::text_plain(m).into(), None).await;

@@ -4,7 +4,8 @@ use std::sync::{
 };
 
 use anyhow::Context;
-use futures_signals::{signal::SignalExt, signal_vec::VecDiff};
+use eyeball::Observable;
+use eyeball_im::VectorDiff;
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
@@ -282,42 +283,48 @@ impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
 }
 
 pub enum SlidingSyncViewRoomsListDiff {
-    Replace { values: Vec<RoomListEntry> },
-    InsertAt { index: u32, value: RoomListEntry },
-    UpdateAt { index: u32, value: RoomListEntry },
-    RemoveAt { index: u32 },
-    Move { old_index: u32, new_index: u32 },
-    Push { value: RoomListEntry },
-    Pop,   // removes the last item
-    Clear, // clears the list
+    Append { values: Vec<RoomListEntry> },
+    Insert { index: u32, value: RoomListEntry },
+    Set { index: u32, value: RoomListEntry },
+    Remove { index: u32 },
+    PushBack { value: RoomListEntry },
+    PushFront { value: RoomListEntry },
+    PopBack,
+    PopFront,
+    Clear,
+    Reset { values: Vec<RoomListEntry> },
 }
 
-impl From<VecDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
-    fn from(other: VecDiff<MatrixRoomEntry>) -> Self {
+impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
+    fn from(other: VectorDiff<MatrixRoomEntry>) -> Self {
         match other {
-            VecDiff::Replace { values } => SlidingSyncViewRoomsListDiff::Replace {
+            VectorDiff::Append { values } => SlidingSyncViewRoomsListDiff::Append {
                 values: values.into_iter().map(|e| (&e).into()).collect(),
             },
-            VecDiff::InsertAt { index, value } => SlidingSyncViewRoomsListDiff::InsertAt {
-                index: index as u32,
-                value: (&value).into(),
-            },
-            VecDiff::UpdateAt { index, value } => SlidingSyncViewRoomsListDiff::UpdateAt {
-                index: index as u32,
-                value: (&value).into(),
-            },
-            VecDiff::RemoveAt { index } => {
-                SlidingSyncViewRoomsListDiff::RemoveAt { index: index as u32 }
+            VectorDiff::Insert { index, value } => {
+                SlidingSyncViewRoomsListDiff::Insert { index: index as u32, value: (&value).into() }
             }
-            VecDiff::Move { old_index, new_index } => SlidingSyncViewRoomsListDiff::Move {
-                old_index: old_index as u32,
-                new_index: new_index as u32,
-            },
-            VecDiff::Push { value } => {
-                SlidingSyncViewRoomsListDiff::Push { value: (&value).into() }
+            VectorDiff::Set { index, value } => {
+                SlidingSyncViewRoomsListDiff::Set { index: index as u32, value: (&value).into() }
             }
-            VecDiff::Pop {} => SlidingSyncViewRoomsListDiff::Pop,
-            VecDiff::Clear {} => SlidingSyncViewRoomsListDiff::Clear,
+            VectorDiff::Remove { index } => {
+                SlidingSyncViewRoomsListDiff::Remove { index: index as u32 }
+            }
+            VectorDiff::PushBack { value } => {
+                SlidingSyncViewRoomsListDiff::PushBack { value: (&value).into() }
+            }
+            VectorDiff::PushFront { value } => {
+                SlidingSyncViewRoomsListDiff::PushFront { value: (&value).into() }
+            }
+            VectorDiff::PopBack => SlidingSyncViewRoomsListDiff::PopBack,
+            VectorDiff::PopFront => SlidingSyncViewRoomsListDiff::PopFront,
+            VectorDiff::Clear => SlidingSyncViewRoomsListDiff::Clear,
+            VectorDiff::Reset { values } => {
+                warn!("Room list subscriber lagged behind and was reset");
+                SlidingSyncViewRoomsListDiff::Reset {
+                    values: values.into_iter().map(|e| (&e).into()).collect(),
+                }
+            }
         }
     }
 }
@@ -549,7 +556,8 @@ impl SlidingSyncView {
         &self,
         observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
     ) -> Arc<TaskHandle> {
-        let mut rooms_updated = self.inner.rooms_updated_broadcaster.signal_cloned().to_stream();
+        let mut rooms_updated =
+            Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
         Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
@@ -610,17 +618,19 @@ impl SlidingSyncView {
 
     /// The current timeline limit
     pub fn get_timeline_limit(&self) -> Option<u32> {
-        self.inner.timeline_limit.get_cloned().map(|limit| u32::try_from(limit).unwrap_or_default())
+        (**self.inner.timeline_limit.read().unwrap())
+            .map(|limit| u32::try_from(limit).unwrap_or_default())
     }
 
     /// The current timeline limit
     pub fn set_timeline_limit(&self, value: u32) {
-        self.inner.timeline_limit.set(Some(UInt::try_from(value).unwrap()))
+        let value = Some(UInt::try_from(value).unwrap());
+        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), value);
     }
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        self.inner.timeline_limit.set(None)
+        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), None);
     }
 }
 

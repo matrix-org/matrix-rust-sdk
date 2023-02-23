@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 matrix-sdk-integration-testing = { path = "../matrix-sdk-integration-testing", features = ["helpers"] }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync", "testing"] }
