@@ -135,7 +135,11 @@ impl Account {
 
         let response = self.client.send(request, config).await?;
         if let Some(url) = response.avatar_url.clone() {
-            self.client.store().save_owned_avatar_url(&user_id, url.as_ref()).await?;
+            // If an avatar is found cache it.
+            self.client.store().save_avatar_url(&user_id, url.as_ref()).await?;
+        } else {
+            // If there is no avatar the user has removed it and we uncache it.
+            self.client.store().remove_avatar_url(&user_id).await?;
         }
         Ok(response.avatar_url)
     }
@@ -143,7 +147,7 @@ impl Account {
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let user_id = user_id.to_owned();
-        let url = self.client.store().get_owned_avatar_url(&user_id).await?;
+        let url = self.client.store().get_avatar_url(&user_id).await?;
         Ok(url)
     }
 

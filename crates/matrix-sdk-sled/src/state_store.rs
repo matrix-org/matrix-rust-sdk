@@ -556,17 +556,24 @@ impl SledStateStore {
         }
     }
 
-    pub async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
-        self.session
-            .insert(self.encode_key(SESSION, ("user_id", user_id)), self.serialize_value(&url)?)?;
+    pub async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        self.session.insert(
+            self.encode_key(SESSION, ("avatar_url", user_id)),
+            self.serialize_value(&url)?,
+        )?;
         Ok(())
     }
 
-    pub async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
+    pub async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
         self.session
-            .get(self.encode_key(SESSION, ("user_id", user_id)))?
+            .get(self.encode_key(SESSION, ("avatar_url", user_id)))?
             .map(|u| self.deserialize_value(&u))
             .transpose()
+    }
+
+    pub async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()> {
+        self.session.remove(self.encode_key(SESSION, ("avatar_url", user_id)))?;
+        Ok(())
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -1455,12 +1462,16 @@ impl SledStateStore {
 
 #[async_trait]
 impl StateStore for SledStateStore {
-    async fn get_owned_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<Option<String>> {
-        self.get_owned_avatar_url(user_id).await.map_err(Into::into)
+    async fn get_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<Option<String>> {
+        self.get_avatar_url(user_id).await.map_err(Into::into)
     }
 
-    async fn save_owned_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
-        self.save_owned_avatar_url(user_id, url).await.map_err(Into::into)
+    async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
+        self.save_avatar_url(user_id, url).await.map_err(Into::into)
+    }
+
+    async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<()> {
+        self.remove_avatar_url(user_id).await.map_err(Into::into)
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
