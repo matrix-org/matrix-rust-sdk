@@ -359,11 +359,7 @@ impl Account {
             SessionType::New(s) => s.session_id(),
             SessionType::Existing(s) => s.session_id(),
         };
-        trace!(
-            ?sender_key,
-            "Successfully decrypted an Olm message with Olm session `{}`",
-            session_id
-        );
+        trace!(?sender_key, ?session_id, "Successfully decrypted an Olm message");
 
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
@@ -1079,7 +1075,7 @@ impl ReadOnlyAccount {
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
-        debug!("Created Olm session with id `{}`", session_id);
+        trace!(?session_id, "Olm session created successfully");
 
         let session = Session {
             user_id: self.user_id.clone(),
