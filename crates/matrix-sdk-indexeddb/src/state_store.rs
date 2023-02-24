@@ -173,6 +173,7 @@ mod KEYS {
 
     pub const STORE_KEY: &str = "store_key";
     pub const FILTER: &str = "filter";
+    pub const AVATAR_URL: &str = "avatar_url";
 }
 
 pub use KEYS::ALL_STORES;
@@ -539,6 +540,45 @@ impl IndexeddbStateStore {
             None => key.encode_to_range(),
         }
         .map_err(|e| IndexeddbStateStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
+    }
+
+    pub async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
+        self.inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::SESSION)?
+            .get(&self.encode_key(KEYS::AVATAR_URL, (KEYS::AVATAR_URL, user_id)))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()
+    }
+
+    pub async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(KEYS::SESSION)?;
+
+        obj.put_key_val(
+            &self.encode_key(KEYS::FILTER, (KEYS::AVATAR_URL, user_id)),
+            &self.serialize_event(&url)?,
+        )?;
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
+    pub async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()> {
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(KEYS::SESSION)?;
+
+        obj.delete(&self.encode_key(KEYS::AVATAR_URL, (KEYS::AVATAR_URL, user_id)));
+
+        tx.await.into_result().map_err(|e| e.into())
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -1366,6 +1406,18 @@ impl IndexeddbStateStore {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl StateStore for IndexeddbStateStore {
+    async fn get_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<Option<String>> {
+        self.get_avatar_url(user_id).await.map_err(|e| e.into())
+    }
+
+    async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
+        self.save_avatar_url(user_id, url).await.map_err(|e| e.into())
+    }
+
+    async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<()> {
+        self.remove_avatar_url(user_id).await.map_err(|e| e.into())
+    }
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
     }
