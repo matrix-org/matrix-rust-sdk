@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
     time::Duration,
 };
@@ -515,8 +515,9 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> StoreResult<Option<EncryptionSettings>> {
-        let settings = self.store.load_encryption_settings(room_id).await?;
-        Ok(settings)
+        let key = format!("encryption_settings-{room_id}");
+        let value = self.store.get_value(&key).await?;
+        Ok(value)
     }
 
     /// TODO: docs
@@ -525,13 +526,15 @@ impl OlmMachine {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> StoreResult<()> {
-        self.store
-            .save_changes(Changes {
-                encryption_settings: HashMap::from([(room_id.into(), settings)]),
-                ..Default::default()
-            })
-            .await?;
+        let key = format!("encryption_settings-{room_id}");
+        self.store.set_value(&key, &settings).await?;
         Ok(())
+    }
+
+    /// TODO: docs
+    pub async fn get_block_untrusted_devices_globally(&self) -> StoreResult<bool> {
+        let value = self.store.get_value("block_untrusted_devices").await?.unwrap_or_default();
+        Ok(value)
     }
 
     /// TODO: docs
@@ -539,19 +542,8 @@ impl OlmMachine {
         &self,
         block_untrusted_devices: bool,
     ) -> StoreResult<()> {
-        self.store
-            .save_changes(Changes {
-                block_untrusted_devices_globally: Some(block_untrusted_devices),
-                ..Default::default()
-            })
-            .await?;
+        self.store.set_value("block_untrusted_devices", &block_untrusted_devices).await?;
         Ok(())
-    }
-
-    /// TODO: docs
-    pub async fn get_block_untrusted_devices_globally(&self) -> StoreResult<bool> {
-        let block = self.store.block_untrusted_devices_globally().await?;
-        Ok(block)
     }
 
     /// Receive a successful key claim response and create new Olm sessions with

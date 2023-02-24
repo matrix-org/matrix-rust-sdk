@@ -29,7 +29,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
-    EncryptionSettings, TrackedUser,
+    TrackedUser,
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
@@ -269,6 +269,14 @@ impl CryptoStore for MemoryStore {
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         Ok(BackupKeys::default())
+    }
+
+    async fn get_custom_value(&self, _key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    async fn set_custom_value(&self, _key: &str, _value: Vec<u8>) -> Result<()> {
+        Ok(())
     }
 }
 

@@ -441,29 +441,27 @@ impl GroupSessionManager {
         self.sessions.clone()
     }
 
+    /// TODO: Docs
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         // Load settings from store or create new
-        let mut encryption_settings =
-            if let Some(settings) = self.store.load_encryption_settings(room_id).await? {
-                settings
-            } else {
-                let settings = EncryptionSettings::default();
-                let changes = Changes {
-                    encryption_settings: HashMap::from([(room_id.into(), settings.clone())]),
-                    ..Default::default()
-                };
-                self.store.save_changes(changes).await?;
-                settings
-            };
+        let key = format!("encryption_settings-{room_id}");
+        let mut encryption_settings = if let Some(settings) = self.store.get_value(&key).await? {
+            settings
+        } else {
+            let settings = EncryptionSettings::default();
+            self.store.set_value(&key, &settings).await?;
+            settings
+        };
 
         // Combine per-room and global unverified devices block
         if !encryption_settings.only_allow_trusted_devices {
-            encryption_settings.only_allow_trusted_devices =
-                self.store.block_untrusted_devices_globally().await?;
+            let block_globally =
+                self.store.get_value("block_untrusted_devices").await?.unwrap_or_default();
+            encryption_settings.only_allow_trusted_devices = block_globally
         }
 
         self.share_room_key_with_settings(room_id, users, encryption_settings).await

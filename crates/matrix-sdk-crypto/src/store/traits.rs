@@ -186,6 +186,22 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         request_id: &TransactionId,
     ) -> Result<(), Self::Error>;
+
+    /// Get arbitrary data from the store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to fetch data for
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Put arbitrary data into the store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert data into
+    ///
+    /// * `value` - The value to insert
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -311,6 +327,14 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.get_custom_value(key).await.map_err(Into::into)
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        self.0.set_custom_value(key, value).await.map_err(Into::into)
     }
 }
 

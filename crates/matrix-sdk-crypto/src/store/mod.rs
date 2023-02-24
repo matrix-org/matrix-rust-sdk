@@ -49,7 +49,7 @@ use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
@@ -750,6 +750,34 @@ impl Store {
         self.load_tracked_users().await?;
 
         Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
+    }
+
+    /// TODO: docs
+    pub async fn get_value<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let Some(value) = self.get_custom_value(key).await? else {
+            return Ok(None);
+        };
+        let deserialized = self.deserialize_value(&value)?;
+        Ok(Some(deserialized))
+    }
+
+    /// TODO: docs
+    pub async fn set_value(&self, key: &str, value: &impl Serialize) -> Result<()> {
+        let serialized = self.serialize_value(value)?;
+        self.set_custom_value(key, serialized).await?;
+        Ok(())
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized =
+            rmp_serde::to_vec_named(value).map_err(|x| CryptoStoreError::Backend(x.into()))?; // TODO: Serialization type
+        Ok(serialized)
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let deserialized =
+            rmp_serde::from_slice(value).map_err(|e| CryptoStoreError::Backend(e.into()))?;
+        Ok(deserialized)
     }
 }
 

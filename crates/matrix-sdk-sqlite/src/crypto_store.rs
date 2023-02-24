@@ -946,6 +946,32 @@ impl CryptoStore for SqliteCryptoStore {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
     }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let Some(serialized) = self.acquire().await?.get_kv(key).await? else {
+            return Ok(None);
+        };
+        let value = if let Some(cipher) = &self.store_cipher {
+            let encrypted = rmp_serde::from_slice(&serialized)?;
+            cipher.decrypt_value_data(encrypted)?
+        } else {
+            serialized
+        };
+
+        Ok(Some(value))
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        let serialized = if let Some(cipher) = &self.store_cipher {
+            let encrypted = cipher.encrypt_value_data(value)?;
+            rmp_serde::to_vec_named(&encrypted)?
+        } else {
+            value
+        };
+
+        self.acquire().await?.set_kv(key, serialized).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

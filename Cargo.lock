@@ -2753,6 +2753,7 @@ dependencies = [
  "pbkdf2",
  "proptest",
  "rand 0.8.5",
+ "rmp-serde",
  "ruma",
  "serde",
  "serde_json",
