@@ -119,7 +119,6 @@ async fn retry_edit_decryption() {
         W8aUFGxYXuU\n\
         -----END MEGOLM SESSION DATA-----";
 
-    const SESSION2_ID: &str = "HSRlM67FgLYl0J0l1luflfGwpnFcLKHnNoRqUuIhQ5Q";
     const SESSION2_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
         AbMgil4w2zS9PcZ25f+vdcBdv0/YVaOg52K49DwCmMUkAAAAChEzP9tvnK3jd0NA+BjFfm0zzHYOiu5EyRK/\
