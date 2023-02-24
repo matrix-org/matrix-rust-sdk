@@ -589,7 +589,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .query_row(
                 "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
                 (session_id, room_id),
-                |row| Ok(row.get(0)?),
+                |row| row.get(0),
             )
             .await
             .optional()?)

@@ -979,7 +979,7 @@ mod tests {
             .map(|r| {
                 let mut count = 0;
                 // count targets
-                for (_, message) in &r.messages {
+                for message in &r.messages.values() {
                     message.iter().for_each(|(_, content)| {
                         let withheld: MegolmV1AesSha2WithheldContent =
                             content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
@@ -1008,7 +1008,7 @@ mod tests {
             .map(|r| {
                 let mut count = 0;
                 // count targets
-                for (_, message) in &r.messages {
+                for message in &r.messages.values() {
                     message.iter().for_each(|(_, content)| {
                         let withheld: MegolmV1AesSha2WithheldContent =
                             content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
