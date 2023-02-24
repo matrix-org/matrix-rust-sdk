@@ -140,10 +140,27 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStore: AsyncTraitDeps {
+    /// Get the avatar url that was stored under the given user id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user_id that owns the avatar url.
     async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>>;
 
+    /// Save the given avatar url id under the given user id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The id that owns that avatar_url.
+    ///
+    /// * `url` - The url that should be stored in the state store.
     async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()>;
 
+    /// Remove the avatar url that was stored under the given user id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user_id that owned the avatar url.
     async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()>;
 
     /// Save the given filter id under the given name.

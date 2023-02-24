@@ -144,6 +144,7 @@ impl Account {
         Ok(response.avatar_url)
     }
 
+    /// Get the URL of the account's avatar, if is stored in cache.
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let user_id = user_id.to_owned();
