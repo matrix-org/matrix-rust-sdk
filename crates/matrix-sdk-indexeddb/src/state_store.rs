@@ -576,7 +576,7 @@ impl IndexeddbStateStore {
 
         let obj = tx.object_store(KEYS::SESSION)?;
 
-        obj.delete(&self.encode_key(KEYS::AVATAR_URL, (KEYS::AVATAR_URL, user_id)));
+        obj.delete(&self.encode_key(KEYS::AVATAR_URL, (KEYS::AVATAR_URL, user_id)))?;
 
         tx.await.into_result().map_err(|e| e.into())
     }
