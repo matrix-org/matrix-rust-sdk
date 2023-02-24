@@ -467,7 +467,8 @@ impl OutboundGroupSession {
         }
     }
 
-    // TODO as for sharing we should check if its not in the process of beeing
+    // TODO as for sharing we should check if its not in the process of being
+    // withheld
     /// Has or will this device receive a withheld code for that session
     /*
     pub(crate) fn is_withheld_to(&self, device: &Device) -> Option<WithheldCode> {

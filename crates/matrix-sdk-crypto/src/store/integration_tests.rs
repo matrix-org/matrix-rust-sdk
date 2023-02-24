@@ -709,22 +709,24 @@ macro_rules! cryptostore_integration_tests {
 
                 let changes = Changes { no_olm_sent: no_olm_change, ..Default::default() };
 
-                store.save_changes(changes).await.unwrap();
+                store.save_changes(changes).await.expect("No olm sent should have been saved");
 
                 let is_no_olm_sent = store
                     .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
                     .await
-                    .unwrap();
+                    .expect("Failed to get olm sent entry for alice device 1");
                 assert!(is_no_olm_sent);
 
                 let is_no_olm_sent = store
                     .is_no_olm_sent(alice_id.to_owned(), alice_device_2.to_owned())
                     .await
-                    .unwrap();
+                    .expect("Failed to get olm sent entry for alice device 2");
                 assert!(is_no_olm_sent);
 
-                let is_no_olm_sent =
-                    store.is_no_olm_sent(bob_id.to_owned(), bob_device.to_owned()).await.unwrap();
+                let is_no_olm_sent = store
+                    .is_no_olm_sent(bob_id.to_owned(), bob_device.to_owned())
+                    .await
+                    .expect("Failed to get olm sent entry for bob device");
                 assert!(is_no_olm_sent);
 
                 let is_no_olm_sent = store
@@ -738,13 +740,13 @@ macro_rules! cryptostore_integration_tests {
                 // clears the no_olm_sent
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
-                store.save_changes(changes).await.unwrap();
+                store.save_changes(changes).await.expect("Should have save new session");
 
-                let is_no_olm_sent = store
+                let is_no_olm_sent_for_device_with_new_session = store
                     .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
                     .await
                     .unwrap();
-                assert!(!is_no_olm_sent);
+                assert!(!is_no_olm_sent_for_device_with_new_session);
             }
         }
     };
