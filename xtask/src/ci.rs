@@ -61,7 +61,6 @@ enum CiCommand {
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 enum FeatureSet {
-    Default,
     NoEncryption,
     NoSled,
     NoEncryptionAndSled,
