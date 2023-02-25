@@ -583,7 +583,7 @@ impl_crypto_store! {
             let no_olms = tx.object_store(KEYS::NO_OLM_SENT)?;
 
             for key in no_olm_to_clear {
-                no_olms.delete(&key);
+                no_olms.delete(&key)?;
             }
 
             for (user_id, device_list) in no_olm_sent {
