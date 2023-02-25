@@ -667,7 +667,7 @@ macro_rules! cryptostore_integration_tests {
                     assert_eq!(room_id, info.room_id);
                     assert_eq!(WithheldCode::Unverified, actual_code);
                 } else {
-                    assert!(false)
+                    panic!();
                 }
 
                 let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
@@ -676,7 +676,7 @@ macro_rules! cryptostore_integration_tests {
                     let actual_code = info.withheld_code;
                     assert_eq!(WithheldCode::Blacklisted, actual_code);
                 } else {
-                    assert!(false)
+                    panic!();
                 }
 
                 let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");

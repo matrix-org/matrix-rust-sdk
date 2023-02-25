@@ -659,7 +659,7 @@ impl OlmMachine {
                 self.handle_withheld_room_key(content).await
             }
             #[cfg(feature = "experimental-algorithms")]
-            RoomKeyWithheldContent::MegolmV2AesSha2(content) => {
+            RoomKeyWithheldContent::MegolmV2AesSha2(_content) => {
                 // TODO
                 Ok(None)
             }
@@ -2238,7 +2238,7 @@ pub(crate) mod tests {
         if let MegolmError::MissingRoomKey(Some(code)) = err {
             assert_eq!(WithheldCode::Unverified, code);
         } else {
-            assert!(false);
+            panic!();
         }
     }
 

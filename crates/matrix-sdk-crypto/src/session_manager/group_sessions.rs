@@ -953,7 +953,6 @@ mod tests {
             .map(|r| r.message_count())
             .sum();
         assert_eq!(withheld_count, 2);
-
     }
 
     #[async_test]
