@@ -621,7 +621,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn withheld_info_storage() {
-                let (account, store) = get_loaded_store("recovery_key_saving").await;
+                let (account, store) = get_loaded_store("withheld_info_storage").await;
 
                 let mut info_list: Vec<DirectWithheldInfo> = Vec::new();
 
@@ -689,7 +689,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn no_olm_sent() {
-                let (account, store) = get_loaded_store("recovery_key_saving").await;
+                let (account, store) = get_loaded_store("no_olm_sent").await;
 
                 let mut no_olm_change: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
