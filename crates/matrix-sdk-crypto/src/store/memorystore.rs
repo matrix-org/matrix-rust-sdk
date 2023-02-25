@@ -432,11 +432,11 @@ mod tests {
         let is_withheld_for =
             store.is_no_olm_sent(user_id.to_owned(), device_id_1.to_owned()).await.unwrap();
 
-        assert_eq!(true, is_withheld_for);
+        assert!(is_withheld_for);
 
         let is_withheld_for =
             store.is_no_olm_sent(user_id.to_owned(), device_id_2.to_owned()).await.unwrap();
 
-        assert_eq!(false, is_withheld_for);
+        assert!(!is_withheld_for);
     }
 }

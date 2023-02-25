@@ -954,9 +954,6 @@ mod tests {
             .sum();
         assert_eq!(withheld_count, 2);
 
-        requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).for_each(|r| {
-            println!("{:?}", r.messages);
-        })
     }
 
     #[async_test]
@@ -979,7 +976,7 @@ mod tests {
             .map(|r| {
                 let mut count = 0;
                 // count targets
-                for message in &r.messages.values() {
+                for message in r.messages.values() {
                     message.iter().for_each(|(_, content)| {
                         let withheld: MegolmV1AesSha2WithheldContent =
                             content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
@@ -1008,7 +1005,7 @@ mod tests {
             .map(|r| {
                 let mut count = 0;
                 // count targets
-                for message in &r.messages.values() {
+                for message in r.messages.values() {
                     message.iter().for_each(|(_, content)| {
                         let withheld: MegolmV1AesSha2WithheldContent =
                             content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
@@ -1042,7 +1039,6 @@ mod tests {
             .await
             .unwrap();
 
-        println!("{:?}", requests);
         let event_count: usize = requests
             .iter()
             .filter(|r| r.event_type == "m.room.encrypted".into())
