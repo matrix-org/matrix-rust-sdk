@@ -18,9 +18,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{
-    Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncMode, SlidingSyncRoom, SlidingSyncState,
-};
+use super::{Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncMode, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered view within the concept of sliding sync.
@@ -905,4 +903,26 @@ fn room_ops(
     }
 
     Ok(())
+}
+
+/// The state the [`SlidingSyncView`] is in.
+///
+/// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
+/// response for the first given number of Rooms, then switches into
+/// `CatchingUp` during which the view fetches the remaining rooms, usually in
+/// order, some times in batches. Once that is ready, it switches into `Live`.
+///
+/// If the client has been offline for a while, though, the SlidingSync might
+/// return back to `CatchingUp` at any point.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlidingSyncState {
+    /// Hasn't started yet
+    #[default]
+    Cold,
+    /// We are quickly preloading a preview of the most important rooms
+    Preload,
+    /// We are trying to load all remaining rooms, might be in batches
+    CatchingUp,
+    /// We are all caught up and now only sync the live responses.
+    Live,
 }
