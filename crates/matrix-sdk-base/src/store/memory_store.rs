@@ -594,6 +594,8 @@ impl MemoryStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl StateStore for MemoryStore {
+    type Error = StoreError;
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.save_filter(filter_name, filter_id).await
     }

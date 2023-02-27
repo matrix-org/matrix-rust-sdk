@@ -28,8 +28,8 @@ use eyeball::Observable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
-    SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta,
+    SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -503,7 +503,7 @@ impl Client {
     }
 
     /// Get a reference to the state store.
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         self.base_client().store()
     }
 

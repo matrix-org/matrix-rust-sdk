@@ -63,11 +63,11 @@ use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
-        StoreConfig,
+        ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
+        StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    Session, SessionMeta, SessionTokens, StateStore,
+    Session, SessionMeta, SessionTokens,
 };
 
 /// A no IO Client implementation.
@@ -175,7 +175,7 @@ impl BaseClient {
 
     /// Get a reference to the store.
     #[allow(unknown_lints, clippy::explicit_auto_deref)]
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         &*self.store
     }
 

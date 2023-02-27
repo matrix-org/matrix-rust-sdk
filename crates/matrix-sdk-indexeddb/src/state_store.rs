@@ -1366,6 +1366,8 @@ impl IndexeddbStateStore {
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl StateStore for IndexeddbStateStore {
+    type Error = StoreError;
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
     }

@@ -40,7 +40,7 @@ use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
-    store::{Result as StoreResult, StateStore, StateStoreExt},
+    store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent,
 };
@@ -52,7 +52,7 @@ pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
-    store: Arc<dyn StateStore>,
+    store: Arc<DynStateStore>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -83,7 +83,7 @@ pub enum RoomType {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: Arc<dyn StateStore>,
+        store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
@@ -93,7 +93,7 @@ impl Room {
 
     pub(crate) fn restore(
         own_user_id: &UserId,
-        store: Arc<dyn StateStore>,
+        store: Arc<DynStateStore>,
         room_info: RoomInfo,
     ) -> Self {
         Self {
@@ -811,7 +811,7 @@ mod test {
 
     use super::*;
     use crate::{
-        store::{MemoryStore, StateChanges},
+        store::{MemoryStore, StateChanges, StateStore},
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
