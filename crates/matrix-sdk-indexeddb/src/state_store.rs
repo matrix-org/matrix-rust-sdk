@@ -28,7 +28,7 @@ use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
-    store::{Result as StoreResult, StateChanges, StateStore, StoreError},
+    store::{StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
@@ -541,7 +541,129 @@ impl IndexeddbStateStore {
         .map_err(|e| IndexeddbStateStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
     }
 
-    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
+    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        Ok([
+            self.get_invited_user_ids_inner(room_id).await?,
+            self.get_joined_user_ids_inner(room_id).await?,
+        ]
+        .concat())
+    }
+
+    pub async fn get_invited_user_ids_inner(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        let range = self.encode_to_range(KEYS::INVITED_USER_IDS, room_id)?;
+        let entries = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::INVITED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
+            .collect::<Vec<_>>();
+
+        Ok(entries)
+    }
+
+    pub async fn get_joined_user_ids_inner(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        let range = self.encode_to_range(KEYS::JOINED_USER_IDS, room_id)?;
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::JOINED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
+            .collect::<Vec<_>>())
+    }
+
+    pub async fn get_stripped_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        Ok([
+            self.get_stripped_invited_user_ids(room_id).await?,
+            self.get_stripped_joined_user_ids(room_id).await?,
+        ]
+        .concat())
+    }
+
+    pub async fn get_stripped_invited_user_ids(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<OwnedUserId>> {
+        let range = self.encode_to_range(KEYS::STRIPPED_INVITED_USER_IDS, room_id)?;
+        let entries = self
+            .inner
+            .transaction_on_one_with_mode(
+                KEYS::STRIPPED_INVITED_USER_IDS,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(KEYS::STRIPPED_INVITED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
+            .collect::<Vec<_>>();
+
+        Ok(entries)
+    }
+
+    pub async fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        let range = self.encode_to_range(KEYS::STRIPPED_JOINED_USER_IDS, room_id)?;
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(
+                KEYS::STRIPPED_JOINED_USER_IDS,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(KEYS::STRIPPED_JOINED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
+            .collect::<Vec<_>>())
+    }
+
+    async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
+        self.inner
+            .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::CUSTOM)?
+            .get(jskey)?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()
+    }
+}
+
+// Small hack to have the following macro invocation act as the appropriate
+// trait impl block on wasm, but still be compiled on non-wasm as a regular
+// impl block otherwise.
+//
+// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
+// this hack allows us to still have most of rust-analyzer's IDE functionality
+// within the impl block without having to set it up to check things against
+// the wasm target (which would disable many other parts of the codebase).
+#[cfg(target_arch = "wasm32")]
+macro_rules! impl_state_store {
+    ( $($body:tt)* ) => {
+        #[async_trait(?Send)]
+        impl StateStore for IndexeddbStateStore {
+            type Error = IndexeddbStateStoreError;
+
+            $($body)*
+        }
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! impl_state_store {
+    ( $($body:tt)* ) => {
+        impl IndexeddbStateStore {
+            $($body)*
+        }
+    };
+}
+
+impl_state_store! {
+    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
@@ -558,7 +680,7 @@ impl IndexeddbStateStore {
         Ok(())
     }
 
-    pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
+    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SESSION)?
@@ -568,7 +690,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn get_sync_token(&self) -> Result<Option<String>> {
+    async fn get_sync_token(&self) -> Result<Option<String>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::SYNC_TOKEN, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SYNC_TOKEN)?
@@ -578,7 +700,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
+    async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let mut stores: HashSet<&'static str> = [
             (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
             (changes.session.is_some(), KEYS::SESSION),
@@ -960,7 +1082,7 @@ impl IndexeddbStateStore {
         tx.await.into_result().map_err(|e| e.into())
     }
 
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
+     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::PRESENCE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PRESENCE)?
@@ -970,7 +1092,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn get_state_event(
+     async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
@@ -985,7 +1107,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn get_state_events(
+     async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
@@ -1002,7 +1124,7 @@ impl IndexeddbStateStore {
             .collect::<Vec<_>>())
     }
 
-    pub async fn get_profile(
+     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
@@ -1016,7 +1138,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn get_member_event(
+     async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
@@ -1046,85 +1168,7 @@ impl IndexeddbStateStore {
         }
     }
 
-    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok([self.get_invited_user_ids(room_id).await?, self.get_joined_user_ids(room_id).await?]
-            .concat())
-    }
-
-    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(KEYS::INVITED_USER_IDS, room_id)?;
-        let entries = self
-            .inner
-            .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::INVITED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>();
-
-        Ok(entries)
-    }
-
-    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(KEYS::JOINED_USER_IDS, room_id)?;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::JOINED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>())
-    }
-
-    pub async fn get_stripped_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok([
-            self.get_stripped_invited_user_ids(room_id).await?,
-            self.get_stripped_joined_user_ids(room_id).await?,
-        ]
-        .concat())
-    }
-
-    pub async fn get_stripped_invited_user_ids(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(KEYS::STRIPPED_INVITED_USER_IDS, room_id)?;
-        let entries = self
-            .inner
-            .transaction_on_one_with_mode(
-                KEYS::STRIPPED_INVITED_USER_IDS,
-                IdbTransactionMode::Readonly,
-            )?
-            .object_store(KEYS::STRIPPED_INVITED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>();
-
-        Ok(entries)
-    }
-
-    pub async fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(KEYS::STRIPPED_JOINED_USER_IDS, room_id)?;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(
-                KEYS::STRIPPED_JOINED_USER_IDS,
-                IdbTransactionMode::Readonly,
-            )?
-            .object_store(KEYS::STRIPPED_JOINED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>())
-    }
-
-    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries: Vec<_> = self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -1138,7 +1182,7 @@ impl IndexeddbStateStore {
         Ok(entries)
     }
 
-    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -1152,7 +1196,7 @@ impl IndexeddbStateStore {
         Ok(entries)
     }
 
-    pub async fn get_users_with_display_name(
+     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
@@ -1166,7 +1210,7 @@ impl IndexeddbStateStore {
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
-    pub async fn get_account_data_event(
+     async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
@@ -1179,7 +1223,7 @@ impl IndexeddbStateStore {
             .transpose()
     }
 
-    pub async fn get_room_account_data_event(
+     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
@@ -1272,16 +1316,6 @@ impl IndexeddbStateStore {
         self.get_custom_value_for_js(jskey).await
     }
 
-    async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
-        self.inner
-            .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::CUSTOM)?
-            .get(jskey)?
-            .await?
-            .map(|f| self.deserialize_event(f))
-            .transpose()
-    }
-
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let jskey = JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
 
@@ -1361,174 +1395,29 @@ impl IndexeddbStateStore {
         }
         tx.await.into_result().map_err(|e| e.into())
     }
-}
 
-#[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
-impl StateStore for IndexeddbStateStore {
-    type Error = StoreError;
-
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
-        self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
-    }
-
-    async fn save_changes(&self, changes: &StateChanges) -> StoreResult<()> {
-        self.save_changes(changes).await.map_err(|e| e.into())
-    }
-
-    async fn get_filter(&self, filter_id: &str) -> StoreResult<Option<String>> {
-        self.get_filter(filter_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_sync_token(&self) -> StoreResult<Option<String>> {
-        self.get_sync_token().await.map_err(|e| e.into())
-    }
-
-    async fn get_presence_event(
-        &self,
-        user_id: &UserId,
-    ) -> StoreResult<Option<Raw<PresenceEvent>>> {
-        self.get_presence_event(user_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_state_event(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_key: &str,
-    ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
-        self.get_state_event(room_id, event_type, state_key).await.map_err(|e| e.into())
-    }
-
-    async fn get_state_events(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-    ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
-        self.get_state_events(room_id, event_type).await.map_err(|e| e.into())
-    }
-
-    async fn get_profile(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-    ) -> StoreResult<Option<MinimalStateEvent<RoomMemberEventContent>>> {
-        self.get_profile(room_id, user_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> StoreResult<Option<RawMemberEvent>> {
-        self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
-    }
-
-    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let ids: Vec<OwnedUserId> = self.get_stripped_user_ids_stream(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_user_ids_stream(room_id).await.map_err(|e| e.into())
+        self.get_user_ids_stream(room_id).await
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let ids: Vec<OwnedUserId> = self.get_stripped_invited_user_ids(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_invited_user_ids(room_id).await.map_err(|e| e.into())
+        self.get_invited_user_ids_inner(room_id).await
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let ids: Vec<OwnedUserId> = self.get_stripped_joined_user_ids(room_id).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_joined_user_ids(room_id).await.map_err(|e| e.into())
-    }
-
-    async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        self.get_room_infos().await.map_err(|e| e.into())
-    }
-
-    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        self.get_stripped_room_infos().await.map_err(|e| e.into())
-    }
-
-    async fn get_users_with_display_name(
-        &self,
-        room_id: &RoomId,
-        display_name: &str,
-    ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        self.get_users_with_display_name(room_id, display_name).await.map_err(|e| e.into())
-    }
-
-    async fn get_account_data_event(
-        &self,
-        event_type: GlobalAccountDataEventType,
-    ) -> StoreResult<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        self.get_account_data_event(event_type).await.map_err(|e| e.into())
-    }
-
-    async fn get_room_account_data_event(
-        &self,
-        room_id: &RoomId,
-        event_type: RoomAccountDataEventType,
-    ) -> StoreResult<Option<Raw<AnyRoomAccountDataEvent>>> {
-        self.get_room_account_data_event(room_id, event_type).await.map_err(|e| e.into())
-    }
-
-    async fn get_user_room_receipt_event(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        thread: ReceiptThread,
-        user_id: &UserId,
-    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
-            .await
-            .map_err(|e| e.into())
-    }
-
-    async fn get_event_room_receipt_events(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        thread: ReceiptThread,
-        event_id: &EventId,
-    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
-            .await
-            .map_err(|e| e.into())
-    }
-
-    async fn get_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
-        self.get_custom_value(key).await.map_err(|e| e.into())
-    }
-
-    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> StoreResult<Option<Vec<u8>>> {
-        self.set_custom_value(key, value).await.map_err(|e| e.into())
-    }
-
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> StoreResult<()> {
-        self.add_media_content(request, data).await.map_err(|e| e.into())
-    }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> StoreResult<Option<Vec<u8>>> {
-        self.get_media_content(request).await.map_err(|e| e.into())
-    }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> StoreResult<()> {
-        self.remove_media_content(request).await.map_err(|e| e.into())
-    }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> StoreResult<()> {
-        self.remove_media_content_for_uri(uri).await.map_err(|e| e.into())
-    }
-
-    async fn remove_room(&self, room_id: &RoomId) -> StoreResult<()> {
-        self.remove_room(room_id).await.map_err(|e| e.into())
+        self.get_joined_user_ids_inner(room_id).await
     }
 }
 
@@ -1574,6 +1463,7 @@ mod migration_tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use indexed_db_futures::prelude::*;
+    use matrix_sdk_base::StateStore;
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{AnySyncStateEvent, StateEventType},
