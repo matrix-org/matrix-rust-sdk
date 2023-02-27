@@ -760,7 +760,7 @@ pub struct UpdateSummary {
 /// A Sliding Sync session can expire. In this case, it is reset. However, to
 /// avoid entering an infinite loop of “it's expired, let's reset, it's expired,
 /// let's reset…” (maybe if the network has an issue, or the server, or anything
-/// else), we defined a maximum times a session can expire before
+/// else), we define a maximum times a session can expire before
 /// raising a proper error.
 const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
@@ -770,6 +770,7 @@ pub struct SlidingSync {
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
 
+    /// The HTTP Matrix client.
     client: Client,
 
     /// The storage key to keep this cache at and load it from
@@ -826,7 +827,7 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 impl SlidingSync {
     async fn cache_to_storage(&self) -> Result<(), crate::Error> {
         let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
-        trace!(storage_key, "saving to storage for later use");
+        trace!(storage_key, "Saving to storage for later use");
 
         let store = self.client.store();
 
