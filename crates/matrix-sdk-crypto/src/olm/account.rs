@@ -1058,7 +1058,14 @@ impl ReadOnlyAccount {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
-    #[instrument(skip_all, fields(sender_key = ?their_identity_key, session_keys = ?message.session_keys(), session_id))]
+    #[instrument(
+        skip_all,
+        fields(
+            sender_key = ?their_identity_key,
+            session_id = message.session_id()
+            session_keys = ?message.session_keys(),
+        )
+    )]
     pub async fn create_inbound_session(
         &self,
         their_identity_key: Curve25519PublicKey,
@@ -1071,7 +1078,6 @@ impl ReadOnlyAccount {
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
-        Span::current().record("session_id", &session_id);
         trace!(?session_id, "Olm session created successfully");
 
         let session = Session {
