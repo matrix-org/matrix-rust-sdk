@@ -1087,14 +1087,14 @@ impl SlidingSync {
         &self,
         views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<Option<UpdateSummary>> {
-        let mut requests = BTreeMap::new();
+        let mut lists_of_requests = BTreeMap::new();
 
         {
             let mut views_to_remove = Vec::new();
 
             for (name, generator) in views.iter_mut() {
                 if let Some(request) = generator.next() {
-                    requests.insert(name.clone(), request);
+                    lists_of_requests.insert(name.clone(), request);
                 } else {
                     views_to_remove.push(name.clone());
                 }
@@ -1127,40 +1127,49 @@ impl SlidingSync {
             }
         };
 
-        let request = assign!(v4::Request::new(), {
-            lists: requests,
-            pos,
-            delta_token,
-            timeout: Some(timeout),
-            room_subscriptions,
-            unsubscribe_rooms,
-            extensions: extensions.clone().unwrap_or_default(),
-        });
-        debug!("requesting");
+        debug!("Sending the sliding sync request");
 
-        // 30s for the long poll + 30s for network delays
+        // Configure long-polling. We need 30 seconds for the long-poll itself, in
+        // addition to 30 more extra seconds for the network delays.
         let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
+
+        // Prepare the request.
         let request = self.client.send_with_homeserver(
-            request,
+            assign!(v4::Request::new(), {
+                lists: lists_of_requests,
+                pos,
+                delta_token,
+                timeout: Some(timeout),
+                room_subscriptions,
+                unsubscribe_rooms,
+                extensions: extensions.clone().unwrap_or_default(),
+            }),
             Some(request_config),
             self.homeserver.as_ref().map(ToString::to_string),
         );
 
+        // Send the request and get a response with end-to-end encryption support.
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            let (e2ee_uploads, resp) =
-                futures_util::join!(self.client.send_outgoing_requests(), request);
-            if let Err(e) = e2ee_uploads {
-                error!(error = ?e, "Error while sending outgoing E2EE requests");
+            let (e2ee_uploads, response) =
+                futures_util::future::join(self.client.send_outgoing_requests(), request).await;
+
+            if let Err(error) = e2ee_uploads {
+                error!(?error, "Error while sending outgoing E2EE requests");
             }
-            resp
+
+            response
         }?;
+
+        // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
-        debug!("received");
+
+        debug!("Sliding sync response received");
 
         let updates = self.handle_response(response, extensions, views).await?;
-        debug!("handled");
+
+        debug!("Sliding sync response has been handled");
 
         Ok(Some(updates))
     }
