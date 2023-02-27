@@ -815,32 +815,44 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 }
 
 impl SlidingSync {
-    async fn cache_to_storage(&self) -> Result<()> {
+    async fn cache_to_storage(&self) -> Result<(), crate::Error> {
         let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
         trace!(storage_key, "saving to storage for later use");
-        let v = serde_json::to_vec(&FrozenSlidingSync::from(self))?;
-        self.client.store().set_custom_value(storage_key.as_bytes(), v).await?;
+
+        let store = self.client.store();
+
+        // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
+        // the client store.
+        store
+            .set_custom_value(
+                storage_key.as_bytes(),
+                serde_json::to_vec(&FrozenSlidingSync::from(self))?,
+            )
+            .await?;
+
+        // Write every `SlidingSyncView` inside the client the store.
         let frozen_views = {
             let rooms_lock = self.rooms.read().unwrap();
+
             self.views
                 .read()
                 .unwrap()
                 .iter()
                 .map(|(name, view)| {
-                    (name.clone(), FrozenSlidingSyncView::freeze(view, &rooms_lock))
+                    Ok((
+                        format!("{storage_key}::{name}"),
+                        serde_json::to_vec(&FrozenSlidingSyncView::freeze(view, &rooms_lock))?,
+                    ))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>, crate::Error>>()?
         };
-        for (name, frozen) in frozen_views {
-            trace!(storage_key, name, "saving to view for later use");
-            self.client
-                .store()
-                .set_custom_value(
-                    format!("{storage_key}::{name}").as_bytes(),
-                    serde_json::to_vec(&frozen)?,
-                )
-                .await?; // FIXME: parallelize?
+
+        for (storage_key, frozen_view) in frozen_views {
+            trace!(storage_key, "Saving the frozen Sliding Sync View");
+
+            store.set_custom_value(storage_key.as_bytes(), frozen_view).await?;
         }
+
         Ok(())
     }
 
