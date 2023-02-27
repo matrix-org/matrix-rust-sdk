@@ -85,10 +85,10 @@
 //! are **inclusive**) like so:
 //!
 //! ```rust
-//! # use matrix_sdk::sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode};
+//! # use matrix_sdk::sliding_sync::{SlidingSyncView, SlidingSyncMode};
 //! use ruma::{assign, api::client::sync::sync_events::v4};
 //!
-//! let view_builder = SlidingSyncViewBuilder::default()
+//! let view_builder = SlidingSyncView::builder()
 //!     .name("main_view")
 //!     .sync_mode(SlidingSyncMode::Selective)
 //!     .filters(Some(assign!(
@@ -280,7 +280,6 @@
 //! ```no_run
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
-//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! # use matrix_sdk::{
 //! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder},
 //! #    Client,
@@ -304,6 +303,7 @@
 //!
 //! // continuously poll for updates
 //! pin_mut!(stream);
+//!
 //! loop {
 //!     let update = match stream.next().await {
 //!         Some(Ok(u)) => {
@@ -349,7 +349,6 @@
 //! ```no_run
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
-//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! # use matrix_sdk::{
 //! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder, SlidingSync, Error},
 //! #    Client,
@@ -370,7 +369,7 @@
 //! #    .await?;
 //! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 //!
-//! struct MyRunner{ lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
+//! struct MyRunner { lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
 //!
 //! impl MyRunner {
 //!   pub fn restart_sync(&mut self) {
@@ -418,38 +417,20 @@
 //! must be applied transparently throughout to the data layer. The simplest
 //! way to stay up to date on what objects have changed is by checking the
 //! [`views`](`UpdateSummary.views`) and [`rooms`](`UpdateSummary.rooms`) of
-//! each `UpdateSummary` given by each stream iteration and update the local
+//! each [`UpdateSummary`] given by each stream iteration and update the local
 //! copies accordingly. Because of where the loop sits in the stack, that can
 //! be a bit tedious though, so views and rooms have an additional way of
-//! subscribing to updates via [`futures_signals`][].
+//! subscribing to updates via [`eyeball`].
 //!
-//! The `rooms_list` is of the more specialized
-//! [`MutableVec`](`futures_signals::signal_vec::MutableVec`) type. Rather than
-//! just signaling the latest state (which can be very inefficient, especially
-//! on large lists), its
-//! [`MutableSignalVec`](`futures_signals::signal_vec::MutableSignalVec`) will
-//! share the modifications made by signalling
-//! [`VecDiff`](`futures_signals::signal_vec::VecDiff`) over the stream. This
-//! allows for easy and efficient synchronization of exactly those parts that
-//! have been changed. If you are keeping a memory copy of the
-//! `Vec<RoomListItem>` for your view for example, you can apply changes that
-//! come as `VecDiff` easily by calling
-//! [`apply_to_vec`](`futures_signals::signal_vec::VecDiff::apply_to_vec`).
-//!
-//! The `Timeline` you can receive per room by calling
+//! The `Timeline` one can receive per room by calling
 //! [`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
 //! currently cached timeline events.
-//!
-//! 👉 To learn more about [`future_signals` check out to their excellent
-//! tutorial][future-signals-tutorial].
 //!
 //! ## Caching
 //!
 //! All room data, for filled but also _invalidated_ rooms, including the entire
 //! timeline events as well as all view `room_lists` and `rooms_count` are held
-//! in memory (unless one `pop`s the view out). Technically, one can access
-//! `rooms_list` and `rooms` directly and mutate them but doing so invalidates
-//! further updates received by the server - see [#1474][https://github.com/matrix-org/matrix-rust-sdk/issues/1474].
+//! in memory (unless one `pop`s the view out).
 //!
 //! This is a purely in-memory cache layer though. If one wants Sliding Sync to
 //! persist and load from cold (storage) cache, one needs to set its key with
@@ -506,11 +487,10 @@
 //!
 //! ```no_run
 //! # use futures::executor::block_on;
-//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode}};
+//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncView, SlidingSyncMode}};
 //! use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
 //! use tracing::{warn, error, info, debug};
 //! use futures::{StreamExt, pin_mut};
-//! use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! use url::Url;
 //! # block_on(async {
 //! # let homeserver = Url::parse("http://example.com")?;
@@ -524,7 +504,7 @@
 //!     .with_common_extensions() // we want the e2ee and to-device enabled, please
 //!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 //!
-//! let full_sync_view = SlidingSyncViewBuilder::default()
+//! let full_sync_view = SlidingSyncView::builder()
 //!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
 //!     .name(&full_sync_view_name)    // needed to lookup again.
 //!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
@@ -535,7 +515,7 @@
 //!     .limit(500)      // only sync up the top 500 rooms
 //!     .build()?;
 //!
-//! let active_view = SlidingSyncViewBuilder::default()
+//! let active_view = SlidingSyncView::builder()
 //!     .name(&active_view_name)   // the active window
 //!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
 //!     .set_range(0u32, 9u32) // only the top 10 items
@@ -608,9 +588,7 @@
 //!
 //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
 //! [proxy]: https://github.com/matrix-org/sliding-sync
-//! [futures_signals]: https://docs.rs/futures-signals/latest/futures_signals/index.html
 //! [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
-//! [future-signals-tutorial]: https://docs.rs/futures-signals/latest/futures_signals/tutorial/index.html
 
 mod builder;
 mod client;
