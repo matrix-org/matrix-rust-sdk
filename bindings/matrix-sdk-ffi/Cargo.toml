@@ -29,6 +29,7 @@ mime = "0.3.16"
 once_cell = { workspace = true }
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client", "http-proto"] }
+ruma = { workspace = true, features = ["unstable-sanitize"] }
 sanitize-filename-reader-friendly = "2.2.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
