@@ -41,12 +41,9 @@ impl SlidingSyncRoom {
     pub(super) fn new(
         client: Client,
         room_id: OwnedRoomId,
-        mut inner: v4::SlidingSyncRoom,
+        inner: v4::SlidingSyncRoom,
         timeline: Vec<SyncTimelineEvent>,
     ) -> Self {
-        // we overwrite to only keep one copy
-        inner.timeline = vec![];
-
         let mut timeline_queue = ObservableVector::new();
         timeline_queue.append(timeline.into_iter().collect());
 
