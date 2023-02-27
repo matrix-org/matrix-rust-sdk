@@ -1062,7 +1062,7 @@ impl ReadOnlyAccount {
         skip_all,
         fields(
             sender_key = ?their_identity_key,
-            session_id = message.session_id()
+            session_id = message.session_id(),
             session_keys = ?message.session_keys(),
         )
     )]
