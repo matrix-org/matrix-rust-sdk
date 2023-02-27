@@ -1072,11 +1072,10 @@ impl SlidingSync {
                 }
             }
 
-            // Update the `to-device` next-batch if found.
-            sliding_sync_response
-                .extensions
-                .to_device
-                .map(|to_device| self.update_to_device_since(to_device.next_batch));
+            // Update the `to-device` next-batch if any.
+            if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                self.update_to_device_since(to_device.next_batch);
+            }
 
             // Track the most recently successfully sent extensions (needed for sticky
             // semantics).
