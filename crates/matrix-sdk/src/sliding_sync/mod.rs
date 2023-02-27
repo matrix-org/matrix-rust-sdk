@@ -1157,6 +1157,14 @@ impl SlidingSync {
         );
 
         // Send the request and get a response with end-to-end encryption support.
+        //
+        // Sending the `/sync` request out when end-to-end encryption is enabled means
+        // that we need to also send out any outgoing e2ee related request out
+        // coming from the `OlmMachine::outgoing_requests()` method.
+        //
+        // FIXME: Processing outgiong requests at the same time while a `/sync` is in
+        // flight is currently not supported.
+        // More info: [#1386](https://github.com/matrix-org/matrix-rust-sdk/issues/1386).
         #[cfg(feature = "e2e-encryption")]
         let response = {
             let (e2ee_uploads, response) =
