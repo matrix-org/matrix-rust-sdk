@@ -85,10 +85,10 @@
 //! are **inclusive**) like so:
 //!
 //! ```rust
-//! # use matrix_sdk::sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode};
+//! # use matrix_sdk::sliding_sync::{SlidingSyncView, SlidingSyncMode};
 //! use ruma::{assign, api::client::sync::sync_events::v4};
 //!
-//! let view_builder = SlidingSyncViewBuilder::default()
+//! let view_builder = SlidingSyncView::builder()
 //!     .name("main_view")
 //!     .sync_mode(SlidingSyncMode::Selective)
 //!     .filters(Some(assign!(
@@ -280,7 +280,6 @@
 //! ```no_run
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
-//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! # use matrix_sdk::{
 //! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder},
 //! #    Client,
@@ -304,6 +303,7 @@
 //!
 //! // continuously poll for updates
 //! pin_mut!(stream);
+//!
 //! loop {
 //!     let update = match stream.next().await {
 //!         Some(Ok(u)) => {
@@ -349,7 +349,6 @@
 //! ```no_run
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
-//! # use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! # use matrix_sdk::{
 //! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder, SlidingSync, Error},
 //! #    Client,
@@ -370,7 +369,7 @@
 //! #    .await?;
 //! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 //!
-//! struct MyRunner{ lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
+//! struct MyRunner { lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
 //!
 //! impl MyRunner {
 //!   pub fn restart_sync(&mut self) {
@@ -418,38 +417,20 @@
 //! must be applied transparently throughout to the data layer. The simplest
 //! way to stay up to date on what objects have changed is by checking the
 //! [`views`](`UpdateSummary.views`) and [`rooms`](`UpdateSummary.rooms`) of
-//! each `UpdateSummary` given by each stream iteration and update the local
+//! each [`UpdateSummary`] given by each stream iteration and update the local
 //! copies accordingly. Because of where the loop sits in the stack, that can
 //! be a bit tedious though, so views and rooms have an additional way of
-//! subscribing to updates via [`futures_signals`][].
+//! subscribing to updates via [`eyeball`].
 //!
-//! The `rooms_list` is of the more specialized
-//! [`MutableVec`](`futures_signals::signal_vec::MutableVec`) type. Rather than
-//! just signaling the latest state (which can be very inefficient, especially
-//! on large lists), its
-//! [`MutableSignalVec`](`futures_signals::signal_vec::MutableSignalVec`) will
-//! share the modifications made by signalling
-//! [`VecDiff`](`futures_signals::signal_vec::VecDiff`) over the stream. This
-//! allows for easy and efficient synchronization of exactly those parts that
-//! have been changed. If you are keeping a memory copy of the
-//! `Vec<RoomListItem>` for your view for example, you can apply changes that
-//! come as `VecDiff` easily by calling
-//! [`apply_to_vec`](`futures_signals::signal_vec::VecDiff::apply_to_vec`).
-//!
-//! The `Timeline` you can receive per room by calling
+//! The `Timeline` one can receive per room by calling
 //! [`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
 //! currently cached timeline events.
-//!
-//! 👉 To learn more about [`future_signals` check out to their excellent
-//! tutorial][future-signals-tutorial].
 //!
 //! ## Caching
 //!
 //! All room data, for filled but also _invalidated_ rooms, including the entire
 //! timeline events as well as all view `room_lists` and `rooms_count` are held
-//! in memory (unless one `pop`s the view out). Technically, one can access
-//! `rooms_list` and `rooms` directly and mutate them but doing so invalidates
-//! further updates received by the server - see [#1474][https://github.com/matrix-org/matrix-rust-sdk/issues/1474].
+//! in memory (unless one `pop`s the view out).
 //!
 //! This is a purely in-memory cache layer though. If one wants Sliding Sync to
 //! persist and load from cold (storage) cache, one needs to set its key with
@@ -506,11 +487,10 @@
 //!
 //! ```no_run
 //! # use futures::executor::block_on;
-//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncViewBuilder, SlidingSyncMode}};
+//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncView, SlidingSyncMode}};
 //! use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
 //! use tracing::{warn, error, info, debug};
 //! use futures::{StreamExt, pin_mut};
-//! use futures_signals::{signal::SignalExt, signal_vec::SignalVecExt};
 //! use url::Url;
 //! # block_on(async {
 //! # let homeserver = Url::parse("http://example.com")?;
@@ -524,7 +504,7 @@
 //!     .with_common_extensions() // we want the e2ee and to-device enabled, please
 //!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 //!
-//! let full_sync_view = SlidingSyncViewBuilder::default()
+//! let full_sync_view = SlidingSyncView::builder()
 //!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
 //!     .name(&full_sync_view_name)    // needed to lookup again.
 //!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
@@ -535,7 +515,7 @@
 //!     .limit(500)      // only sync up the top 500 rooms
 //!     .build()?;
 //!
-//! let active_view = SlidingSyncViewBuilder::default()
+//! let active_view = SlidingSyncView::builder()
 //!     .name(&active_view_name)   // the active window
 //!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
 //!     .set_range(0u32, 9u32) // only the top 10 items
@@ -608,12 +588,11 @@
 //!
 //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
 //! [proxy]: https://github.com/matrix-org/sliding-sync
-//! [futures_signals]: https://docs.rs/futures-signals/latest/futures_signals/index.html
 //! [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
-//! [future-signals-tutorial]: https://docs.rs/futures-signals/latest/futures_signals/tutorial/index.html
 
 mod builder;
 mod client;
+mod error;
 mod room;
 mod view;
 
@@ -630,6 +609,7 @@ use std::{
 
 pub use builder::*;
 pub use client::*;
+pub use error::*;
 use eyeball::Observable;
 use futures_core::stream::Stream;
 pub use room::*;
@@ -643,133 +623,28 @@ use ruma::{
     assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
 pub use view::*;
 
 use crate::{config::RequestConfig, Client, Result};
 
-/// Internal representation of errors in Sliding Sync
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum Error {
-    /// The response we've received from the server can't be parsed or doesn't
-    /// match up with the current expectations on the client side. A
-    /// `sync`-restart might be required.
-    #[error("The sliding sync response could not be handled: {0}")]
-    BadResponse(String),
-    /// Called `.build()` on a builder type, but the given required field was
-    /// missing.
-    #[error("Required field missing: `{0}`")]
-    BuildMissingField(&'static str),
-}
-
-/// The state the [`SlidingSyncView`] is in.
-///
-/// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
-/// response for the first given number of Rooms, then switches into
-/// `CatchingUp` during which the view fetches the remaining rooms, usually in
-/// order, some times in batches. Once that is ready, it switches into `Live`.
-///
-/// If the client has been offline for a while, though, the SlidingSync might
-/// return back to `CatchingUp` at any point.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SlidingSyncState {
-    /// Hasn't started yet
-    #[default]
-    Cold,
-    /// We are quickly preloading a preview of the most important rooms
-    Preload,
-    /// We are trying to load all remaining rooms, might be in batches
-    CatchingUp,
-    /// We are all caught up and now only sync the live responses.
-    Live,
-}
-
-/// The mode by which the the [`SlidingSyncView`] is in fetching the data.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SlidingSyncMode {
-    /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..20`, `21..40`, 41..60` etc. assuming the `batch_size` is 20.
-    #[serde(alias = "FullSync")]
-    PagingFullSync,
-    /// Fully sync all rooms in the background, with a growing window of
-    /// `batch_size`, like `0..20`, `0..40`, `0..60` etc. assuming the
-    /// `batch_size` is 20.
-    GrowingFullSync,
-    /// Only sync the specific windows defined
-    #[default]
-    Selective,
-}
-
-/// The Entry in the sliding sync room list per sliding sync view
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub enum RoomListEntry {
-    /// This entry isn't known at this point and thus considered `Empty`
-    #[default]
-    Empty,
-    /// There was `OwnedRoomId` but since the server told us to invalid this
-    /// entry. it is considered stale
-    Invalidated(OwnedRoomId),
-    /// This Entry is followed with `OwnedRoomId`
-    Filled(OwnedRoomId),
-}
-
-impl RoomListEntry {
-    /// Is this entry empty or invalidated?
-    pub fn empty_or_invalidated(&self) -> bool {
-        matches!(self, RoomListEntry::Empty | RoomListEntry::Invalidated(_))
-    }
-
-    /// The inner room_id if given
-    pub fn as_room_id(&self) -> Option<&RoomId> {
-        match &self {
-            RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.as_ref()),
-        }
-    }
-
-    fn freeze(&self) -> RoomListEntry {
-        match &self {
-            RoomListEntry::Empty => RoomListEntry::Empty,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => {
-                RoomListEntry::Invalidated(b.clone())
-            }
-        }
-    }
-}
-
-impl<'a> From<&'a RoomListEntry> for RoomListEntry {
-    fn from(value: &'a RoomListEntry) -> Self {
-        value.clone()
-    }
-}
-
-/// The Summary of a new SlidingSync Update received
-#[derive(Debug, Clone)]
-pub struct UpdateSummary {
-    /// The views (according to their name), which have seen an update
-    pub views: Vec<String>,
-    /// The Rooms that have seen updates
-    pub rooms: Vec<OwnedRoomId>,
-}
-
 /// Number of times a Sliding Sync session can expire before raising an error.
 ///
 /// A Sliding Sync session can expire. In this case, it is reset. However, to
 /// avoid entering an infinite loop of “it's expired, let's reset, it's expired,
 /// let's reset…” (maybe if the network has an issue, or the server, or anything
-/// else), we defined a maximum times a session can expire before
+/// else), we define a maximum times a session can expire before
 /// raising a proper error.
 const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
-/// The sliding sync instance
+/// The Sliding Sync instance.
 #[derive(Clone, Debug)]
 pub struct SlidingSync {
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
 
+    /// The HTTP Matrix client.
     client: Client,
 
     /// The storage key to keep this cache at and load it from
@@ -826,7 +701,7 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 impl SlidingSync {
     async fn cache_to_storage(&self) -> Result<(), crate::Error> {
         let Some(storage_key) = self.storage_key.as_ref() else { return Ok(()) };
-        trace!(storage_key, "saving to storage for later use");
+        trace!(storage_key, "Saving to storage for later use");
 
         let store = self.client.store();
 
@@ -1278,6 +1153,16 @@ impl SlidingSync {
     pub fn set_pos(&self, new_pos: String) {
         Observable::set(&mut self.pos.write().unwrap(), Some(new_pos));
     }
+}
+
+/// A summary of the updates received after a sync (like in
+/// [`SlidingSync::stream`]).
+#[derive(Debug, Clone)]
+pub struct UpdateSummary {
+    /// The names of the views that have seen an update.
+    pub views: Vec<String>,
+    /// The rooms that have seen updates
+    pub rooms: Vec<OwnedRoomId>,
 }
 
 #[cfg(test)]

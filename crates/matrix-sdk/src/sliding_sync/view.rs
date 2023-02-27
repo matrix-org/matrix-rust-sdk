@@ -18,9 +18,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{
-    Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncMode, SlidingSyncRoom, SlidingSyncState,
-};
+use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered view within the concept of sliding sync.
@@ -905,4 +903,87 @@ fn room_ops(
     }
 
     Ok(())
+}
+
+/// The state the [`SlidingSyncView`] is in.
+///
+/// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
+/// response for the first given number of Rooms, then switches into
+/// `CatchingUp` during which the view fetches the remaining rooms, usually in
+/// order, some times in batches. Once that is ready, it switches into `Live`.
+///
+/// If the client has been offline for a while, though, the SlidingSync might
+/// return back to `CatchingUp` at any point.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlidingSyncState {
+    /// Hasn't started yet
+    #[default]
+    Cold,
+    /// We are quickly preloading a preview of the most important rooms
+    Preload,
+    /// We are trying to load all remaining rooms, might be in batches
+    CatchingUp,
+    /// We are all caught up and now only sync the live responses.
+    Live,
+}
+
+/// The mode by which the the [`SlidingSyncView`] is in fetching the data.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlidingSyncMode {
+    /// Fully sync all rooms in the background, page by page of `batch_size`,
+    /// like `0..20`, `21..40`, 41..60` etc. assuming the `batch_size` is 20.
+    #[serde(alias = "FullSync")]
+    PagingFullSync,
+    /// Fully sync all rooms in the background, with a growing window of
+    /// `batch_size`, like `0..20`, `0..40`, `0..60` etc. assuming the
+    /// `batch_size` is 20.
+    GrowingFullSync,
+    /// Only sync the specific windows defined
+    #[default]
+    Selective,
+}
+
+/// The Entry in the Sliding Sync room list per Sliding Sync view.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum RoomListEntry {
+    /// This entry isn't known at this point and thus considered `Empty`.
+    #[default]
+    Empty,
+    /// There was `OwnedRoomId` but since the server told us to invalid this
+    /// entry. it is considered stale.
+    Invalidated(OwnedRoomId),
+    /// This entry is followed with `OwnedRoomId`.
+    Filled(OwnedRoomId),
+}
+
+impl RoomListEntry {
+    /// Is this entry empty or invalidated?
+    pub fn empty_or_invalidated(&self) -> bool {
+        matches!(self, Self::Empty | Self::Invalidated(_))
+    }
+
+    /// Return the inner `room_id` if the entry' state is not empty.
+    pub fn as_room_id(&self) -> Option<&RoomId> {
+        match &self {
+            Self::Empty => None,
+            Self::Invalidated(room_id) | Self::Filled(room_id) => Some(room_id.as_ref()),
+        }
+    }
+
+    /// Clone this entry, but freeze it, i.e. if the entry is empty, it remains
+    /// empty, otherwise it is invalidated.
+    fn freeze(&self) -> Self {
+        match &self {
+            Self::Empty => Self::Empty,
+            Self::Invalidated(room_id) | Self::Filled(room_id) => {
+                Self::Invalidated(room_id.clone())
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a RoomListEntry> for RoomListEntry {
+    fn from(value: &'a RoomListEntry) -> Self {
+        value.clone()
+    }
 }
