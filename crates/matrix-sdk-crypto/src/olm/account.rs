@@ -36,7 +36,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn, Span};
 use vodozemac::{
     olm::{
         Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage,
@@ -286,6 +286,7 @@ impl Account {
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
+    #[instrument(skip(self, message), fields(session_id))]
     async fn decrypt_olm_message(
         &self,
         sender: &UserId,
@@ -309,16 +310,14 @@ impl Account {
                     let session_ids = if let Some(sessions) =
                         self.store.get_sessions(&sender_key.to_base64()).await?
                     {
-                        sessions.lock().await.iter().map(|s| s.session_id().to_string()).collect()
+                        sessions.lock().await.iter().map(|s| s.session_id().to_owned()).collect()
                     } else {
                         vec![]
                     };
 
                     warn!(
                         ?session_ids,
-                        ?sender_key,
-                        "Failed to decrypt a non-pre-key message with all \
-                            available sessions",
+                        "Failed to decrypt a non-pre-key message with all available sessions",
                     );
 
                     return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
@@ -330,18 +329,17 @@ impl Account {
                         Ok(r) => r,
                         Err(e) => {
                             warn!(
-                                ?sender_key,
                                 session_keys = ?m.session_keys(),
-                                "Failed to create a new Olm session from a \
-                                pre-key message: {e:?}",
+                                "Failed to create a new Olm session from a pre-key message: {e:?}",
                             );
+
                             return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
                         }
                     };
 
                     // We need to add the new session to the session cache, otherwise
                     // we might try to create the same session again.
-                    // TODO separate the session cache from the storage so we only add
+                    // TODO: separate the session cache from the storage so we only add
                     // it to the cache but don't store it.
                     let changes = Changes {
                         account: Some(self.inner.clone()),
@@ -359,7 +357,9 @@ impl Account {
             SessionType::New(s) => s.session_id(),
             SessionType::Existing(s) => s.session_id(),
         };
-        trace!(?sender_key, ?session_id, "Successfully decrypted an Olm message");
+
+        Span::current().record("session_id", session_id);
+        trace!("Successfully decrypted an Olm message");
 
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
@@ -382,7 +382,6 @@ impl Account {
                 }
 
                 warn!(
-                    sender_key = sender_key.to_base64(),
                     error = ?e,
                     "A to-device message was successfully decrypted but \
                     parsing and checking the event fields failed"
@@ -1059,22 +1058,20 @@ impl ReadOnlyAccount {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
+    #[instrument(skip_all, fields(sender_key = ?their_identity_key, session_keys = ?message.session_keys(), session_id))]
     pub async fn create_inbound_session(
         &self,
         their_identity_key: Curve25519PublicKey,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
-        debug!(
-            sender_key = ?their_identity_key,
-            session_keys = ?message.session_keys(),
-            "Creating a new Olm session from a pre-key message"
-        );
+        debug!("Creating a new Olm session from a pre-key message");
 
         let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
+        Span::current().record("session_id", &session_id);
         trace!(?session_id, "Olm session created successfully");
 
         let session = Session {
