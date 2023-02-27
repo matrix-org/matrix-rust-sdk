@@ -677,6 +677,7 @@ pub struct PickledOutboundGroupSession {
     /// The set of users the session has been already shared with.
     pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
     /// The set of devices the session has already been sent a withheld code.
+    #[serde(default)]
     pub withheld_to_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, WithheldCode>>,
     /// Requests that need to be sent out to share the session.
     pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
