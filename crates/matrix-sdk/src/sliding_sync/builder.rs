@@ -298,7 +298,7 @@ impl SlidingSyncBuilder {
 
             extensions: Mutex::new(self.extensions).into(),
             sent_extensions: Mutex::new(None).into(),
-            failure_count: Default::default(),
+            reset_counter: Default::default(),
 
             pos: Arc::new(StdRwLock::new(Observable::new(None))),
             delta_token: Arc::new(StdRwLock::new(Observable::new(delta_token_inner))),
