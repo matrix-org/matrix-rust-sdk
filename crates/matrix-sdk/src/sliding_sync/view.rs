@@ -943,38 +943,40 @@ pub enum SlidingSyncMode {
     Selective,
 }
 
-/// The Entry in the sliding sync room list per sliding sync view
+/// The Entry in the Sliding Sync room list per Sliding Sync view.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum RoomListEntry {
-    /// This entry isn't known at this point and thus considered `Empty`
+    /// This entry isn't known at this point and thus considered `Empty`.
     #[default]
     Empty,
     /// There was `OwnedRoomId` but since the server told us to invalid this
-    /// entry. it is considered stale
+    /// entry. it is considered stale.
     Invalidated(OwnedRoomId),
-    /// This Entry is followed with `OwnedRoomId`
+    /// This entry is followed with `OwnedRoomId`.
     Filled(OwnedRoomId),
 }
 
 impl RoomListEntry {
     /// Is this entry empty or invalidated?
     pub fn empty_or_invalidated(&self) -> bool {
-        matches!(self, RoomListEntry::Empty | RoomListEntry::Invalidated(_))
+        matches!(self, Self::Empty | Self::Invalidated(_))
     }
 
-    /// The inner room_id if given
+    /// Return the inner `room_id` if the entry' state is not empty.
     pub fn as_room_id(&self) -> Option<&RoomId> {
         match &self {
-            RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.as_ref()),
+            Self::Empty => None,
+            Self::Invalidated(room_id) | Self::Filled(room_id) => Some(room_id.as_ref()),
         }
     }
 
-    fn freeze(&self) -> RoomListEntry {
+    /// Clone this entry, but freeze it, i.e. if the entry is empty, it remains
+    /// empty, otherwise it is invalidated.
+    fn freeze(&self) -> Self {
         match &self {
-            RoomListEntry::Empty => RoomListEntry::Empty,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => {
-                RoomListEntry::Invalidated(b.clone())
+            Self::Empty => Self::Empty,
+            Self::Invalidated(room_id) | Self::Filled(room_id) => {
+                Self::Invalidated(room_id.clone())
             }
         }
     }
