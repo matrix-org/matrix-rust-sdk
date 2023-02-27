@@ -108,8 +108,38 @@ impl Client {
         Ok(response)
     }
 
-    /// Encrypt and upload a file to be read from `reader` with content type
-    /// `content_type` and construct a `EncryptedFile`
+    /// Construct a [`EncryptedFile`][ruma::events::room::EncryptedFile] by encrypting
+    /// and uploading a provided reader.
+    ///
+    /// # Arguments
+    /// * `content_type` - The content type of the file.
+    /// * `reader` - The reader that should be encrypted and uploaded.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
+    /// use serde::{Deserialize, Serialize};
+    /// use matrix_sdk::ruma::events::macros::EventContent;
+    ///
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "com.example.custom", kind = MessageLike)]
+    /// struct CustomEventContent {
+    ///     encrypted_file: matrix_sdk::ruma::events::room::EncryptedFile,
+    /// }
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// # let room = client.get_joined_room(&room_id!("!test:example.com")).unwrap();
+    ///
+    /// let mut reader = std::io::Cursor::new(b"Hello, world!");
+    /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
+    ///
+    /// room.send(CustomEventContent { encrypted_file }, None).await?;
+    /// # anyhow::Ok(()) });
+    /// ```
     #[cfg(feature = "e2e-encryption")]
     pub async fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &self,
