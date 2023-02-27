@@ -76,7 +76,10 @@ fn init_logging() {
 }
 
 /// Creates a server name from a user supplied string. The string is first
-/// sanitized by removing the http(s) scheme before being parsed.
+/// sanitized by removing whitespace, the http(s) scheme and any trailing
+/// slashes before being parsed.
 pub fn sanitize_server_name(s: &str) -> Result<OwnedServerName, IdParseError> {
-    ServerName::parse(s.trim_start_matches("http://").trim_start_matches("https://"))
+    ServerName::parse(
+        s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
+    )
 }

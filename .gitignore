@@ -5,6 +5,7 @@ emsdk-*
 .idea/
 .env
 .build
+.swiftpm
 /Package.swift
 
 ## User settings

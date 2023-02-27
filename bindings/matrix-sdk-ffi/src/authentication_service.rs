@@ -5,6 +5,7 @@ use matrix_sdk::{
     ruma::{IdParseError, OwnedDeviceId, UserId},
     Session,
 };
+use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
@@ -106,7 +107,7 @@ impl AuthenticationService {
 
         let url = login_details.0;
         let authentication_issuer = login_details.1;
-        let supports_password_login = login_details.2.map_err(AuthenticationError::from)?;
+        let supports_password_login = login_details.2?;
 
         Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
     }
@@ -126,26 +127,34 @@ impl AuthenticationService {
     ) -> Result<(), AuthenticationError> {
         let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
 
-        // Remove any URL scheme from the name to attempt discovery first.
-        let server_name = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url)
-            .map_err(AuthenticationError::from)?;
-
-        builder = builder.server_name(server_name.to_string());
-
-        let client = builder
-            .build()
-            .or_else(|e| {
-                if !server_name_or_homeserver_url.starts_with("http://")
-                    && !server_name_or_homeserver_url.starts_with("http://")
-                {
-                    return Err(e);
+        // Attempt discovery as a server name first.
+        let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
+        match result {
+            Ok(server_name) => {
+                builder = builder.server_name(server_name.to_string());
+            }
+            Err(e) => {
+                // When the input isn't a valid server name check it is a URL.
+                // If this is the case, build the client with a homeserver URL.
+                if let Ok(_url) = Url::parse(&server_name_or_homeserver_url) {
+                    builder = builder.homeserver_url(server_name_or_homeserver_url.clone());
+                } else {
+                    return Err(e.into());
                 }
-                // When discovery fails, fallback to the homeserver URL if supplied.
-                let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
-                builder = builder.homeserver_url(server_name_or_homeserver_url);
-                builder.build()
-            })
-            .map_err(AuthenticationError::from)?;
+            }
+        }
+
+        let client = builder.build().or_else(|e| {
+            if !server_name_or_homeserver_url.starts_with("http://")
+                && !server_name_or_homeserver_url.starts_with("https://")
+            {
+                return Err(e);
+            }
+            // When discovery fails, fallback to the homeserver URL if supplied.
+            let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+            builder = builder.homeserver_url(server_name_or_homeserver_url);
+            builder.build()
+        })?;
 
         let details = RUNTIME.block_on(self.details_from_client(&client))?;
 
@@ -177,9 +186,7 @@ impl AuthenticationService {
 
         // Login and ask the server for the full user ID as this could be different from
         // the username that was entered.
-        client
-            .login(username, password, initial_device_name, device_id)
-            .map_err(AuthenticationError::from)?;
+        client.login(username, password, initial_device_name, device_id)?;
         let whoami = client.whoami()?;
 
         // Create a new client to setup the store path now the user ID is known.
@@ -201,11 +208,10 @@ impl AuthenticationService {
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
             .username(whoami.user_id.to_string())
-            .build()
-            .map_err(AuthenticationError::from)?;
+            .build()?;
 
         // Restore the client using the session from the login request.
-        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(session)?;
         Ok(client)
     }
 
@@ -238,7 +244,7 @@ impl AuthenticationService {
             device_id: device_id.clone(),
         };
 
-        client.restore_session_inner(discovery_session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(discovery_session)?;
         let whoami = client.whoami()?;
 
         // Create the actual client with a store path from the user ID.
@@ -254,11 +260,10 @@ impl AuthenticationService {
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .username(whoami.user_id.to_string())
-            .build()
-            .map_err(AuthenticationError::from)?;
+            .build()?;
 
         // Restore the client using the session.
-        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
+        client.restore_session_inner(session)?;
         Ok(client)
     }
 }

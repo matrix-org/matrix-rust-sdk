@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
+use assert_matches::assert_matches;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -629,4 +630,30 @@ fn serialize_session() {
             "device_id": "EFGHIJ",
         })
     );
+}
+
+#[test]
+fn sanitize_server_name() {
+    assert_eq!(matrix_sdk::sanitize_server_name("matrix.org").unwrap().as_str(), "matrix.org");
+    assert_eq!(
+        matrix_sdk::sanitize_server_name("https://matrix.org").unwrap().as_str(),
+        "matrix.org"
+    );
+    assert_eq!(
+        matrix_sdk::sanitize_server_name("http://matrix.org").unwrap().as_str(),
+        "matrix.org"
+    );
+    assert_eq!(
+        matrix_sdk::sanitize_server_name("https://matrix.server.org").unwrap().as_str(),
+        "matrix.server.org"
+    );
+    assert_eq!(
+        matrix_sdk::sanitize_server_name("https://matrix.server.org/").unwrap().as_str(),
+        "matrix.server.org"
+    );
+    assert_eq!(
+        matrix_sdk::sanitize_server_name("  https://matrix.server.org// ").unwrap().as_str(),
+        "matrix.server.org"
+    );
+    assert_matches!(matrix_sdk::sanitize_server_name("https://matrix.server.org/something"), Err(_))
 }
