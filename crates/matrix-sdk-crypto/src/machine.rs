@@ -296,6 +296,11 @@ impl OlmMachine {
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
+    /// TODO: docs
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// The unique user id that owns this `OlmMachine` instance.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -508,42 +513,6 @@ impl OlmMachine {
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
-    }
-
-    /// TODO: docs
-    pub async fn get_encryption_settings(
-        &self,
-        room_id: &RoomId,
-    ) -> StoreResult<Option<EncryptionSettings>> {
-        let key = format!("encryption_settings-{room_id}");
-        let value = self.store.get_value(&key).await?;
-        Ok(value)
-    }
-
-    /// TODO: docs
-    pub async fn set_encryption_settings(
-        &self,
-        room_id: &RoomId,
-        settings: EncryptionSettings,
-    ) -> StoreResult<()> {
-        let key = format!("encryption_settings-{room_id}");
-        self.store.set_value(&key, &settings).await?;
-        Ok(())
-    }
-
-    /// TODO: docs
-    pub async fn get_block_untrusted_devices_globally(&self) -> StoreResult<bool> {
-        let value = self.store.get_value("block_untrusted_devices").await?.unwrap_or_default();
-        Ok(value)
-    }
-
-    /// TODO: docs
-    pub async fn set_block_untrusted_devices_globally(
-        &self,
-        block_untrusted_devices: bool,
-    ) -> StoreResult<()> {
-        self.store.set_value("block_untrusted_devices", &block_untrusted_devices).await?;
-        Ok(())
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
@@ -786,22 +755,15 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the room key.
+    ///
+    /// `settings` - TODO:
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
+        encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.group_session_manager.share_room_key(room_id, users).await
-    }
-
-    /// TODO: docs
-    pub async fn share_room_key_with_settings(
-        &self,
-        room_id: &RoomId,
-        users: impl Iterator<Item = &UserId>,
-        settings: impl Into<EncryptionSettings>,
-    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.group_session_manager.share_room_key_with_settings(room_id, users, settings).await
+        self.group_session_manager.share_room_key(room_id, users, encryption_settings).await
     }
 
     /// Receive an unencrypted verification event.

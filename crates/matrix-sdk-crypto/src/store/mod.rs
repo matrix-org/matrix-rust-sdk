@@ -48,7 +48,9 @@ use std::{
 use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
-use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
@@ -66,7 +68,7 @@ use crate::{
     },
     utilities::encode,
     verification::VerificationMachine,
-    CrossSigningStatus,
+    CrossSigningStatus, EncryptionSettings,
 };
 
 pub mod caches;
@@ -93,7 +95,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub(crate) struct Store {
+pub struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<DynCryptoStore>,
@@ -750,6 +752,39 @@ impl Store {
         self.load_tracked_users().await?;
 
         Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
+    }
+
+    /// TODO: docs
+    pub async fn get_encryption_settings(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<EncryptionSettings>> {
+        let key = format!("encryption_settings-{room_id}");
+        self.get_value(&key).await
+    }
+
+    /// TODO: docs
+    pub async fn set_encryption_settings(
+        &self,
+        room_id: &RoomId,
+        settings: EncryptionSettings,
+    ) -> Result<()> {
+        let key = format!("encryption_settings-{room_id}");
+        self.set_value(&key, &settings).await
+    }
+
+    /// TODO: docs
+    pub async fn get_block_untrusted_devices_globally(&self) -> Result<bool> {
+        let value = self.get_value("block_untrusted_devices").await?.unwrap_or_default();
+        Ok(value)
+    }
+
+    /// TODO: docs
+    pub async fn set_block_untrusted_devices_globally(
+        &self,
+        block_untrusted_devices: bool,
+    ) -> Result<()> {
+        self.set_value("block_untrusted_devices", &block_untrusted_devices).await
     }
 
     /// TODO: docs

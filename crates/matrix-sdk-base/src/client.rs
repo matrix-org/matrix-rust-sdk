@@ -1075,8 +1075,7 @@ impl BaseClient {
                 let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
-                Ok(o.share_room_key_with_settings(room_id, members.map(Deref::deref), settings)
-                    .await?)
+                Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
