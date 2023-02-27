@@ -651,15 +651,6 @@ pub use view::*;
 
 use crate::{config::RequestConfig, Client, Result};
 
-/// The Summary of a new SlidingSync Update received
-#[derive(Debug, Clone)]
-pub struct UpdateSummary {
-    /// The views (according to their name), which have seen an update
-    pub views: Vec<String>,
-    /// The Rooms that have seen updates
-    pub rooms: Vec<OwnedRoomId>,
-}
-
 /// Number of times a Sliding Sync session can expire before raising an error.
 ///
 /// A Sliding Sync session can expire. In this case, it is reset. However, to
@@ -669,7 +660,7 @@ pub struct UpdateSummary {
 /// raising a proper error.
 const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
-/// The sliding sync instance
+/// The Sliding Sync instance.
 #[derive(Clone, Debug)]
 pub struct SlidingSync {
     /// Customize the homeserver for sliding sync only
@@ -1186,6 +1177,16 @@ impl SlidingSync {
     pub fn set_pos(&self, new_pos: String) {
         Observable::set(&mut self.pos.write().unwrap(), Some(new_pos));
     }
+}
+
+/// A summary of the updates received after a sync (like in
+/// [`SlidingSync::stream`]).
+#[derive(Debug, Clone)]
+pub struct UpdateSummary {
+    /// The names of the views that have seen an update.
+    pub views: Vec<String>,
+    /// The rooms that have seen updates
+    pub rooms: Vec<OwnedRoomId>,
 }
 
 #[cfg(test)]
