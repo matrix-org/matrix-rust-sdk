@@ -614,6 +614,7 @@
 
 mod builder;
 mod client;
+mod error;
 mod room;
 mod view;
 
@@ -630,6 +631,7 @@ use std::{
 
 pub use builder::*;
 pub use client::*;
+pub use error::*;
 use eyeball::Observable;
 use futures_core::stream::Stream;
 pub use room::*;
@@ -643,27 +645,11 @@ use ruma::{
     assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
 pub use view::*;
 
 use crate::{config::RequestConfig, Client, Result};
-
-/// Internal representation of errors in Sliding Sync
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum Error {
-    /// The response we've received from the server can't be parsed or doesn't
-    /// match up with the current expectations on the client side. A
-    /// `sync`-restart might be required.
-    #[error("The sliding sync response could not be handled: {0}")]
-    BadResponse(String),
-    /// Called `.build()` on a builder type, but the given required field was
-    /// missing.
-    #[error("Required field missing: `{0}`")]
-    BuildMissingField(&'static str),
-}
 
 /// The Entry in the sliding sync room list per sliding sync view
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
