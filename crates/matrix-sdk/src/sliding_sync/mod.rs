@@ -861,19 +861,16 @@ impl SlidingSync {
         SlidingSyncBuilder::new()
     }
 
-    /// Generate a new SlidingSyncBuilder with the same inner settings and views
-    /// but without the current state
+    /// Generate a new [`SlidingSyncBuilder`] with the same inner settings and
+    /// views but without the current state.
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
         let mut builder = Self::builder()
             .client(self.client.clone())
             .subscriptions(self.subscriptions.read().unwrap().to_owned());
-        for view in self
-            .views
-            .read()
-            .unwrap()
-            .values()
-            .map(|v| v.new_builder().build().expect("builder worked before, builder works now"))
-        {
+
+        for view in self.views.read().unwrap().values().map(|view| {
+            view.new_builder().build().expect("builder worked before, builder works now")
+        }) {
             builder = builder.add_view(view);
         }
 
@@ -904,10 +901,11 @@ impl SlidingSync {
         }
     }
 
-    /// Add the common extensions if not already configured
+    /// Add the common extensions if not already configured.
     pub fn add_common_extensions(&self) {
         let mut lock = self.extensions.lock().unwrap();
         let mut cfg = lock.get_or_insert_with(Default::default);
+
         if cfg.to_device.is_none() {
             cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
         }
@@ -955,7 +953,7 @@ impl SlidingSync {
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
-    /// previous set of views
+    /// previous set of views.
     pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncView> {
         self.views.write().unwrap().remove(view_name)
     }
@@ -968,7 +966,7 @@ impl SlidingSync {
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
-    /// previous set of views
+    /// previous set of views.
     pub fn add_view(&self, view: SlidingSyncView) -> Option<SlidingSyncView> {
         self.views.write().unwrap().insert(view.name.clone(), view)
     }
@@ -979,6 +977,7 @@ impl SlidingSync {
         room_ids: I,
     ) -> Vec<Option<SlidingSyncRoom>> {
         let rooms = self.rooms.read().unwrap();
+
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
@@ -1116,10 +1115,11 @@ impl SlidingSync {
         let unsubscribe_rooms = mem::take(&mut *self.unsubscribe.write().unwrap());
         let timeout = Duration::from_secs(30);
 
-        // implement stickiness by only sending extensions if they have
+        // Implement stickiness by only sending extensions if they have
         // changed since the last time we sent them
         let extensions = {
             let extensions = self.extensions.lock().unwrap();
+
             if *extensions == *self.sent_extensions.lock().unwrap() {
                 None
             } else {
