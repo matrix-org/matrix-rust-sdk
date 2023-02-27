@@ -976,10 +976,6 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    ///
-    /// But which response? `v4::Response`, aka the Sliding Sync response, or
-    /// `SyncResponse`? We have both because `SyncResponse` doesn't support
-    /// Sliding Sync yet.
     #[instrument(skip_all, fields(views = views.len()))]
     async fn handle_response(
         &self,
@@ -987,6 +983,8 @@ impl SlidingSync {
         extensions: Option<ExtensionsConfig>,
         views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
+        // Handle and transform a Sliding Sync Response to a `SyncResponse`.
+        //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
         // move to Sliding Sync, i.e. to `v4::Response`), but processing the
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
