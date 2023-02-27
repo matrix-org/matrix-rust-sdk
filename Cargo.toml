@@ -40,7 +40,7 @@ thiserror = "1.0.38"
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 uniffi = "0.23.0"
 uniffi_bindgen = "0.23.0"
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "12b24e909107c1fac23245376f294eaf48ba186a" }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 
 # Default release profile, select with `--release`
