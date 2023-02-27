@@ -18,7 +18,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncRoom};
+use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered view within the concept of sliding sync.
@@ -941,4 +941,47 @@ pub enum SlidingSyncMode {
     /// Only sync the specific windows defined
     #[default]
     Selective,
+}
+
+/// The Entry in the sliding sync room list per sliding sync view
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum RoomListEntry {
+    /// This entry isn't known at this point and thus considered `Empty`
+    #[default]
+    Empty,
+    /// There was `OwnedRoomId` but since the server told us to invalid this
+    /// entry. it is considered stale
+    Invalidated(OwnedRoomId),
+    /// This Entry is followed with `OwnedRoomId`
+    Filled(OwnedRoomId),
+}
+
+impl RoomListEntry {
+    /// Is this entry empty or invalidated?
+    pub fn empty_or_invalidated(&self) -> bool {
+        matches!(self, RoomListEntry::Empty | RoomListEntry::Invalidated(_))
+    }
+
+    /// The inner room_id if given
+    pub fn as_room_id(&self) -> Option<&RoomId> {
+        match &self {
+            RoomListEntry::Empty => None,
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.as_ref()),
+        }
+    }
+
+    fn freeze(&self) -> RoomListEntry {
+        match &self {
+            RoomListEntry::Empty => RoomListEntry::Empty,
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => {
+                RoomListEntry::Invalidated(b.clone())
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a RoomListEntry> for RoomListEntry {
+    fn from(value: &'a RoomListEntry) -> Self {
+        value.clone()
+    }
 }
