@@ -18,7 +18,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncMode, SlidingSyncRoom};
+use super::{Error, FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered view within the concept of sliding sync.
@@ -925,4 +925,20 @@ pub enum SlidingSyncState {
     CatchingUp,
     /// We are all caught up and now only sync the live responses.
     Live,
+}
+
+/// The mode by which the the [`SlidingSyncView`] is in fetching the data.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlidingSyncMode {
+    /// Fully sync all rooms in the background, page by page of `batch_size`,
+    /// like `0..20`, `21..40`, 41..60` etc. assuming the `batch_size` is 20.
+    #[serde(alias = "FullSync")]
+    PagingFullSync,
+    /// Fully sync all rooms in the background, with a growing window of
+    /// `batch_size`, like `0..20`, `0..40`, `0..60` etc. assuming the
+    /// `batch_size` is 20.
+    GrowingFullSync,
+    /// Only sync the specific windows defined
+    #[default]
+    Selective,
 }
