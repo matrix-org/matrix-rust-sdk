@@ -155,7 +155,10 @@ macro_rules! statestore_integration_tests {
         use serde_json::{json, Value as JsonValue};
 
         use $crate::{
-            store::{Result as StoreResult, StateChanges, StateStore, StateStoreExt},
+            store::{
+                DynStateStore, IntoStateStore, Result as StoreResult, StateChanges, StateStore,
+                StateStoreExt
+            },
             RoomInfo, RoomType,
         };
 
@@ -181,7 +184,7 @@ macro_rules! statestore_integration_tests {
         }
 
         /// Populate the given `StateStore`.
-        pub async fn populate_store(store: Arc<dyn StateStore>) -> StoreResult<()> {
+        pub async fn populate_store(store: Arc<DynStateStore>) -> StoreResult<()> {
             let mut changes = StateChanges::default();
 
             let user_id = user_id();
@@ -372,7 +375,7 @@ macro_rules! statestore_integration_tests {
             let room_id = room_id();
             let inner_store = get_store().await?;
 
-            let store = Arc::new(inner_store);
+            let store = inner_store.into_state_store();
             populate_store(store.clone()).await?;
 
             assert!(store.get_sync_token().await?.is_some());
@@ -423,7 +426,7 @@ macro_rules! statestore_integration_tests {
             let user_id = user_id();
             let inner_store = get_store().await?;
 
-            let store = Arc::new(inner_store);
+            let store = inner_store.into_state_store();
             populate_store(store.clone()).await?;
 
             assert!(store.get_sync_token().await?.is_some());
@@ -840,7 +843,8 @@ macro_rules! statestore_integration_tests {
         async fn test_custom_storage() -> StoreResult<()> {
             let key = "my_key";
             let value = &[0, 1, 2, 3];
-            let store = get_store().await?;
+            let inner_store = get_store().await?;
+            let store = inner_store.into_state_store();
 
             store.set_custom_value(key.as_bytes(), value.to_vec()).await?;
 
@@ -854,7 +858,7 @@ macro_rules! statestore_integration_tests {
         #[async_test]
         async fn test_persist_invited_room() -> StoreResult<()> {
             let inner_store = get_store().await?;
-            let store = Arc::new(inner_store);
+            let store = inner_store.into_state_store();
             populate_store(store.clone()).await?;
 
             assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
@@ -926,7 +930,7 @@ macro_rules! statestore_integration_tests {
             let inner_store = get_store().await?;
             let stripped_room_id = stripped_room_id();
 
-            let store = Arc::new(inner_store);
+            let store = inner_store.into_state_store();
             populate_store(store.clone()).await?;
 
             store.remove_room(room_id).await?;

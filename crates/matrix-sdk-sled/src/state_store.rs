@@ -1442,6 +1442,8 @@ impl SledStateStore {
 
 #[async_trait]
 impl StateStore for SledStateStore {
+    type Error = StoreError;
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(Into::into)
     }
