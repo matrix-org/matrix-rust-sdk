@@ -5,9 +5,6 @@
 
 #![warn(missing_docs)]
 #![allow(unused_qualifications)]
-// Triggers false positives.
-// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
-#![allow(clippy::extra_unused_type_parameters)]
 
 mod backup_recovery_key;
 mod device;

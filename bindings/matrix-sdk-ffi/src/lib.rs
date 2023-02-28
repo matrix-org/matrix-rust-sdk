@@ -1,9 +1,6 @@
 // TODO: target-os conditional would be good.
 
 #![allow(unused_qualifications, clippy::new_without_default)]
-// Triggers false positives.
-// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
-#![allow(clippy::extra_unused_type_parameters)]
 
 macro_rules! unwrap_or_clone_arc_into_variant {
     (
