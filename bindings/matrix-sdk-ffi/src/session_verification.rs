@@ -13,7 +13,7 @@ use matrix_sdk::{
     },
 };
 
-use super::RUNTIME;
+use super::{ClientError, RUNTIME};
 
 pub struct SessionVerificationEmoji {
     symbol: String,
@@ -72,19 +72,25 @@ impl SessionVerificationController {
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
         *self.delegate.write().unwrap() = delegate;
     }
+}
 
-    pub fn request_verification(&self) -> anyhow::Result<()> {
+#[uniffi::export]
+impl SessionVerificationController {
+    pub fn request_verification(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let methods = vec![VerificationMethod::SasV1];
-            let verification_request =
-                self.user_identity.request_verification_with_methods(methods).await?;
+            let verification_request = self
+                .user_identity
+                .request_verification_with_methods(methods)
+                .await
+                .map_err(anyhow::Error::from)?;
             *self.verification_request.write().unwrap() = Some(verification_request);
 
             Ok(())
         })
     }
 
-    pub fn start_sas_verification(&self) -> anyhow::Result<()> {
+    pub fn start_sas_verification(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let verification_request = self.verification_request.read().unwrap().clone();
 
@@ -112,7 +118,7 @@ impl SessionVerificationController {
         })
     }
 
-    pub fn approve_verification(&self) -> anyhow::Result<()> {
+    pub fn approve_verification(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let sas_verification = self.sas_verification.read().unwrap().clone();
             if let Some(sas_verification) = sas_verification {
@@ -123,7 +129,7 @@ impl SessionVerificationController {
         })
     }
 
-    pub fn decline_verification(&self) -> anyhow::Result<()> {
+    pub fn decline_verification(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let sas_verification = self.sas_verification.read().unwrap().clone();
             if let Some(sas_verification) = sas_verification {
@@ -134,7 +140,7 @@ impl SessionVerificationController {
         })
     }
 
-    pub fn cancel_verification(&self) -> anyhow::Result<()> {
+    pub fn cancel_verification(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let verification_request = self.verification_request.read().unwrap().clone();
             if let Some(verification) = verification_request {
@@ -144,7 +150,9 @@ impl SessionVerificationController {
             Ok(())
         })
     }
+}
 
+impl SessionVerificationController {
     pub async fn process_to_device_message(&self, event: AnyToDeviceEvent) {
         match event {
             // TODO: Use the changes stream for this as well once we expose

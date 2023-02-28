@@ -63,6 +63,12 @@ pub enum ClientError {
     Generic { msg: String },
 }
 
+impl From<matrix_sdk::Error> for ClientError {
+    fn from(e: matrix_sdk::Error) -> Self {
+        ClientError::Generic { msg: e.to_string() }
+    }
+}
+
 impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: e.to_string() }
@@ -96,5 +102,6 @@ mod uniffi_types {
             TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
             VirtualTimelineItem,
         },
+        ClientError,
     };
 }
