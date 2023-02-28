@@ -49,7 +49,7 @@ use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -66,9 +66,10 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
+    types::EventEncryptionAlgorithm,
     utilities::encode,
     verification::VerificationMachine,
-    CrossSigningStatus, EncryptionSettings,
+    CrossSigningStatus,
 };
 
 pub mod caches;
@@ -120,6 +121,7 @@ pub struct Changes {
     pub key_requests: Vec<GossipRequest>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+    pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -277,6 +279,25 @@ pub enum SecretImportError {
     /// The new version of the identity couldn't be stored.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+}
+
+/// Room encryption settings which are modified by state events or user options
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RoomSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl Default for RoomSettings {
+    fn default() -> Self {
+        Self {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            only_allow_trusted_devices: false,
+        }
+    }
 }
 
 impl Store {
@@ -754,40 +775,23 @@ impl Store {
         Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
     }
 
-    /// TODO: docs
-    pub async fn get_encryption_settings(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<EncryptionSettings>> {
-        let key = format!("encryption_settings-{room_id}");
-        self.get_value(&key).await
-    }
-
-    /// TODO: docs
-    pub async fn set_encryption_settings(
-        &self,
-        room_id: &RoomId,
-        settings: EncryptionSettings,
-    ) -> Result<()> {
-        let key = format!("encryption_settings-{room_id}");
-        self.set_value(&key, &settings).await
-    }
-
-    /// TODO: docs
-    pub async fn get_block_untrusted_devices_globally(&self) -> Result<bool> {
-        let value = self.get_value("block_untrusted_devices").await?.unwrap_or_default();
+    /// Check whether there is a global flag to only encrypt messages for
+    /// trusted devices or for everyone.
+    pub async fn get_only_allow_trusted_devices(&self) -> Result<bool> {
+        let value = self.get_value("only_allow_trusted_devices").await?.unwrap_or_default();
         Ok(value)
     }
 
-    /// TODO: docs
-    pub async fn set_block_untrusted_devices_globally(
+    /// Set global flag whether to encrypt messages for untrusted devices, or
+    /// whether they should be excluded from the conversation.
+    pub async fn set_only_allow_trusted_devices(
         &self,
         block_untrusted_devices: bool,
     ) -> Result<()> {
-        self.set_value("block_untrusted_devices", &block_untrusted_devices).await
+        self.set_value("only_allow_trusted_devices", &block_untrusted_devices).await
     }
 
-    /// TODO: docs
+    /// Get custom stored value associated with a key
     pub async fn get_value<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let Some(value) = self.get_custom_value(key).await? else {
             return Ok(None);
@@ -796,7 +800,7 @@ impl Store {
         Ok(Some(deserialized))
     }
 
-    /// TODO: docs
+    /// Store custom value associated with a key
     pub async fn set_value(&self, key: &str, value: &impl Serialize) -> Result<()> {
         let serialized = self.serialize_value(value)?;
         self.set_custom_value(key, serialized).await?;
@@ -805,7 +809,7 @@ impl Store {
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized =
-            rmp_serde::to_vec_named(value).map_err(|x| CryptoStoreError::Backend(x.into()))?; // TODO: Serialization type
+            rmp_serde::to_vec_named(value).map_err(|x| CryptoStoreError::Backend(x.into()))?;
         Ok(serialized)
     }
 

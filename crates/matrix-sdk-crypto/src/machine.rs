@@ -296,7 +296,7 @@ impl OlmMachine {
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
-    /// TODO: docs
+    /// Get the crypto store associated with this `OlmMachine` instance.
     pub fn store(&self) -> &Store {
         &self.store
     }
@@ -756,7 +756,8 @@ impl OlmMachine {
     ///
     /// `users` - The list of users that should receive the room key.
     ///
-    /// `settings` - TODO:
+    /// `settings` - Encryption settings that affect when are room keys rotated
+    /// and who are they shared with
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,

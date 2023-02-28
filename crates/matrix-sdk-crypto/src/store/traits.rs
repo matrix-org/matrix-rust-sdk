@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 
-use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts};
+use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -187,6 +187,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         request_id: &TransactionId,
     ) -> Result<(), Self::Error>;
 
+    /// Get the room settings, such as the encryption algorithm or whether to
+    /// encrypt only for trusted devices.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id of the room
+    async fn get_room_settings(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomSettings>, Self::Error>;
+
     /// Get arbitrary data from the store
     ///
     /// # Arguments
@@ -327,6 +338,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
+    }
+
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        self.0.get_room_settings(room_id).await.map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

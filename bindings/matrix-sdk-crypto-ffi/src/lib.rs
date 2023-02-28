@@ -33,6 +33,7 @@ use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
     store::{Changes, CryptoStore},
+    store::RoomSettings as RustRoomSettings,
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
@@ -506,12 +507,16 @@ impl From<EventEncryptionAlgorithm> for RustEventEncryptionAlgorithm {
     }
 }
 
-impl From<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
-    fn from(value: RustEventEncryptionAlgorithm) -> Self {
+impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
+    type Error = String;
+
+    fn try_from(value: RustEventEncryptionAlgorithm) -> Result<Self, Self::Error> {
         match value {
-            RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
-            RustEventEncryptionAlgorithm::MegolmV1AesSha2 => Self::MegolmV1AesSha2,
-            _ => todo!(),
+            RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                Ok(Self::OlmV1Curve25519AesSha2)
+            }
+            RustEventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(Self::MegolmV1AesSha2),
+            _ => Err(format!("Unsupported algorithm {value}")),
         }
     }
 }
@@ -554,18 +559,6 @@ impl From<HistoryVisibility> for RustHistoryVisibility {
     }
 }
 
-impl From<RustHistoryVisibility> for HistoryVisibility {
-    fn from(h: RustHistoryVisibility) -> Self {
-        match h {
-            RustHistoryVisibility::Invited => Self::Invited,
-            RustHistoryVisibility::Joined => Self::Joined,
-            RustHistoryVisibility::Shared => Self::Shared,
-            RustHistoryVisibility::WorldReadable => Self::WorldReadable,
-            _ => todo!(),
-        }
-    }
-}
-
 /// Settings that should be used when a room key is shared.
 ///
 /// These settings control which algorithm the room key should use, how long a
@@ -597,18 +590,6 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
             only_allow_trusted_devices: v.only_allow_trusted_devices,
-        }
-    }
-}
-
-impl From<RustEncryptionSettings> for EncryptionSettings {
-    fn from(value: RustEncryptionSettings) -> Self {
-        EncryptionSettings {
-            algorithm: value.algorithm.into(),
-            rotation_period: value.rotation_period.as_secs(),
-            rotation_period_msgs: value.rotation_period_msgs,
-            history_visibility: value.history_visibility.into(),
-            only_allow_trusted_devices: value.only_allow_trusted_devices,
         }
     }
 }
@@ -735,6 +716,33 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
             has_master: s.has_master,
             has_self_signing: s.has_self_signing,
             has_user_signing: s.has_user_signing,
+        }
+    }
+}
+
+/// Room encryption settings which are modified by state events or user options
+pub struct RoomSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl TryFrom<RustRoomSettings> for RoomSettings {
+    type Error = String;
+
+    fn try_from(value: RustRoomSettings) -> Result<Self, Self::Error> {
+        let algorithm = value.algorithm.try_into()?;
+        Ok(Self { algorithm, only_allow_trusted_devices: value.only_allow_trusted_devices })
+    }
+}
+
+impl From<RoomSettings> for RustRoomSettings {
+    fn from(value: RoomSettings) -> Self {
+        Self {
+            algorithm: value.algorithm.into(),
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
         }
     }
 }

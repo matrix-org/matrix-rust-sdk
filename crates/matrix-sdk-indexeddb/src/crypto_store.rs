@@ -28,6 +28,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
+        RoomSettings,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
@@ -35,6 +36,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -949,6 +951,21 @@ impl_crypto_store! {
         };
 
         Ok(key)
+    }
+
+    async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        warn!("Method not implemented");
+        Ok(None)
+    }
+
+    async fn get_custom_value(&self, _key: &str) -> Result<Option<Vec<u8>>> {
+        warn!("Method not implemented");
+        Ok(None)
+    }
+
+    async fn set_custom_value(&self, _key: &str, _value: Vec<u8>) -> Result<()> {
+        warn!("Method not implemented");
+        Ok(())
     }
 }
 

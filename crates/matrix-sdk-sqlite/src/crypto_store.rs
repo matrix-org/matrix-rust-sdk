@@ -27,7 +27,7 @@ use matrix_sdk_crypto::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
-    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts},
+    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -172,7 +172,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -221,6 +221,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         .await?;
     }
 
+    if version < 3 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+        })
+        .await?;
+    }
+
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
@@ -257,6 +264,8 @@ trait SqliteConnectionExt {
         sent_out: bool,
         data: &[u8],
     ) -> rusqlite::Result<()>;
+
+    fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -345,6 +354,16 @@ impl SqliteConnectionExt for rusqlite::Connection {
             VALUES (?1, ?2, ?3)
             ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
             (request_id, sent_out, data),
+        )?;
+        Ok(())
+    }
+
+    fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO room_settings (room_id, data)
+            VALUES (?1, ?2)
+            ON CONFLICT (room_id) DO UPDATE SET data = ?2",
+            (room_id, data),
         )?;
         Ok(())
     }
@@ -514,6 +533,15 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn delete_key_request(&self, request_id: Key) -> Result<()> {
         self.execute("DELETE FROM key_requests WHERE request_id = ?", (request_id,)).await?;
         Ok(())
+    }
+
+    async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
+                row.get(0)
+            })
+            .await
+            .optional()?)
     }
 }
 
@@ -688,6 +716,12 @@ impl CryptoStore for SqliteCryptoStore {
                     let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
                     let serialized_request = this.serialize_value(&request)?;
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                }
+
+                for (room_id, settings) in changes.room_settings {
+                    let room_id = this.encode_key("room_settings", room_id.as_bytes());
+                    let value = this.serialize_value(&settings)?;
+                    txn.set_room_settings(&room_id, &value)?;
                 }
 
                 Ok::<_, Error>(())
@@ -945,6 +979,17 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
+    }
+
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let room_id = self.encode_key("room_settings", room_id.as_bytes());
+        let Some(value) = self.acquire().await?.get_room_settings(room_id).await? else {
+            return Ok(None);
+        };
+
+        let settings = self.deserialize_value(&value)?;
+
+        return Ok(Some(settings));
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {

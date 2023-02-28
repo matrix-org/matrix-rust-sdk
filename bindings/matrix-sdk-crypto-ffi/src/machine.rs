@@ -16,7 +16,7 @@ use matrix_sdk_crypto::{
     },
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
-    store::RecoveryKey,
+    store::{Changes, RecoveryKey},
     LocalTrust, OlmMachine as InnerMachine, UserIdentities,
 };
 use ruma::{
@@ -54,8 +54,8 @@ use crate::{
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
     CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
     EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
-    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, Sas,
-    SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
+    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
+    Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -563,21 +563,28 @@ impl OlmMachine {
             .map(|r| r.into()))
     }
 
-    /// TODO: docs
-    pub fn get_encryption_settings(
+    /// Get the stored room settings, such as the encryption algorithm or
+    /// whether to encrypt only for trusted devices.
+    ///
+    /// These settings can be modified via
+    /// [set_room_algorithm()](#method.set_room_algorithm) and
+    /// [set_room_only_allow_trusted_devices()](#method.
+    /// set_room_only_allow_trusted_devices) methods.
+    pub fn get_room_settings(
         &self,
         room_id: &str,
-    ) -> Result<Option<EncryptionSettings>, CryptoStoreError> {
+    ) -> Result<Option<RoomSettings>, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
         let settings = self
             .runtime
-            .block_on(self.inner.store().get_encryption_settings(&room_id))?
-            .map(|v| v.into());
+            .block_on(self.inner.store().get_room_settings(&room_id))?
+            .map(|v| v.try_into().unwrap());
         Ok(settings)
     }
 
-    /// TODO: docs
-    pub fn set_event_encryption_algorithm(
+    /// Set the room algorithm used for encrypting messages to one of the
+    /// available variants
+    pub fn set_room_algorithm(
         &self,
         room_id: &str,
         algorithm: EventEncryptionAlgorithm,
@@ -585,45 +592,69 @@ impl OlmMachine {
         let room_id = RoomId::parse(room_id)?;
         self.runtime.block_on(async move {
             let mut settings =
-                self.inner.store().get_encryption_settings(&room_id).await?.unwrap_or_default();
+                self.inner.store().get_room_settings(&room_id).await?.unwrap_or_default();
             settings.algorithm = algorithm.into();
-            self.inner.store().set_encryption_settings(&room_id, settings).await?;
+            self.inner
+                .store()
+                .save_changes(Changes {
+                    room_settings: HashMap::from([(room_id, settings)]),
+                    ..Default::default()
+                })
+                .await?;
             Ok(())
         })
     }
 
-    /// TODO: docs
-    pub fn set_block_untrusted_devices_per_room(
+    /// Set flag whether this room should encrypt messages for untrusted
+    /// devices, or whether they should be excluded from the conversation.
+    ///
+    /// Note that per-room setting may be overridden by a global
+    /// [set_only_allow_trusted_devices()](#method.
+    /// set_only_allow_trusted_devices) method.
+    pub fn set_room_only_allow_trusted_devices(
         &self,
         room_id: &str,
-        block_untrusted_devices: bool,
+        only_allow_trusted_devices: bool,
     ) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
         self.runtime.block_on(async move {
             let mut settings =
-                self.inner.store().get_encryption_settings(&room_id).await?.unwrap_or_default();
-            settings.only_allow_trusted_devices = block_untrusted_devices;
-            self.inner.store().set_encryption_settings(&room_id, settings).await?;
+                self.inner.store().get_room_settings(&room_id).await?.unwrap_or_default();
+            settings.only_allow_trusted_devices = only_allow_trusted_devices;
+            self.inner
+                .store()
+                .save_changes(Changes {
+                    room_settings: HashMap::from([(room_id, settings)]),
+                    ..Default::default()
+                })
+                .await?;
             Ok(())
         })
     }
 
-    /// TODO: docs
-    pub fn set_block_untrusted_devices_globally(
-        &self,
-        block_untrusted_devices: bool,
-    ) -> Result<(), CryptoStoreError> {
-        self.runtime.block_on(
-            self.inner.store().set_block_untrusted_devices_globally(block_untrusted_devices),
-        )?;
-        Ok(())
+    /// Check whether there is a global flag to only encrypt messages for
+    /// trusted devices or for everyone.
+    ///
+    /// Note that if the global flag is false, individual rooms may still be
+    /// encrypting only for trusted devices, depending on the per-room
+    /// `only_allow_trusted_devices` flag.
+    pub fn get_only_allow_trusted_devices(&self) -> Result<bool, CryptoStoreError> {
+        let block = self.runtime.block_on(self.inner.store().get_only_allow_trusted_devices())?;
+        Ok(block)
     }
 
-    /// TODO: docs
-    pub fn is_blocking_untrusted_devices_globally(&self) -> Result<bool, CryptoStoreError> {
-        let block =
-            self.runtime.block_on(self.inner.store().get_block_untrusted_devices_globally())?;
-        Ok(block)
+    /// Set global flag whether to encrypt messages for untrusted devices, or
+    /// whether they should be excluded from the conversation.
+    ///
+    /// Note that if enabled, it will override any per-room settings.
+    pub fn set_only_allow_trusted_devices(
+        &self,
+        only_allow_trusted_devices: bool,
+    ) -> Result<(), CryptoStoreError> {
+        self.runtime.block_on(
+            self.inner.store().set_only_allow_trusted_devices(only_allow_trusted_devices),
+        )?;
+        Ok(())
     }
 
     /// Share a room key with the given list of users for the given room.
@@ -643,40 +674,23 @@ impl OlmMachine {
     ///
     /// * `users` - The list of users which are considered to be members of the
     /// room and should receive the room key.
+    ///
+    /// * `settings` - The settings that should be used for the room key.
     pub fn share_room_key(
         &self,
         room_id: String,
         users: Vec<String>,
+        settings: EncryptionSettings,
     ) -> Result<Vec<Request>, CryptoStoreError> {
         let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;
-        let requests = self.runtime.block_on(async move {
-            // Load settings from store or create new
-            let mut encryption_settings = if let Some(settings) =
-                self.inner.store().get_encryption_settings(room_id.into()).await?
-            {
-                settings
-            } else {
-                let settings = EncryptionSettings::default();
-                self.inner.store().set_encryption_settings(room_id.into(), settings).await?;
-                settings
-            };
-
-            // Combine per-room and global unverified devices block
-            if !encryption_settings.only_allow_trusted_devices {
-                let block_globally = self
-                    .inner
-                    .store()
-                    .get_block_untrusted_devices_globally()
-                    .await?
-                    .unwrap_or_default();
-                encryption_settings.only_allow_trusted_devices = block_globally
-            }
-
-            self.inner.share_room_key(&room_id, users.iter().map(Deref::deref), settings).await
-        });
+        let requests = self.runtime.block_on(self.inner.share_room_key(
+            &room_id,
+            users.iter().map(Deref::deref),
+            settings,
+        ))?;
 
         Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
     }
