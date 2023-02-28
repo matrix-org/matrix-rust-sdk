@@ -631,10 +631,17 @@ impl SlidingSyncViewRequestGenerator {
         limit: Option<u32>,
     ) -> v4::SyncRequestList {
         let calc_end = start + batch_size;
-        let end = match limit {
+
+        let mut end = match limit {
             Some(l) => std::cmp::min(l, calc_end),
             _ => calc_end,
         };
+
+        end = match self.view.rooms_count() {
+            Some(total_room_count) => std::cmp::min(end, total_room_count - 1),
+            _ => end,
+        };
+
         self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
