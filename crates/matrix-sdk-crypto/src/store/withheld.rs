@@ -16,7 +16,7 @@
 //! to all devices present in the room. Sometimes this may be inadvertent (for
 //! example, if the sending device is not aware of some devices that have
 //! joined), but some times, this may be purposeful.
-use ruma::{JsOption, OwnedRoomId};
+use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
 use vodozemac::Curve25519PublicKey;
 
@@ -49,25 +49,16 @@ impl TryFrom<&MegolmV1AesSha2WithheldContent> for DirectWithheldInfo {
     type Error = &'static str;
 
     fn try_from(value: &MegolmV1AesSha2WithheldContent) -> Result<Self, Self::Error> {
-        match value.code {
-            WithheldCode::NoOlm => {
-                // NoOlm is special as it's not attached to a room or session
+        match value {
+            MegolmV1AesSha2WithheldContent::AnyContent((code, content)) => Ok(DirectWithheldInfo {
+                room_id: content.room_id.to_owned(),
+                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                session_id: content.session_id.to_owned(),
+                claimed_sender_key: content.sender_key,
+                withheld_code: code.clone(),
+            }),
+            MegolmV1AesSha2WithheldContent::NoOlmContent(_) => {
                 Err("No Olm can't be converted to direct info")
-            }
-            _ => {
-                if let (JsOption::Some(room_id), JsOption::Some(session_id)) =
-                    (&value.room_id, &value.session_id)
-                {
-                    Ok(DirectWithheldInfo {
-                        room_id: room_id.to_owned(),
-                        algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                        session_id: session_id.to_owned(),
-                        claimed_sender_key: value.sender_key,
-                        withheld_code: value.code,
-                    })
-                } else {
-                    Err("Malformed withheld content")
-                }
             }
         }
     }

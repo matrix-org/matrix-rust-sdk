@@ -674,7 +674,7 @@ impl OlmMachine {
         &self,
         content: &MegolmV1AesSha2WithheldContent,
     ) -> OlmResult<Option<DirectWithheldInfo>> {
-        let code = content.code;
+        let code = content.withheld_code();
         match code {
             WithheldCode::NoOlm => {
                 // NoOlm is special as it's not attached to a room or session
@@ -2188,7 +2188,7 @@ pub(crate) mod tests {
         let to_device_requests = alice
             .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)
             .await
-            .unwrap();
+            .expect("Share room key should be ok");
 
         // Here there will be only one request, and it's for a m.room_key.withheld
 
@@ -2202,7 +2202,7 @@ pub(crate) mod tests {
             .next()
             .unwrap()
             .deserialize_as::<RoomKeyWithheldContent>()
-            .unwrap();
+            .expect("Deserialize should work");
 
         let event = ToDeviceEvent::new(alice.user_id().to_owned(), wh_content);
 

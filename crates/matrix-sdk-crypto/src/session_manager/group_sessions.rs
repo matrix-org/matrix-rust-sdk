@@ -796,7 +796,9 @@ mod tests {
 
     use crate::{
         types::{
-            events::room_key_withheld::{MegolmV1AesSha2WithheldContent, WithheldCode},
+            events::room_key_withheld::{
+                RoomKeyWithheldContent, RoomKeyWithheldContent::MegolmV1AesSha2, WithheldCode,
+            },
             EventEncryptionAlgorithm,
         },
         Device, EncryptionSettings, LocalTrust, OlmMachine,
@@ -977,10 +979,13 @@ mod tests {
                 // count targets
                 for message in r.messages.values() {
                     message.iter().for_each(|(_, content)| {
-                        let withheld: MegolmV1AesSha2WithheldContent =
-                            content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
-                        if withheld.code == WithheldCode::NoOlm {
-                            count += 1;
+                        let withheld: RoomKeyWithheldContent =
+                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+
+                        if let MegolmV1AesSha2(content) = withheld {
+                            if content.withheld_code() == WithheldCode::NoOlm {
+                                count += 1;
+                            }
                         }
                     })
                 }
@@ -1006,10 +1011,13 @@ mod tests {
                 // count targets
                 for message in r.messages.values() {
                     message.iter().for_each(|(_, content)| {
-                        let withheld: MegolmV1AesSha2WithheldContent =
-                            content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
-                        if withheld.code == WithheldCode::NoOlm {
-                            count += 1;
+                        let withheld: RoomKeyWithheldContent =
+                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+
+                        if let MegolmV1AesSha2(content) = withheld {
+                            if content.withheld_code() == WithheldCode::NoOlm {
+                                count += 1;
+                            }
                         }
                     })
                 }
@@ -1153,26 +1161,23 @@ mod tests {
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
 
-        for u in [user_id].into_iter() {
-            // users.for_each(|u| {
-            let devices = machine.get_user_devices(u, None).await.unwrap();
-            devices
-                .devices()
-                // Ignore our own device
-                .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
-                .for_each(|d| {
-                    if d.is_blacklisted() {
-                        assert!(withheld[u].iter().any(|(dev, w)| {
-                            dev.device_id() == d.device_id() && w == &WithheldCode::Blacklisted
-                        }));
-                    } else if !d.is_verified() {
-                        // the device should then be in the list of withhelds
-                        assert!(withheld[u].iter().any(|(dev, w)| {
-                            dev.device_id() == d.device_id() && w == &WithheldCode::Unverified
-                        }));
-                    }
-                })
-        }
+        let devices = machine.get_user_devices(user_id, None).await.unwrap();
+        devices
+            .devices()
+            // Ignore our own device
+            .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
+            .for_each(|d| {
+                if d.is_blacklisted() {
+                    assert!(withheld[user_id].iter().any(|(dev, w)| {
+                        dev.device_id() == d.device_id() && w == &WithheldCode::Blacklisted
+                    }));
+                } else if !d.is_verified() {
+                    // the device should then be in the list of withhelds
+                    assert!(withheld[user_id].iter().any(|(dev, w)| {
+                        dev.device_id() == d.device_id() && w == &WithheldCode::Unverified
+                    }));
+                }
+            });
 
         assert_eq!(
             149,
@@ -1235,9 +1240,13 @@ mod tests {
             requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
                 let device_key = DeviceIdOrAllDevices::from(device_id!("MWVTUXDNNM").to_owned());
                 let content = &r.messages[user_id][&device_key];
-                let withheld: MegolmV1AesSha2WithheldContent =
-                    content.deserialize_as::<MegolmV1AesSha2WithheldContent>().unwrap();
-                withheld.code == WithheldCode::Blacklisted
+                let withheld: RoomKeyWithheldContent =
+                    content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+                if let MegolmV1AesSha2(content) = withheld {
+                    content.withheld_code() == WithheldCode::Blacklisted
+                } else {
+                    false
+                }
             });
 
         assert!(has_blacklist);

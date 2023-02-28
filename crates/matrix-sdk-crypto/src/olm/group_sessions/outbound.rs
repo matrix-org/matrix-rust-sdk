@@ -624,7 +624,7 @@ impl OutboundGroupSession {
                 .map(|u| {
                     (
                         u.key().clone(),
-                        u.value().iter().map(|d| (d.key().clone(), *d.value())).collect(),
+                        u.value().iter().map(|d| (d.key().clone(), d.value().clone())).collect(),
                     )
                 })
                 .collect(),
