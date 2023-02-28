@@ -128,7 +128,6 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let user_id = user_id.to_owned();
         let request = get_avatar_url::v3::Request::new(user_id.to_owned());
 
         let config = Some(RequestConfig::new().force_auth());
@@ -136,10 +135,16 @@ impl Account {
         let response = self.client.send(request, config).await?;
         if let Some(url) = response.avatar_url.clone() {
             // If an avatar is found cache it.
-            self.client.store().save_avatar_url(&user_id, url.as_ref()).await?;
+            let result = rmp_serde::to_vec(&url.as_str());
+            match result {
+                Ok(url_data) => {
+                    self.client.store().set_custom_value(user_id.as_bytes(), url_data).await?;
+                }
+                Err(_) => return Err(Error::AuthenticationRequired),
+            }
         } else {
             // If there is no avatar the user has removed it and we uncache it.
-            self.client.store().remove_avatar_url(&user_id).await?;
+            self.client.store().remove_custom_value(user_id.as_bytes()).await?;
         }
         Ok(response.avatar_url)
     }
@@ -147,9 +152,16 @@ impl Account {
     /// Get the URL of the account's avatar, if is stored in cache.
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let user_id = user_id.to_owned();
-        let url = self.client.store().get_avatar_url(&user_id).await?;
-        Ok(url)
+        let url_data = self.client.store().get_custom_value(user_id.as_bytes()).await?;
+        if let Some(url_data) = url_data {
+            let result: Result<String, rmp_serde::decode::Error> = rmp_serde::from_slice(&url_data);
+            match result {
+                Ok(url) => Ok(Some(url)),
+                Err(_) => Err(Error::AuthenticationRequired),
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// Set the MXC URI of the account's avatar.

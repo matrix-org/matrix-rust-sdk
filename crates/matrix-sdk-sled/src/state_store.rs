@@ -556,26 +556,6 @@ impl SledStateStore {
         }
     }
 
-    pub async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
-        self.session.insert(
-            self.encode_key(SESSION, ("avatar_url", user_id)),
-            self.serialize_value(&url)?,
-        )?;
-        Ok(())
-    }
-
-    pub async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
-        self.session
-            .get(self.encode_key(SESSION, ("avatar_url", user_id)))?
-            .map(|u| self.deserialize_value(&u))
-            .transpose()
-    }
-
-    pub async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()> {
-        self.session.remove(self.encode_key(SESSION, ("avatar_url", user_id)))?;
-        Ok(())
-    }
-
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.session.insert(
             self.encode_key(SESSION, ("filter", filter_name)),
@@ -1283,6 +1263,15 @@ impl SledStateStore {
         ret
     }
 
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let key = self.encode_key(CUSTOM, EncodeUnchecked::from(key));
+        let me = self.clone();
+        let ret = self.custom.remove(key)?.map(|v| me.deserialize_value(&v)).transpose();
+        self.inner.flush_async().await?;
+
+        ret
+    }
+
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         self.media.remove(
             self.encode_key(MEDIA, (request.source.unique_key(), request.format.unique_key())),
@@ -1462,18 +1451,6 @@ impl SledStateStore {
 
 #[async_trait]
 impl StateStore for SledStateStore {
-    async fn get_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<Option<String>> {
-        self.get_avatar_url(user_id).await.map_err(Into::into)
-    }
-
-    async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> StoreResult<()> {
-        self.save_avatar_url(user_id, url).await.map_err(Into::into)
-    }
-
-    async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> StoreResult<()> {
-        self.remove_avatar_url(user_id).await.map_err(Into::into)
-    }
-
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(Into::into)
     }
@@ -1628,6 +1605,10 @@ impl StateStore for SledStateStore {
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> StoreResult<Option<Vec<u8>>> {
         self.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
+        self.remove_custom_value(key).await.map_err(Into::into)
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> StoreResult<()> {

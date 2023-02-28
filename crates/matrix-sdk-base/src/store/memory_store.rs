@@ -45,7 +45,6 @@ use crate::{deserialized_responses::RawMemberEvent, media::MediaRequest, Minimal
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
-    avatar_urls: Arc<DashMap<OwnedUserId, String>>,
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
@@ -93,7 +92,6 @@ impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
-            avatar_urls: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
@@ -119,20 +117,6 @@ impl MemoryStore {
             ))),
             custom: DashMap::new().into(),
         }
-    }
-
-    async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
-        Ok(self.avatar_urls.get(user_id).map(|u| u.to_string()))
-    }
-
-    async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
-        self.avatar_urls.insert(user_id.to_owned(), url.to_owned());
-        Ok(())
-    }
-
-    async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()> {
-        self.avatar_urls.remove(user_id);
-        Ok(())
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -574,6 +558,10 @@ impl MemoryStore {
         Ok(self.custom.insert(key.to_vec(), value))
     }
 
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.remove(key).map(|entry| entry.1))
+    }
+
     // The in-memory store doesn't cache media
     async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
         Ok(())
@@ -610,18 +598,6 @@ impl MemoryStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl StateStore for MemoryStore {
-    async fn get_avatar_url(&self, user_id: &OwnedUserId) -> Result<Option<String>> {
-        self.get_avatar_url(user_id).await
-    }
-
-    async fn save_avatar_url(&self, user_id: &OwnedUserId, url: &str) -> Result<()> {
-        self.save_avatar_url(user_id, url).await
-    }
-
-    async fn remove_avatar_url(&self, user_id: &OwnedUserId) -> Result<()> {
-        self.remove_avatar_url(user_id).await
-    }
-
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.save_filter(filter_name, filter_id).await
     }
@@ -756,6 +732,10 @@ impl StateStore for MemoryStore {
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         self.set_custom_value(key, value).await
+    }
+
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.remove_custom_value(key).await
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
