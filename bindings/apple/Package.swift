@@ -5,6 +5,10 @@ import PackageDescription
 
 let package = Package(
     name: "MatrixRustSDK",
+    platforms: [
+        .iOS(.v15),
+        .macOS(.v12)
+    ],
     products: [
         .library(name: "MatrixRustSDK",
                  targets: ["MatrixRustSDK"]),
