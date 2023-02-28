@@ -209,7 +209,7 @@ struct WithheldHelper {
 }
 
 /// The content of a withheld event depends on the
-/// valu of the code. This enum reflect that for better type safety
+/// value of the code. This enum reflect that for better type safety
 #[derive(Clone, Debug)]
 pub enum MegolmV1AesSha2WithheldContent {
     /// Content for regular withheld content
