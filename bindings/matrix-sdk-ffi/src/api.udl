@@ -326,19 +326,4 @@ callback interface SessionVerificationControllerDelegate {
 
 interface SessionVerificationController {
     void set_delegate(SessionVerificationControllerDelegate? delegate);
-
-    [Throws=ClientError]
-    void request_verification();
-
-    [Throws=ClientError]
-    void start_sas_verification();
-
-    [Throws=ClientError]
-    void approve_verification();
-
-    [Throws=ClientError]
-    void decline_verification();
-
-    [Throws=ClientError]
-    void cancel_verification();
 };
