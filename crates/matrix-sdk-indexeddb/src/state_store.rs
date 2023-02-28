@@ -1524,7 +1524,7 @@ impl StateStore for IndexeddbStateStore {
     }
 
     async fn remove_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
-        self.remove_custom_value(key, value).await.map_err(|e| e.into())
+        self.remove_custom_value(key).await.map_err(|e| e.into())
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> StoreResult<()> {
