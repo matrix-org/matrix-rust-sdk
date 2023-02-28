@@ -135,13 +135,8 @@ impl Account {
         let response = self.client.send(request, config).await?;
         if let Some(url) = response.avatar_url.clone() {
             // If an avatar is found cache it.
-            let result = rmp_serde::to_vec(&url.as_str());
-            match result {
-                Ok(url_data) => {
-                    self.client.store().set_custom_value(user_id.as_bytes(), url_data).await?;
-                }
-                Err(_) => return Err(Error::AuthenticationRequired),
-            }
+            let url_data = rmp_serde::to_vec(&url.as_str())?;
+            self.client.store().set_custom_value(user_id.as_bytes(), url_data).await?;
         } else {
             // If there is no avatar the user has removed it and we uncache it.
             self.client.store().remove_custom_value(user_id.as_bytes()).await?;
@@ -153,14 +148,12 @@ impl Account {
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let url_data = self.client.store().get_custom_value(user_id.as_bytes()).await?;
-        if let Some(url_data) = url_data {
-            let result: Result<String, rmp_serde::decode::Error> = rmp_serde::from_slice(&url_data);
-            match result {
-                Ok(url) => Ok(Some(url)),
-                Err(_) => Err(Error::AuthenticationRequired),
+        match url_data {
+            Some(url_data) => {
+                let url: String = rmp_serde::from_slice(&url_data)?;
+                Ok(Some(url))
             }
-        } else {
-            Ok(None)
+            None => Ok(None),
         }
     }
 
