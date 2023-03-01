@@ -157,15 +157,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Can't use `${{ matrix.* }}` inside uses
-      - name: Install Rust
+      - name: Install Rust stable
         if: matrix.rust == 'stable'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust
+      - name: Install Rust beta
         if: matrix.rust == 'beta'
         uses: dtolnay/rust-toolchain@beta
 
-      - name: Install Rust
+      - name: Install Rust nightly
         if: matrix.rust == 'nightly'
         uses: dtolnay/rust-toolchain@nightly
 
