@@ -18,36 +18,12 @@ env:
   MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
 
 jobs:
-  xtask-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check xtask cache
-        uses: actions/cache@v3
-        id: xtask-cache
-        with:
-          path: target/debug/xtask
-          key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
-
-      - name: Install rust stable toolchain
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        run: |
-          cargo build -p xtask
+  xtask:
+    uses: ./.github/workflows/xtask.yml
 
   test-uniffi-codegen:
     name: Test UniFFI bindings generation
-    needs: xtask-linux
+    needs: xtask
     if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
 
@@ -67,10 +43,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings
@@ -211,36 +188,9 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
         run: npm run doc
 
-  xtask-macos:
-    runs-on: macos-12
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check xtask cache
-        uses: actions/cache@v3
-        id: xtask-cache
-        with:
-          path: target/debug/xtask
-          key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
-
-      - name: Install rust stable toolchain
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        run: |
-          cargo build -p xtask
-
   test-apple:
     name: matrix-rust-components-swift
-    needs: xtask-macos
+    needs: xtask
     runs-on: macos-12
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -263,10 +213,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-macos }}"
+          fail-on-cache-miss: true
 
       - name: Build library & bindings
         run: target/debug/xtask swift build-library
@@ -276,4 +227,4 @@ jobs:
         run: swift test
 
       - name: Build Framework
-        run: cargo xtask swift build-framework --only-target=aarch64-apple-ios
+        run: target/debug/xtask swift build-framework --only-target=aarch64-apple-ios
