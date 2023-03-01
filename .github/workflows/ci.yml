@@ -24,22 +24,9 @@ jobs:
     uses: ./.github/workflows/xtask.yml
 
   test-matrix-sdk-features:
-    name: 🐧 [m], ${{ matrix.name }}
+    name: 🐧 matrix-sdk features
     needs: xtask
-
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        name:
-          - no-encryption
-          - no-sled
-          - no-encryption-and-sled
-          - sled-cryptostore
-          - rustls-tls
-          - markdown
-          - socks
-          - sso-login
 
     steps:
       - name: Checkout
@@ -50,10 +37,6 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
-        with:
-          # use a separate cache for each job to work around
-          # https://github.com/Swatinem/rust-cache/issues/124
-          key: "${{ matrix.name }}"
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -65,9 +48,8 @@ jobs:
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
-      - name: Test
-        run: |
-          target/debug/xtask ci test-features ${{ matrix.name }}
+      - run: |
+          target/debug/xtask ci test-features
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
@@ -185,41 +167,9 @@ jobs:
           cargo test --doc
 
   test-wasm:
-    name: 🕸️ ${{ matrix.name }}
     needs: xtask
 
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - name: '[m]-qrcode'
-            cmd: matrix-sdk-qrcode
-
-          - name: '[m]-base'
-            cmd: matrix-sdk-base
-
-          - name: '[m]-common'
-            cmd: matrix-sdk-common
-
-          - name: '[m]-indexeddb, no crypto'
-            cmd: indexeddb-no-crypto
-
-          - name: '[m]-indexeddb, with crypto'
-            cmd: indexeddb-with-crypto
-
-          - name: '[m], no-default, wasm-flags'
-            cmd: matrix-sdk-no-default
-
-          - name: '[m], indexeddb stores'
-            cmd: matrix-sdk-indexeddb-stores
-
-          - name: '[m], indexeddb stores, no crypto'
-            cmd: matrix-sdk-indexeddb-stores-no-crypto
-
-          - name: '[m], wasm-example'
-            cmd: matrix-sdk-command-bot
 
     steps:
       - name: Checkout the repo
@@ -238,10 +188,6 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
-        with:
-          # use a separate cache for each job to work around
-          # https://github.com/Swatinem/rust-cache/issues/124
-          key: "${{ matrix.cmd }}"
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -255,11 +201,11 @@ jobs:
 
       - name: Rust Check
         run: |
-          target/debug/xtask ci wasm ${{ matrix.cmd }}
+          target/debug/xtask ci wasm
 
       - name: Wasm-Pack test
         run: |
-          target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
+          target/debug/xtask ci wasm-pack
 
   test-appservice:
     name: ${{ matrix.os-name }} [m]-appservice
