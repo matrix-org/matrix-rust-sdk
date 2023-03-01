@@ -626,6 +626,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
+use uuid::Uuid;
 
 use crate::{config::RequestConfig, Client, Result};
 
@@ -914,8 +915,25 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
+        stream_id: &str,
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
+        match &sliding_sync_response.txn_id {
+            None => {
+                error!(stream_id, "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; it's missing");
+            }
+
+            Some(txn_id) if txn_id != stream_id => {
+                error!(
+                    stream_id,
+                    txn_id,
+                    "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; they differ"
+                );
+            }
+
+            _ => {}
+        }
+
         // Handle and transform a Sliding Sync Response to a `SyncResponse`.
         //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
@@ -924,7 +942,7 @@ impl SlidingSync {
         // happens here.
         let mut sync_response = self.client.process_sliding_sync(&sliding_sync_response).await?;
 
-        debug!("sliding sync response has been processed");
+        debug!("Sliding sync response has been processed");
 
         Observable::set(&mut self.pos.write().unwrap(), Some(sliding_sync_response.pos));
         Observable::set(&mut self.delta_token.write().unwrap(), sliding_sync_response.delta_token);
@@ -998,6 +1016,7 @@ impl SlidingSync {
 
     async fn sync_once(
         &self,
+        stream_id: &str,
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<Option<UpdateSummary>> {
         let mut lists = BTreeMap::new();
@@ -1038,10 +1057,11 @@ impl SlidingSync {
         // Prepare the request.
         let request = self.client.send_with_homeserver(
             assign!(v4::Request::new(), {
-                lists,
                 pos,
                 delta_token,
+                txn_id: Some(stream_id.to_owned()),
                 timeout: Some(timeout),
+                lists,
                 room_subscriptions,
                 unsubscribe_rooms,
                 extensions,
@@ -1077,7 +1097,7 @@ impl SlidingSync {
 
         debug!("Sliding sync response received");
 
-        let updates = self.handle_response(response, list_generators).await?;
+        let updates = self.handle_response(response, stream_id, list_generators).await?;
 
         debug!("Sliding sync response has been handled");
 
@@ -1102,7 +1122,9 @@ impl SlidingSync {
             list_generators
         };
 
-        debug!(?self.extensions, "About to run the sync stream");
+        let stream_id = Uuid::new_v4().to_string();
+
+        debug!(?self.extensions, stream_id, "About to run the sync stream");
 
         let instrument_span = Span::current();
 
@@ -1114,7 +1136,7 @@ impl SlidingSync {
                     debug!(?self.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&mut list_generators).instrument(sync_span.clone()).await {
+                match self.sync_once(&stream_id, &mut list_generators).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.reset_counter.store(0, Ordering::SeqCst);
 

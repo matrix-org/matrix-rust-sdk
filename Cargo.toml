@@ -43,6 +43,9 @@ uniffi_bindgen = "0.23.0"
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 
+[patch.crates-io]
+ruma = { git = "https://github.com/Hywan/ruma", branch = "feat-sliding-sync-response-txn-id" }
+
 # Default release profile, select with `--release`
 [profile.release]
 lto = true
