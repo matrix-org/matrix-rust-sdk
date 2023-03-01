@@ -245,15 +245,13 @@ jobs:
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
-      # run the wasm-pack tests before the clippy checks, because they require *compiling* the artifacts,
-      # which saves us a bunch of work for the rust checks.
-      - name: Wasm-Pack test
-        run: |
-          target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
-
       - name: Rust Check
         run: |
           target/debug/xtask ci wasm ${{ matrix.cmd }}
+
+      - name: Wasm-Pack test
+        run: |
+          target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
   test-appservice:
     name: ${{ matrix.os-name }} [m]-appservice
