@@ -241,8 +241,8 @@ async fn echo() {
         Some(VectorDiff::PushBack { value }) => value
     );
     let item = remote_echo.as_event().unwrap().as_remote().unwrap();
-    assert!(item.is_own);
-    assert_eq!(item.timestamp, MilliSecondsSinceUnixEpoch(uint!(152038280)));
+    assert!(item.is_own());
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 }
 
 #[async_test]
@@ -421,7 +421,7 @@ async fn reaction() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
-    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
     let group = &event_item.reactions()["👍"];
@@ -451,7 +451,7 @@ async fn reaction() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
-    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 0);
 }
@@ -634,13 +634,13 @@ async fn in_reply_to_details() {
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let second_event = second.as_event().unwrap().as_remote().unwrap();
     let message =
-        assert_matches!(&second_event.content, TimelineItemContent::Message(message) => message);
+        assert_matches!(second_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
 
     // Fetch details locally first.
-    timeline.fetch_event_details(&second_event.event_id).await.unwrap();
+    timeline.fetch_event_details(second_event.event_id()).await.unwrap();
 
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
     let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
@@ -674,7 +674,7 @@ async fn in_reply_to_details() {
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let third_event = third.as_event().unwrap().as_remote().unwrap();
     let message =
-        assert_matches!(&third_event.content, TimelineItemContent::Message(message) => message);
+        assert_matches!(third_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
     assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
@@ -691,7 +691,7 @@ async fn in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+    timeline.fetch_event_details(third_event.event_id()).await.unwrap();
     server.reset().await;
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
@@ -720,7 +720,7 @@ async fn in_reply_to_details() {
         .mount(&server)
         .await;
 
-    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+    timeline.fetch_event_details(third_event.event_id()).await.unwrap();
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
@@ -790,21 +790,21 @@ async fn read_receipts_updates() {
     // We don't list the read receipt of our own user on events.
     let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let first_event = first_item.as_event().unwrap().as_remote().unwrap();
-    assert!(first_event.read_receipts.is_empty());
+    assert!(first_event.read_receipts().is_empty());
 
     // Implicit read receipt of @alice:localhost.
     let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let second_event = second_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(second_event.read_receipts.len(), 1);
+    assert_eq!(second_event.read_receipts().len(), 1);
 
     // Read receipt of @alice:localhost is moved to third event.
     let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
     let second_event = second_item.as_event().unwrap().as_remote().unwrap();
-    assert!(second_event.read_receipts.is_empty());
+    assert!(second_event.read_receipts().is_empty());
 
     let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let third_event = third_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(third_event.read_receipts.len(), 1);
+    assert_eq!(third_event.read_receipts().len(), 1);
 
     // Read receipt on unknown event is ignored.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
@@ -880,5 +880,5 @@ async fn read_receipts_updates() {
 
     let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let third_event = third_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(third_event.read_receipts.len(), 2);
+    assert_eq!(third_event.read_receipts().len(), 2);
 }

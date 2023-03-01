@@ -77,7 +77,7 @@ pub(super) fn handle_explicit_read_receipts(
                     });
 
                     if let Some((pos, mut remote_event_item)) = new_receipt_event_item {
-                        remote_event_item.read_receipts.insert(user_id, receipt);
+                        remote_event_item.add_read_receipt(user_id, receipt);
                         timeline_state
                             .items
                             .set(pos, Arc::new(TimelineItem::Event(remote_event_item.into())));
@@ -106,10 +106,10 @@ pub(super) fn maybe_add_implicit_read_receipt(
         return;
     };
 
-    let receipt = Receipt::new(remote_event_item.timestamp);
+    let receipt = Receipt::new(remote_event_item.timestamp());
     let new_receipt = FullReceipt {
-        event_id: &remote_event_item.event_id,
-        user_id: &remote_event_item.sender.clone(),
+        event_id: remote_event_item.event_id(),
+        user_id: remote_event_item.sender(),
         receipt_type: ReceiptType::Read,
         receipt: &receipt,
     };
@@ -122,7 +122,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
         users_read_receipts,
     );
     if read_receipt_updated && !is_own_event {
-        remote_event_item.read_receipts.insert(remote_event_item.sender.clone(), receipt);
+        remote_event_item.add_read_receipt(remote_event_item.sender().to_owned(), receipt);
     }
 }
 
@@ -174,8 +174,11 @@ fn maybe_update_read_receipt(
         if !is_own_user_id {
             // Remove the read receipt for this user from the old event.
             let mut old_event_item = old_event_item.clone();
-            if old_event_item.read_receipts.remove(receipt.user_id).is_none() {
-                error!("inconsistent state: old event item for user's read receipt doesn't have a receipt for the user");
+            if !old_event_item.remove_read_receipt(receipt.user_id) {
+                error!(
+                    "inconsistent state: old event item for user's read \
+                     receipt doesn't have a receipt for the user"
+                );
             }
             timeline_items
                 .set(old_receipt_pos, Arc::new(TimelineItem::Event(old_event_item.into())));

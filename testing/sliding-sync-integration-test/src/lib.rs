@@ -225,12 +225,12 @@ mod tests {
                 timeline_items[1].as_event(),
                 Some(EventTimelineItem::Remote(remote_event)) => remote_event
             );
-            all_event_ids.push(latest_remote_event.event_id.clone());
+            all_event_ids.push(latest_remote_event.event_id().to_owned());
 
             // Test the room to see the last event.
             assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
-                assert_eq!(remote_event.event_id, latest_remote_event.event_id, "Unexpected latest event");
-                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
+                assert_eq!(remote_event.event_id(), latest_remote_event.event_id(), "Unexpected latest event");
+                assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
             });
 
             (room, timeline, timeline_stream)
@@ -275,11 +275,11 @@ mod tests {
 
                     // Check messages arrived in the correct order.
                     assert_eq!(
-                        remote_event.content.as_message().expect("Received event is not a message").body(),
+                        remote_event.content().as_message().expect("Received event is not a message").body(),
                         format!("Message #{nth}"),
                     );
 
-                    all_event_ids.push(remote_event.event_id.clone());
+                    all_event_ids.push(remote_event.event_id().to_owned());
                 });
             }
 
@@ -296,16 +296,16 @@ mod tests {
                     value.as_event(),
                     Some(EventTimelineItem::Remote(remote_event)) => remote_event
                 );
-                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
-                assert_eq!(remote_event.event_id.clone(), all_event_ids[0]);
+                assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
+                assert_eq!(remote_event.event_id(), all_event_ids[0]);
 
                 remote_event.clone()
             });
 
             // Test the room to see the last event.
             assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
-                assert_eq!(remote_event.content.as_message().unwrap().body(), "Message #19");
-                assert_eq!(remote_event.event_id, latest_remote_event.event_id, "Unexpected latest event");
+                assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
+                assert_eq!(remote_event.event_id(), latest_remote_event.event_id(), "Unexpected latest event");
             });
 
             // Ensure there is no event ID duplication.
