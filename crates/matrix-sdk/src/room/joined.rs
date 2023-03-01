@@ -621,7 +621,7 @@ impl Joined {
                 );
 
                 if !self.are_members_synced() {
-                    self.request_members().await?;
+                    self.ensure_members().await?;
                     // TODO query keys here?
                 }
 
