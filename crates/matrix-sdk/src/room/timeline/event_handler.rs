@@ -543,14 +543,16 @@ impl<'a> TimelineEventHandler<'a> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let mut item = match &self.flow {
-            Flow::Local { txn_id, timestamp } => EventTimelineItem::Local(LocalEventTimelineItem {
-                send_state: EventSendState::NotSentYet,
-                transaction_id: txn_id.to_owned(),
-                sender,
-                sender_profile,
-                timestamp: *timestamp,
-                content,
-            }),
+            Flow::Local { txn_id, timestamp } => {
+                EventTimelineItem::Local(LocalEventTimelineItem::new(
+                    EventSendState::NotSentYet,
+                    txn_id.to_owned(),
+                    sender,
+                    sender_profile,
+                    *timestamp,
+                    content,
+                ))
+            }
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {

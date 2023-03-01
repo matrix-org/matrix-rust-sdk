@@ -189,9 +189,9 @@ async fn echo() {
     let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = local_echo.as_event().unwrap().as_local().unwrap();
-    assert_matches!(&item.send_state, EventSendState::NotSentYet);
+    assert_matches!(item.send_state(), EventSendState::NotSentYet);
 
-    let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "Hello, World!");
 
@@ -203,7 +203,7 @@ async fn echo() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
-    assert_matches!(&item.send_state, EventSendState::Sent { .. });
+    assert_matches!(item.send_state(), EventSendState::Sent { .. });
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({

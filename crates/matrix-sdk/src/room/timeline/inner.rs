@@ -248,7 +248,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
-        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+        if let EventSendState::Sent { event_id: existing_event_id } = item.send_state() {
             let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
