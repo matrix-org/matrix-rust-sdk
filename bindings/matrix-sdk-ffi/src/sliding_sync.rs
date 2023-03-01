@@ -64,7 +64,7 @@ impl TaskHandle {
         }
     }
 
-    /// Check wether a handle-based `TaskHandle` is finished; will return
+    /// Check whether a handle-based `TaskHandle` is finished; will return
     /// `false` for callback-based `TaskHandle`.
     pub fn is_finished(&self) -> bool {
         self.handle.as_ref().map(|handle| handle.is_finished()).unwrap_or_default()
