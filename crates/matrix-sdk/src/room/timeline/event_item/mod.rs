@@ -72,12 +72,10 @@ impl EventTimelineItem {
     /// case of a remote event.
     pub fn unique_identifier(&self) -> String {
         match self {
-            Self::Local(LocalEventTimelineItem { transaction_id, send_state, .. }) => {
-                match send_state {
-                    EventSendState::Sent { event_id } => event_id.to_string(),
-                    _ => transaction_id.to_string(),
-                }
-            }
+            Self::Local(item) => match item.send_state() {
+                EventSendState::Sent { event_id } => event_id.to_string(),
+                _ => item.transaction_id().to_string(),
+            },
 
             Self::Remote(RemoteEventTimelineItem { event_id, .. }) => event_id.to_string(),
         }
@@ -91,7 +89,7 @@ impl EventTimelineItem {
     /// discarded.
     pub fn transaction_id(&self) -> Option<&TransactionId> {
         match self {
-            Self::Local(local) => Some(&local.transaction_id),
+            Self::Local(local) => Some(local.transaction_id()),
             Self::Remote(_) => None,
         }
     }
@@ -115,7 +113,7 @@ impl EventTimelineItem {
     /// Get the sender of this item.
     pub fn sender(&self) -> &UserId {
         match self {
-            Self::Local(local_event) => &local_event.sender,
+            Self::Local(local_event) => local_event.sender(),
             Self::Remote(remote_event) => &remote_event.sender,
         }
     }
@@ -123,7 +121,7 @@ impl EventTimelineItem {
     /// Get the profile of the sender.
     pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         match self {
-            Self::Local(local_event) => &local_event.sender_profile,
+            Self::Local(local_event) => local_event.sender_profile(),
             Self::Remote(remote_event) => &remote_event.sender_profile,
         }
     }
@@ -131,7 +129,7 @@ impl EventTimelineItem {
     /// Get the content of this item.
     pub fn content(&self) -> &TimelineItemContent {
         match self {
-            Self::Local(local_event) => &local_event.content,
+            Self::Local(local_event) => local_event.content(),
             Self::Remote(remote_event) => &remote_event.content,
         }
     }
@@ -143,7 +141,7 @@ impl EventTimelineItem {
     /// server timestamp.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match self {
-            Self::Local(local_event) => local_event.timestamp,
+            Self::Local(local_event) => local_event.timestamp(),
             Self::Remote(remote_event) => remote_event.timestamp,
         }
     }
@@ -182,9 +180,7 @@ impl EventTimelineItem {
     /// Clone the current event item, and update its `content`.
     pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
         match self {
-            Self::Local(local_event_item) => {
-                Self::Local(LocalEventTimelineItem { content, ..local_event_item.clone() })
-            }
+            Self::Local(local_event_item) => Self::Local(local_event_item.with_content(content)),
             Self::Remote(remote_event_item) => {
                 Self::Remote(RemoteEventTimelineItem { content, ..remote_event_item.clone() })
             }
@@ -194,9 +190,7 @@ impl EventTimelineItem {
     /// Clone the current event item, and update its `sender_profile`.
     pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
         match self {
-            EventTimelineItem::Local(item) => {
-                Self::Local(LocalEventTimelineItem { sender_profile, ..item.clone() })
-            }
+            EventTimelineItem::Local(item) => Self::Local(item.with_sender_profile(sender_profile)),
             EventTimelineItem::Remote(item) => {
                 Self::Remote(RemoteEventTimelineItem { sender_profile, ..item.clone() })
             }
