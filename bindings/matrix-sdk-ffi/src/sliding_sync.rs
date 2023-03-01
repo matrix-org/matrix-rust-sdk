@@ -1,7 +1,4 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
-};
+use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball::Observable;
@@ -20,7 +17,7 @@ pub use matrix_sdk::{
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{Client, Room, RUNTIME};
@@ -41,6 +38,7 @@ impl TaskHandle {
         Self { handle: Some(handle), callback: Default::default() }
     }
 
+    #[allow(dead_code)]
     fn with_callback(callback: TaskHandleCallback) -> Self {
         Self { handle: Default::default(), callback: RwLock::new(Some(callback)) }
     }
