@@ -723,43 +723,35 @@ impl SlidingSync {
         let inner = self.inner.clone();
         let client = self.client.clone();
         let observer = self.observer.clone();
-        let stop_loop = Arc::new(AtomicBool::new(false));
-        let remote_stopper = stop_loop.clone();
 
-        let stoppable = Arc::new(TaskHandle::with_callback(Box::new(move || {
-            remote_stopper.store(true, Ordering::Relaxed);
-        })));
-
-        RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
             let stream = inner.stream();
             pin_mut!(stream);
+
             loop {
-                let update = match stream.next().await {
-                    Some(Ok(u)) => u,
-                    Some(Err(e)) => {
-                        if client.process_sync_error(e) == LoopCtrl::Break {
+                let update_summary = match stream.next().await {
+                    Some(Ok(update_summary)) => update_summary,
+
+                    Some(Err(error)) => {
+                        if client.process_sync_error(error) == LoopCtrl::Break {
                             warn!("loop was stopped by client error processing");
                             break;
                         } else {
                             continue;
                         }
                     }
+
                     None => {
                         warn!("Inner streaming loop ended unexpectedly");
                         break;
                     }
                 };
+
                 if let Some(ref observer) = *observer.read().unwrap() {
-                    observer.did_receive_sync_update(update.into());
-                }
-                if stop_loop.load(Ordering::Relaxed) {
-                    trace!("stopped sync loop after cancellation");
-                    break;
+                    observer.did_receive_sync_update(update_summary.into());
                 }
             }
-        });
-
-        stoppable
+        })))
     }
 }
 
