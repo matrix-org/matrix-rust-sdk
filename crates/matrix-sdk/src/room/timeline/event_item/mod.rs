@@ -15,14 +15,13 @@
 use std::{fmt, ops::Deref, sync::Arc};
 
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, TimelineEvent};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{
     events::{
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        receipt::Receipt,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -57,8 +56,9 @@ use super::inner::RoomDataProvider;
 use crate::{Error, Result};
 
 mod local;
+mod remote;
 
-pub use self::local::LocalEventTimelineItem;
+pub use self::{local::LocalEventTimelineItem, remote::RemoteEventTimelineItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -252,85 +252,9 @@ impl From<LocalEventTimelineItem> for EventTimelineItem {
     }
 }
 
-/// An item for an event that was received from the homeserver.
-#[derive(Clone)]
-pub struct RemoteEventTimelineItem {
-    /// The event ID.
-    pub event_id: OwnedEventId,
-    /// The sender of the event.
-    pub sender: OwnedUserId,
-    /// The sender's profile of the event.
-    pub sender_profile: TimelineDetails<Profile>,
-    /// The timestamp of the event.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event.
-    pub content: TimelineItemContent,
-    /// All bundled reactions about the event.
-    pub reactions: BundledReactions,
-    /// All read receipts for the event.
-    ///
-    /// The key is the ID of a room member and the value are details about the
-    /// read receipt.
-    ///
-    /// Note that currently this ignores threads.
-    pub read_receipts: IndexMap<OwnedUserId, Receipt>,
-    /// Whether the event has been sent by the the logged-in user themselves.
-    pub is_own: bool,
-    /// Encryption information.
-    pub encryption_info: Option<EncryptionInfo>,
-    // FIXME: Expose the raw JSON of aggregated events somehow
-    pub raw: Raw<AnySyncTimelineEvent>,
-}
-
-impl RemoteEventTimelineItem {
-    /// Clone the current event item, and update its `reactions`.
-    pub(super) fn with_reactions(&self, reactions: BundledReactions) -> Self {
-        Self { reactions, ..self.clone() }
-    }
-
-    /// Clone the current event item, and update its `content`.
-    pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
-        Self { content, ..self.clone() }
-    }
-
-    /// Clone the current event item, change its `content` to
-    /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
-    pub(super) fn to_redacted(&self) -> Self {
-        Self {
-            // FIXME: Change when we support state events
-            content: TimelineItemContent::RedactedMessage,
-            reactions: BundledReactions::default(),
-            ..self.clone()
-        }
-    }
-
-    /// Get the reactions of this item.
-    pub fn reactions(&self) -> &BundledReactions {
-        // FIXME: Find out the state of incomplete bundled reactions, adjust
-        //        Ruma if necessary, return the whole BundledReactions field
-        &self.reactions
-    }
-}
-
 impl From<RemoteEventTimelineItem> for EventTimelineItem {
     fn from(value: RemoteEventTimelineItem) -> Self {
         Self::Remote(value)
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for RemoteEventTimelineItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RemoteEventTimelineItem")
-            .field("event_id", &self.event_id)
-            .field("sender", &self.sender)
-            .field("timestamp", &self.timestamp)
-            .field("content", &self.content)
-            .field("reactions", &self.reactions)
-            .field("is_own", &self.is_own)
-            .field("encryption_info", &self.encryption_info)
-            // skip raw, too noisy
-            .finish_non_exhaustive()
     }
 }
 
