@@ -299,22 +299,21 @@ impl Common {
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
-        if let Some(mutex) =
-            self.client.inner.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
-        {
+        let mut map = self.client.inner.members_request_locks.lock().await;
+
+        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
             // If a member request is already going on, await the release of
             // the lock.
+            drop(map);
             _ = mutex.lock().await;
 
             Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .inner
-                .members_request_locks
-                .insert(self.inner.room_id().to_owned(), mutex.clone());
+            map.insert(self.inner.room_id().to_owned(), mutex.clone());
 
             let _guard = mutex.lock().await;
+            drop(map);
 
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
@@ -322,7 +321,7 @@ impl Common {
             let response =
                 self.client.base_client().receive_members(self.inner.room_id(), &response).await?;
 
-            self.client.inner.members_request_locks.remove(self.inner.room_id());
+            self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
 
             Ok(Some(response))
         }

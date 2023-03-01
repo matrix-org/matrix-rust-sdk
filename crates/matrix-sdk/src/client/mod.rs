@@ -15,6 +15,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
@@ -159,11 +160,11 @@ pub(crate) struct ClientInner {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Locks for requests on the encryption state of rooms.
     pub(crate) encryption_state_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,

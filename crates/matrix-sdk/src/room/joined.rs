@@ -356,25 +356,25 @@ impl Joined {
     /// room if necessary and share a room key that can be shared with them.
     ///
     /// Does nothing if no room key needs to be shared.
+    // TODO: expose this publicly so people can pre-share a group session if
+    // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
-        // TODO: expose this publicly so people can pre-share a group session if
-        // e.g. a user starts to type a message for a room.
-        if let Some(mutex) =
-            self.client.inner.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
-        {
+        let mut map = self.client.inner.group_session_locks.lock().await;
+
+        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
             // If a group session share request is already going on, await the
             // release of the lock.
+            drop(map);
             _ = mutex.lock().await;
         } else {
             // Otherwise create a new lock and share the group
             // session.
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .inner
-                .group_session_locks
-                .insert(self.inner.room_id().to_owned(), mutex.clone());
+            map.insert(self.inner.room_id().to_owned(), mutex.clone());
+
+            drop(map);
 
             let _guard = mutex.lock().await;
 
@@ -388,7 +388,7 @@ impl Joined {
 
             let response = self.share_room_key().await;
 
-            self.client.inner.group_session_locks.remove(self.inner.room_id());
+            self.client.inner.group_session_locks.lock().await.remove(self.inner.room_id());
 
             // If one of the responses failed invalidate the group
             // session as using it would end up in undecryptable
