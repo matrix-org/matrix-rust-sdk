@@ -54,16 +54,20 @@ impl TaskHandle {
 impl TaskHandle {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
+
         if let Some(handle) = &self.handle {
             handle.abort();
         }
+
         if let Some(callback) = self.callback.write().unwrap().take() {
             callback();
         }
     }
 
+    /// Check wether a handle-based `TaskHandle` is finished; will return
+    /// `false` for callback-based `TaskHandle`.
     pub fn is_finished(&self) -> bool {
-        self.handle.as_ref().map(|h| h.is_finished()).unwrap_or_default()
+        self.handle.as_ref().map(|handle| handle.is_finished()).unwrap_or_default()
     }
 }
 
@@ -163,6 +167,7 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> anyhow::Result<SlidingSyncSubscribeResult> {
         let (items, stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
+
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
@@ -173,9 +178,12 @@ impl SlidingSyncRoom {
     ) -> anyhow::Result<SlidingSyncSubscribeResult> {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
+
         self.runner.subscribe(room_id.clone(), settings.map(Into::into));
+
         let runner = self.runner.clone();
         stoppable_spawn.set_callback(Box::new(move || runner.unsubscribe(room_id)));
+
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
@@ -230,6 +238,7 @@ impl SlidingSyncRoom {
         let task_handle = TaskHandle::with_handle(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         }));
+
         Ok((items, task_handle))
     }
 }
@@ -268,8 +277,8 @@ impl From<RoomSubscription> for RumaRoomSubscription {
 }
 
 impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
-    fn from(other: matrix_sdk::UpdateSummary) -> UpdateSummary {
-        UpdateSummary {
+    fn from(other: matrix_sdk::UpdateSummary) -> Self {
+        Self {
             lists: other.lists,
             rooms: other.rooms.into_iter().map(|r| r.as_str().to_owned()).collect(),
         }
@@ -292,32 +301,24 @@ pub enum SlidingSyncListRoomsListDiff {
 impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncListRoomsListDiff {
     fn from(other: VectorDiff<MatrixRoomEntry>) -> Self {
         match other {
-            VectorDiff::Append { values } => SlidingSyncListRoomsListDiff::Append {
-                values: values.into_iter().map(|e| (&e).into()).collect(),
-            },
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(|e| (&e).into()).collect() }
+            }
             VectorDiff::Insert { index, value } => {
-                SlidingSyncListRoomsListDiff::Insert { index: index as u32, value: (&value).into() }
+                Self::Insert { index: index as u32, value: (&value).into() }
             }
             VectorDiff::Set { index, value } => {
-                SlidingSyncListRoomsListDiff::Set { index: index as u32, value: (&value).into() }
+                Self::Set { index: index as u32, value: (&value).into() }
             }
-            VectorDiff::Remove { index } => {
-                SlidingSyncListRoomsListDiff::Remove { index: index as u32 }
-            }
-            VectorDiff::PushBack { value } => {
-                SlidingSyncListRoomsListDiff::PushBack { value: (&value).into() }
-            }
-            VectorDiff::PushFront { value } => {
-                SlidingSyncListRoomsListDiff::PushFront { value: (&value).into() }
-            }
-            VectorDiff::PopBack => SlidingSyncListRoomsListDiff::PopBack,
-            VectorDiff::PopFront => SlidingSyncListRoomsListDiff::PopFront,
-            VectorDiff::Clear => SlidingSyncListRoomsListDiff::Clear,
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::PushBack { value } => Self::PushBack { value: (&value).into() },
+            VectorDiff::PushFront { value } => Self::PushFront { value: (&value).into() },
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::Clear => Self::Clear,
             VectorDiff::Reset { values } => {
                 warn!("Room list subscriber lagged behind and was reset");
-                SlidingSyncListRoomsListDiff::Reset {
-                    values: values.into_iter().map(|e| (&e).into()).collect(),
-                }
+                Self::Reset { values: values.into_iter().map(|e| (&e).into()).collect() }
             }
         }
     }
@@ -333,11 +334,9 @@ pub enum RoomListEntry {
 impl From<&MatrixRoomEntry> for RoomListEntry {
     fn from(other: &MatrixRoomEntry) -> Self {
         match other {
-            MatrixRoomEntry::Empty => RoomListEntry::Empty,
-            MatrixRoomEntry::Filled(b) => RoomListEntry::Filled { room_id: b.to_string() },
-            MatrixRoomEntry::Invalidated(b) => {
-                RoomListEntry::Invalidated { room_id: b.to_string() }
-            }
+            MatrixRoomEntry::Empty => Self::Empty,
+            MatrixRoomEntry::Filled(b) => Self::Filled { room_id: b.to_string() },
+            MatrixRoomEntry::Invalidated(b) => Self::Invalidated { room_id: b.to_string() },
         }
     }
 }
@@ -392,6 +391,7 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
             tags,
             not_tags,
         } = value;
+
         assign!(SyncRequestListFilters::default(), {
             is_dm, spaces, is_encrypted, is_invite, is_tombstoned, room_types, not_room_types, room_name_like, tags, not_tags,
         })
@@ -640,7 +640,7 @@ pub struct SlidingSync {
 
 impl SlidingSync {
     fn new(inner: matrix_sdk::SlidingSync, client: Client) -> Self {
-        SlidingSync { inner, client, observer: Default::default() }
+        Self { inner, client, observer: Default::default() }
     }
 
     pub fn set_observer(&self, observer: Option<Box<dyn SlidingSyncObserver>>) {
