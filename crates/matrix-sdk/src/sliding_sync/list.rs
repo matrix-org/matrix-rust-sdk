@@ -21,7 +21,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
-/// Holding a specific filtered view within the concept of sliding sync.
+/// Holding a specific filtered list within the concept of sliding sync.
 /// Main entrypoint to the SlidingSync
 ///
 /// ```no_run
@@ -32,14 +32,14 @@ use crate::Result;
 /// # let homeserver = Url::parse("http://example.com")?;
 /// let client = Client::new(homeserver).await?;
 /// let sliding_sync =
-///     client.sliding_sync().await.add_fullsync_view().build().await?;
+///     client.sliding_sync().await.add_fullsync_list().build().await?;
 ///
 /// # anyhow::Ok(())
 /// # });
 /// ```
 #[derive(Clone, Debug)]
 pub struct SlidingSyncList {
-    /// Which SlidingSyncMode to start this view under
+    /// Which SlidingSyncMode to start this list under
     sync_mode: SlidingSyncMode,
 
     /// Sort the rooms list by this
@@ -51,7 +51,7 @@ pub struct SlidingSyncList {
     /// How many rooms request at a time when doing a full-sync catch up
     batch_size: u32,
 
-    /// Whether the view should send `UpdatedAt`-Diff signals for rooms
+    /// Whether the list should send `UpdatedAt`-Diff signals for rooms
     /// that have changed
     send_updates_for_items: bool,
 
@@ -64,10 +64,10 @@ pub struct SlidingSyncList {
     /// The maximum number of timeline events to query for
     pub timeline_limit: Arc<StdRwLock<Observable<Option<UInt>>>>,
 
-    /// Name of this view to easily recognize them
+    /// Name of this list to easily recognize them
     pub name: String,
 
-    /// The state this view is in
+    /// The state this list is in
     state: Arc<StdRwLock<Observable<SlidingSyncState>>>,
 
     /// The total known number of rooms,
@@ -76,7 +76,7 @@ pub struct SlidingSyncList {
     /// The rooms in order
     rooms_list: Arc<StdRwLock<ObservableVector<RoomListEntry>>>,
 
-    /// The ranges windows of the view
+    /// The ranges windows of the list
     #[allow(clippy::type_complexity)] // temporarily
     ranges: Arc<StdRwLock<Observable<Vec<(UInt, UInt)>>>>,
 
@@ -198,7 +198,7 @@ impl SlidingSyncList {
         Observable::subscribe(&self.rooms_count.read().unwrap())
     }
 
-    /// Find the current valid position of the room in the view room_list.
+    /// Find the current valid position of the room in the list room_list.
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the item was
@@ -225,7 +225,7 @@ impl SlidingSyncList {
         None
     }
 
-    /// Find the current valid position of the rooms in the views room_list.
+    /// Find the current valid position of the rooms in the lists room_list.
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the items that were
@@ -309,7 +309,7 @@ impl SlidingSyncList {
         }
 
         {
-            // keep the lock scoped so that the later find_rooms_in_view doesn't deadlock
+            // keep the lock scoped so that the later find_rooms_in_list doesn't deadlock
             let mut rooms_list = self.rooms_list.write().unwrap();
 
             if !ops.is_empty() {
@@ -329,11 +329,13 @@ impl SlidingSyncList {
         }
 
         if self.send_updates_for_items && !rooms.is_empty() {
-            let found_views = self.find_rooms_in_list(rooms);
-            if !found_views.is_empty() {
+            let found_lists = self.find_rooms_in_list(rooms);
+
+            if !found_lists.is_empty() {
                 debug!("room details found");
                 let mut rooms_list = self.rooms_list.write().unwrap();
-                for (pos, room_id) in found_views {
+
+                for (pos, room_id) in found_lists {
                     // trigger an `UpdatedAt` update
                     rooms_list.set(pos, RoomListEntry::Filled(room_id));
                     changed = true;
@@ -373,12 +375,12 @@ pub(super) struct FrozenSlidingSyncList {
 
 impl FrozenSlidingSyncList {
     pub(super) fn freeze(
-        source_view: &SlidingSyncList,
+        source_list: &SlidingSyncList,
         rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
         let mut rooms_list = Vector::new();
-        for entry in source_view.rooms_list.read().unwrap().iter() {
+        for entry in source_list.rooms_list.read().unwrap().iter() {
             match entry {
                 RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
                     rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
@@ -389,15 +391,15 @@ impl FrozenSlidingSyncList {
             rooms_list.push_back(entry.freeze());
         }
         FrozenSlidingSyncList {
-            rooms_count: **source_view.rooms_count.read().unwrap(),
+            rooms_count: **source_list.rooms_count.read().unwrap(),
             rooms_list,
             rooms,
         }
     }
 }
 
-/// the default name for the full sync view
-pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
+/// the default name for the full sync list
+pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Builder for [`SlidingSyncList`].
 #[derive(Clone, Debug)]
@@ -441,10 +443,10 @@ impl SlidingSyncListBuilder {
 
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
-        Self::new().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
+        Self::new().name(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
     }
 
-    /// Which SlidingSyncMode to start this view under.
+    /// Which SlidingSyncMode to start this list under.
     pub fn sync_mode(mut self, value: SlidingSyncMode) -> Self {
         self.sync_mode = value;
         self
@@ -468,7 +470,7 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Whether the view should send `UpdatedAt`-Diff signals for rooms that
+    /// Whether the list should send `UpdatedAt`-Diff signals for rooms that
     /// have changed.
     pub fn send_updates_for_items(mut self, value: bool) -> Self {
         self.send_updates_for_items = value;
@@ -500,7 +502,7 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set the name of this view, to easily recognize it.
+    /// Set the name of this list, to easily recognize it.
     pub fn name(mut self, value: impl Into<String>) -> Self {
         self.name = Some(value.into());
         self
@@ -530,7 +532,7 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Build the view
+    /// Build the list
     pub fn build(self) -> Result<SlidingSyncList> {
         let mut rooms_list = ObservableVector::new();
         rooms_list.append(self.rooms_list);
@@ -562,16 +564,16 @@ enum InnerSlidingSyncListRequestGenerator {
 }
 
 pub(super) struct SlidingSyncListRequestGenerator {
-    view: SlidingSyncList,
+    list: SlidingSyncList,
     ranges: Vec<(usize, usize)>,
     inner: InnerSlidingSyncListRequestGenerator,
 }
 
 impl SlidingSyncListRequestGenerator {
-    fn new_with_paging_syncup(view: SlidingSyncList) -> Self {
-        let batch_size = view.batch_size;
-        let limit = view.limit;
-        let position = view
+    fn new_with_paging_syncup(list: SlidingSyncList) -> Self {
+        let batch_size = list.batch_size;
+        let limit = list.limit;
+        let position = list
             .ranges
             .read()
             .unwrap()
@@ -580,7 +582,7 @@ impl SlidingSyncListRequestGenerator {
             .unwrap_or_default();
 
         SlidingSyncListRequestGenerator {
-            view,
+            list,
             ranges: Default::default(),
             inner: InnerSlidingSyncListRequestGenerator::PagingFullSync {
                 position,
@@ -591,10 +593,10 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    fn new_with_growing_syncup(view: SlidingSyncList) -> Self {
-        let batch_size = view.batch_size;
-        let limit = view.limit;
-        let position = view
+    fn new_with_growing_syncup(list: SlidingSyncList) -> Self {
+        let batch_size = list.batch_size;
+        let limit = list.limit;
+        let position = list
             .ranges
             .read()
             .unwrap()
@@ -603,7 +605,7 @@ impl SlidingSyncListRequestGenerator {
             .unwrap_or_default();
 
         SlidingSyncListRequestGenerator {
-            view,
+            list,
             ranges: Default::default(),
             inner: InnerSlidingSyncListRequestGenerator::GrowingFullSync {
                 position,
@@ -614,9 +616,9 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    fn new_live(view: SlidingSyncList) -> Self {
+    fn new_live(list: SlidingSyncList) -> Self {
         SlidingSyncListRequestGenerator {
-            view,
+            list,
             ranges: Default::default(),
             inner: InnerSlidingSyncListRequestGenerator::Live,
         }
@@ -635,7 +637,7 @@ impl SlidingSyncListRequestGenerator {
             _ => calc_end,
         };
 
-        end = match self.view.rooms_count() {
+        end = match self.list.rooms_count() {
             Some(total_room_count) => std::cmp::min(end, total_room_count - 1),
             _ => end,
         };
@@ -643,12 +645,12 @@ impl SlidingSyncListRequestGenerator {
         self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
 
-    #[instrument(skip(self), fields(name = self.view.name))]
+    #[instrument(skip(self), fields(name = self.list.name))]
     fn make_request_for_ranges(&mut self, ranges: Vec<(UInt, UInt)>) -> v4::SyncRequestList {
-        let sort = self.view.sort.clone();
-        let required_state = self.view.required_state.clone();
-        let timeline_limit = **self.view.timeline_limit.read().unwrap();
-        let filters = self.view.filters.clone();
+        let sort = self.list.sort.clone();
+        let required_state = self.list.required_state.clone();
+        let timeline_limit = **self.list.timeline_limit.read().unwrap();
+        let filters = self.list.filters.clone();
 
         self.ranges = ranges
             .iter()
@@ -673,18 +675,18 @@ impl SlidingSyncListRequestGenerator {
 
     // generate the next live request
     fn live_request(&mut self) -> v4::SyncRequestList {
-        let ranges = self.view.ranges.read().unwrap().clone();
+        let ranges = self.list.ranges.read().unwrap().clone();
         self.make_request_for_ranges(ranges)
     }
 
-    #[instrument(skip_all, fields(name = self.view.name, rooms_count, has_ops = !ops.is_empty()))]
+    #[instrument(skip_all, fields(name = self.list.name, rooms_count, has_ops = !ops.is_empty()))]
     pub(super) fn handle_response(
         &mut self,
         rooms_count: u32,
         ops: &Vec<v4::SyncOp>,
         rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
-        let res = self.view.handle_response(rooms_count, ops, &self.ranges, rooms)?;
+        let res = self.list.handle_response(rooms_count, ops, &self.ranges, rooms)?;
         self.update_state(rooms_count.saturating_sub(1)); // index is 0 based, count is 1 based
         Ok(res)
     }
@@ -697,7 +699,7 @@ impl SlidingSyncListRequestGenerator {
 
         let end = if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
 
-        trace!(end, max_index, range_end, name = self.view.name, "updating state");
+        trace!(end, max_index, range_end, name = self.list.name, "updating state");
 
         match &mut self.inner {
             InnerSlidingSyncListRequestGenerator::PagingFullSync {
@@ -707,28 +709,28 @@ impl SlidingSyncListRequestGenerator {
                 position, live, limit, ..
             } => {
                 let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
-                trace!(end, max, name = self.view.name, "updating state");
+                trace!(end, max, name = self.list.name, "updating state");
                 if end >= max {
-                    trace!(name = self.view.name, "going live");
+                    trace!(name = self.list.name, "going live");
                     // we are switching to live mode
-                    self.view.set_range(0, max);
+                    self.list.set_range(0, max);
                     *position = max;
                     *live = true;
 
-                    Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                    Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                         *state = SlidingSyncState::Live;
                     });
                 } else {
                     *position = end;
                     *live = false;
-                    self.view.set_range(0, end);
-                    Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                    self.list.set_range(0, end);
+                    Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                         *state = SlidingSyncState::CatchingUp;
                     });
                 }
             }
             InnerSlidingSyncListRequestGenerator::Live => {
-                Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
+                Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                     *state = SlidingSyncState::Live;
                 });
             }
@@ -914,7 +916,7 @@ fn room_ops(
 ///
 /// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
 /// response for the first given number of Rooms, then switches into
-/// `CatchingUp` during which the view fetches the remaining rooms, usually in
+/// `CatchingUp` during which the list fetches the remaining rooms, usually in
 /// order, some times in batches. Once that is ready, it switches into `Live`.
 ///
 /// If the client has been offline for a while, though, the SlidingSync might
@@ -948,7 +950,7 @@ pub enum SlidingSyncMode {
     Selective,
 }
 
-/// The Entry in the Sliding Sync room list per Sliding Sync view.
+/// The Entry in the Sliding Sync room list per Sliding Sync list.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`.
