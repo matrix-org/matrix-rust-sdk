@@ -51,10 +51,17 @@ jobs:
           fail-on-cache-miss: true
 
       - run: |
+          rustup run stable cargo nextest run -p matrix-sdk --no-default-features --features sled,native-tls
+        env:
+          CARGO_LOG: "cargo::core::compiler::fingerprint=info"
+
+      - run: |
+          find target
+
+      - run: |
           target/debug/xtask ci test-features
         env:
           CARGO_LOG: "cargo::core::compiler::fingerprint=info"
-          CARGO_INCREMENTAL: 1
 
       - run: |
           find target
