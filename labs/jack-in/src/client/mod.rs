@@ -7,7 +7,7 @@ pub mod state;
 
 use matrix_sdk::{
     ruma::{api::client::error::ErrorKind, OwnedRoomId},
-    Client, SlidingSyncState, SlidingSyncViewBuilder,
+    Client, SlidingSyncListBuilder, SlidingSyncState,
 };
 
 pub async fn run_client(
@@ -17,7 +17,7 @@ pub async fn run_client(
 ) -> Result<()> {
     info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
-    let mut full_sync_view_builder = SlidingSyncViewBuilder::default_with_fullsync()
+    let mut full_sync_view_builder = SlidingSyncListBuilder::default_with_fullsync()
         .timeline_limit(10u32)
         .sync_mode(config.full_sync_mode.into());
     if let Some(size) = config.batch_size {
@@ -35,13 +35,13 @@ pub async fn run_client(
 
     let syncer = builder
         .homeserver(config.proxy.parse().wrap_err("can't parse sync proxy")?)
-        .add_view(full_sync_view)
+        .add_list(full_sync_view)
         .with_common_extensions()
         .cold_cache("jack-in-default")
         .build()
         .await?;
     let stream = syncer.stream();
-    let view = syncer.view("full-sync").expect("we have the full syncer there").clone();
+    let view = syncer.list("full-sync").expect("we have the full syncer there").clone();
     let mut ssync_state = state::SlidingSyncState::new(syncer.clone(), view.clone());
     tx.send(ssync_state.clone()).await?;
 

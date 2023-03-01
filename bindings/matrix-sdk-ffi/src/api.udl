@@ -25,7 +25,7 @@ dictionary RoomSubscription {
 };
 
 dictionary UpdateSummary {
-    sequence<string> views;
+    sequence<string> lists;
     sequence<string> rooms;
 };
 
@@ -53,7 +53,7 @@ enum SlidingSyncMode {
     "Selective",
 };
 
-callback interface SlidingSyncViewStateObserver {
+callback interface SlidingSyncListStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };
 
@@ -65,7 +65,7 @@ interface RoomListEntry {
 };
 
 [Enum]
-interface SlidingSyncViewRoomsListDiff {
+interface SlidingSyncListRoomsListDiff {
     Append(sequence<RoomListEntry> values);
     Insert(u32 index, RoomListEntry value);
     Set(u32 index, RoomListEntry value);
@@ -78,36 +78,36 @@ interface SlidingSyncViewRoomsListDiff {
     Reset(sequence<RoomListEntry> values);
 };
 
-callback interface SlidingSyncViewRoomListObserver {
-    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+callback interface SlidingSyncListRoomListObserver {
+    void did_receive_update(SlidingSyncListRoomsListDiff diff);
 };
 
-callback interface SlidingSyncViewRoomsCountObserver {
+callback interface SlidingSyncListRoomsCountObserver {
     void did_receive_update(u32 count);
 };
 
-callback interface SlidingSyncViewRoomItemsObserver {
+callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
-interface SlidingSyncViewBuilder {
+interface SlidingSyncListBuilder {
     constructor();
 
     [Self=ByArc]
-    SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
+    SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
 
     [Self=ByArc]
-    SlidingSyncViewBuilder send_updates_for_items(boolean enable);
+    SlidingSyncListBuilder send_updates_for_items(boolean enable);
 
     [Throws=ClientError, Self=ByArc]
-    SlidingSyncView build();
+    SlidingSyncList build();
 };
 
-interface SlidingSyncView {
-    TaskHandle observe_room_list(SlidingSyncViewRoomListObserver observer);
-    TaskHandle observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
-    TaskHandle observe_state(SlidingSyncViewStateObserver observer);
-    TaskHandle observe_room_items(SlidingSyncViewRoomItemsObserver observer);
+interface SlidingSyncList {
+    TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
+    TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
+    TaskHandle observe_state(SlidingSyncListStateObserver observer);
+    TaskHandle observe_room_items(SlidingSyncListRoomItemsObserver observer);
 };
 
 interface SlidingSyncRoom {

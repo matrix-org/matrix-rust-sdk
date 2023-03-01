@@ -16,8 +16,8 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncView, SlidingSync, SlidingSyncRoom, SlidingSyncView,
-    SlidingSyncViewBuilder,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
+    SlidingSyncListBuilder, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -30,7 +30,7 @@ pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Option<Client>,
-    views: BTreeMap<String, SlidingSyncView>,
+    lists: BTreeMap<String, SlidingSyncList>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
 }
@@ -41,7 +41,7 @@ impl SlidingSyncBuilder {
             storage_key: None,
             homeserver: None,
             client: None,
-            views: BTreeMap::new(),
+            lists: BTreeMap::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
         }
@@ -73,12 +73,12 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(self) -> Self {
-        self.add_view(
-            SlidingSyncViewBuilder::default_with_fullsync()
+    /// Convenience function to add a full-sync list to the builder
+    pub fn add_fullsync_list(self) -> Self {
+        self.add_list(
+            SlidingSyncListBuilder::default_with_fullsync()
                 .build()
-                .expect("Building default full sync view doesn't fail"),
+                .expect("Building default full sync list doesn't fail"),
         )
     }
 
@@ -94,17 +94,18 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Reset the views to `None`
-    pub fn no_views(mut self) -> Self {
-        self.views.clear();
+    /// Reset the lists to `None`
+    pub fn no_lists(mut self) -> Self {
+        self.lists.clear();
         self
     }
 
-    /// Add the given view to the views.
+    /// Add the given list to the lists.
     ///
-    /// Replace any view with the name.
-    pub fn add_view(mut self, v: SlidingSyncView) -> Self {
-        self.views.insert(v.name.clone(), v);
+    /// Replace any list with the name.
+    pub fn add_list(mut self, list: SlidingSyncList) -> Self {
+        self.lists.insert(list.name.clone(), list);
+
         self
     }
 
@@ -237,18 +238,18 @@ impl SlidingSyncBuilder {
         if let Some(storage_key) = &self.storage_key {
             trace!(storage_key, "trying to load from cold");
 
-            for (name, view) in &mut self.views {
-                if let Some(frozen_view) = client
+            for (name, list) in &mut self.lists {
+                if let Some(frozen_list) = client
                     .store()
                     .get_custom_value(format!("{storage_key}::{name}").as_bytes())
                     .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
                     .transpose()?
                 {
-                    trace!(name, "frozen for view found");
+                    trace!(name, "frozen for list found");
 
-                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
-                    view.set_from_cold(rooms_count, rooms_list);
+                    let FrozenSlidingSyncList { rooms_count, rooms_list, rooms } = frozen_list;
+                    list.set_from_cold(rooms_count, rooms_list);
 
                     for (key, frozen_room) in rooms.into_iter() {
                         rooms_found.entry(key).or_insert_with(|| {
@@ -256,7 +257,7 @@ impl SlidingSyncBuilder {
                         });
                     }
                 } else {
-                    trace!(name, "no frozen state for view found");
+                    trace!(name, "no frozen state for list found");
                 }
             }
 
@@ -286,14 +287,14 @@ impl SlidingSyncBuilder {
         trace!(len = rooms_found.len(), "rooms unfrozen");
 
         let rooms = Arc::new(StdRwLock::new(rooms_found));
-        let views = Arc::new(StdRwLock::new(self.views));
+        let lists = Arc::new(StdRwLock::new(self.lists));
 
         Ok(SlidingSync {
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,
 
-            views,
+            lists,
             rooms,
 
             extensions: Mutex::new(self.extensions).into(),
