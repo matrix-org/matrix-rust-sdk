@@ -373,16 +373,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("session_id", session_id);
 
-                let EventTimelineItem::Remote(
-                    RemoteEventTimelineItem { event_id, raw, .. },
-                ) = event_item else {
+                let EventTimelineItem::Remote(remote_event) = event_item else {
                     error!("Key for unable-to-decrypt timeline item is not an event ID");
                     return None;
                 };
 
-                tracing::Span::current().record("event_id", debug(event_id));
+                tracing::Span::current().record("event_id", debug(remote_event.event_id()));
 
-                let raw = raw.cast_ref();
+                let raw = remote_event.raw().cast_ref();
                 match olm_machine.decrypt_room_event(raw, room_id).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
@@ -509,7 +507,7 @@ impl TimelineInner {
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
-        let TimelineItemContent::Message(message) = item.content.clone() else {
+        let TimelineItemContent::Message(message) = item.content().clone() else {
             return Ok(item);
         };
         let Some(in_reply_to) = message.in_reply_to() else {
@@ -529,23 +527,22 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, mut item) = rfind_event_by_id(&state.items, &item.event_id)
+        let (index, mut item) = rfind_event_by_id(&state.items, item.event_id())
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Message(message) = item.content.clone() else {
+        let TimelineItemContent::Message(message) = item.content().clone() else {
             return Ok(item);
         };
         let Some(in_reply_to) = message.in_reply_to() else {
             return Ok(item);
         };
 
-        item.content = TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
-            event_id: in_reply_to.event_id.clone(),
-            details,
-        }));
+        item.set_content(TimelineItemContent::Message(message.with_in_reply_to(
+            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
+        )));
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
         Ok(item)

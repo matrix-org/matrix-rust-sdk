@@ -407,11 +407,11 @@ impl<'a> TimelineEventHandler<'a> {
 
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
-            if let TimelineItemContent::RedactedMessage = remote_event_item.content {
+            if let TimelineItemContent::RedactedMessage = remote_event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
             } else {
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
@@ -474,7 +474,7 @@ impl<'a> TimelineEventHandler<'a> {
                     return None;
                 };
 
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
 
                 let count = {
                     let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
@@ -561,18 +561,18 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                EventTimelineItem::Remote(RemoteEventTimelineItem {
-                    event_id: event_id.clone(),
+                EventTimelineItem::Remote(RemoteEventTimelineItem::new(
+                    event_id.clone(),
                     sender,
                     sender_profile,
-                    timestamp: *origin_server_ts,
+                    *origin_server_ts,
                     content,
                     reactions,
-                    is_own: self.meta.is_own_event,
-                    encryption_info: self.meta.encryption_info.clone(),
-                    read_receipts: self.meta.read_receipts.clone(),
-                    raw: raw_event.clone(),
-                })
+                    self.meta.read_receipts.clone(),
+                    self.meta.is_own_event,
+                    self.meta.encryption_info.clone(),
+                    raw_event.clone(),
+                ))
             }
         };
 

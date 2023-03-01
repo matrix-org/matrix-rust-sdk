@@ -98,8 +98,8 @@ async fn retry_message_decryption() {
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
     let event = item.as_event().unwrap().as_remote().unwrap();
-    assert_matches!(&event.encryption_info, Some(_));
-    let text = assert_matches!(&event.content, TimelineItemContent::Message(msg) => msg.body());
+    assert_matches!(event.encryption_info(), Some(_));
+    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
 }
 
@@ -200,8 +200,8 @@ async fn retry_edit_decryption() {
 
     let item = items[1].as_event().unwrap().as_remote().unwrap();
 
-    assert_matches!(&item.encryption_info, Some(_));
-    let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
+    assert_matches!(item.encryption_info(), Some(_));
+    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
 }

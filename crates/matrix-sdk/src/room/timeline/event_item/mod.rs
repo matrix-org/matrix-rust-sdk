@@ -76,8 +76,7 @@ impl EventTimelineItem {
                 EventSendState::Sent { event_id } => event_id.to_string(),
                 _ => item.transaction_id().to_string(),
             },
-
-            Self::Remote(RemoteEventTimelineItem { event_id, .. }) => event_id.to_string(),
+            Self::Remote(item) => item.event_id().to_string(),
         }
     }
 
@@ -106,7 +105,7 @@ impl EventTimelineItem {
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
             Self::Local(local_event) => local_event.event_id(),
-            Self::Remote(remote_event) => Some(&remote_event.event_id),
+            Self::Remote(remote_event) => Some(remote_event.event_id()),
         }
     }
 
@@ -114,7 +113,7 @@ impl EventTimelineItem {
     pub fn sender(&self) -> &UserId {
         match self {
             Self::Local(local_event) => local_event.sender(),
-            Self::Remote(remote_event) => &remote_event.sender,
+            Self::Remote(remote_event) => remote_event.sender(),
         }
     }
 
@@ -122,7 +121,7 @@ impl EventTimelineItem {
     pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         match self {
             Self::Local(local_event) => local_event.sender_profile(),
-            Self::Remote(remote_event) => &remote_event.sender_profile,
+            Self::Remote(remote_event) => remote_event.sender_profile(),
         }
     }
 
@@ -130,7 +129,7 @@ impl EventTimelineItem {
     pub fn content(&self) -> &TimelineItemContent {
         match self {
             Self::Local(local_event) => local_event.content(),
-            Self::Remote(remote_event) => &remote_event.content,
+            Self::Remote(remote_event) => remote_event.content(),
         }
     }
 
@@ -142,7 +141,7 @@ impl EventTimelineItem {
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match self {
             Self::Local(local_event) => local_event.timestamp(),
-            Self::Remote(remote_event) => remote_event.timestamp,
+            Self::Remote(remote_event) => remote_event.timestamp(),
         }
     }
 
@@ -150,7 +149,7 @@ impl EventTimelineItem {
     pub fn is_own(&self) -> bool {
         match self {
             Self::Local(_) => true,
-            Self::Remote(remote_event) => remote_event.is_own,
+            Self::Remote(remote_event) => remote_event.is_own(),
         }
     }
 
@@ -173,26 +172,26 @@ impl EventTimelineItem {
     pub fn raw(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match self {
             Self::Local(_local_event) => None,
-            Self::Remote(remote_event) => Some(&remote_event.raw),
+            Self::Remote(remote_event) => Some(remote_event.raw()),
         }
     }
 
     /// Clone the current event item, and update its `content`.
     pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
         match self {
-            Self::Local(local_event_item) => Self::Local(local_event_item.with_content(content)),
-            Self::Remote(remote_event_item) => {
-                Self::Remote(RemoteEventTimelineItem { content, ..remote_event_item.clone() })
-            }
+            Self::Local(local_event) => Self::Local(local_event.with_content(content)),
+            Self::Remote(remote_event) => Self::Remote(remote_event.with_content(content)),
         }
     }
 
     /// Clone the current event item, and update its `sender_profile`.
     pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
         match self {
-            EventTimelineItem::Local(item) => Self::Local(item.with_sender_profile(sender_profile)),
-            EventTimelineItem::Remote(item) => {
-                Self::Remote(RemoteEventTimelineItem { sender_profile, ..item.clone() })
+            EventTimelineItem::Local(local_event) => {
+                Self::Local(local_event.with_sender_profile(sender_profile))
+            }
+            EventTimelineItem::Remote(remote_event) => {
+                Self::Remote(remote_event.with_sender_profile(sender_profile))
             }
         }
     }
