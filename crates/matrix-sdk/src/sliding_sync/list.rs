@@ -203,7 +203,7 @@ impl SlidingSyncList {
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the item was
     /// found in the room_list, return None otherwise.
-    pub fn find_room_in_view(&self, room_id: &RoomId) -> Option<usize> {
+    pub fn find_room_in_list(&self, room_id: &RoomId) -> Option<usize> {
         let ranges = self.ranges.read().unwrap();
         let listing = self.rooms_list.read().unwrap();
         for (start_uint, end_uint) in ranges.iter() {
@@ -230,7 +230,7 @@ impl SlidingSyncList {
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the items that were
     /// found in the room_list, will skip any room not found in the rooms_list.
-    pub fn find_rooms_in_view(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
+    pub fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
         let ranges = self.ranges.read().unwrap();
         let listing = self.rooms_list.read().unwrap();
         let mut rooms_found = Vec::new();
@@ -329,7 +329,7 @@ impl SlidingSyncList {
         }
 
         if self.send_updates_for_items && !rooms.is_empty() {
-            let found_views = self.find_rooms_in_view(rooms);
+            let found_views = self.find_rooms_in_list(rooms);
             if !found_views.is_empty() {
                 debug!("room details found");
                 let mut rooms_list = self.rooms_list.write().unwrap();

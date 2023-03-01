@@ -30,10 +30,10 @@
 //! connections to stay up to date. On the client side these updates are applied
 //! and propagated through an [asynchronous reactive API](#reactive-api).
 //!
-//! The protocol is split into three major sections for that: room
-//! lists or [views](#views), the [room details](#rooms) and
-//! [extensions](#extensions), most notably the end-to-end-encryption and
-//! to-device extensions to enable full end-to-end-encryption support.
+//! The protocol is split into three major sections for that: [lists][#lists],
+//! the [room details](#rooms) and [extensions](#extensions), most notably the
+//! end-to-end-encryption and to-device extensions to enable full
+//! end-to-end-encryption support.
 //!
 //! ## Starting up
 //!
@@ -65,31 +65,31 @@
 //! # });
 //! ```
 //!
-//! After the general configuration, one typically wants to add a view via the
-//! [`add_view`][`SlidingSyncBuilder::add_view`] function.
+//! After the general configuration, one typically wants to add a list via the
+//! [`add_list`][`SlidingSyncBuilder::add_list`] function.
 //!
-//! ## Views
+//! ## Lists
 //!
-//! A view defines a subset of matching rooms one wants to filter for, and be
+//! A list defines a subset of matching rooms one wants to filter for, and be
 //! kept up about. The [`v4::SyncRequestListFilters`][] allows for a granular
 //! specification of the exact rooms one wants the server to select and the way
-//! one wants them to be ordered before receiving. Secondly each view has a set
+//! one wants them to be ordered before receiving. Secondly each list has a set
 //! of `ranges`: the subset of indexes of the entire list one is interested in
 //! and a unique name to be identified with.
 //!
 //! For example, a user might be part of thousands of rooms, but if the client
 //! app always starts by showing the most recent direct message conversations,
 //! loading all rooms is an inefficient approach. Instead with Sliding Sync one
-//! defines a view (e.g. named `"main_view"`) filtering for `is_dm`, ordered
-//! by recency and select to view the top 10 via `ranges: [ [0,9] ]` (indexes
+//! defines a list (e.g. named `"main_list"`) filtering for `is_dm`, ordered
+//! by recency and select to list the top 10 via `ranges: [ [0,9] ]` (indexes
 //! are **inclusive**) like so:
 //!
 //! ```rust
 //! # use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
 //! use ruma::{assign, api::client::sync::sync_events::v4};
 //!
-//! let view_builder = SlidingSyncList::builder()
-//!     .name("main_view")
+//! let list_builder = SlidingSyncList::builder()
+//!     .name("main_list")
 //!     .sync_mode(SlidingSyncMode::Selective)
 //!     .filters(Some(assign!(
 //!         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
@@ -101,15 +101,15 @@
 //! Please refer to the [specification][MSC], the [Ruma types][ruma-types],
 //! specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
 //! [`SlidingSyncListBuilder`] for details on the filters, sort-order and
-//! range-options and data one requests to be sent. Once the view is fully
-//! configured, `build()` it and add the view to the sliding sync session
-//! by supplying it to [`add_view`][`SlidingSyncBuilder::add_view`].
+//! range-options and data one requests to be sent. Once the list is fully
+//! configured, `build()` it and add the list to the sliding sync session
+//! by supplying it to [`add_list`][`SlidingSyncBuilder::add_list`].
 //!
-//! Views are inherently stateful and all updates are applied on the shared
-//! view-object. Once a view has been added to [`SlidingSync`], a cloned shared
-//! copy can be retrieved by calling `SlidingSync::view()`, providing the name
-//! of the view. Next to the configuration settings (like name and
-//! `timeline_limit`), the view provides the stateful
+//! Lists are inherently stateful and all updates are applied on the shared
+//! list-object. Once a list has been added to [`SlidingSync`], a cloned shared
+//! copy can be retrieved by calling `SlidingSync::list()`, providing the name
+//! of the list. Next to the configuration settings (like name and
+//! `timeline_limit`), the list provides the stateful
 //! [`rooms_count`](SlidingSyncList::rooms_count),
 //! [`rooms_list`](SlidingSyncList::rooms_list) and
 //! [`state`](SlidingSyncList::state):
@@ -120,58 +120,58 @@
 //!    current state. `RoomListEntry`'s only hold `the room_id` if given, the
 //!    [Rooms API](#rooms) holds the actual information about each room
 //!  - `state` is a [`SlidingSyncMode`] signalling meta information about the
-//!    view and its stateful data — whether this is the state loaded from local
-//!    cache, whether the [full sync](#helper-views) is in progress or whether
+//!    list and its stateful data — whether this is the state loaded from local
+//!    cache, whether the [full sync](#helper-lists) is in progress or whether
 //!    this is the current live information
 //!
 //! These are updated upon every update received from the server. One can query
 //! these for their current value at any time, or use the [Reactive API
 //! to subscribe to changes](#reactive-api).
 //!
-//! ### Helper Views
+//! ### Helper lists
 //!
-//! By default views run in the [`Selective` mode](SlidingSyncMode::Selective).
+//! By default lists run in the [`Selective` mode](SlidingSyncMode::Selective).
 //! That means one sets the desired range(s) to see explicitly (as described
 //! above). Very often, one still wants to load up the entire room list in
-//! background though. For that, the client implementation offers to run views
+//! background though. For that, the client implementation offers to run lists
 //! in two additional full-sync-modes, which require additional configuration:
 //!
 //! - [`SlidingSyncMode::PagingFullSync`]: Pages through the entire list of
 //!   rooms one request at a time asking for the next `batch_size` number of
 //!   rooms up to the end or `limit` if configured
 //! - [`SlidingSyncMode::GrowingFullSync`]: Grows the window by `batch_size` on
-//!   every request till all rooms or until `limit` of rooms are in view.
+//!   every request till all rooms or until `limit` of rooms are in list.
 //!
 //! For both, one should configure
 //! [`batch_size`](SlidingSyncListBuilder::batch_size) and optionally
 //! [`limit`](SlidingSyncListBuilder::limit) on the [`SlidingSyncListBuilder`].
-//! Both full-sync views will notice if the number of rooms increased at runtime
+//! Both full-sync lists will notice if the number of rooms increased at runtime
 //! and will attempt to catch up to that (barring the `limit`).
 //!
 //! ## Rooms
 //!
 //! Next to the room list, the details for rooms are the next important aspect.
-//! Each [view](#views) only references the [`OwnedRoomId`][ruma::OwnedRoomId]
+//! Each [list](#lists) only references the [`OwnedRoomId`][ruma::OwnedRoomId]
 //! of the room at the given position. The details (`required_state`s and
-//! timeline items) requested by all views are bundled, together with the common
+//! timeline items) requested by all lists are bundled, together with the common
 //! details (e.g. whether it is a `dm` or its calculated name) and made
 //! available on the Sliding Sync session struct as a [reactive](#reactive-api)
 //! through [`.rooms`](SlidingSync::rooms), [`get_room`](SlidingSync::get_room)
 //! and [`get_rooms`](SlidingSync::get_rooms) APIs.
 //!
 //! Notably, this map only knows about the rooms that have come down [Sliding
-//! Sync protocol][MSC] and if the given room isn't in any active view range, it
+//! Sync protocol][MSC] and if the given room isn't in any active list range, it
 //! may be stale. Additionally to selecting the room data via the room lists,
 //! the [Sliding Sync protocol][MSC] allows to subscribe to specific rooms via
 //! the [`subscribe()`](SlidingSync::subscribe). Any room subscribed to will
 //! receive updates (with the given settings) regardless of whether they are
-//! visible in any view. The most common case for using this API is when the
+//! visible in any list. The most common case for using this API is when the
 //! user enters a room - as we want to receive the incoming new messages
-//! regardless of whether the room is pushed out of the views room list.
+//! regardless of whether the room is pushed out of the lists room list.
 //!
 //! ### Room List Entries
 //!
-//! As the room list of each view is a vec of the `rooms_count` len but a room
+//! As the room list of each list is a vec of the `rooms_count` len but a room
 //! may only know of a subset of entries for sure at any given time, these
 //! entries are wrapped in [`RoomListEntry`][]. This type, in close proximity to
 //! the [specification][MSC], can be either `Empty`, `Filled` or `Invalidated`,
@@ -218,12 +218,12 @@
 //!
 //! ## Timeline events
 //!
-//! Both the view configuration as well as the [room subscription
+//! Both the list configuration as well as the [room subscription
 //! settings](`v4::RoomSubscription`) allow to specify a `timeline_limit` to
 //! receive timeline events. If that is unset or set to 0, no events are sent by
 //! the server (which is the default), if multiple limits are found, the highest
 //! takes precedence. Any positive number indicates that on the first request a
-//! room should come into view, up to that count of messages are sent
+//! room should come into list, up to that count of messages are sent
 //! (depending how many the server has in cache). Following, whenever new events
 //! are found for the matching rooms, the server relays them to the client.
 //!
@@ -239,7 +239,7 @@
 //!
 //! To allow for a quick startup, client might want to request only a very low
 //! `timeline_limit` (maybe 1 or even 0) at first and update the count later on
-//! the view or room subscription (see [reactive api](#reactive-api)), Since
+//! the list or room subscription (see [reactive api](#reactive-api)), Since
 //! `0.99.0-rc1` the [sliding sync proxy][proxy] will then "paginate back" and
 //! resent the now larger number of events. All this is handled transparently.
 //!
@@ -270,9 +270,9 @@
 //! the [reactive structs](#reactive-api) and an
 //! [`Ok(UpdateSummary)`][`UpdateSummary`] is yielded with the minimum
 //! information, which data has been refreshed _in this iteration_: names of
-//! views and `room_id`s of rooms. Note that, the same way that a view isn't
+//! lists and `room_id`s of rooms. Note that, the same way that a list isn't
 //! reacting if only the room data has changed (but not its position in its
-//! list), the view won't be mentioned here either, only the `room_id`. So be
+//! list), the list won't be mentioned here either, only the `room_id`. So be
 //! sure to look at both for all subscribed objects.
 //!
 //! In full, this typically looks like this:
@@ -295,7 +295,7 @@
 //! let sliding_sync = client
 //!     .sliding_sync()
 //!     .await
-//!     // any views you want are added here.
+//!     // any lists you want are added here.
 //!     .build()
 //!     .await?;
 //!
@@ -328,7 +328,7 @@
 //! A main purpose of [Sliding Sync][MSC] is to provide an API for snappy end
 //! user applications. Long-polling on the other side means that we wait for the
 //! server to respond and that can take quite some time, before sending the next
-//! request with our updates, for example an update in a view's `range`.
+//! request with our updates, for example an update in a list's `range`.
 //!
 //! That is a bit unfortunate and leaks through the `stream` API as well. We are
 //! waiting for a `stream.next().await` call before the next request is sent.
@@ -364,7 +364,7 @@
 //! # let sliding_sync = client
 //! #    .sliding_sync()
 //! #    .await
-//! #    // any views you want are added here.
+//! #    // any lists you want are added here.
 //! #    .build()
 //! #    .await?;
 //! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
@@ -416,10 +416,10 @@
 //! As the main source of truth is the data coming from the server, all updates
 //! must be applied transparently throughout to the data layer. The simplest
 //! way to stay up to date on what objects have changed is by checking the
-//! [`views`](`UpdateSummary.views`) and [`rooms`](`UpdateSummary.rooms`) of
+//! [`lists`](`UpdateSummary.lists`) and [`rooms`](`UpdateSummary.rooms`) of
 //! each [`UpdateSummary`] given by each stream iteration and update the local
 //! copies accordingly. Because of where the loop sits in the stack, that can
-//! be a bit tedious though, so views and rooms have an additional way of
+//! be a bit tedious though, so lists and rooms have an additional way of
 //! subscribing to updates via [`eyeball`].
 //!
 //! The `Timeline` one can receive per room by calling
@@ -429,26 +429,26 @@
 //! ## Caching
 //!
 //! All room data, for filled but also _invalidated_ rooms, including the entire
-//! timeline events as well as all view `room_lists` and `rooms_count` are held
-//! in memory (unless one `pop`s the view out).
+//! timeline events as well as all list `room_lists` and `rooms_count` are held
+//! in memory (unless one `pop`s the list out).
 //!
 //! This is a purely in-memory cache layer though. If one wants Sliding Sync to
 //! persist and load from cold (storage) cache, one needs to set its key with
-//! [`cold_cache(name)`][`SlidingSyncBuilder::cold_cache`] and for each view
+//! [`cold_cache(name)`][`SlidingSyncBuilder::cold_cache`] and for each list
 //! present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
 //! to load their latest cached version from storage, as well as some overall
-//! information of Sliding Sync. If that succeeded the views `state` has been
+//! information of Sliding Sync. If that succeeded the lists `state` has been
 //! set to [`Preload`][SlidingSyncListState::Preload]. Only room data of rooms
-//! present in one of the views is loaded from storage.
+//! present in one of the lists is loaded from storage.
 //!
 //! Once [#1441](https://github.com/matrix-org/matrix-rust-sdk/pull/1441) is merged
-//! one can disable caching on a per-view basis by setting
+//! one can disable caching on a per-list basis by setting
 //! [`cold_cache(false)`][`SlidingSyncListBuilder::cold_cache`] when
 //! constructing the builder.
 //!
-//! Notice that views added after Sliding Sync has been built **will not be
+//! Notice that lists added after Sliding Sync has been built **will not be
 //! loaded from cache** regardless of their settings (as this could lead to
-//! inconsistencies between views). The same goes for any extension: some
+//! inconsistencies between lists). The same goes for any extension: some
 //! extension data (like the to-device-message position) are stored to storage,
 //! but only retrieved upon `build()` of the `SlidingSyncBuilder`. So if one
 //! only adds them later, they will not be reading the data from storage (to
@@ -495,8 +495,8 @@
 //! # block_on(async {
 //! # let homeserver = Url::parse("http://example.com")?;
 //! # let client = Client::new(homeserver).await?;
-//! let full_sync_view_name = "full-sync".to_owned();
-//! let active_view_name = "active-view".to_owned();
+//! let full_sync_list_name = "full-sync".to_owned();
+//! let active_list_name = "active-list".to_owned();
 //! let sliding_sync_builder = client
 //!     .sliding_sync()
 //!     .await
@@ -504,9 +504,9 @@
 //!     .with_common_extensions() // we want the e2ee and to-device enabled, please
 //!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 //!
-//! let full_sync_view = SlidingSyncList::builder()
+//! let full_sync_list = SlidingSyncList::builder()
 //!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
-//!     .name(&full_sync_view_name)    // needed to lookup again.
+//!     .name(&full_sync_list_name)    // needed to lookup again.
 //!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
 //!     .required_state(vec![
 //!         (StateEventType::RoomEncryption, "".to_owned())
@@ -515,8 +515,8 @@
 //!     .limit(500)      // only sync up the top 500 rooms
 //!     .build()?;
 //!
-//! let active_view = SlidingSyncList::builder()
-//!     .name(&active_view_name)   // the active window
+//! let active_list = SlidingSyncList::builder()
+//!     .name(&active_list_name)   // the active window
 //!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
 //!     .set_range(0u32, 9u32) // only the top 10 items
 //!     .sort(vec!["by_recency".to_owned()]) // last active
@@ -529,27 +529,27 @@
 //!     .build()?;
 //!
 //! let sliding_sync = sliding_sync_builder
-//!     .add_view(active_view)
-//!     .add_view(full_sync_view)
+//!     .add_list(active_view)
+//!     .add_list(full_sync_list)
 //!     .build()
 //!     .await?;
 //!
-//!  // subscribe to the view APIs for updates
+//!  // subscribe to the list APIs for updates
 //!
-//! let active_view = sliding_sync.view(&active_view_name).unwrap();
-//! let view_state_stream = active_view.state_stream();
-//! let view_count_stream = active_view.rooms_count_stream();
-//! let view_list_stream = active_view.rooms_list_stream();
+//! let active_list = sliding_sync.list(&active_list_name).unwrap();
+//! let list_state_stream = active_list.state_stream();
+//! let list_count_stream = active_list.rooms_count_stream();
+//! let list_list_stream = active_list.rooms_list_stream();
 //!
 //! tokio::spawn(async move {
-//!     pin_mut!(view_state_stream);
-//!     while let Some(new_state) = view_state_stream.next().await {
-//!         info!("active-view switched state to {new_state:?}");
+//!     pin_mut!(list_state_stream);
+//!     while let Some(new_state) = list_state_stream.next().await {
+//!         info!("active-list switched state to {new_state:?}");
 //!     }
 //! });
 //!
 //! tokio::spawn(async move {
-//!     pin_mut!(view_count_stream);
+//!     pin_mut!(list_count_stream);
 //!     while let Some(new_count) = view_count_stream.next().await {
 //!         info!("active-view new count: {new_count:?}");
 //!     }
@@ -655,8 +655,8 @@ pub struct SlidingSync {
 
     delta_token: Arc<StdRwLock<Observable<Option<String>>>>,
 
-    /// The views of this sliding sync instance
-    views: Arc<StdRwLock<BTreeMap<String, SlidingSyncList>>>,
+    /// The lists of this Sliding Sync instance.
+    lists: Arc<StdRwLock<BTreeMap<String, SlidingSyncList>>>,
 
     /// The rooms details
     rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>>,
@@ -718,7 +718,7 @@ impl SlidingSync {
         let frozen_views = {
             let rooms_lock = self.rooms.read().unwrap();
 
-            self.views
+            self.lists
                 .read()
                 .unwrap()
                 .iter()
@@ -752,14 +752,14 @@ impl SlidingSync {
             .client(self.client.clone())
             .subscriptions(self.subscriptions.read().unwrap().to_owned());
 
-        for view in self.views.read().unwrap().values().map(|view| {
-            view.new_builder().build().expect("builder worked before, builder works now")
+        for list in self.lists.read().unwrap().values().map(|list| {
+            list.new_builder().build().expect("builder worked before, builder works now")
         }) {
-            builder = builder.add_view(view);
+            builder = builder.add_list(list);
         }
 
-        if let Some(h) = &self.homeserver {
-            builder.homeserver(h.clone())
+        if let Some(homeserver) = &self.homeserver {
+            builder.homeserver(homeserver.clone())
         } else {
             builder
         }
@@ -823,36 +823,36 @@ impl SlidingSync {
             .since = Some(since);
     }
 
-    /// Get access to the SlidingSyncList named `view_name`
+    /// Get access to the SlidingSyncList named `list_name`.
     ///
     /// Note: Remember that this list might have been changed since you started
     /// listening to the stream and is therefor not necessarily up to date
-    /// with the views used for the stream.
-    pub fn view(&self, view_name: &str) -> Option<SlidingSyncList> {
-        self.views.read().unwrap().get(view_name).cloned()
+    /// with the lists used for the stream.
+    pub fn list(&self, list_name: &str) -> Option<SlidingSyncList> {
+        self.lists.read().unwrap().get(list_name).cloned()
     }
 
-    /// Remove the SlidingSyncList named `view_name` from the views list if
-    /// found
+    /// Remove the SlidingSyncList named `list_name` from the lists list if
+    /// found.
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
-    /// previous set of views.
-    pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncList> {
-        self.views.write().unwrap().remove(view_name)
+    /// previous set of lists.
+    pub fn pop_list(&self, list_name: &String) -> Option<SlidingSyncList> {
+        self.lists.write().unwrap().remove(list_name)
     }
 
-    /// Add the view to the list of views
+    /// Add the list to the list of lists.
     ///
-    /// As views need to have a unique `.name`, if a view with the same name
-    /// is found the new view will replace the old one and the return it or
+    /// As lists need to have a unique `.name`, if a list with the same name
+    /// is found the new list will replace the old one and the return it or
     /// `None`.
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
-    /// previous set of views.
-    pub fn add_view(&self, view: SlidingSyncList) -> Option<SlidingSyncList> {
-        self.views.write().unwrap().insert(view.name.clone(), view)
+    /// previous set of lists.
+    pub fn add_list(&self, list: SlidingSyncList) -> Option<SlidingSyncList> {
+        self.lists.write().unwrap().insert(list.name.clone(), list)
     }
 
     /// Lookup a set of rooms
@@ -871,12 +871,12 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(views = views.len()))]
+    #[instrument(skip_all, fields(lists = list_generators.len()))]
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
         extensions: Option<ExtensionsConfig>,
-        views: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
+        list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         // Handle and transform a Sliding Sync Response to a `SyncResponse`.
         //
@@ -928,11 +928,11 @@ impl SlidingSync {
                 rooms.push(room_id);
             }
 
-            let mut updated_views = Vec::new();
+            let mut updated_lists = Vec::new();
 
             for (name, updates) in sliding_sync_response.lists {
-                let Some(generator) = views.get_mut(&name) else {
-                    error!("Response for view `{name}` - unknown to us; skipping");
+                let Some(generator) = list_generators.get_mut(&name) else {
+                    error!("Response for list `{name}` - unknown to us; skipping");
 
                     continue
                 };
@@ -941,7 +941,7 @@ impl SlidingSync {
                     updates.count.try_into().expect("the list total count convertible into u32");
 
                 if generator.handle_response(count, &updates.ops, &rooms)? {
-                    updated_views.push(name.clone());
+                    updated_lists.push(name.clone());
                 }
             }
 
@@ -956,7 +956,7 @@ impl SlidingSync {
                 *self.sent_extensions.lock().unwrap() = extensions;
             }
 
-            UpdateSummary { views: updated_views, rooms }
+            UpdateSummary { lists: updated_lists, rooms }
         };
 
         self.cache_to_storage().await?;
@@ -966,27 +966,27 @@ impl SlidingSync {
 
     async fn sync_once(
         &self,
-        views: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
+        list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<Option<UpdateSummary>> {
-        let mut lists_of_requests = BTreeMap::new();
+        let mut lists = BTreeMap::new();
 
         {
-            let mut views_to_remove = Vec::new();
+            let mut lists_to_remove = Vec::new();
 
-            for (name, generator) in views.iter_mut() {
+            for (name, generator) in list_generators.iter_mut() {
                 if let Some(request) = generator.next() {
-                    lists_of_requests.insert(name.clone(), request);
+                    lists.insert(name.clone(), request);
                 } else {
-                    views_to_remove.push(name.clone());
+                    lists_to_remove.push(name.clone());
                 }
             }
 
-            for view_name in views_to_remove {
-                views.remove(&view_name);
+            for list_name in lists_to_remove {
+                list_generators.remove(&list_name);
             }
         }
 
-        if views.is_empty() {
+        if list_generators.is_empty() {
             return Ok(None);
         }
 
@@ -1017,7 +1017,7 @@ impl SlidingSync {
         // Prepare the request.
         let request = self.client.send_with_homeserver(
             assign!(v4::Request::new(), {
-                lists: lists_of_requests,
+                lists,
                 pos,
                 delta_token,
                 timeout: Some(timeout),
@@ -1056,7 +1056,7 @@ impl SlidingSync {
 
         debug!("Sliding sync response received");
 
-        let updates = self.handle_response(response, extensions, views).await?;
+        let updates = self.handle_response(response, extensions, list_generators).await?;
 
         debug!("Sliding sync response has been handled");
 
@@ -1066,19 +1066,19 @@ impl SlidingSync {
     /// Create a _new_ Sliding Sync stream.
     ///
     /// This stream will send requests and will handle responses automatically,
-    /// hence updating the views.
+    /// hence updating the lists.
     #[instrument(name = "sync_stream", skip_all, parent = &self.client.root_span)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        // Collect all the views that needsto be updated.
-        let mut views = {
-            let mut views = BTreeMap::new();
-            let lock = self.views.read().unwrap();
+        // Collect all the lists that need to be updated.
+        let mut list_generators = {
+            let mut list_generators = BTreeMap::new();
+            let lock = self.lists.read().unwrap();
 
-            for (name, view) in lock.iter() {
-                views.insert(name.clone(), view.request_generator());
+            for (name, lists) in lock.iter() {
+                list_generators.insert(name.clone(), lists.request_generator());
             }
 
-            views
+            list_generators
         };
 
         debug!(?self.extensions, "About to run the sync stream");
@@ -1093,7 +1093,7 @@ impl SlidingSync {
                     debug!(?self.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&mut views).instrument(sync_span.clone()).await {
+                match self.sync_once(&mut list_generators).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.reset_counter.store(0, Ordering::SeqCst);
 
@@ -1159,8 +1159,8 @@ impl SlidingSync {
 /// [`SlidingSync::stream`]).
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
-    /// The names of the views that have seen an update.
-    pub views: Vec<String>,
+    /// The names of the lists that have seen an update.
+    pub lists: Vec<String>,
     /// The rooms that have seen updates
     pub rooms: Vec<OwnedRoomId>,
 }
@@ -1173,9 +1173,9 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn check_find_room_in_view() -> Result<()> {
-        let view =
-            SlidingSyncList::builder().name("testview").add_range(0u32, 9u32).build().unwrap();
+    async fn check_find_room_in_list() -> Result<()> {
+        let list =
+            SlidingSyncList::builder().name("testlist").add_range(0u32, 9u32).build().unwrap();
         let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
             "op": "SYNC",
             "range": [0, 9],
@@ -1194,18 +1194,18 @@ mod test {
         }))
         .unwrap();
 
-        view.handle_response(10u32, &vec![full_window_update], &vec![(0, 9)], &vec![]).unwrap();
+        list.handle_response(10u32, &vec![full_window_update], &vec![(0, 9)], &vec![]).unwrap();
 
         let a02 = room_id!("!A00002:matrix.example").to_owned();
         let a05 = room_id!("!A00005:matrix.example").to_owned();
         let a09 = room_id!("!A00009:matrix.example").to_owned();
 
-        assert_eq!(view.find_room_in_view(&a02), Some(2));
-        assert_eq!(view.find_room_in_view(&a05), Some(5));
-        assert_eq!(view.find_room_in_view(&a09), Some(9));
+        assert_eq!(list.find_room_in_list(&a02), Some(2));
+        assert_eq!(list.find_room_in_list(&a05), Some(5));
+        assert_eq!(list.find_room_in_list(&a09), Some(9));
 
         assert_eq!(
-            view.find_rooms_in_view(&[a02.clone(), a05.clone(), a09.clone()]),
+            list.find_rooms_in_list(&[a02.clone(), a05.clone(), a09.clone()]),
             vec![(2, a02.clone()), (5, a05.clone()), (9, a09.clone())]
         );
 
@@ -1216,14 +1216,14 @@ mod test {
         }))
         .unwrap();
 
-        view.handle_response(10u32, &vec![update], &vec![(0, 3), (8, 9)], &vec![]).unwrap();
+        list.handle_response(10u32, &vec![update], &vec![(0, 3), (8, 9)], &vec![]).unwrap();
 
-        assert_eq!(view.find_room_in_view(room_id!("!A00002:matrix.example")), Some(2));
-        assert_eq!(view.find_room_in_view(room_id!("!A00005:matrix.example")), None);
-        assert_eq!(view.find_room_in_view(room_id!("!A00009:matrix.example")), Some(9));
+        assert_eq!(list.find_room_in_list(room_id!("!A00002:matrix.example")), Some(2));
+        assert_eq!(list.find_room_in_list(room_id!("!A00005:matrix.example")), None);
+        assert_eq!(list.find_room_in_list(room_id!("!A00009:matrix.example")), Some(9));
 
         assert_eq!(
-            view.find_rooms_in_view(&[a02.clone(), a05, a09.clone()]),
+            list.find_rooms_in_list(&[a02.clone(), a05, a09.clone()]),
             vec![(2, a02), (9, a09)]
         );
 
