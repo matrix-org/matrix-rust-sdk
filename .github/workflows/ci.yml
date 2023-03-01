@@ -147,6 +147,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       # Can't use `${{ matrix.* }}` inside uses
       - name: Install Rust
         if: matrix.rust == 'stable'
