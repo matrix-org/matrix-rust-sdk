@@ -50,6 +50,9 @@ jobs:
 
       - run: |
           target/debug/xtask ci test-features
+        env:
+          CARGO_LOG: "cargo::core::compiler::fingerprint=info"
+          CARGO_INCREMENTAL: 1
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
