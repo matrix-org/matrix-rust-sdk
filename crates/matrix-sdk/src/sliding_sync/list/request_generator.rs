@@ -1,3 +1,5 @@
+use std::cmp::min;
+
 use eyeball::Observable;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, UInt};
 use tracing::{error, instrument, trace};
@@ -63,15 +65,15 @@ impl SlidingSyncListRequestGenerator {
         batch_size: u32,
         limit: Option<u32>,
     ) -> v4::SyncRequestList {
-        let calc_end = start + batch_size;
+        let calculated_end = start + batch_size;
 
         let mut end = match limit {
-            Some(l) => std::cmp::min(l, calc_end),
-            _ => calc_end,
+            Some(limit) => min(limit, calculated_end),
+            _ => calculated_end,
         };
 
         end = match self.list.rooms_count() {
-            Some(total_room_count) => std::cmp::min(end, total_room_count - 1),
+            Some(total_room_count) => min(end, total_room_count - 1),
             _ => end,
         };
 
@@ -128,7 +130,8 @@ impl SlidingSyncListRequestGenerator {
     fn update_state(&mut self, max_index: u32) {
         let Some((_start, range_end)) = self.ranges.first() else {
             error!("Why don't we have any ranges?");
-            return
+
+            return;
         };
 
         let end = if &(max_index as usize) < range_end { max_index } else { *range_end as u32 };
@@ -138,11 +141,15 @@ impl SlidingSyncListRequestGenerator {
         match &mut self.kind {
             GeneratorKind::PagingFullSync { position, live, limit, .. }
             | GeneratorKind::GrowingFullSync { position, live, limit, .. } => {
-                let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
+                let max = limit.map(|limit| min(limit, max_index)).unwrap_or(max_index);
+
                 trace!(end, max, name = self.list.name, "updating state");
+
                 if end >= max {
+                    // Switching to live mode.
+
                     trace!(name = self.list.name, "going live");
-                    // we are switching to live mode
+
                     self.list.set_range(0, max);
                     *position = max;
                     *live = true;
@@ -154,11 +161,13 @@ impl SlidingSyncListRequestGenerator {
                     *position = end;
                     *live = false;
                     self.list.set_range(0, end);
+
                     Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                         *state = SlidingSyncState::CatchingUp;
                     });
                 }
             }
+
             GeneratorKind::Live => {
                 Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                     *state = SlidingSyncState::Live;
