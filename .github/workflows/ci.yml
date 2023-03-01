@@ -37,6 +37,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: vdhdebug
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
