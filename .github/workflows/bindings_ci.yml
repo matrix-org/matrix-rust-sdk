@@ -129,19 +129,12 @@ jobs:
 
       - name: Build the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run release-build
+        # we build in development mode, because the release mode takes **ages** to build.
+        run: npm run build
 
       - name: Test the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run test
-
-      # Building in dev-mode and copy lib in failure case
-      - name: Build the Node.js binding in non-release
-        if: failure()
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: |
-          cp *.node release-mode-lib.node
-          npm run build
 
       - uses: actions/upload-artifact@v3
         if: failure()
