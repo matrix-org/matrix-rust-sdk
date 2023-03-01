@@ -64,7 +64,6 @@ pub struct SlidingSyncList {
     /// The maximum number of timeline events to query for
     pub timeline_limit: Arc<StdRwLock<Observable<Option<UInt>>>>,
 
-    // ----- Public state
     /// Name of this view to easily recognize them
     pub name: String,
 
@@ -88,41 +87,6 @@ pub struct SlidingSyncList {
     pub rooms_updated_broadcast: Arc<StdRwLock<Observable<()>>>,
 
     is_cold: Arc<AtomicBool>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub(super) struct FrozenSlidingSyncList {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) rooms_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vector::is_empty")]
-    pub(super) rooms_list: Vector<RoomListEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
-}
-
-impl FrozenSlidingSyncList {
-    pub(super) fn freeze(
-        source_view: &SlidingSyncList,
-        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    ) -> Self {
-        let mut rooms = BTreeMap::new();
-        let mut rooms_list = Vector::new();
-        for entry in source_view.rooms_list.read().unwrap().iter() {
-            match entry {
-                RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
-                    rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
-                }
-                _ => {}
-            };
-
-            rooms_list.push_back(entry.freeze());
-        }
-        FrozenSlidingSyncList {
-            rooms_count: **source_view.rooms_count.read().unwrap(),
-            rooms_list,
-            rooms,
-        }
-    }
 }
 
 impl SlidingSyncList {
@@ -393,6 +357,41 @@ impl SlidingSyncList {
                 SlidingSyncListRequestGenerator::new_with_growing_syncup(self.clone())
             }
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_live(self.clone()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(super) struct FrozenSlidingSyncList {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) rooms_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vector::is_empty")]
+    pub(super) rooms_list: Vector<RoomListEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
+}
+
+impl FrozenSlidingSyncList {
+    pub(super) fn freeze(
+        source_view: &SlidingSyncList,
+        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    ) -> Self {
+        let mut rooms = BTreeMap::new();
+        let mut rooms_list = Vector::new();
+        for entry in source_view.rooms_list.read().unwrap().iter() {
+            match entry {
+                RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
+                    rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
+                }
+                _ => {}
+            };
+
+            rooms_list.push_back(entry.freeze());
+        }
+        FrozenSlidingSyncList {
+            rooms_count: **source_view.rooms_count.read().unwrap(),
+            rooms_list,
+            rooms,
         }
     }
 }
