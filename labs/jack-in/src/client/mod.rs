@@ -7,7 +7,7 @@ pub mod state;
 
 use matrix_sdk::{
     ruma::{api::client::error::ErrorKind, OwnedRoomId},
-    Client, SlidingSyncState, SlidingSyncViewBuilder,
+    Client, SlidingSyncState, SlidingSyncListBuilder,
 };
 
 pub async fn run_client(
@@ -17,7 +17,7 @@ pub async fn run_client(
 ) -> Result<()> {
     info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
-    let mut full_sync_view_builder = SlidingSyncViewBuilder::default_with_fullsync()
+    let mut full_sync_view_builder = SlidingSyncListBuilder::default_with_fullsync()
         .timeline_limit(10u32)
         .sync_mode(config.full_sync_mode.into());
     if let Some(size) = config.batch_size {

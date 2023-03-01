@@ -16,8 +16,8 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncView, SlidingSync, SlidingSyncRoom, SlidingSyncView,
-    SlidingSyncViewBuilder,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncRoom, SlidingSyncList,
+    SlidingSyncListBuilder,
 };
 use crate::{Client, Result};
 
@@ -30,7 +30,7 @@ pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Option<Client>,
-    views: BTreeMap<String, SlidingSyncView>,
+    views: BTreeMap<String, SlidingSyncList>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
 }
@@ -76,7 +76,7 @@ impl SlidingSyncBuilder {
     /// Convenience function to add a full-sync view to the builder
     pub fn add_fullsync_view(self) -> Self {
         self.add_view(
-            SlidingSyncViewBuilder::default_with_fullsync()
+            SlidingSyncListBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
         )
@@ -103,7 +103,7 @@ impl SlidingSyncBuilder {
     /// Add the given view to the views.
     ///
     /// Replace any view with the name.
-    pub fn add_view(mut self, v: SlidingSyncView) -> Self {
+    pub fn add_view(mut self, v: SlidingSyncList) -> Self {
         self.views.insert(v.name.clone(), v);
         self
     }
@@ -242,12 +242,12 @@ impl SlidingSyncBuilder {
                     .store()
                     .get_custom_value(format!("{storage_key}::{name}").as_bytes())
                     .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
                     .transpose()?
                 {
                     trace!(name, "frozen for view found");
 
-                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
+                    let FrozenSlidingSyncList { rooms_count, rooms_list, rooms } = frozen_view;
                     view.set_from_cold(rooms_count, rooms_list);
 
                     for (key, frozen_room) in rooms.into_iter() {

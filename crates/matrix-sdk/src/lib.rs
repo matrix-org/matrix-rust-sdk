@@ -59,7 +59,7 @@ pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
     RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
-    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+    SlidingSyncState, SlidingSyncList, SlidingSyncListBuilder, UpdateSummary,
 };
 
 #[cfg(any(test, feature = "testing"))]

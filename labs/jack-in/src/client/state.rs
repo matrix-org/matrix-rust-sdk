@@ -9,7 +9,7 @@ use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::timeline::{Timeline, TimelineItem},
     ruma::{OwnedRoomId, RoomId},
-    SlidingSync, SlidingSyncRoom, SlidingSyncState as ViewState, SlidingSyncView,
+    SlidingSync, SlidingSyncRoom, SlidingSyncState as ViewState, SlidingSyncList,
 };
 use tokio::task::JoinHandle;
 
@@ -24,7 +24,7 @@ pub struct CurrentRoomSummary {
 pub struct SlidingSyncState {
     started: Instant,
     syncer: SlidingSync,
-    view: SlidingSyncView,
+    view: SlidingSyncList,
     /// the current list selector for the room
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
@@ -36,7 +36,7 @@ pub struct SlidingSyncState {
 }
 
 impl SlidingSyncState {
-    pub fn new(syncer: SlidingSync, view: SlidingSyncView) -> Self {
+    pub fn new(syncer: SlidingSync, view: SlidingSyncList) -> Self {
         Self {
             started: Instant::now(),
             syncer,
@@ -142,7 +142,7 @@ impl SlidingSyncState {
         self.first_render = Some(self.started.elapsed())
     }
 
-    pub fn view(&self) -> &SlidingSyncView {
+    pub fn view(&self) -> &SlidingSyncList {
         &self.view
     }
 

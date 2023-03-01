@@ -85,10 +85,10 @@
 //! are **inclusive**) like so:
 //!
 //! ```rust
-//! # use matrix_sdk::sliding_sync::{SlidingSyncView, SlidingSyncMode};
+//! # use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
 //! use ruma::{assign, api::client::sync::sync_events::v4};
 //!
-//! let view_builder = SlidingSyncView::builder()
+//! let view_builder = SlidingSyncList::builder()
 //!     .name("main_view")
 //!     .sync_mode(SlidingSyncMode::Selective)
 //!     .filters(Some(assign!(
@@ -100,7 +100,7 @@
 //!
 //! Please refer to the [specification][MSC], the [Ruma types][ruma-types],
 //! specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
-//! [`SlidingSyncViewBuilder`] for details on the filters, sort-order and
+//! [`SlidingSyncListBuilder`] for details on the filters, sort-order and
 //! range-options and data one requests to be sent. Once the view is fully
 //! configured, `build()` it and add the view to the sliding sync session
 //! by supplying it to [`add_view`][`SlidingSyncBuilder::add_view`].
@@ -110,9 +110,9 @@
 //! copy can be retrieved by calling `SlidingSync::view()`, providing the name
 //! of the view. Next to the configuration settings (like name and
 //! `timeline_limit`), the view provides the stateful
-//! [`rooms_count`](SlidingSyncView::rooms_count),
-//! [`rooms_list`](SlidingSyncView::rooms_list) and
-//! [`state`](SlidingSyncView::state):
+//! [`rooms_count`](SlidingSyncList::rooms_count),
+//! [`rooms_list`](SlidingSyncList::rooms_list) and
+//! [`state`](SlidingSyncList::state):
 //!
 //!  - `rooms_count` is the number of rooms _total_ there were found matching
 //!    the filters given.
@@ -143,8 +143,8 @@
 //!   every request till all rooms or until `limit` of rooms are in view.
 //!
 //! For both, one should configure
-//! [`batch_size`](SlidingSyncViewBuilder::batch_size) and optionally
-//! [`limit`](SlidingSyncViewBuilder::limit) on the [`SlidingSyncViewBuilder`].
+//! [`batch_size`](SlidingSyncListBuilder::batch_size) and optionally
+//! [`limit`](SlidingSyncListBuilder::limit) on the [`SlidingSyncListBuilder`].
 //! Both full-sync views will notice if the number of rooms increased at runtime
 //! and will attempt to catch up to that (barring the `limit`).
 //!
@@ -281,7 +281,7 @@
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
 //! # use matrix_sdk::{
-//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder},
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder},
 //! #    Client,
 //! # };
 //! # use ruma::{
@@ -350,7 +350,7 @@
 //! # use futures::executor::block_on;
 //! # use futures::{pin_mut, StreamExt};
 //! # use matrix_sdk::{
-//! #    sliding_sync::{SlidingSyncMode, SlidingSyncViewBuilder, SlidingSync, Error},
+//! #    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder, SlidingSync, Error},
 //! #    Client,
 //! # };
 //! # use ruma::{
@@ -438,12 +438,12 @@
 //! present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
 //! to load their latest cached version from storage, as well as some overall
 //! information of Sliding Sync. If that succeeded the views `state` has been
-//! set to [`Preload`][SlidingSyncViewState::Preload]. Only room data of rooms
+//! set to [`Preload`][SlidingSyncListState::Preload]. Only room data of rooms
 //! present in one of the views is loaded from storage.
 //!
 //! Once [#1441](https://github.com/matrix-org/matrix-rust-sdk/pull/1441) is merged
 //! one can disable caching on a per-view basis by setting
-//! [`cold_cache(false)`][`SlidingSyncViewBuilder::cold_cache`] when
+//! [`cold_cache(false)`][`SlidingSyncListBuilder::cold_cache`] when
 //! constructing the builder.
 //!
 //! Notice that views added after Sliding Sync has been built **will not be
@@ -487,7 +487,7 @@
 //!
 //! ```no_run
 //! # use futures::executor::block_on;
-//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncView, SlidingSyncMode}};
+//! use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
 //! use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
 //! use tracing::{warn, error, info, debug};
 //! use futures::{StreamExt, pin_mut};
@@ -504,7 +504,7 @@
 //!     .with_common_extensions() // we want the e2ee and to-device enabled, please
 //!     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 //!
-//! let full_sync_view = SlidingSyncView::builder()
+//! let full_sync_view = SlidingSyncList::builder()
 //!     .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
 //!     .name(&full_sync_view_name)    // needed to lookup again.
 //!     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
@@ -515,7 +515,7 @@
 //!     .limit(500)      // only sync up the top 500 rooms
 //!     .build()?;
 //!
-//! let active_view = SlidingSyncView::builder()
+//! let active_view = SlidingSyncList::builder()
 //!     .name(&active_view_name)   // the active window
 //!     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
 //!     .set_range(0u32, 9u32) // only the top 10 items
@@ -656,7 +656,7 @@ pub struct SlidingSync {
     delta_token: Arc<StdRwLock<Observable<Option<String>>>>,
 
     /// The views of this sliding sync instance
-    views: Arc<StdRwLock<BTreeMap<String, SlidingSyncView>>>,
+    views: Arc<StdRwLock<BTreeMap<String, SlidingSyncList>>>,
 
     /// The rooms details
     rooms: Arc<StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>>,
@@ -714,7 +714,7 @@ impl SlidingSync {
             )
             .await?;
 
-        // Write every `SlidingSyncView` inside the client the store.
+        // Write every `SlidingSyncList` inside the client the store.
         let frozen_views = {
             let rooms_lock = self.rooms.read().unwrap();
 
@@ -725,7 +725,7 @@ impl SlidingSync {
                 .map(|(name, view)| {
                     Ok((
                         format!("{storage_key}::{name}"),
-                        serde_json::to_vec(&FrozenSlidingSyncView::freeze(view, &rooms_lock))?,
+                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(view, &rooms_lock))?,
                     ))
                 })
                 .collect::<Result<Vec<_>, crate::Error>>()?
@@ -823,22 +823,22 @@ impl SlidingSync {
             .since = Some(since);
     }
 
-    /// Get access to the SlidingSyncView named `view_name`
+    /// Get access to the SlidingSyncList named `view_name`
     ///
     /// Note: Remember that this list might have been changed since you started
     /// listening to the stream and is therefor not necessarily up to date
     /// with the views used for the stream.
-    pub fn view(&self, view_name: &str) -> Option<SlidingSyncView> {
+    pub fn view(&self, view_name: &str) -> Option<SlidingSyncList> {
         self.views.read().unwrap().get(view_name).cloned()
     }
 
-    /// Remove the SlidingSyncView named `view_name` from the views list if
+    /// Remove the SlidingSyncList named `view_name` from the views list if
     /// found
     ///
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views.
-    pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncView> {
+    pub fn pop_view(&self, view_name: &String) -> Option<SlidingSyncList> {
         self.views.write().unwrap().remove(view_name)
     }
 
@@ -851,7 +851,7 @@ impl SlidingSync {
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of views.
-    pub fn add_view(&self, view: SlidingSyncView) -> Option<SlidingSyncView> {
+    pub fn add_view(&self, view: SlidingSyncList) -> Option<SlidingSyncList> {
         self.views.write().unwrap().insert(view.name.clone(), view)
     }
 
@@ -876,7 +876,7 @@ impl SlidingSync {
         &self,
         sliding_sync_response: v4::Response,
         extensions: Option<ExtensionsConfig>,
-        views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
+        views: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         // Handle and transform a Sliding Sync Response to a `SyncResponse`.
         //
@@ -966,7 +966,7 @@ impl SlidingSync {
 
     async fn sync_once(
         &self,
-        views: &mut BTreeMap<String, SlidingSyncViewRequestGenerator>,
+        views: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<Option<UpdateSummary>> {
         let mut lists_of_requests = BTreeMap::new();
 
@@ -1175,7 +1175,7 @@ mod test {
     #[tokio::test]
     async fn check_find_room_in_view() -> Result<()> {
         let view =
-            SlidingSyncView::builder().name("testview").add_range(0u32, 9u32).build().unwrap();
+            SlidingSyncList::builder().name("testview").add_range(0u32, 9u32).build().unwrap();
         let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
             "op": "SYNC",
             "range": [0, 9],

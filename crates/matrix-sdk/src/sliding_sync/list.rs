@@ -24,7 +24,6 @@ use crate::Result;
 /// Holding a specific filtered view within the concept of sliding sync.
 /// Main entrypoint to the SlidingSync
 ///
-///
 /// ```no_run
 /// # use futures::executor::block_on;
 /// # use matrix_sdk::Client;
@@ -39,7 +38,7 @@ use crate::Result;
 /// # });
 /// ```
 #[derive(Clone, Debug)]
-pub struct SlidingSyncView {
+pub struct SlidingSyncList {
     /// Which SlidingSyncMode to start this view under
     sync_mode: SlidingSyncMode,
 
@@ -92,7 +91,7 @@ pub struct SlidingSyncView {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct FrozenSlidingSyncView {
+pub(super) struct FrozenSlidingSyncList {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) rooms_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Vector::is_empty")]
@@ -101,9 +100,9 @@ pub(super) struct FrozenSlidingSyncView {
     pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
 
-impl FrozenSlidingSyncView {
+impl FrozenSlidingSyncList {
     pub(super) fn freeze(
-        source_view: &SlidingSyncView,
+        source_view: &SlidingSyncList,
         rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
@@ -118,7 +117,7 @@ impl FrozenSlidingSyncView {
 
             rooms_list.push_back(entry.freeze());
         }
-        FrozenSlidingSyncView {
+        FrozenSlidingSyncList {
             rooms_count: **source_view.rooms_count.read().unwrap(),
             rooms_list,
             rooms,
@@ -126,7 +125,7 @@ impl FrozenSlidingSyncView {
     }
 }
 
-impl SlidingSyncView {
+impl SlidingSyncList {
     pub(crate) fn set_from_cold(
         &mut self,
         rooms_count: Option<u32>,
@@ -141,13 +140,13 @@ impl SlidingSyncView {
         lock.append(rooms_list);
     }
 
-    /// Create a new [`SlidingSyncViewBuilder`].
-    pub fn builder() -> SlidingSyncViewBuilder {
-        SlidingSyncViewBuilder::new()
+    /// Create a new [`SlidingSyncListBuilder`].
+    pub fn builder() -> SlidingSyncListBuilder {
+        SlidingSyncListBuilder::new()
     }
 
     /// Return a builder with the same settings as before
-    pub fn new_builder(&self) -> SlidingSyncViewBuilder {
+    pub fn new_builder(&self) -> SlidingSyncListBuilder {
         Self::builder()
             .name(&self.name)
             .sync_mode(self.sync_mode.clone())
@@ -385,15 +384,15 @@ impl SlidingSyncView {
         Ok(changed)
     }
 
-    pub(super) fn request_generator(&self) -> SlidingSyncViewRequestGenerator {
+    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
         match &self.sync_mode {
             SlidingSyncMode::PagingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_paging_syncup(self.clone())
+                SlidingSyncListRequestGenerator::new_with_paging_syncup(self.clone())
             }
             SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncViewRequestGenerator::new_with_growing_syncup(self.clone())
+                SlidingSyncListRequestGenerator::new_with_growing_syncup(self.clone())
             }
-            SlidingSyncMode::Selective => SlidingSyncViewRequestGenerator::new_live(self.clone()),
+            SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_live(self.clone()),
         }
     }
 }
@@ -401,9 +400,9 @@ impl SlidingSyncView {
 /// the default name for the full sync view
 pub const FULL_SYNC_VIEW_NAME: &str = "full-sync";
 
-/// Builder for [`SlidingSyncView`].
+/// Builder for [`SlidingSyncList`].
 #[derive(Clone, Debug)]
-pub struct SlidingSyncViewBuilder {
+pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
     required_state: Vec<(StateEventType, String)>,
@@ -419,7 +418,7 @@ pub struct SlidingSyncViewBuilder {
     ranges: Vec<(UInt, UInt)>,
 }
 
-impl SlidingSyncViewBuilder {
+impl SlidingSyncListBuilder {
     fn new() -> Self {
         Self {
             sync_mode: SlidingSyncMode::default(),
@@ -533,11 +532,11 @@ impl SlidingSyncViewBuilder {
     }
 
     /// Build the view
-    pub fn build(self) -> Result<SlidingSyncView> {
+    pub fn build(self) -> Result<SlidingSyncList> {
         let mut rooms_list = ObservableVector::new();
         rooms_list.append(self.rooms_list);
 
-        Ok(SlidingSyncView {
+        Ok(SlidingSyncList {
             sync_mode: self.sync_mode,
             sort: self.sort,
             required_state: self.required_state,
@@ -557,20 +556,20 @@ impl SlidingSyncViewBuilder {
     }
 }
 
-enum InnerSlidingSyncViewRequestGenerator {
+enum InnerSlidingSyncListRequestGenerator {
     GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     PagingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     Live,
 }
 
-pub(super) struct SlidingSyncViewRequestGenerator {
-    view: SlidingSyncView,
+pub(super) struct SlidingSyncListRequestGenerator {
+    view: SlidingSyncList,
     ranges: Vec<(usize, usize)>,
-    inner: InnerSlidingSyncViewRequestGenerator,
+    inner: InnerSlidingSyncListRequestGenerator,
 }
 
-impl SlidingSyncViewRequestGenerator {
-    fn new_with_paging_syncup(view: SlidingSyncView) -> Self {
+impl SlidingSyncListRequestGenerator {
+    fn new_with_paging_syncup(view: SlidingSyncList) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
         let position = view
@@ -581,10 +580,10 @@ impl SlidingSyncViewRequestGenerator {
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
 
-        SlidingSyncViewRequestGenerator {
+        SlidingSyncListRequestGenerator {
             view,
             ranges: Default::default(),
-            inner: InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+            inner: InnerSlidingSyncListRequestGenerator::PagingFullSync {
                 position,
                 batch_size,
                 limit,
@@ -593,7 +592,7 @@ impl SlidingSyncViewRequestGenerator {
         }
     }
 
-    fn new_with_growing_syncup(view: SlidingSyncView) -> Self {
+    fn new_with_growing_syncup(view: SlidingSyncList) -> Self {
         let batch_size = view.batch_size;
         let limit = view.limit;
         let position = view
@@ -604,10 +603,10 @@ impl SlidingSyncViewRequestGenerator {
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
 
-        SlidingSyncViewRequestGenerator {
+        SlidingSyncListRequestGenerator {
             view,
             ranges: Default::default(),
-            inner: InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+            inner: InnerSlidingSyncListRequestGenerator::GrowingFullSync {
                 position,
                 batch_size,
                 limit,
@@ -616,11 +615,11 @@ impl SlidingSyncViewRequestGenerator {
         }
     }
 
-    fn new_live(view: SlidingSyncView) -> Self {
-        SlidingSyncViewRequestGenerator {
+    fn new_live(view: SlidingSyncList) -> Self {
+        SlidingSyncListRequestGenerator {
             view,
             ranges: Default::default(),
-            inner: InnerSlidingSyncViewRequestGenerator::Live,
+            inner: InnerSlidingSyncListRequestGenerator::Live,
         }
     }
 
@@ -702,10 +701,10 @@ impl SlidingSyncViewRequestGenerator {
         trace!(end, max_index, range_end, name = self.view.name, "updating state");
 
         match &mut self.inner {
-            InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+            InnerSlidingSyncListRequestGenerator::PagingFullSync {
                 position, live, limit, ..
             }
-            | InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+            | InnerSlidingSyncListRequestGenerator::GrowingFullSync {
                 position, live, limit, ..
             } => {
                 let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
@@ -729,7 +728,7 @@ impl SlidingSyncViewRequestGenerator {
                     });
                 }
             }
-            InnerSlidingSyncViewRequestGenerator::Live => {
+            InnerSlidingSyncListRequestGenerator::Live => {
                 Observable::update_eq(&mut self.view.state.write().unwrap(), |state| {
                     *state = SlidingSyncState::Live;
                 });
@@ -738,30 +737,30 @@ impl SlidingSyncViewRequestGenerator {
     }
 }
 
-impl Iterator for SlidingSyncViewRequestGenerator {
+impl Iterator for SlidingSyncListRequestGenerator {
     type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner {
-            InnerSlidingSyncViewRequestGenerator::PagingFullSync { live, .. }
-            | InnerSlidingSyncViewRequestGenerator::GrowingFullSync { live, .. }
+            InnerSlidingSyncListRequestGenerator::PagingFullSync { live, .. }
+            | InnerSlidingSyncListRequestGenerator::GrowingFullSync { live, .. }
                 if live =>
             {
                 Some(self.live_request())
             }
-            InnerSlidingSyncViewRequestGenerator::PagingFullSync {
+            InnerSlidingSyncListRequestGenerator::PagingFullSync {
                 position,
                 batch_size,
                 limit,
                 ..
             } => Some(self.prefetch_request(position, batch_size, limit)),
-            InnerSlidingSyncViewRequestGenerator::GrowingFullSync {
+            InnerSlidingSyncListRequestGenerator::GrowingFullSync {
                 position,
                 batch_size,
                 limit,
                 ..
             } => Some(self.prefetch_request(0, position + batch_size, limit)),
-            InnerSlidingSyncViewRequestGenerator::Live => Some(self.live_request()),
+            InnerSlidingSyncListRequestGenerator::Live => Some(self.live_request()),
         }
     }
 }
@@ -912,7 +911,7 @@ fn room_ops(
     Ok(())
 }
 
-/// The state the [`SlidingSyncView`] is in.
+/// The state the [`SlidingSyncList`] is in.
 ///
 /// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
 /// response for the first given number of Rooms, then switches into
@@ -934,7 +933,7 @@ pub enum SlidingSyncState {
     Live,
 }
 
-/// The mode by which the the [`SlidingSyncView`] is in fetching the data.
+/// The mode by which the the [`SlidingSyncList`] is in fetching the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// Fully sync all rooms in the background, page by page of `batch_size`,
