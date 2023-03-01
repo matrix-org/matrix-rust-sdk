@@ -82,7 +82,7 @@ mod tests {
             api::client::error::ErrorKind as RumaError,
             events::room::message::RoomMessageEventContent, uint,
         },
-        SlidingSyncMode, SlidingSyncState, SlidingSyncList,
+        SlidingSyncList, SlidingSyncMode, SlidingSyncState,
     };
 
     use super::*;
@@ -90,7 +90,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn it_works_smoke_test() -> anyhow::Result<()> {
         let (_client, sync_proxy_builder) = setup("odo".to_owned(), false).await?;
-        let sync_proxy = sync_proxy_builder.add_fullsync_view().build().await?;
+        let sync_proxy = sync_proxy_builder.add_fullsync_list().build().await?;
         let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
@@ -108,7 +108,7 @@ mod tests {
         let room_id = {
             let sync = sync_builder
                 .clone()
-                .add_view(
+                .add_list(
                     SlidingSyncList::builder()
                         .sync_mode(SlidingSyncMode::Selective)
                         .add_range(0u32, 1)
@@ -124,7 +124,7 @@ mod tests {
             pin_mut!(stream);
 
             // Get the view to all rooms to check the view' state.
-            let view = sync.view("init_view").context("View `init_view` isn't found")?;
+            let view = sync.list("init_view").context("View `init_view` isn't found")?;
             assert_eq!(view.state(), SlidingSyncState::Cold);
 
             // Send the request and wait for a response.
@@ -169,7 +169,7 @@ mod tests {
 
         let sync = sync_builder
             .clone()
-            .add_view(
+            .add_list(
                 SlidingSyncList::builder()
                     .sync_mode(SlidingSyncMode::Selective)
                     .name("visible_rooms_view")
@@ -186,7 +186,7 @@ mod tests {
 
         // Get the view.
         let view =
-            sync.view("visible_rooms_view").context("View `visible_rooms_view` isn't found")?;
+            sync.list("visible_rooms_view").context("View `visible_rooms_view` isn't found")?;
 
         let mut all_event_ids = Vec::new();
 
@@ -337,14 +337,14 @@ mod tests {
                 .build()
         };
         let sync_proxy = sync_proxy_builder
-            .add_view(build_view(view_name_1)?)
-            .add_view(build_view(view_name_2)?)
+            .add_list(build_view(view_name_1)?)
+            .add_list(build_view(view_name_2)?)
             .build()
             .await?;
-        let view1 = sync_proxy.view(view_name_1).context("but we just added that view!")?;
-        let _view2 = sync_proxy.view(view_name_2).context("but we just added that view!")?;
+        let view1 = sync_proxy.list(view_name_1).context("but we just added that view!")?;
+        let _view2 = sync_proxy.list(view_name_2).context("but we just added that view!")?;
 
-        assert!(sync_proxy.view(view_name_3).is_none());
+        assert!(sync_proxy.list(view_name_3).is_none());
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -352,9 +352,9 @@ mod tests {
             stream.next().await.context("No room summary found, loop ended unsuccessfully")?;
         let summary = room_summary?;
         // we only heard about the ones we had asked for
-        assert_eq!(summary.views, [view_name_1, view_name_2]);
+        assert_eq!(summary.lists, [view_name_1, view_name_2]);
 
-        assert!(sync_proxy.add_view(build_view(view_name_3)?).is_none());
+        assert!(sync_proxy.add_list(build_view(view_name_3)?).is_none());
 
         // we need to restart the stream after every view listing update
         let stream = sync_proxy.stream();
@@ -365,9 +365,9 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
+            if !summary.lists.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_3]);
+                assert_eq!(summary.lists, [view_name_3]);
                 // we didn't update the other views, so only no 2 should se an update
                 saw_update = true;
                 break;
@@ -390,9 +390,9 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
+            if !summary.lists.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3,]);
+                assert_eq!(summary.lists, [view_name_1, view_name_2, view_name_3,]);
                 // notice that our view 2 is now the last view, but all have seen updates
                 saw_update = true;
                 break;
@@ -423,19 +423,19 @@ mod tests {
                 .build()
         };
         let sync_proxy = sync_proxy_builder
-            .add_view(build_view(view_name_1)?)
-            .add_view(build_view(view_name_2)?)
-            .add_view(build_view(view_name_3)?)
+            .add_list(build_view(view_name_1)?)
+            .add_list(build_view(view_name_2)?)
+            .add_list(build_view(view_name_3)?)
             .build()
             .await?;
-        let Some(view1 )= sync_proxy.view(view_name_1) else {
+        let Some(view1 )= sync_proxy.list(view_name_1) else {
             bail!("but we just added that view!");
         };
-        let Some(_view2 )= sync_proxy.view(view_name_2) else {
+        let Some(_view2 )= sync_proxy.list(view_name_2) else {
             bail!("but we just added that view!");
         };
 
-        let Some(_view3 )= sync_proxy.view(view_name_3) else {
+        let Some(_view3 )= sync_proxy.list(view_name_3) else {
             bail!("but we just added that view!");
         };
 
@@ -446,9 +446,9 @@ mod tests {
         };
         let summary = room_summary?;
         // we only heard about the ones we had asked for
-        assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]);
+        assert_eq!(summary.lists, [view_name_1, view_name_2, view_name_3]);
 
-        let Some(view_2) = sync_proxy.pop_view(&view_name_2.to_owned()) else {
+        let Some(view_2) = sync_proxy.pop_list(&view_name_2.to_owned()) else {
             bail!("Room exists");
         };
 
@@ -476,9 +476,9 @@ mod tests {
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
+            if !summary.lists.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_1, view_name_3]);
+                assert_eq!(summary.lists, [view_name_1, view_name_3]);
                 saw_update = true;
                 break;
             }
@@ -486,7 +486,7 @@ mod tests {
 
         assert!(saw_update, "We didn't see the update come through the pipe");
 
-        assert!(sync_proxy.add_view(view_2).is_none());
+        assert!(sync_proxy.add_list(view_2).is_none());
 
         // we need to restart the stream after every view listing update
         let stream = sync_proxy.stream();
@@ -510,9 +510,9 @@ mod tests {
             };
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if !summary.views.is_empty() {
+            if !summary.lists.is_empty() {
                 // only if we saw an update come through
-                assert_eq!(summary.views, [view_name_1, view_name_2, view_name_3]); // all views are visible again
+                assert_eq!(summary.lists, [view_name_1, view_name_2, view_name_3]); // all views are visible again
                 saw_update = true;
                 break;
             }
@@ -540,10 +540,10 @@ mod tests {
             .name("full")
             .build()?;
         let sync_proxy =
-            sync_proxy_builder.add_view(sliding_window_view).add_view(full).build().await?;
+            sync_proxy_builder.add_list(sliding_window_view).add_list(full).build().await?;
 
-        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
-        let full_view = sync_proxy.view("full").context("but we just added that view!")?;
+        let view = sync_proxy.list("sliding").context("but we just added that view!")?;
+        let full_view = sync_proxy.list("full").context("but we just added that view!")?;
         assert_eq!(view.state(), SlidingSyncState::Cold, "view isn't cold");
         assert_eq!(full_view.state(), SlidingSyncState::Cold, "full isn't cold");
 
@@ -580,8 +580,8 @@ mod tests {
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
-        let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+        let sync_proxy = sync_proxy_builder.add_list(sliding_window_view).build().await?;
+        let view = sync_proxy.list("sliding").context("but we just added that view!")?;
         let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
@@ -611,7 +611,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -633,7 +633,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -657,7 +657,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -684,8 +684,8 @@ mod tests {
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("sliding")
             .build()?;
-        let sync_proxy = sync_proxy_builder.add_view(sliding_window_view).build().await?;
-        let view = sync_proxy.view("sliding").context("but we just added that view!")?;
+        let sync_proxy = sync_proxy_builder.add_list(sliding_window_view).build().await?;
+        let view = sync_proxy.list("sliding").context("but we just added that view!")?;
         let stream = sync_proxy.stream();
         pin_mut!(stream);
         let room_summary =
@@ -714,7 +714,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -737,7 +737,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -768,7 +768,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -797,7 +797,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "sliding") {
+            if summary.lists.iter().any(|s| s == "sliding") {
                 break;
             }
         }
@@ -851,12 +851,12 @@ mod tests {
             let sync_proxy = sync_proxy_builder
                 .clone()
                 .cold_cache("sliding_sync")
-                .add_view(sliding_window_view)
-                .add_view(growing_sync)
+                .add_list(sliding_window_view)
+                .add_list(growing_sync)
                 .build()
                 .await?;
             let growing_sync =
-                sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+                sync_proxy.list("growing").context("but we just added that view!")?; // let's catch it up fully.
             let stream = sync_proxy.stream();
             pin_mut!(stream);
             while growing_sync.state() != SlidingSyncState::Live {
@@ -878,8 +878,8 @@ mod tests {
         let _sync_proxy = sync_proxy_builder
             .clone()
             .cold_cache("sliding_sync")
-            .add_view(sliding_window_view)
-            .add_view(growing_sync)
+            .add_list(sliding_window_view)
+            .add_list(growing_sync)
             .build()
             .await?;
         let duration = start.elapsed();
@@ -899,8 +899,8 @@ mod tests {
             .name("growing")
             .build()?;
 
-        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
-        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+        let sync_proxy = sync_proxy_builder.clone().add_list(growing_sync).build().await?;
+        let view = sync_proxy.list("growing").context("but we just added that view!")?;
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -951,8 +951,8 @@ mod tests {
             .name("growing")
             .build()?;
 
-        let sync_proxy = sync_proxy_builder.clone().add_view(growing_sync).build().await?;
-        let view = sync_proxy.view("growing").context("but we just added that view!")?;
+        let sync_proxy = sync_proxy_builder.clone().add_list(growing_sync).build().await?;
+        let view = sync_proxy.list("growing").context("but we just added that view!")?;
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -1015,17 +1015,17 @@ mod tests {
         let sync_proxy = sync_proxy_builder
             .clone()
             .cold_cache("sliding_sync")
-            .add_view(growing_sync)
+            .add_list(growing_sync)
             .build()
             .await?;
-        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let view = sync_proxy.list("growing").context("but we just added that view!")?; // let's catch it up fully.
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
         for _n in 0..2 {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
-            if summary.views.iter().any(|s| s == "growing") {
+            if summary.lists.iter().any(|s| s == "growing") {
                 break;
             }
         }
@@ -1061,7 +1061,7 @@ mod tests {
                 None => anyhow::bail!("Stream ended unexpectedly."),
             };
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "growing") {
+            if summary.lists.iter().any(|s| s == "growing") {
                 break;
             }
         }
@@ -1097,10 +1097,10 @@ mod tests {
         let sync_proxy = sync_proxy_builder
             .clone()
             .cold_cache("sliding_sync")
-            .add_view(growing_sync)
+            .add_list(growing_sync)
             .build()
             .await?;
-        let view = sync_proxy.view("growing").context("but we just added that view!")?; // let's catch it up fully.
+        let view = sync_proxy.list("growing").context("but we just added that view!")?; // let's catch it up fully.
         let stream = sync_proxy.stream();
         pin_mut!(stream);
         while view.state() != SlidingSyncState::Live {
@@ -1133,7 +1133,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
             // we only heard about the ones we had asked for
-            if summary.views.iter().any(|s| s == "growing")
+            if summary.lists.iter().any(|s| s == "growing")
                 && view.rooms_count().unwrap_or_default() == 32
             {
                 if seen {
@@ -1164,7 +1164,7 @@ mod tests {
         let (client, sync_proxy_builder) = random_setup_with_rooms(3).await?;
 
         let sync_proxy = sync_proxy_builder
-            .add_view(
+            .add_list(
                 SlidingSyncList::builder()
                     .sync_mode(SlidingSyncMode::Selective)
                     .set_range(0u32, 2u32)
@@ -1175,7 +1175,7 @@ mod tests {
             .build()
             .await?;
 
-        let view = sync_proxy.view("sliding_view").context("View `sliding_view` isn't found")?;
+        let view = sync_proxy.list("sliding_view").context("View `sliding_view` isn't found")?;
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -1203,7 +1203,7 @@ mod tests {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
 
             // we only heard about the ones we had asked for
-            if room_summary.views.iter().any(|s| s == "sliding_view") {
+            if room_summary.lists.iter().any(|s| s == "sliding_view") {
                 break;
             }
         }

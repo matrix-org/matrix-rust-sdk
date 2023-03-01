@@ -9,7 +9,7 @@ use futures::{pin_mut, StreamExt};
 use matrix_sdk::{
     room::timeline::{Timeline, TimelineItem},
     ruma::{OwnedRoomId, RoomId},
-    SlidingSync, SlidingSyncRoom, SlidingSyncState as ViewState, SlidingSyncList,
+    SlidingSync, SlidingSyncList, SlidingSyncRoom, SlidingSyncState as ViewState,
 };
 use tokio::task::JoinHandle;
 
