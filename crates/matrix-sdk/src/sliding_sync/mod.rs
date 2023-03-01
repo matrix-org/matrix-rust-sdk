@@ -593,8 +593,8 @@
 mod builder;
 mod client;
 mod error;
+mod list;
 mod room;
-mod view;
 
 use std::{
     collections::BTreeMap,
@@ -612,6 +612,7 @@ pub use client::*;
 pub use error::*;
 use eyeball::Observable;
 use futures_core::stream::Stream;
+pub use list::*;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -625,7 +626,6 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
-pub use view::*;
 
 use crate::{config::RequestConfig, Client, Result};
 
