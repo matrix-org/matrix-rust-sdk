@@ -108,12 +108,6 @@ impl SlidingSyncListRequestGenerator {
         })
     }
 
-    // generate the next live request
-    fn live_request(&mut self) -> v4::SyncRequestList {
-        let ranges = self.list.ranges.read().unwrap().clone();
-        self.make_request_for_ranges(ranges)
-    }
-
     #[instrument(skip_all, fields(name = self.list.name, rooms_count, has_ops = !ops.is_empty()))]
     pub(in super::super) fn handle_response(
         &mut self,
@@ -182,19 +176,21 @@ impl Iterator for SlidingSyncListRequestGenerator {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.kind {
-            GeneratorKind::PagingFullSync { live, .. }
-            | GeneratorKind::GrowingFullSync { live, .. }
-                if live =>
-            {
-                Some(self.live_request())
+            GeneratorKind::PagingFullSync { live: true, .. }
+            | GeneratorKind::GrowingFullSync { live: true, .. }
+            | GeneratorKind::Live => {
+                let ranges = self.list.ranges.read().unwrap().clone();
+
+                Some(self.make_request_for_ranges(ranges))
             }
+
             GeneratorKind::PagingFullSync { position, batch_size, limit, .. } => {
                 Some(self.prefetch_request(position, batch_size, limit))
             }
+
             GeneratorKind::GrowingFullSync { position, batch_size, limit, .. } => {
                 Some(self.prefetch_request(0, position + batch_size, limit))
             }
-            GeneratorKind::Live => Some(self.live_request()),
         }
     }
 }
