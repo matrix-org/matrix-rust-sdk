@@ -50,12 +50,6 @@ impl TaskHandle {
     }
 }
 
-impl From<JoinHandle<()>> for TaskHandle {
-    fn from(value: JoinHandle<()>) -> Self {
-        Self::with_handle(value)
-    }
-}
-
 #[uniffi::export]
 impl TaskHandle {
     pub fn cancel(&self) {
