@@ -17,31 +17,7 @@ env:
 
 jobs:
   xtask:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check xtask cache
-        uses: actions/cache@v3
-        id: xtask-cache
-        with:
-          path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
-
-      - name: Install rust stable toolchain
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        run: |
-          cargo build -p xtask
+    uses: ./.github/workflows/xtask.yml
 
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
@@ -79,7 +55,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Test
@@ -109,7 +85,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Test
@@ -139,7 +115,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Test
@@ -267,7 +243,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Rust Check
@@ -311,7 +287,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Run checks
@@ -375,7 +351,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
       - name: Clippy
