@@ -67,10 +67,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
           key: xtask-linux-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+          fail-on-cache-miss: true
 
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings
@@ -263,10 +264,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
           key: xtask-macos-${{ hashFiles('Cargo.toml', 'xtask/**') }}
+          fail-on-cache-miss: true
 
       - name: Build library & bindings
         run: target/debug/xtask swift build-library
@@ -276,4 +278,4 @@ jobs:
         run: swift test
 
       - name: Build Framework
-        run: cargo xtask swift build-framework --only-target=aarch64-apple-ios
+        run: target/debug/xtask swift build-framework --only-target=aarch64-apple-ios
