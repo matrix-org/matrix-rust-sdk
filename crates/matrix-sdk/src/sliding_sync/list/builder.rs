@@ -56,7 +56,7 @@ impl SlidingSyncListBuilder {
         }
     }
 
-    /// Create a Builder set up for full sync
+    /// Create a Builder set up for full sync.
     pub fn default_with_fullsync() -> Self {
         Self::new().name(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
     }
