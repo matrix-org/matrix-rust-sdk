@@ -276,13 +276,13 @@ impl From<RoomSubscription> for RumaRoomSubscription {
 impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
     fn from(other: matrix_sdk::UpdateSummary) -> UpdateSummary {
         UpdateSummary {
-            views: other.views,
+            views: other.lists,
             rooms: other.rooms.into_iter().map(|r| r.as_str().to_owned()).collect(),
         }
     }
 }
 
-pub enum SlidingSyncListRoomsListDiff {
+pub enum SlidingSyncViewRoomsListDiff {
     Append { values: Vec<RoomListEntry> },
     Insert { index: u32, value: RoomListEntry },
     Set { index: u32, value: RoomListEntry },
@@ -295,33 +295,33 @@ pub enum SlidingSyncListRoomsListDiff {
     Reset { values: Vec<RoomListEntry> },
 }
 
-impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncListRoomsListDiff {
+impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
     fn from(other: VectorDiff<MatrixRoomEntry>) -> Self {
         match other {
-            VectorDiff::Append { values } => SlidingSyncListRoomsListDiff::Append {
+            VectorDiff::Append { values } => SlidingSyncViewRoomsListDiff::Append {
                 values: values.into_iter().map(|e| (&e).into()).collect(),
             },
             VectorDiff::Insert { index, value } => {
-                SlidingSyncListRoomsListDiff::Insert { index: index as u32, value: (&value).into() }
+                SlidingSyncViewRoomsListDiff::Insert { index: index as u32, value: (&value).into() }
             }
             VectorDiff::Set { index, value } => {
-                SlidingSyncListRoomsListDiff::Set { index: index as u32, value: (&value).into() }
+                SlidingSyncViewRoomsListDiff::Set { index: index as u32, value: (&value).into() }
             }
             VectorDiff::Remove { index } => {
-                SlidingSyncListRoomsListDiff::Remove { index: index as u32 }
+                SlidingSyncViewRoomsListDiff::Remove { index: index as u32 }
             }
             VectorDiff::PushBack { value } => {
-                SlidingSyncListRoomsListDiff::PushBack { value: (&value).into() }
+                SlidingSyncViewRoomsListDiff::PushBack { value: (&value).into() }
             }
             VectorDiff::PushFront { value } => {
-                SlidingSyncListRoomsListDiff::PushFront { value: (&value).into() }
+                SlidingSyncViewRoomsListDiff::PushFront { value: (&value).into() }
             }
-            VectorDiff::PopBack => SlidingSyncListRoomsListDiff::PopBack,
-            VectorDiff::PopFront => SlidingSyncListRoomsListDiff::PopFront,
-            VectorDiff::Clear => SlidingSyncListRoomsListDiff::Clear,
+            VectorDiff::PopBack => SlidingSyncViewRoomsListDiff::PopBack,
+            VectorDiff::PopFront => SlidingSyncViewRoomsListDiff::PopFront,
+            VectorDiff::Clear => SlidingSyncViewRoomsListDiff::Clear,
             VectorDiff::Reset { values } => {
                 warn!("Room list subscriber lagged behind and was reset");
-                SlidingSyncListRoomsListDiff::Reset {
+                SlidingSyncViewRoomsListDiff::Reset {
                     values: values.into_iter().map(|e| (&e).into()).collect(),
                 }
             }
@@ -348,25 +348,25 @@ impl From<&MatrixRoomEntry> for RoomListEntry {
     }
 }
 
-pub trait SlidingSyncListRoomItemsObserver: Sync + Send {
+pub trait SlidingSyncViewRoomItemsObserver: Sync + Send {
     fn did_receive_update(&self);
 }
 
-pub trait SlidingSyncListRoomListObserver: Sync + Send {
-    fn did_receive_update(&self, diff: SlidingSyncListRoomsListDiff);
+pub trait SlidingSyncViewRoomListObserver: Sync + Send {
+    fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
 }
 
-pub trait SlidingSyncListRoomsCountObserver: Sync + Send {
+pub trait SlidingSyncViewRoomsCountObserver: Sync + Send {
     fn did_receive_update(&self, new_count: u32);
 }
 
-pub trait SlidingSyncListStateObserver: Sync + Send {
+pub trait SlidingSyncViewStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 
 #[derive(Clone)]
-pub struct SlidingSyncListBuilder {
-    inner: matrix_sdk::SlidingSyncListBuilder,
+pub struct SlidingSyncViewBuilder {
+    inner: matrix_sdk::SlidingSyncViewBuilder,
 }
 
 #[derive(uniffi::Record)]
@@ -404,7 +404,7 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
     }
 }
 
-impl SlidingSyncListBuilder {
+impl SlidingSyncViewBuilder {
     pub fn new() -> Self {
         Self { inner: matrix_sdk::SlidingSyncList::builder() }
     }
@@ -427,14 +427,14 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncList>> {
+    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncView>> {
         let builder = unwrap_or_clone_arc(self);
         Ok(Arc::new(builder.inner.build()?.into()))
     }
 }
 
 #[uniffi::export]
-impl SlidingSyncListBuilder {
+impl SlidingSyncViewBuilder {
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sort(sort);
@@ -511,20 +511,20 @@ impl SlidingSyncListBuilder {
 }
 
 #[derive(Clone)]
-pub struct SlidingSyncList {
+pub struct SlidingSyncView {
     inner: matrix_sdk::SlidingSyncList,
 }
 
-impl From<matrix_sdk::SlidingSyncList> for SlidingSyncList {
+impl From<matrix_sdk::SlidingSyncList> for SlidingSyncView {
     fn from(inner: matrix_sdk::SlidingSyncList) -> Self {
-        SlidingSyncList { inner }
+        SlidingSyncView { inner }
     }
 }
 
-impl SlidingSyncList {
+impl SlidingSyncView {
     pub fn observe_state(
         &self,
-        observer: Box<dyn SlidingSyncListStateObserver>,
+        observer: Box<dyn SlidingSyncViewStateObserver>,
     ) -> Arc<TaskHandle> {
         let mut state_stream = self.inner.state_stream();
 
@@ -539,7 +539,7 @@ impl SlidingSyncList {
 
     pub fn observe_room_list(
         &self,
-        observer: Box<dyn SlidingSyncListRoomListObserver>,
+        observer: Box<dyn SlidingSyncViewRoomListObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_list_stream = self.inner.rooms_list_stream();
 
@@ -554,7 +554,7 @@ impl SlidingSyncList {
 
     pub fn observe_room_items(
         &self,
-        observer: Box<dyn SlidingSyncListRoomItemsObserver>,
+        observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_updated =
             Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
@@ -569,7 +569,7 @@ impl SlidingSyncList {
 
     pub fn observe_rooms_count(
         &self,
-        observer: Box<dyn SlidingSyncListRoomsCountObserver>,
+        observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_count_stream = self.inner.rooms_count_stream();
 
@@ -584,7 +584,7 @@ impl SlidingSyncList {
 }
 
 #[uniffi::export]
-impl SlidingSyncList {
+impl SlidingSyncView {
     /// Get the current list of rooms
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
         self.inner.rooms_list()
@@ -709,16 +709,16 @@ impl SlidingSync {
 #[uniffi::export]
 impl SlidingSync {
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.view(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
+        self.inner.list(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
-    pub fn add_view(&self, view: Arc<SlidingSyncList>) -> Option<Arc<SlidingSyncList>> {
-        self.inner.add_view(view.inner.clone()).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<Arc<SlidingSyncView>> {
+        self.inner.add_list(view.inner.clone()).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
-    pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.pop_view(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
+        self.inner.pop_list(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
     }
 
     pub fn add_common_extensions(&self) {
@@ -794,13 +794,13 @@ impl SlidingSyncBuilder {
 impl SlidingSyncBuilder {
     pub fn add_fullsync_view(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_fullsync_view();
+        builder.inner = builder.inner.add_fullsync_list();
         Arc::new(builder)
     }
 
     pub fn no_views(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.no_views();
+        builder.inner = builder.inner.no_lists();
         Arc::new(builder)
     }
 
@@ -810,10 +810,10 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncList>) -> Arc<Self> {
+    pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncView>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         let view = unwrap_or_clone_arc(v);
-        builder.inner = builder.inner.add_view(view.inner);
+        builder.inner = builder.inner.add_list(view.inner);
         Arc::new(builder)
     }
 
@@ -864,7 +864,7 @@ impl Client {
     pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
         RUNTIME.block_on(async move {
             let builder = self.client.sliding_sync().await;
-            let inner = builder.add_fullsync_view().build().await?;
+            let inner = builder.add_fullsync_list().build().await?;
             Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
     }
