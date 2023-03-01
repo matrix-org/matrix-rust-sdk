@@ -4,7 +4,7 @@ use tracing::{error, instrument, trace};
 
 use super::{Error, SlidingSyncList, SlidingSyncState};
 
-enum InnerSlidingSyncListRequestGenerator {
+enum GeneratorKind {
     GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     PagingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     Live,
@@ -13,7 +13,7 @@ enum InnerSlidingSyncListRequestGenerator {
 pub(in super::super) struct SlidingSyncListRequestGenerator {
     list: SlidingSyncList,
     ranges: Vec<(usize, usize)>,
-    inner: InnerSlidingSyncListRequestGenerator,
+    kind: GeneratorKind,
 }
 
 impl SlidingSyncListRequestGenerator {
@@ -28,15 +28,10 @@ impl SlidingSyncListRequestGenerator {
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
 
-        SlidingSyncListRequestGenerator {
+        Self {
             list,
             ranges: Default::default(),
-            inner: InnerSlidingSyncListRequestGenerator::PagingFullSync {
-                position,
-                batch_size,
-                limit,
-                live: false,
-            },
+            kind: GeneratorKind::PagingFullSync { position, batch_size, limit, live: false },
         }
     }
 
@@ -51,24 +46,15 @@ impl SlidingSyncListRequestGenerator {
             .map(|(_start, end)| u32::try_from(*end).unwrap())
             .unwrap_or_default();
 
-        SlidingSyncListRequestGenerator {
+        Self {
             list,
             ranges: Default::default(),
-            inner: InnerSlidingSyncListRequestGenerator::GrowingFullSync {
-                position,
-                batch_size,
-                limit,
-                live: false,
-            },
+            kind: GeneratorKind::GrowingFullSync { position, batch_size, limit, live: false },
         }
     }
 
     pub(super) fn new_live(list: SlidingSyncList) -> Self {
-        SlidingSyncListRequestGenerator {
-            list,
-            ranges: Default::default(),
-            inner: InnerSlidingSyncListRequestGenerator::Live,
-        }
+        Self { list, ranges: Default::default(), kind: GeneratorKind::Live }
     }
 
     fn prefetch_request(
@@ -149,13 +135,9 @@ impl SlidingSyncListRequestGenerator {
 
         trace!(end, max_index, range_end, name = self.list.name, "updating state");
 
-        match &mut self.inner {
-            InnerSlidingSyncListRequestGenerator::PagingFullSync {
-                position, live, limit, ..
-            }
-            | InnerSlidingSyncListRequestGenerator::GrowingFullSync {
-                position, live, limit, ..
-            } => {
+        match &mut self.kind {
+            GeneratorKind::PagingFullSync { position, live, limit, .. }
+            | GeneratorKind::GrowingFullSync { position, live, limit, .. } => {
                 let max = limit.map(|limit| std::cmp::min(limit, max_index)).unwrap_or(max_index);
                 trace!(end, max, name = self.list.name, "updating state");
                 if end >= max {
@@ -177,7 +159,7 @@ impl SlidingSyncListRequestGenerator {
                     });
                 }
             }
-            InnerSlidingSyncListRequestGenerator::Live => {
+            GeneratorKind::Live => {
                 Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                     *state = SlidingSyncState::Live;
                 });
@@ -190,26 +172,20 @@ impl Iterator for SlidingSyncListRequestGenerator {
     type Item = v4::SyncRequestList;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.inner {
-            InnerSlidingSyncListRequestGenerator::PagingFullSync { live, .. }
-            | InnerSlidingSyncListRequestGenerator::GrowingFullSync { live, .. }
+        match self.kind {
+            GeneratorKind::PagingFullSync { live, .. }
+            | GeneratorKind::GrowingFullSync { live, .. }
                 if live =>
             {
                 Some(self.live_request())
             }
-            InnerSlidingSyncListRequestGenerator::PagingFullSync {
-                position,
-                batch_size,
-                limit,
-                ..
-            } => Some(self.prefetch_request(position, batch_size, limit)),
-            InnerSlidingSyncListRequestGenerator::GrowingFullSync {
-                position,
-                batch_size,
-                limit,
-                ..
-            } => Some(self.prefetch_request(0, position + batch_size, limit)),
-            InnerSlidingSyncListRequestGenerator::Live => Some(self.live_request()),
+            GeneratorKind::PagingFullSync { position, batch_size, limit, .. } => {
+                Some(self.prefetch_request(position, batch_size, limit))
+            }
+            GeneratorKind::GrowingFullSync { position, batch_size, limit, .. } => {
+                Some(self.prefetch_request(0, position + batch_size, limit))
+            }
+            GeneratorKind::Live => Some(self.live_request()),
         }
     }
 }
