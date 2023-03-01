@@ -242,6 +242,8 @@ pub enum EventSendState {
     },
 }
 
+/// An item for an event that was created locally and not yet echoed back by the
+/// homeserver.
 #[derive(Debug, Clone)]
 pub struct LocalEventTimelineItem {
     /// The send state of this local event.
@@ -281,6 +283,7 @@ impl From<LocalEventTimelineItem> for EventTimelineItem {
     }
 }
 
+/// An item for an event that was received from the homeserver.
 #[derive(Clone)]
 pub struct RemoteEventTimelineItem {
     /// The event ID.
