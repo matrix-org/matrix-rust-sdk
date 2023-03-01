@@ -391,16 +391,16 @@ impl Common {
         }
     }
 
-    pub(crate) async fn ensure_members(&self) -> Result<()> {
+    pub(crate) async fn ensure_members(&self) -> Result<Option<MembersResponse>> {
         if !self.are_events_visible() {
-            return Ok(());
+            return Ok(None);
         }
 
         if !self.are_members_synced() {
-            self.request_members().await?;
+            self.request_members().await
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     fn are_events_visible(&self) -> bool {
@@ -417,9 +417,10 @@ impl Common {
     /// Sync the member list with the server.
     ///
     /// This method will de-duplicate requests if it is called multiple times in
-    /// quick succession, in that case the return value will be `None`.
+    /// quick succession, in that case the return value will be `None`. This
+    /// method does nothing if the members are already synced.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
-        self.request_members().await
+        self.ensure_members().await
     }
 
     /// Get active members for this room, includes invited, joined members.
