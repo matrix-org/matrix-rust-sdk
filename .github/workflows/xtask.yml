@@ -62,12 +62,6 @@ jobs:
           key: |
             ${{ steps.cachekey.outputs[format('cachekey-{0}', matrix.cachekey-id)] }}
 
-      - name: Install Protoc
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
