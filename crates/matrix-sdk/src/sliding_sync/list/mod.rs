@@ -433,17 +433,18 @@ impl FrozenSlidingSyncList {
     }
 }
 
-#[instrument(skip(ops))]
+#[instrument(skip(operations))]
 fn room_ops(
     rooms_list: &mut ObservableVector<RoomListEntry>,
-    ops: &Vec<v4::SyncOp>,
+    operations: &Vec<v4::SyncOp>,
     room_ranges: &Vec<(usize, usize)>,
 ) -> Result<(), Error> {
     let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
-    for op in ops {
-        match &op.op {
+
+    for operation in operations {
+        match &operation.op {
             v4::SlidingOp::Sync => {
-                let start: u32 = op
+                let start: u32 = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -452,13 +453,17 @@ fn room_ops(
                     })?
                     .0
                     .try_into()
-                    .map_err(|e| Error::BadResponse(format!("`range` not a valid int: {e:}")))?;
-                let room_ids = op.room_ids.clone();
+                    .map_err(|error| {
+                        Error::BadResponse(format!("`range` not a valid int: {error}"))
+                    })?;
+                let room_ids = operation.room_ids.clone();
+
                 room_ids
                     .into_iter()
                     .enumerate()
                     .map(|(i, r)| {
                         let idx = start as usize + i;
+
                         if idx >= rooms_list.len() {
                             rooms_list.insert(idx, RoomListEntry::Filled(r));
                         } else {
@@ -467,8 +472,9 @@ fn room_ops(
                     })
                     .count();
             }
+
             v4::SlidingOp::Delete => {
-                let pos: u32 = op
+                let position: u32 = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -476,13 +482,14 @@ fn room_ops(
                         )
                     })?
                     .try_into()
-                    .map_err(|e| {
-                        Error::BadResponse(format!("`index` not a valid int for DELETE: {e:}"))
+                    .map_err(|error| {
+                        Error::BadResponse(format!("`index` not a valid int for DELETE: {error}"))
                     })?;
-                rooms_list.set(pos as usize, RoomListEntry::Empty);
+                rooms_list.set(position as usize, RoomListEntry::Empty);
             }
+
             v4::SlidingOp::Insert => {
-                let pos: usize = op
+                let position: usize = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -490,51 +497,59 @@ fn room_ops(
                         )
                     })?
                     .try_into()
-                    .map_err(|e| {
-                        Error::BadResponse(format!("`index` not a valid int for INSERT: {e:}"))
+                    .map_err(|error| {
+                        Error::BadResponse(format!("`index` not a valid int for INSERT: {error}"))
                     })?;
 
-                let room = RoomListEntry::Filled(op.room_id.clone().ok_or_else(|| {
+                let room = RoomListEntry::Filled(operation.room_id.clone().ok_or_else(|| {
                     Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
                 })?);
-                let mut dif = 0usize;
+                let mut offset = 0usize;
+
                 loop {
-                    // find the next empty slot and drop it
-                    let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
-                    let check_prev = !prev_overflow && index_in_range(prev_p);
-                    let (next_p, overflown) = pos.overflowing_add(dif);
-                    let check_after =
-                        !overflown && next_p < rooms_list.len() && index_in_range(next_p);
-                    if !check_prev && !check_after {
+                    // Find the next empty slot and drop it.
+                    let (previous_position, overflow) = position.overflowing_sub(offset);
+                    let check_previous = !overflow && index_in_range(previous_position);
+
+                    let (next_position, overflow) = position.overflowing_add(offset);
+                    let check_next = !overflow
+                        && next_position < rooms_list.len()
+                        && index_in_range(next_position);
+
+                    if !check_previous && !check_next {
                         return Err(Error::BadResponse(
                             "We were asked to insert but could not find any direction to shift to"
                                 .to_owned(),
                         ));
                     }
 
-                    if check_prev && rooms_list[prev_p].empty_or_invalidated() {
+                    if check_previous && rooms_list[previous_position].is_empty_or_invalidated() {
                         // we only check for previous, if there are items left
-                        rooms_list.remove(prev_p);
+                        rooms_list.remove(previous_position);
+
                         break;
-                    } else if check_after && rooms_list[next_p].empty_or_invalidated() {
-                        rooms_list.remove(next_p);
+                    } else if check_next && rooms_list[next_position].is_empty_or_invalidated() {
+                        rooms_list.remove(next_position);
+
                         break;
                     } else {
-                        // let's check the next position;
-                        dif += 1;
+                        // Let's check the next position.
+                        offset += 1;
                     }
                 }
-                rooms_list.insert(pos, room);
+
+                rooms_list.insert(position, room);
             }
+
             v4::SlidingOp::Invalidate => {
                 let max_len = rooms_list.len();
-                let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
+                let (mut position, end): (usize, usize) = if let Some(range) = operation.range {
                     (
-                        range.0.try_into().map_err(|e| {
-                            Error::BadResponse(format!("`range.0` not a valid int: {e:}"))
+                        range.0.try_into().map_err(|error| {
+                            Error::BadResponse(format!("`range.0` not a valid int: {error}"))
                         })?,
-                        range.1.try_into().map_err(|e| {
-                            Error::BadResponse(format!("`range.1` not a valid int: {e:}"))
+                        range.1.try_into().map_err(|error| {
+                            Error::BadResponse(format!("`range.1` not a valid int: {error}"))
                         })?,
                     )
                 } else {
@@ -543,35 +558,38 @@ fn room_ops(
                     ));
                 };
 
-                if pos > end {
+                if position > end {
                     return Err(Error::BadResponse(
                         "Invalid invalidation, end smaller than start".to_owned(),
                     ));
                 }
 
-                // ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
-                // ensure we pick them all up
-                while pos <= end {
-                    if pos as usize >= max_len {
+                // Ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
+                // ensure we pick them all up.
+                while position <= end {
+                    if position >= max_len {
                         break; // how does this happen?
                     }
-                    let idx = pos as usize;
-                    let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
-                        Some(b.clone())
-                    } else {
-                        None
-                    };
 
-                    if let Some(b) = entry {
-                        rooms_list.set(pos as usize, RoomListEntry::Invalidated(b));
+                    let room_id =
+                        if let Some(RoomListEntry::Filled(room_id)) = rooms_list.get(position) {
+                            Some(room_id.clone())
+                        } else {
+                            None
+                        };
+
+                    if let Some(room_id) = room_id {
+                        rooms_list.set(position, RoomListEntry::Invalidated(room_id));
                     } else {
-                        rooms_list.set(pos as usize, RoomListEntry::Empty);
+                        rooms_list.set(position, RoomListEntry::Empty);
                     }
-                    pos += 1;
+
+                    position += 1;
                 }
             }
-            s => {
-                warn!("Unknown operation occurred: {:?}", s);
+
+            unknown_operation => {
+                warn!("Unknown operation occurred: {unknown_operation:?}");
             }
         }
     }
@@ -632,7 +650,7 @@ pub enum RoomListEntry {
 
 impl RoomListEntry {
     /// Is this entry empty or invalidated?
-    pub fn empty_or_invalidated(&self) -> bool {
+    pub fn is_empty_or_invalidated(&self) -> bool {
         matches!(self, Self::Empty | Self::Invalidated(_))
     }
 
