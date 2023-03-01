@@ -266,9 +266,11 @@ jobs:
         include:
           - os: ubuntu-latest
             os-name: 🐧
+            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-linux }}"
 
           - os: macos-latest
             os-name: 🍏
+            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-macos }}"
 
     steps:
       - name: Checkout
@@ -287,7 +289,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          key: "${{ matrix.xtask-cachekey }}"
           fail-on-cache-miss: true
 
       - name: Run checks
