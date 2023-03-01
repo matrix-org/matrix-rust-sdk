@@ -120,13 +120,14 @@ impl SlidingSyncList {
             .ranges(self.ranges.read().unwrap().clone())
     }
 
-    /// Set the ranges to fetch
+    /// Set the ranges to fetch.
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
         let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
         Observable::set(&mut self.ranges.write().unwrap(), value);
+
         self
     }
 
@@ -137,6 +138,7 @@ impl SlidingSyncList {
     pub fn set_range(&self, start: u32, end: u32) -> &Self {
         let value = vec![(start.into(), end.into())];
         Observable::set(&mut self.ranges.write().unwrap(), value);
+
         self
     }
 
@@ -148,6 +150,7 @@ impl SlidingSyncList {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push((start.into(), end.into()));
         });
+
         self
     }
 
@@ -162,6 +165,7 @@ impl SlidingSyncList {
     /// only be applied on the next request.
     pub fn reset_ranges(&self) -> &Self {
         Observable::set(&mut self.ranges.write().unwrap(), Vec::new());
+
         self
     }
 
@@ -198,7 +202,7 @@ impl SlidingSyncList {
         Observable::subscribe(&self.rooms_count.read().unwrap())
     }
 
-    /// Find the current valid position of the room in the list room_list.
+    /// Find the current valid position of the room in the list `room_list`.
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the item was
@@ -206,60 +210,71 @@ impl SlidingSyncList {
     pub fn find_room_in_list(&self, room_id: &RoomId) -> Option<usize> {
         let ranges = self.ranges.read().unwrap();
         let listing = self.rooms_list.read().unwrap();
+
         for (start_uint, end_uint) in ranges.iter() {
-            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let mut current_position: usize = (*start_uint).try_into().unwrap();
             let end: usize = (*end_uint).try_into().unwrap();
-            let iterator = listing.iter().skip(cur_pos);
-            for n in iterator {
-                if let RoomListEntry::Filled(r) = n {
-                    if room_id == r {
-                        return Some(cur_pos);
+            let room_list_entries = listing.iter().skip(current_position);
+
+            for room_list_entry in room_list_entries {
+                if let RoomListEntry::Filled(this_room_id) = room_list_entry {
+                    if room_id == this_room_id {
+                        return Some(current_position);
                     }
                 }
-                if cur_pos == end {
+
+                if current_position == end {
                     break;
                 }
-                cur_pos += 1;
+
+                current_position += 1;
             }
         }
+
         None
     }
 
-    /// Find the current valid position of the rooms in the lists room_list.
+    /// Find the current valid position of the rooms in the lists `room_list`.
     ///
     /// Only matches against the current ranges and only against filled items.
     /// Invalid items are ignore. Return the total position the items that were
-    /// found in the room_list, will skip any room not found in the rooms_list.
+    /// found in the `room_list`, will skip any room not found in the
+    /// `rooms_list`.
     pub fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
         let ranges = self.ranges.read().unwrap();
         let listing = self.rooms_list.read().unwrap();
         let mut rooms_found = Vec::new();
+
         for (start_uint, end_uint) in ranges.iter() {
-            let mut cur_pos: usize = (*start_uint).try_into().unwrap();
+            let mut current_position: usize = (*start_uint).try_into().unwrap();
             let end: usize = (*end_uint).try_into().unwrap();
-            let iterator = listing.iter().skip(cur_pos);
-            for n in iterator {
-                if let RoomListEntry::Filled(r) = n {
-                    if room_ids.contains(r) {
-                        rooms_found.push((cur_pos, r.clone()));
+            let room_list_entries = listing.iter().skip(current_position);
+
+            for room_list_entry in room_list_entries {
+                if let RoomListEntry::Filled(room_id) = room_list_entry {
+                    if room_ids.contains(room_id) {
+                        rooms_found.push((current_position, room_id.clone()));
                     }
                 }
-                if cur_pos == end {
+
+                if current_position == end {
                     break;
                 }
-                cur_pos += 1;
+
+                current_position += 1;
             }
         }
+
         rooms_found
     }
 
-    /// Return the room_id at the given index
+    /// Return the `room_id` at the given index.
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
         self.rooms_list
             .read()
             .unwrap()
             .get(index)
-            .and_then(|e| e.as_room_id().map(ToOwned::to_owned))
+            .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
     }
 
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
@@ -271,15 +286,18 @@ impl SlidingSyncList {
         rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
         let current_rooms_count = **self.rooms_count.read().unwrap();
+
         if current_rooms_count.is_none()
             || current_rooms_count == Some(0)
             || self.is_cold.load(Ordering::SeqCst)
         {
             debug!("first run, replacing rooms list");
+
             // first response, we do that slightly differently
             let mut rooms_list = ObservableVector::new();
             rooms_list
                 .append(iter::repeat(RoomListEntry::Empty).take(rooms_count as usize).collect());
+
             // then we apply it
             room_ops(&mut rooms_list, ops, ranges)?;
 
@@ -291,25 +309,30 @@ impl SlidingSyncList {
 
             Observable::set(&mut self.rooms_count.write().unwrap(), Some(rooms_count));
             self.is_cold.store(false, Ordering::SeqCst);
+
             return Ok(true);
         }
 
         debug!("regular update");
+
         let mut missing = rooms_count
             .checked_sub(self.rooms_list.read().unwrap().len() as u32)
             .unwrap_or_default();
         let mut changed = false;
+
         if missing > 0 {
             let mut list = self.rooms_list.write().unwrap();
+
             while missing > 0 {
                 list.push_back(RoomListEntry::Empty);
                 missing -= 1;
             }
+
             changed = true;
         }
 
         {
-            // keep the lock scoped so that the later find_rooms_in_list doesn't deadlock
+            // keep the lock scoped so that the later `find_rooms_in_list` doesn't deadlock
             let mut rooms_list = self.rooms_list.write().unwrap();
 
             if !ops.is_empty() {
@@ -322,6 +345,7 @@ impl SlidingSyncList {
 
         {
             let mut lock = self.rooms_count.write().unwrap();
+
             if **lock != Some(rooms_count) {
                 Observable::set(&mut lock, Some(rooms_count));
                 changed = true;
@@ -355,9 +379,11 @@ impl SlidingSyncList {
             SlidingSyncMode::PagingFullSync => {
                 SlidingSyncListRequestGenerator::new_with_paging_syncup(self.clone())
             }
+
             SlidingSyncMode::GrowingFullSync => {
                 SlidingSyncListRequestGenerator::new_with_growing_syncup(self.clone())
             }
+
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_live(self.clone()),
         }
     }
@@ -380,16 +406,22 @@ impl FrozenSlidingSyncList {
     ) -> Self {
         let mut rooms = BTreeMap::new();
         let mut rooms_list = Vector::new();
-        for entry in source_list.rooms_list.read().unwrap().iter() {
-            match entry {
-                RoomListEntry::Filled(o) | RoomListEntry::Invalidated(o) => {
-                    rooms.insert(o.clone(), rooms_map.get(o).expect("rooms always exists").into());
+
+        for room_list_entry in source_list.rooms_list.read().unwrap().iter() {
+            match room_list_entry {
+                RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
+                    rooms.insert(
+                        room_id.clone(),
+                        rooms_map.get(room_id).expect("room doesn't exist").into(),
+                    );
                 }
+
                 _ => {}
             };
 
-            rooms_list.push_back(entry.freeze());
+            rooms_list.push_back(room_list_entry.freeze());
         }
+
         FrozenSlidingSyncList {
             rooms_count: **source_list.rooms_count.read().unwrap(),
             rooms_list,
@@ -686,9 +718,10 @@ impl SlidingSyncListRequestGenerator {
         ops: &Vec<v4::SyncOp>,
         rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
-        let res = self.list.handle_response(rooms_count, ops, &self.ranges, rooms)?;
+        let response = self.list.handle_response(rooms_count, ops, &self.ranges, rooms)?;
         self.update_state(rooms_count.saturating_sub(1)); // index is 0 based, count is 1 based
-        Ok(res)
+
+        Ok(response)
     }
 
     fn update_state(&mut self, max_index: u32) {
