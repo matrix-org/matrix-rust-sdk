@@ -529,7 +529,7 @@
 //!     .build()?;
 //!
 //! let sliding_sync = sliding_sync_builder
-//!     .add_list(active_view)
+//!     .add_list(active_list)
 //!     .add_list(full_sync_list)
 //!     .build()
 //!     .await?;
@@ -539,7 +539,7 @@
 //! let active_list = sliding_sync.list(&active_list_name).unwrap();
 //! let list_state_stream = active_list.state_stream();
 //! let list_count_stream = active_list.rooms_count_stream();
-//! let list_list_stream = active_list.rooms_list_stream();
+//! let list_stream = active_list.rooms_list_stream();
 //!
 //! tokio::spawn(async move {
 //!     pin_mut!(list_state_stream);
@@ -550,15 +550,15 @@
 //!
 //! tokio::spawn(async move {
 //!     pin_mut!(list_count_stream);
-//!     while let Some(new_count) = view_count_stream.next().await {
-//!         info!("active-view new count: {new_count:?}");
+//!     while let Some(new_count) = list_count_stream.next().await {
+//!         info!("active-list new count: {new_count:?}");
 //!     }
 //! });
 //!
 //! tokio::spawn(async move {
-//!     pin_mut!(view_list_stream);
-//!     while let Some(v_diff) = view_list_stream.next().await {
-//!         info!("active-view rooms view diff update: {v_diff:?}");
+//!     pin_mut!(list_stream);
+//!     while let Some(v_diff) = list_stream.next().await {
+//!         info!("active-list rooms list diff update: {v_diff:?}");
 //!     }
 //! });
 //!
@@ -715,26 +715,26 @@ impl SlidingSync {
             .await?;
 
         // Write every `SlidingSyncList` inside the client the store.
-        let frozen_views = {
+        let frozen_lists = {
             let rooms_lock = self.rooms.read().unwrap();
 
             self.lists
                 .read()
                 .unwrap()
                 .iter()
-                .map(|(name, view)| {
+                .map(|(name, list)| {
                     Ok((
                         format!("{storage_key}::{name}"),
-                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(view, &rooms_lock))?,
+                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
                     ))
                 })
                 .collect::<Result<Vec<_>, crate::Error>>()?
         };
 
-        for (storage_key, frozen_view) in frozen_views {
-            trace!(storage_key, "Saving the frozen Sliding Sync View");
+        for (storage_key, frozen_list) in frozen_lists {
+            trace!(storage_key, "Saving the frozen Sliding Sync list");
 
-            store.set_custom_value(storage_key.as_bytes(), frozen_view).await?;
+            store.set_custom_value(storage_key.as_bytes(), frozen_list).await?;
         }
 
         Ok(())
@@ -746,7 +746,7 @@ impl SlidingSync {
     }
 
     /// Generate a new [`SlidingSyncBuilder`] with the same inner settings and
-    /// views but without the current state.
+    /// lists but without the current state.
     pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
         let mut builder = Self::builder()
             .client(self.client.clone())
