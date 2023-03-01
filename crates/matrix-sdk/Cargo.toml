@@ -87,7 +87,7 @@ mime = "0.3.16"
 pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
-ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }

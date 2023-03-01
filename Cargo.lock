@@ -2920,7 +2920,7 @@ dependencies = [
  "byteorder",
  "image 0.23.14",
  "qrcode",
- "ruma-common 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ruma-common",
  "thiserror",
  "vodozemac",
 ]
@@ -4292,24 +4292,24 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.8.2"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "assign",
  "js_int",
  "js_option",
  "ruma-appservice-api",
  "ruma-client-api",
- "ruma-common 0.11.3 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-common",
  "ruma-federation-api",
 ]
 
 [[package]]
 name = "ruma-appservice-api"
 version = "0.8.1"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "js_int",
- "ruma-common 0.11.3 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-common",
  "serde",
  "serde_json",
 ]
@@ -4317,7 +4317,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.16.2"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "assign",
  "bytes",
@@ -4325,7 +4325,7 @@ dependencies = [
  "js_int",
  "js_option",
  "maplit",
- "ruma-common 0.11.3 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-common",
  "serde",
  "serde_html_form",
  "serde_json",
@@ -4334,33 +4334,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3b4ec3f70ea9afeae96a6c1e5eb86ed02760d5c28a167b5d9a433cefaaf815c"
-dependencies = [
- "base64 0.21.0",
- "bytes",
- "form_urlencoded",
- "indexmap",
- "js_int",
- "js_option",
- "konst",
- "percent-encoding",
- "regex",
- "ruma-identifiers-validation 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ruma-macros 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_html_form",
- "serde_json",
- "thiserror",
- "tracing",
- "url",
- "wildmatch",
-]
-
-[[package]]
-name = "ruma-common"
-version = "0.11.3"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "base64 0.21.0",
  "bytes",
@@ -4378,8 +4352,8 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.8.5",
  "regex",
- "ruma-identifiers-validation 0.9.1 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
- "ruma-macros 0.11.3 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-identifiers-validation",
+ "ruma-macros",
  "serde",
  "serde_html_form",
  "serde_json",
@@ -4393,10 +4367,10 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.7.1"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "js_int",
- "ruma-common 0.11.3 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-common",
  "serde",
  "serde_json",
 ]
@@ -4404,17 +4378,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebefdab34311af44d07cd2cd91c36cfe6a8c770647c6b00f6ab47f1186b2bb72"
-dependencies = [
- "js_int",
- "thiserror",
-]
-
-[[package]]
-name = "ruma-identifiers-validation"
-version = "0.9.1"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4423,29 +4387,13 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23e883799456b6213da90fe065d4234f282b89afe161af3e5fcc854e44e8f582"
+source = "git+https://github.com/ruma/ruma?rev=2edfe5bc5f3ee88014e57230c50a5e005119344a#2edfe5bc5f3ee88014e57230c50a5e005119344a"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "ruma-identifiers-validation 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "syn",
- "toml 0.7.2",
-]
-
-[[package]]
-name = "ruma-macros"
-version = "0.11.3"
-source = "git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id#7a78869de4ec920ea770ffd2a27eafcc1b3619b0"
-dependencies = [
- "once_cell",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "ruma-identifiers-validation 0.9.1 (git+https://github.com/Hywan/ruma?branch=feat-sliding-sync-response-txn-id)",
+ "ruma-identifiers-validation",
  "serde",
  "syn",
  "toml 0.7.2",
