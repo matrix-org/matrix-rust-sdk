@@ -24,9 +24,9 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use serde_json::Value;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
-use serde_json::Value;
 
 use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
