@@ -23,7 +23,7 @@ qrcode = ["matrix-sdk-crypto?/qrcode"]
 experimental-sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
-testing = ["dep:http"]
+testing = ["dep:http", "dep:matrix-sdk-test"]
 
 [dependencies]
 async-stream = { workspace = true }
@@ -36,6 +36,7 @@ http = { workspace = true, optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
+matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", optional = true }
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["canonical-json"] }
 serde = { workspace = true, features = ["rc"] }
