@@ -51,6 +51,14 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.name }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -239,6 +247,14 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.cmd }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
