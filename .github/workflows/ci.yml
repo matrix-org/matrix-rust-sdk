@@ -50,21 +50,18 @@ jobs:
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
 
-      - run: |
-          rustup run stable cargo nextest run -p matrix-sdk --no-default-features --features sled,native-tls
-        env:
-          CARGO_LOG: "cargo::core::compiler::fingerprint=info"
-
-      - run: |
-          find target
+      - name: target contents, pre-build
+        run: |
+          find target | sort
 
       - run: |
           target/debug/xtask ci test-features
         env:
           CARGO_LOG: "cargo::core::compiler::fingerprint=info"
 
-      - run: |
-          find target
+      - name: target contents, post-build
+        run: |
+          find target | sort
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
