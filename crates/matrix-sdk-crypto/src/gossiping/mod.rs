@@ -77,7 +77,7 @@ pub struct GossipRequest {
 }
 
 /// An enum over the various secret request types we can have.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SecretInfo {
     /// Info for the `m.room_key_request` variant
     KeyRequest(SupportedKeyInfo),
@@ -91,7 +91,7 @@ impl SecretInfo {
     pub fn as_key(&self) -> String {
         match &self {
             SecretInfo::KeyRequest(info) => format!(
-                "keyRequest:{:}:{:}:{:}",
+                "keyRequest:{}:{}:{}",
                 info.room_id().as_str(),
                 info.session_id(),
                 &info.algorithm(),

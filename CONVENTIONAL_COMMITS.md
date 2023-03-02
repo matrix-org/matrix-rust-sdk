@@ -18,7 +18,7 @@ project:
 | `feat` | About a new feature. |
 | `fix` | About a bug fix. |
 | `test` | About a test (suite, case, runner…). |
-| `doc` | About a documentation modification. |
+| `docs` | About a documentation modification. |
 | `refactor` | About a refactoring. |
 | `ci` | About a Continuous Integration modification. |
 | `chore` | About some cleanup, or regular tasks. |
@@ -79,7 +79,7 @@ section aims at listing all the scopes used inside this project:
       <td>About the <code>matrix-sdk-test</code> and <code>matrix-sdk-test-macros</code> crate.</td>
     </tr>
     <tr>
-      <td rowspan="4">Bindings</td>
+      <td rowspan="5">Bindings</td>
       <td><code>apple</code></td>
       <td>About the <code>matrix-rust-components-swift</code> binding.</td>
     </tr>
@@ -96,9 +96,13 @@ section aims at listing all the scopes used inside this project:
       <td>About the <code>matrix-sdk-crypto-ffi</code> binding.</td>
     </tr>
     <tr>
+      <td><code>ffi</code></td>
+      <td>About the <code>matrix-sdk-ffi</code> binding.</td>
+    </tr>
+    <tr>
       <td>Labs</td>
-      <td><code>sled-state-inspector</code></td>
-      <td>About the <code>sled-state-inspector</code> project.</td>
+      <td><code>jack-in</code></td>
+      <td>About the <code>jack-in</code> project.</td>
     </tr>
     <tr>
       <td>Continuous Integration</td>

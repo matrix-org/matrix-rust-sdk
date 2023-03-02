@@ -12,8 +12,7 @@ other lower-level crates. If you're attempting something more custom, you might 
 - [`matrix_sdk_base`]: A no-network-IO client state machine which can be used
   to embed a Matrix client into an existing network stack or to build a new
   Matrix client library on top.
-- [`matrix_sdk_crypto`](https://docs.rs/matrix-sdk-crypto/*/matrix_sdk_crypto/):
-  A no-network-IO encryption state machine which can be used to add Matrix E2EE
+- [`matrix_sdk_crypto`]: A no-network-IO encryption state machine which can be used to add Matrix E2EE
   support into an existing client or library.
 
 # Getting started
@@ -91,5 +90,7 @@ The `RUST_LOG` variable also supports a more advanced syntax for filtering
 log output more precisely, for instance with crate-level granularity. For
 more information on this, check out the [tracing_subscriber documentation].
 
-[examples]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk/examples
+[examples]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/
 [tracing_subscriber documentation]: https://tracing.rs/tracing_subscriber/filter/struct.envfilter
+[`matrix_sdk_crypto`]: https://docs.rs/matrix-sdk-crypto/
+[`matrix_sdk_base`]: https://docs.rs/matrix-sdk-base/

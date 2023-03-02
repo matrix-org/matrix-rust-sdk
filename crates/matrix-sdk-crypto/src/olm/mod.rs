@@ -38,12 +38,13 @@ pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use matches::assert_matches;
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
         events::{
-            room::message::{Relation, Replacement, RoomMessageEventContent},
+            relation::Replacement,
+            room::message::{Relation, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,

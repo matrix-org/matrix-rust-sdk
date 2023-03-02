@@ -203,7 +203,7 @@ impl Serialize for RoomKeyContent {
 
 #[cfg(test)]
 pub(super) mod test {
-    use matches::assert_matches;
+    use assert_matches::assert_matches;
     use serde_json::{json, Value};
 
     use super::RoomKeyEvent;

@@ -1,6 +1,6 @@
 {
     "name": "@matrix-org/matrix-sdk-crypto-js",
-    "version": "0.1.0-alpha.0",
+    "version": "0.1.0-alpha.4",
     "homepage": "https://github.com/matrix-org/matrix-rust-sdk",
     "description": "Matrix encryption library, for JavaScript",
     "license": "Apache-2.0",
@@ -18,17 +18,19 @@
         "ruma",
         "nio"
     ],
-    "main": "matrix_sdk_crypto.js",
-    "types": "pkg/matrix_sdk_crypto.d.ts",
+    "main": "pkg/matrix_sdk_crypto_js.js",
+    "types": "pkg/matrix_sdk_crypto_js.d.ts",
     "files": [
-        "pkg/matrix_sdk_crypto_bg.wasm",
-        "pkg/matrix_sdk_crypto.js",
-        "pkg/matrix_sdk_crypto.d.ts"
+        "pkg/matrix_sdk_crypto_js_bg.wasm.js",
+        "pkg/matrix_sdk_crypto_js_bg.wasm.d.ts",
+        "pkg/matrix_sdk_crypto_js.js",
+        "pkg/matrix_sdk_crypto_js.d.ts"
     ],
     "devDependencies": {
         "cross-env": "^7.0.3",
         "fake-indexeddb": "^4.0",
         "jest": "^28.1.0",
+        "prettier": "^2.8.3",
         "typedoc": "^0.22.17",
         "wasm-pack": "^0.10.2",
         "yargs-parser": "~21.0.1"
@@ -37,12 +39,11 @@
         "node": ">= 10"
     },
     "scripts": {
-        "build": "cross-env RUSTFLAGS='-C opt-level=z' WASM_BINDGEN_WEAKREF=1 wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
+        "lint": "prettier --check .",
+        "build": "WASM_PACK_ARGS=--release ./scripts/build.sh",
+        "build:dev": "WASM_PACK_ARGS=--dev ./scripts/build.sh",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig .",
-        "prepack": "npm run build && npm run test",
-        "pack": "wasm-pack pack",
-        "prepublish": "npm run pack",
-        "publish": "wasm-pack publish"
+        "prepack": "npm run build && npm run test"
     }
 }

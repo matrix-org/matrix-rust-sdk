@@ -4,19 +4,18 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent,
+        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
     Client,
 };
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
+        let MessageType::Text(text_content) = event.content.msgtype else {
+            return;
         };
 
-        if msg_body.contains("!party") {
+        if text_content.body.contains("!party") {
             let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
             println!("sending");
@@ -36,41 +35,24 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> anyhow::Result<()> {
-    #[allow(unused_mut)]
-    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
-
-    #[cfg(feature = "sled")]
-    {
-        // The location to save files to
-        let home = dirs::home_dir().expect("no home directory found").join("party_bot");
-        client_builder = client_builder.sled_store(home, None)?;
-    }
-
-    #[cfg(feature = "indexeddb")]
-    {
-        client_builder = client_builder.indexeddb_store("party_bot", None).await?;
-    }
-
-    let client = client_builder.build().await.unwrap();
-    client
-        .login_username(&username, &password)
-        .initial_device_display_name("command bot")
-        .send()
-        .await?;
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
+    let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
+    client.login_username(&username, &password).initial_device_display_name("command bot").await?;
 
     println!("logged in as {username}");
 
     // An initial sync to set up state and so our bot doesn't respond to old
-    // messages. If the `StateStore` finds saved state in the location given the
-    // initial sync will be skipped in favor of loading state from the store
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    // messages.
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.
     client.add_event_handler(on_room_message);
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(response.next_batch);
     // this keeps state from the server streaming in to CommandBot via the
     // EventHandler trait
     client.sync(settings).await?;

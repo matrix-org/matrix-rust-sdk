@@ -29,6 +29,11 @@ use ruma::{
 use thiserror::Error;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
+use tracing::{
+    debug,
+    field::{self, debug},
+    instrument, span, Level, Span,
+};
 use url::Url;
 
 use super::{Client, ClientInner};
@@ -88,10 +93,19 @@ pub struct ClientBuilder {
     appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
+    root_span: Span,
 }
 
 impl ClientBuilder {
     pub(crate) fn new() -> Self {
+        let root_span = span!(
+            Level::INFO,
+            "matrix-sdk",
+            user_id = field::Empty,
+            device_id = field::Empty,
+            ed25519_key = field::Empty
+        );
+
         Self {
             homeserver_cfg: None,
             http_cfg: None,
@@ -101,6 +115,7 @@ impl ClientBuilder {
             appservice_mode: false,
             server_versions: None,
             handle_refresh_tokens: false,
+            root_span,
         }
     }
 
@@ -303,12 +318,12 @@ impl ClientBuilder {
     ///   is encountered, it means that the user needs to be logged in again.
     ///
     /// * The access token and refresh token need to be watched for changes,
-    ///   using [`Client::session_tokens_signal()`] for example, to be able to
+    ///   using [`Client::session_tokens_stream()`] for example, to be able to
     ///   [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
-    /// [restore the session]: Client::restore_login
+    /// [restore the session]: Client::restore_session
     pub fn handle_refresh_tokens(mut self) -> Self {
         self.handle_refresh_tokens = true;
         self
@@ -326,8 +341,12 @@ impl ClientBuilder {
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
+    #[instrument(skip_all, parent = &self.root_span, target = "matrix_sdk::client", fields(homeserver))]
     pub async fn build(self) -> Result<Client, ClientBuildError> {
+        debug!("Starting to build the Client");
+
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
+        Span::current().record("homeserver", debug(&homeserver_cfg));
 
         let inner_http_client = match self.http_cfg.unwrap_or_default() {
             #[allow(unused_mut)]
@@ -359,9 +378,13 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         let mut authentication_issuer: Option<Url> = None;
+        #[cfg(feature = "experimental-sliding-sync")]
+        let mut sliding_sync_proxy: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
             HomeserverConfig::ServerName(server_name) => {
+                debug!("Trying to discover the homeserver");
+
                 let homeserver = homeserver_from_name(&server_name);
                 let well_known = http_client
                     .send(
@@ -380,7 +403,12 @@ impl ClientBuilder {
 
                 if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
                     authentication_issuer = Url::parse(&issuer).ok();
-                };
+                }
+                #[cfg(feature = "experimental-sliding-sync")]
+                if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
+                    sliding_sync_proxy = Url::parse(&proxy).ok();
+                }
+                debug!(homserver_url = well_known.homeserver.base_url, "Discovered the homeserver");
 
                 well_known.homeserver.base_url
             }
@@ -388,10 +416,14 @@ impl ClientBuilder {
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
         let authentication_issuer = authentication_issuer.map(RwLock::new);
+        #[cfg(feature = "experimental-sliding-sync")]
+        let sliding_sync_proxy = sliding_sync_proxy.map(RwLock::new);
 
         let inner = Arc::new(ClientInner {
             homeserver,
             authentication_issuer,
+            #[cfg(feature = "experimental-sliding-sync")]
+            sliding_sync_proxy,
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),
@@ -400,6 +432,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             key_claim_lock: Default::default(),
             members_request_locks: Default::default(),
+            encryption_state_request_locks: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -410,7 +443,15 @@ impl ClientBuilder {
             refresh_token_lock: Mutex::new(Ok(())),
         });
 
-        Ok(Client { inner })
+        debug!("Done building the Client");
+
+        // We drop the root span here so it gets pushed to the subscribers, i.e. it gets
+        // only uploaded to a OpenTelemetry collector if the span gets dropped.
+        // We still want it around so other methods that get called by this
+        // client instance are connected to it, so we clone.
+        drop(self.root_span.clone());
+
+        Ok(Client { inner, root_span: self.root_span })
     }
 }
 
@@ -473,6 +514,7 @@ enum BuilderStoreConfig {
     Custom(StoreConfig),
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::infallible_destructuring_match)]

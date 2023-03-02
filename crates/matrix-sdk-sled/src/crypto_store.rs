@@ -14,13 +14,12 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
-use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
@@ -33,11 +32,11 @@ use matrix_sdk_crypto::{
     },
     types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-pub use sled::Error;
+use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Batch, Config, Db, IVec, Transactional, Tree,
@@ -157,25 +156,18 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TrackedUser {
-    user_id: OwnedUserId,
-    dirty: bool,
-}
-
 /// A [sled] based cryptostore.
 ///
 /// [sled]: https://github.com/spacejam/sled#readme
 #[derive(Clone)]
 pub struct SledCryptoStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
+
     store_cipher: Option<Arc<StoreCipher>>,
     path: Option<PathBuf>,
     inner: Db,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 
     account: Tree,
     private_identity: Tree,
@@ -208,7 +200,7 @@ impl std::fmt::Debug for SledCryptoStore {
 impl SledCryptoStore {
     /// Open the sled-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
-    pub async fn open_with_passphrase(
+    pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
@@ -216,12 +208,7 @@ impl SledCryptoStore {
         let db =
             Config::new().temporary(false).path(&path).open().map_err(CryptoStoreError::backend)?;
 
-        let store_cipher = passphrase
-            .map(|p| Self::get_or_create_store_cipher(p, &db))
-            .transpose()?
-            .map(Into::into);
-
-        SledCryptoStore::open_helper(db, Some(path), store_cipher).await
+        Self::open_with_database(db, passphrase).await
     }
 
     /// Create a sled-based crypto store using the given sled database.
@@ -410,8 +397,6 @@ impl SledCryptoStore {
             private_identity,
             sessions,
             session_cache,
-            tracked_users_cache: DashSet::new().into(),
-            users_for_key_query_cache: DashSet::new().into(),
             inbound_group_sessions,
             outbound_group_sessions,
             outgoing_secret_requests,
@@ -428,19 +413,17 @@ impl SledCryptoStore {
         Ok(database)
     }
 
-    async fn load_tracked_users(&self) -> Result<()> {
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
+        let mut users = Vec::new();
+
         for value in &self.tracked_users {
             let (_, user) = value.map_err(CryptoStoreError::backend)?;
             let user: TrackedUser = self.deserialize_value(&user)?;
 
-            self.tracked_users_cache.insert(user.user_id.to_owned());
-
-            if user.dirty {
-                self.users_for_key_query_cache.insert(user.user_id);
-            }
+            users.push(user)
         }
 
-        Ok(())
+        Ok(users)
     }
 
     async fn load_outbound_group_session(
@@ -479,7 +462,7 @@ impl SledCryptoStore {
         };
 
         let private_identity_pickle =
-            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
+            if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let recovery_key_pickle = changes.recovery_key;
 
@@ -714,13 +697,14 @@ impl SledCryptoStore {
 
 #[async_trait]
 impl CryptoStore for SledCryptoStore {
+    type Error = CryptoStoreError;
+
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         if let Some(pickle) =
             self.account.get("account".encode()).map_err(CryptoStoreError::backend)?
         {
             let pickle = self.deserialize_value(&pickle)?;
 
-            self.load_tracked_users().await?;
             let account = ReadOnlyAccount::from_pickle(pickle)?;
 
             let account_info = AccountInfo {
@@ -861,41 +845,21 @@ impl CryptoStore for SledCryptoStore {
         self.reset_backup_state().await
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
         self.load_outbound_group_session(room_id).await
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users_cache.contains(user_id)
+    async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
+        self.load_tracked_users().await
     }
 
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query_cache.is_empty()
-    }
+    async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
+        self.save_tracked_users(users).await?;
 
-    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
-    }
-
-    fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
-    }
-
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.to_owned());
-
-        if dirty {
-            self.users_for_key_query_cache.insert(user.to_owned());
-        } else {
-            self.users_for_key_query_cache.remove(user);
-        }
-
-        self.save_tracked_users(&[(user, dirty)]).await?;
-
-        Ok(already_added)
+        Ok(())
     }
 
     async fn get_device(
@@ -1061,7 +1025,7 @@ mod tests {
     async fn get_store(name: &str, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
+        SledCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
             .expect("Can't create a passphrase protected store")
     }
@@ -1083,7 +1047,7 @@ mod encrypted_tests {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
 
-        SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
+        SledCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
             .expect("Can't create a passphrase protected store")
     }

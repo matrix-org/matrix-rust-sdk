@@ -17,10 +17,7 @@ use matrix_sdk::{
     room::Room,
     ruma::events::room::{
         member::StrippedRoomMemberEvent,
-        message::{
-            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
-            TextMessageEventContent,
-        },
+        message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
     },
     Client,
 };
@@ -62,15 +59,12 @@ async fn login_and_sync(
 ) -> anyhow::Result<()> {
     // First, we set up the client.
 
-    let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
     let client = Client::builder()
         // We use the convenient client builder to set our custom homeserver URL on it.
         .homeserver_url(homeserver_url)
-        // Matrix-SDK has support for pluggable, configurable state and crypto-store
-        // support we use the default sled-store (enabled by default on native
-        // architectures), to configure a local cache and store for our crypto keys
-        .sled_store(home, None)
         .build()
         .await?;
 
@@ -78,7 +72,6 @@ async fn login_and_sync(
     client
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
-        .send()
         .await?;
 
     // It worked!
@@ -93,7 +86,7 @@ async fn login_and_sync(
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the
     // initial sync will be skipped in favor of loading state from the store
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     // now that we've synced, let's attach a handler for incoming room messages, so
     // we can react on it
@@ -101,7 +94,7 @@ async fn login_and_sync(
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`
-    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
+    let settings = SyncSettings::default().token(sync_token);
     // this keeps state from the server streaming in to the bot via the
     // EventHandler trait
     client.sync(settings).await?; // this essentially loops until we kill the bot
@@ -158,25 +151,21 @@ async fn on_stripped_state_member(
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // First, we need to unpack the message: We only want messages from rooms we are
     // still in and that are regular text messages - ignoring everything else.
-    if let Room::Joined(room) = room {
-        let msg_body = match event.content.msgtype {
-            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-            _ => return,
-        };
+    let Room::Joined(room) = room else { return };
+    let MessageType::Text(text_content) = event.content.msgtype else { return };
 
-        // here comes the actual "logic": when the bot see's a `!party` in the message,
-        // it responds
-        if msg_body.contains("!party") {
-            let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+    // here comes the actual "logic": when the bot see's a `!party` in the message,
+    // it responds
+    if text_content.body.contains("!party") {
+        let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
-            println!("sending");
+        println!("sending");
 
-            // send our message to the room we found the "!party" command in
-            // the last parameter is an optional transaction id which we don't
-            // care about.
-            room.send(content, None).await.unwrap();
+        // send our message to the room we found the "!party" command in
+        // the last parameter is an optional transaction id which we don't
+        // care about.
+        room.send(content, None).await.unwrap();
 
-            println!("message sent");
-        }
+        println!("message sent");
     }
 }

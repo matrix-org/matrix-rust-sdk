@@ -5,38 +5,51 @@ use tracing::{error, info, warn};
 
 pub mod state;
 
-use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
+use matrix_sdk::{
+    ruma::{api::client::error::ErrorKind, OwnedRoomId},
+    Client, SlidingSyncListBuilder, SlidingSyncState,
+};
 
 pub async fn run_client(
     client: Client,
-    sliding_sync_proxy: String,
     tx: mpsc::Sender<state::SlidingSyncState>,
+    config: crate::SlidingSyncConfig,
 ) -> Result<()> {
     info!("Starting sliding sync now");
     let builder = client.sliding_sync().await;
-    let full_sync_view =
-        SlidingSyncViewBuilder::default_with_fullsync().timeline_limit(10u32).build()?;
+    let mut full_sync_view_builder = SlidingSyncListBuilder::default_with_fullsync()
+        .timeline_limit(10u32)
+        .sync_mode(config.full_sync_mode.into());
+    if let Some(size) = config.batch_size {
+        full_sync_view_builder = full_sync_view_builder.batch_size(size);
+    }
+
+    if let Some(limit) = config.limit {
+        full_sync_view_builder = full_sync_view_builder.limit(limit);
+    }
+    if let Some(limit) = config.timeline_limit {
+        full_sync_view_builder = full_sync_view_builder.timeline_limit(limit);
+    }
+
+    let full_sync_view = full_sync_view_builder.build()?;
+
     let syncer = builder
-        .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
-        .add_view(full_sync_view)
+        .homeserver(config.proxy.parse().wrap_err("can't parse sync proxy")?)
+        .add_list(full_sync_view)
         .with_common_extensions()
-        .build()?;
-    let stream = syncer.stream().await.expect("we can build the stream");
-    let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
-    let state = view.state.clone();
-    let mut ssync_state = state::SlidingSyncState::new(view);
+        .cold_cache("jack-in-default")
+        .build()
+        .await?;
+    let stream = syncer.stream();
+    let view = syncer.list("full-sync").expect("we have the full syncer there").clone();
+    let mut ssync_state = state::SlidingSyncState::new(syncer.clone(), view.clone());
     tx.send(ssync_state.clone()).await?;
 
     info!("starting polling");
 
     pin_mut!(stream);
     if let Some(Err(e)) = stream.next().await {
-        error!("Initial Query on sliding sync failed: {:#?}", e);
-        return Ok(());
-    }
-    let view_state = state.read_only().get_cloned();
-    if view_state != SlidingSyncState::CatchingUp {
-        warn!("Sliding Query failed: {:#?}", view_state);
+        error!("Stopped: Initial Query on sliding sync failed: {e:?}");
         return Ok(());
     }
 
@@ -50,7 +63,8 @@ pub async fn run_client(
         match stream.next().await {
             Some(Ok(_)) => {
                 // we are switching into live updates mode next. ignoring
-                let state = state.read_only().get_cloned();
+                let state = view.state();
+                ssync_state.set_view_state(state.clone());
 
                 if state == SlidingSyncState::Live {
                     info!("Reached live sync");
@@ -59,8 +73,10 @@ pub async fn run_client(
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
-                error!("Error: {:}", e);
-                break;
+                if e.client_api_error_kind() != Some(&ErrorKind::UnknownPos) {
+                    error!("Error: {e}");
+                    break;
+                }
             }
             None => {
                 error!("Never reached live state");
@@ -79,7 +95,7 @@ pub async fn run_client(
 
     while let Some(update) = stream.next().await {
         {
-            let selected_room = ssync_state.selected_room.lock_ref().clone();
+            let selected_room = ssync_state.selected_room.get();
             if let Some(room_id) = selected_room {
                 if let Some(prev) = &prev_selected_room {
                     if prev != &room_id {
@@ -95,12 +111,12 @@ pub async fn run_client(
         }
         match update {
             Ok(update) => {
-                info!("Live update received: {:?}", update);
+                info!("Live update received: {update:?}");
                 tx.send(ssync_state.clone()).await?;
                 err_counter = 0;
             }
             Err(e) => {
-                warn!("Live update error: {:?}", e);
+                warn!("Live update error: {e:?}");
                 err_counter += 1;
                 if err_counter > 3 {
                     error!("Received 3 errors in a row. stopping.");

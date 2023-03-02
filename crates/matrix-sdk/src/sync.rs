@@ -1,13 +1,78 @@
-use std::time::Duration;
+//! The SDK's representation of the result of a `/sync` request.
 
+use std::{collections::BTreeMap, time::Duration};
+
+pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
-    deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
-    instant::Instant,
+    deserialized_responses::AmbiguityChanges, instant::Instant,
+    sync::SyncResponse as BaseSyncResponse,
 };
-use ruma::api::client::sync::sync_events;
-use tracing::{error, warn};
+use ruma::{
+    api::client::{
+        push::get_notifications::v3::Notification,
+        sync::sync_events::{self, v3::Presence, DeviceLists},
+    },
+    events::{AnyGlobalAccountDataEvent, AnyToDeviceEvent},
+    serde::Raw,
+    DeviceKeyAlgorithm, OwnedRoomId,
+};
+use tracing::{debug, error, warn};
 
 use crate::{event_handler::HandlerKind, Client, Result};
+
+/// The processed response of a `/sync` request.
+#[derive(Clone, Debug, Default)]
+pub struct SyncResponse {
+    /// The batch token to supply in the `since` param of the next `/sync`
+    /// request.
+    pub next_batch: String,
+    /// Updates to rooms.
+    pub rooms: Rooms,
+    /// Updates to the presence status of other users.
+    pub presence: Presence,
+    /// The global private data created by this user.
+    pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
+    /// Messages sent directly between devices.
+    pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    /// Information on E2E device updates.
+    ///
+    /// Only present on an incremental sync.
+    pub device_lists: DeviceLists,
+    /// For each key algorithm, the number of unclaimed one-time keys
+    /// currently held on the server for a device.
+    pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
+    /// Collection of ambiguity changes that room member events trigger.
+    pub ambiguity_changes: AmbiguityChanges,
+    /// New notifications per room.
+    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
+}
+
+impl SyncResponse {
+    pub(crate) fn new(next_batch: String, base_response: BaseSyncResponse) -> Self {
+        let BaseSyncResponse {
+            rooms,
+            presence,
+            account_data,
+            to_device_events,
+            device_lists,
+            device_one_time_keys_count,
+            ambiguity_changes,
+            notifications,
+        } = base_response;
+
+        Self {
+            next_batch,
+            rooms,
+            presence,
+            account_data,
+            to_device_events,
+            device_lists,
+            device_one_time_keys_count,
+            ambiguity_changes,
+            notifications,
+        }
+    }
+}
 
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
@@ -15,18 +80,15 @@ impl Client {
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::v3::Response,
-    ) -> Result<SyncResponse> {
+    ) -> Result<BaseSyncResponse> {
         let response = self.base_client().receive_sync_response(response).await?;
-        self.handle_sync_response(response).await
+        self.handle_sync_response(&response).await?;
+        Ok(response)
     }
 
     #[tracing::instrument(skip(self, response))]
-    pub(crate) async fn handle_sync_response(
-        &self,
-        response: SyncResponse,
-    ) -> Result<SyncResponse> {
-        let SyncResponse {
-            next_batch: _,
+    pub(crate) async fn handle_sync_response(&self, response: &BaseSyncResponse) -> Result<()> {
+        let BaseSyncResponse {
             rooms,
             presence,
             account_data,
@@ -35,8 +97,9 @@ impl Client {
             device_one_time_keys_count: _,
             ambiguity_changes: _,
             notifications,
-        } = &response;
+        } = response;
 
+        let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
         self.handle_sync_events(HandlerKind::ToDevice, &None, to_device_events).await?;
@@ -44,7 +107,7 @@ impl Client {
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -61,7 +124,7 @@ impl Client {
         for (room_id, room_info) in &rooms.leave {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -76,7 +139,7 @@ impl Client {
         for (room_id, room_info) in &rooms.invite {
             let room = self.get_room(room_id);
             if room.is_none() {
-                error!(%room_id, "Can't call event handler, room not found");
+                error!(?room_id, "Can't call event handler, room not found");
                 continue;
             }
 
@@ -89,16 +152,17 @@ impl Client {
             .await?;
         }
 
+        debug!("Ran event handlers in {:?}", now.elapsed());
+
+        let now = Instant::now();
+
         // Construct notification event handler futures
         let mut futures = Vec::new();
         for handler in &*self.notification_handlers().await {
             for (room_id, room_notifications) in notifications {
-                let room = match self.get_room(room_id) {
-                    Some(room) => room,
-                    None => {
-                        warn!(%room_id, "Can't call notification handler, room not found");
-                        continue;
-                    }
+                let Some(room) = self.get_room(room_id) else {
+                    warn!(?room_id, "Can't call notification handler, room not found");
+                    continue;
                 };
 
                 futures.extend(room_notifications.iter().map(|notification| {
@@ -113,12 +177,14 @@ impl Client {
             fut.await;
         }
 
-        Ok(response)
+        debug!("Ran notification handlers in {:?}", now.elapsed());
+
+        Ok(())
     }
 
     async fn sleep() {
         #[cfg(target_arch = "wasm32")]
-        let _ = wasm_timer::Delay::new(Duration::from_secs(1)).await;
+        gloo_timers::future::TimeoutFuture::new(1_000).await;
 
         #[cfg(not(target_arch = "wasm32"))]
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -126,7 +192,7 @@ impl Client {
 
     pub(crate) async fn sync_loop_helper(
         &self,
-        sync_settings: &mut crate::config::SyncSettings<'_>,
+        sync_settings: &mut crate::config::SyncSettings,
     ) -> Result<SyncResponse> {
         let response = self.sync_once(sync_settings.clone()).await;
 

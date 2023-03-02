@@ -26,8 +26,8 @@ use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
-pub use qrcode::{QrVerification, ScanError};
-pub use requests::VerificationRequest;
+pub use qrcode::{QrVerification, QrVerificationState, ScanError};
+pub use requests::{VerificationRequest, VerificationRequestState};
 #[cfg(feature = "qrcode")]
 use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
@@ -35,13 +35,11 @@ use ruma::events::key::verification::done::{
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
-        key::verification::{
-            cancel::{
-                CancelCode, KeyVerificationCancelEventContent,
-                ToDeviceKeyVerificationCancelEventContent,
-            },
-            Relation,
+        key::verification::cancel::{
+            CancelCode, KeyVerificationCancelEventContent,
+            ToDeviceKeyVerificationCancelEventContent,
         },
+        relation::Reference,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
@@ -54,7 +52,7 @@ use crate::{
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
-    store::{Changes, CryptoStore},
+    store::{Changes, DynCryptoStore},
     types::Signatures,
     CryptoStoreError, LocalTrust, OutgoingVerificationRequest, ReadOnlyDevice,
     ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
@@ -64,7 +62,7 @@ use crate::{
 pub(crate) struct VerificationStore {
     pub account: ReadOnlyAccount,
     pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<dyn CryptoStore>,
+    inner: Arc<DynCryptoStore>,
 }
 
 /// An emoji that is used for interactive verification using a short auth
@@ -183,7 +181,7 @@ impl VerificationStore {
             .map(|d| d.signatures().to_owned()))
     }
 
-    pub fn inner(&self) -> &dyn CryptoStore {
+    pub fn inner(&self) -> &DynCryptoStore {
         self.inner.deref()
     }
 }
@@ -319,7 +317,7 @@ impl Done {
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
                 AnyMessageLikeEventContent::KeyVerificationDone(
-                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                    KeyVerificationDoneEventContent::new(Reference::new(e.to_owned())),
                 ),
             )
                 .into(),
@@ -407,7 +405,7 @@ impl Cancelled {
                     KeyVerificationCancelEventContent::new(
                         self.reason.to_owned(),
                         self.cancel_code.clone(),
-                        Relation::new(e.clone()),
+                        Reference::new(e.clone()),
                     ),
                 ),
             )
@@ -545,8 +543,8 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            user_id = %device.user_id(),
-                            device_id = %device.device_id(),
+                            user_id = ?device.user_id(),
+                            device_id = ?device.device_id(),
                             "Error signing device keys: {e:?}",
                         );
                         None
@@ -570,7 +568,7 @@ impl IdentitiesBeingVerified {
                     Ok(r) => Some(r),
                     Err(SignatureError::MissingSigningKey) => {
                         warn!(
-                            user_id = %i.user_id(),
+                            user_id = ?i.user_id(),
                             "Can't sign the public cross signing keys, \
                              no private user signing key found",
                         );
@@ -578,7 +576,7 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            user_id = %i.user_id(),
+                            user_id = ?i.user_id(),
                             "Error signing the public cross signing keys: {e:?}",
                         );
                         None
@@ -701,45 +699,41 @@ impl IdentitiesBeingVerified {
     ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
         let device = self.store.get_device(self.other_user_id(), self.other_device_id()).await?;
 
-        if let Some(device) = device {
-            if device.keys() == self.device_being_verified.keys() {
-                if verified_devices.map_or(false, |v| v.contains(&device)) {
-                    trace!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        "Marking device as verified.",
-                    );
-
-                    device.set_trust_state(LocalTrust::Verified);
-
-                    Ok(Some(device))
-                } else {
-                    info!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        "The interactive verification process didn't verify \
-                        the device",
-                    );
-
-                    Ok(None)
-                }
-            } else {
-                warn!(
-                    user_id = device.user_id().as_str(),
-                    device_id = device.device_id().as_str(),
-                    "The device keys have changed while an interactive \
-                     verification was going on, not marking the device as verified.",
-                );
-                Ok(None)
-            }
-        } else {
+        let Some(device) = device else {
             let device = &self.device_being_verified;
-
             info!(
                 user_id = device.user_id().as_str(),
                 device_id = device.device_id().as_str(),
-                "The device was deleted while an interactive verification was \
-                 going on.",
+                "The device was deleted while an interactive verification was going on.",
+            );
+            return Ok(None);
+        };
+
+        if device.keys() != self.device_being_verified.keys() {
+            warn!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "The device keys have changed while an interactive verification \
+                 was going on, not marking the device as verified.",
+            );
+            return Ok(None);
+        }
+
+        if verified_devices.map_or(false, |v| v.contains(&device)) {
+            trace!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "Marking device as verified.",
+            );
+
+            device.set_trust_state(LocalTrust::Verified);
+
+            Ok(Some(device))
+        } else {
+            info!(
+                user_id = device.user_id().as_str(),
+                device_id = device.device_id().as_str(),
+                "The interactive verification process didn't verify the device",
             );
 
             Ok(None)
@@ -818,15 +812,13 @@ pub(crate) mod tests {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use matrix_sdk_common::locks::Mutex;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::VerificationStore;
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{Changes, CryptoStore, IdentityChanges, MemoryStore},
+        store::{Changes, CryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore},
         ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
     };
 
@@ -892,13 +884,13 @@ mod test {
 
         let alice_store = VerificationStore {
             account: alice,
-            inner: Arc::new(alice_store),
+            inner: alice_store.into_crypto_store(),
             private_identity: alice_private_identity.into(),
         };
 
         let bob_store = VerificationStore {
             account: bob.clone(),
-            inner: Arc::new(bob_store),
+            inner: bob_store.into_crypto_store(),
             private_identity: bob_private_identity.into(),
         };
 

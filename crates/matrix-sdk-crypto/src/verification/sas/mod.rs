@@ -16,10 +16,11 @@ mod helpers;
 mod inner_sas;
 mod sas_state;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use eyeball::{Observable, SharedObservable};
 use futures_core::Stream;
-use futures_signals::signal::{Mutable, SignalExt};
+use futures_util::StreamExt;
 use inner_sas::InnerSas;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
@@ -30,9 +31,10 @@ use ruma::{
     DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 pub use sas_state::AcceptedProtocols;
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 use super::{
+    cache::RequestInfo,
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
     CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
@@ -47,13 +49,47 @@ use crate::{
 /// Short authentication string object.
 #[derive(Clone, Debug)]
 pub struct Sas {
-    inner: Arc<Mutex<InnerSas>>,
-    state: Arc<Mutable<SasState>>,
+    inner: SharedObservable<InnerSas>,
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
     we_started: bool,
     request_handle: Option<RequestHandle>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum State {
+    Created,
+    Started,
+    Accepted,
+    WeAccepted,
+    KeyReceived,
+    KeySent,
+    KeysExchanged,
+    Confirmed,
+    MacReceived,
+    WaitingForDone,
+    Done,
+    Cancelled,
+}
+
+impl From<&InnerSas> for State {
+    fn from(value: &InnerSas) -> Self {
+        match value {
+            InnerSas::Created(_) => Self::Created,
+            InnerSas::Started(_) => Self::Started,
+            InnerSas::Accepted(_) => Self::Accepted,
+            InnerSas::WeAccepted(_) => Self::WeAccepted,
+            InnerSas::KeyReceived(_) => Self::KeyReceived,
+            InnerSas::KeySent(_) => Self::KeySent,
+            InnerSas::KeysExchanged(_) => Self::KeysExchanged,
+            InnerSas::Confirmed(_) => Self::Confirmed,
+            InnerSas::MacReceived(_) => Self::MacReceived,
+            InnerSas::WaitingForDone(_) => Self::WaitingForDone,
+            InnerSas::Done(_) => Self::Done,
+            InnerSas::Cancelled(_) => Self::Cancelled,
+        }
+    }
 }
 
 /// The short auth string for the emoji method of SAS verification.
@@ -144,7 +180,13 @@ impl From<&InnerSas> for SasState {
             InnerSas::WeAccepted(s) => {
                 Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
             }
+            InnerSas::KeySent(s) => {
+                Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
+            }
             InnerSas::KeyReceived(s) => {
+                Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
+            }
+            InnerSas::KeysExchanged(s) => {
                 let emojis = if value.supports_emoji() {
                     let emojis = s.get_emoji();
                     let indices = s.get_emoji_index();
@@ -226,12 +268,12 @@ impl Sas {
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
-        self.inner.lock().unwrap().supports_emoji()
+        self.inner.read().supports_emoji()
     }
 
     /// Did this verification flow start from a verification request.
     pub fn started_from_request(&self) -> bool {
-        self.inner.lock().unwrap().started_from_request()
+        self.inner.read().started_from_request()
     }
 
     /// Is this a verification that is veryfying one of our own devices.
@@ -241,18 +283,18 @@ impl Sas {
 
     /// Have we confirmed that the short auth string matches.
     pub fn have_we_confirmed(&self) -> bool {
-        self.inner.lock().unwrap().have_we_confirmed()
+        self.inner.read().have_we_confirmed()
     }
 
     /// Has the verification been accepted by both parties.
     pub fn has_been_accepted(&self) -> bool {
-        self.inner.lock().unwrap().has_been_accepted()
+        self.inner.read().has_been_accepted()
     }
 
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &*self.inner.lock().unwrap() {
+        if let InnerSas::Cancelled(c) = &**self.inner.read() {
             Some(c.state.as_ref().clone().into())
         } else {
             None
@@ -267,7 +309,9 @@ impl Sas {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: matrix_sdk_common::instant::Instant) {
-        self.inner.lock().unwrap().set_creation_time(time)
+        self.inner.update(|inner| {
+            inner.set_creation_time(time);
+        });
     }
 
     fn start_helper(
@@ -285,13 +329,11 @@ impl Sas {
             request_handle.is_some(),
         );
 
-        let state = (&inner).into();
         let account = identities.store.account.clone();
 
         (
             Sas {
-                inner: Arc::new(Mutex::new(inner)),
-                state: Mutable::new(state).into(),
+                inner: SharedObservable::new(inner),
                 account,
                 identities_being_verified: identities,
                 flow_id: flow_id.into(),
@@ -372,12 +414,10 @@ impl Sas {
             request_handle.is_some(),
         )?;
 
-        let state = (&inner).into();
         let account = identities.store.account.clone();
 
         Ok(Sas {
-            inner: Arc::new(Mutex::new(inner)),
-            state: Mutable::new(state).into(),
+            inner: SharedObservable::new(inner),
             account,
             identities_being_verified: identities,
             flow_id: flow_id.into(),
@@ -404,39 +444,41 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
-        let (request, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let old_state = self.state_debug();
+
+        let request = {
+            let mut guard = self.inner.write();
             let sas: InnerSas = (*guard).clone();
             let methods = settings.allowed_methods;
 
             if let Some((sas, content)) = sas.accept(methods) {
-                let state: SasState = (&sas).into();
+                Observable::set(&mut guard, sas);
 
-                *guard = sas;
-
-                (
-                    Some(match content {
-                        OwnedAcceptContent::ToDevice(c) => {
-                            let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                            self.content_to_request(content).into()
-                        }
-                        OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
-                            room_id,
-                            txn_id: TransactionId::new(),
-                            content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
-                        }
-                        .into(),
-                    }),
-                    Some(state),
-                )
+                Some(match content {
+                    OwnedAcceptContent::ToDevice(c) => {
+                        let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                        self.content_to_request(content).into()
+                    }
+                    OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
+                        room_id,
+                        txn_id: TransactionId::new(),
+                        content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
+                    }
+                    .into(),
+                })
             } else {
-                (None, None)
+                None
             }
         };
 
-        if let Some(new_state) = state {
-            self.update_state(new_state);
-        }
+        let new_state = self.state_debug();
+
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "Accepted SAS verification"
+        );
 
         request
     }
@@ -452,15 +494,14 @@ impl Sas {
         &self,
     ) -> Result<(Vec<OutgoingVerificationRequest>, Option<SignatureUploadRequest>), CryptoStoreError>
     {
-        let (contents, done, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let (contents, done) = {
+            let mut guard = self.inner.write();
 
             let sas: InnerSas = (*guard).clone();
             let (sas, contents) = sas.confirm();
-            let state: SasState = (&sas).into();
 
-            *guard = sas;
-            (contents, guard.is_done(), state)
+            Observable::set(&mut guard, sas);
+            (contents, guard.is_done())
         };
 
         let mac_requests = contents
@@ -487,17 +528,10 @@ impl Sas {
                 VerificationResult::Cancel(c) => {
                     Ok((self.cancel_with_code(c).into_iter().collect(), None))
                 }
-                VerificationResult::Ok => {
-                    self.update_state(state);
-                    Ok((mac_requests, None))
-                }
-                VerificationResult::SignatureUpload(r) => {
-                    self.update_state(state);
-                    Ok((mac_requests, Some(r)))
-                }
+                VerificationResult::Ok => Ok((mac_requests, None)),
+                VerificationResult::SignatureUpload(r) => Ok((mac_requests, Some(r))),
             }
         } else {
-            self.update_state(state);
             Ok((mac_requests, None))
         }
     }
@@ -532,8 +566,8 @@ impl Sas {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let (content, state) = {
-            let mut guard = self.inner.lock().unwrap();
+        let content = {
+            let mut guard = self.inner.write();
 
             if let Some(request) = &self.request_handle {
                 request.cancel_with_code(&code);
@@ -541,21 +575,15 @@ impl Sas {
 
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(true, code);
-            let state: SasState = (&sas).into();
-            *guard = sas;
+            Observable::set(&mut guard, sas);
 
-            (
-                content.map(|c| match c {
-                    OutgoingContent::Room(room_id, content) => {
-                        RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
-                    }
-                    OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
-                }),
-                state,
-            )
+            content.map(|c| match c {
+                OutgoingContent::Room(room_id, content) => {
+                    RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
+                }
+                OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+            })
         };
-
-        self.update_state(state);
 
         content
     }
@@ -572,22 +600,22 @@ impl Sas {
 
     /// Has the SAS verification flow timed out.
     pub fn timed_out(&self) -> bool {
-        self.inner.lock().unwrap().timed_out()
+        self.inner.read().timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
     pub fn can_be_presented(&self) -> bool {
-        self.inner.lock().unwrap().can_be_presented()
+        self.inner.read().can_be_presented()
     }
 
     /// Is the SAS flow done.
     pub fn is_done(&self) -> bool {
-        self.inner.lock().unwrap().is_done()
+        self.inner.read().is_done()
     }
 
     /// Is the SAS flow canceled.
     pub fn is_cancelled(&self) -> bool {
-        self.inner.lock().unwrap().is_cancelled()
+        self.inner.read().is_cancelled()
     }
 
     /// Get the emoji version of the short auth string.
@@ -595,7 +623,7 @@ impl Sas {
     /// Returns None if we can't yet present the short auth string, otherwise
     /// seven tuples containing the emoji and description.
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
-        self.inner.lock().unwrap().emoji()
+        self.inner.read().emoji()
     }
 
     /// Get the index of the emoji representing the short auth string
@@ -605,7 +633,7 @@ impl Sas {
     /// converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
-        self.inner.lock().unwrap().emoji_index()
+        self.inner.read().emoji_index()
     }
 
     /// Get the decimal version of the short auth string.
@@ -614,7 +642,7 @@ impl Sas {
     /// tuple containing three 4-digit integers that represent the short auth
     /// string.
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
-        self.inner.lock().unwrap().decimals()
+        self.inner.read().decimals()
     }
 
     /// Listen for changes in the SAS verification process.
@@ -706,55 +734,82 @@ impl Sas {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
-        self.state.signal_cloned().to_stream()
+        self.inner.subscribe().map(|s| (&s).into())
     }
 
     /// Get the current state of the verification process.
     pub fn state(&self) -> SasState {
-        self.state.lock_ref().to_owned()
+        (&**self.inner.read()).into()
     }
 
-    fn update_state(&self, new_state: SasState) {
-        let mut lock = self.state.lock_mut();
-
-        // Only update the state if it differs, this is important so clients don't end
-        // up printing the emoji twice. For example, the internal state might
-        // change into a MacReceived, because the other side already confirmed,
-        // but our side still needs to just show the emoji and wait for
-        // confirmation.
-        if *lock != new_state {
-            *lock = new_state;
-        }
+    fn state_debug(&self) -> State {
+        (&**self.inner.read()).into()
     }
 
     pub(crate) fn receive_any_event(
         &self,
         sender: &UserId,
         content: &AnyVerificationContent<'_>,
-    ) -> Option<OutgoingContent> {
-        let (content, state) = {
-            let mut guard = self.inner.lock().unwrap();
+    ) -> Option<(OutgoingContent, Option<RequestInfo>)> {
+        let old_state = self.state_debug();
+
+        let content = {
+            let mut guard = self.inner.write();
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.receive_any_event(sender, content);
 
-            let state: SasState = (&sas).into();
+            Observable::set(&mut guard, sas);
 
-            *guard = sas;
-
-            (content, state)
+            content
         };
 
-        self.update_state(state);
+        let new_state = self.state_debug();
+        trace!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            "SAS received an event and changed its state"
+        );
 
         content
     }
 
+    pub(crate) fn mark_request_as_sent(&self, request_id: &TransactionId) {
+        let old_state = self.state_debug();
+
+        {
+            let mut guard = self.inner.write();
+
+            let sas: InnerSas = (*guard).clone();
+
+            if let Some(sas) = sas.mark_request_as_sent(request_id) {
+                Observable::set(&mut guard, sas);
+            } else {
+                error!(
+                    flow_id = self.flow_id().as_str(),
+                    ?request_id,
+                    "Tried to mark a request as sent, but the request ID didn't match"
+                );
+            }
+        };
+
+        let new_state = self.state_debug();
+
+        debug!(
+            flow_id = self.flow_id().as_str(),
+            ?old_state,
+            ?new_state,
+            ?request_id,
+            "Marked a SAS verification HTTP request as sent"
+        );
+    }
+
     pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
-        self.inner.lock().unwrap().verified_devices()
+        self.inner.read().verified_devices()
     }
 
     pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
-        self.inner.lock().unwrap().verified_identities()
+        self.inner.read().verified_identities()
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
@@ -798,8 +853,7 @@ impl AcceptSettings {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use assert_matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
@@ -807,7 +861,7 @@ mod tests {
     use super::Sas;
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::MemoryStore,
+        store::{IntoCryptoStore, MemoryStore},
         verification::{
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
@@ -841,7 +895,7 @@ mod tests {
 
         let alice_store = VerificationStore {
             account: alice.clone(),
-            inner: Arc::new(MemoryStore::new()),
+            inner: MemoryStore::new().into_crypto_store(),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
         };
 
@@ -850,7 +904,7 @@ mod tests {
 
         let bob_store = VerificationStore {
             account: bob.clone(),
-            inner: Arc::new(bob_store),
+            inner: bob_store.into_crypto_store(),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };
 
@@ -858,7 +912,7 @@ mod tests {
 
         let (alice, content) = Sas::start(identities, TransactionId::new(), true, None);
 
-        matches!(alice.state(), SasState::Started { .. });
+        assert_matches!(alice.state(), SasState::Started { .. });
 
         let flow_id = alice.flow_id().to_owned();
         let content = StartContent::try_from(&content).unwrap();
@@ -866,45 +920,52 @@ mod tests {
         let identities = bob_store.get_identities(alice_device).await.unwrap();
         let bob = Sas::from_start_event(flow_id, &content, identities, None, false).unwrap();
 
-        matches!(bob.state(), SasState::Started { .. });
+        assert_matches!(bob.state(), SasState::Started { .. });
 
         let request = bob.accept().unwrap();
 
         let content = OutgoingContent::try_from(request).unwrap();
         let content = AcceptContent::try_from(&content).unwrap();
 
-        let content = alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
+        let (content, request_info) =
+            alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
 
-        matches!(alice.state(), SasState::Accepted { .. });
-        matches!(bob.state(), SasState::Accepted { .. });
+        assert_matches!(alice.state(), SasState::Accepted { .. });
+        assert_matches!(bob.state(), SasState::Accepted { .. });
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());
 
+        alice.mark_request_as_sent(&request_info.unwrap().request_id);
+
         let content = KeyContent::try_from(&content).unwrap();
-        let content = bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
+        let (content, request_info) =
+            bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
+        assert!(!bob.can_be_presented());
+        assert_matches!(bob.state(), SasState::Accepted { .. });
+        bob.mark_request_as_sent(&request_info.unwrap().request_id);
 
         assert!(bob.can_be_presented());
-        matches!(bob.state(), SasState::KeysExchanged { .. });
+        assert_matches!(bob.state(), SasState::KeysExchanged { .. });
 
         let content = KeyContent::try_from(&content).unwrap();
         alice.receive_any_event(bob.user_id(), &content.into());
-        matches!(alice.state(), SasState::KeysExchanged { .. });
+        assert_matches!(alice.state(), SasState::KeysExchanged { .. });
         assert!(alice.can_be_presented());
 
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
         let mut requests = alice.confirm().await.unwrap().0;
-        matches!(alice.state(), SasState::Confirmed);
+        assert_matches!(alice.state(), SasState::Confirmed);
         assert!(requests.len() == 1);
         let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap();
         bob.receive_any_event(alice.user_id(), &content.into());
-        matches!(bob.state(), SasState::KeysExchanged { .. });
+        assert_matches!(bob.state(), SasState::KeysExchanged { .. });
 
         let mut requests = bob.confirm().await.unwrap().0;
-        matches!(bob.state(), SasState::Confirmed);
+        assert_matches!(bob.state(), SasState::Done { .. });
         assert!(requests.len() == 1);
         let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
@@ -913,7 +974,7 @@ mod tests {
 
         assert!(alice.verified_devices().unwrap().contains(alice.other_device()));
         assert!(bob.verified_devices().unwrap().contains(bob.other_device()));
-        matches!(alice.state(), SasState::Done { .. });
-        matches!(bob.state(), SasState::Done { .. });
+        assert_matches!(alice.state(), SasState::Done { .. });
+        assert_matches!(bob.state(), SasState::Done { .. });
     }
 }

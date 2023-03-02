@@ -68,6 +68,7 @@ impl Session {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Session")

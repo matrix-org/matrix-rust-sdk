@@ -41,13 +41,10 @@ impl Attachment {
     /// destroyed. It is still possible to get a JSON-encoded backup
     /// by calling `EncryptedAttachment.mediaEncryptionInfo`.
     pub fn decrypt(attachment: &mut EncryptedAttachment) -> Result<Vec<u8>, JsError> {
-        let media_encryption_info = match attachment.media_encryption_info.take() {
-            Some(media_encryption_info) => media_encryption_info,
-            None => {
-                return Err(JsError::new(
-                    "The media encryption info are absent from the given encrypted attachment",
-                ))
-            }
+        let Some(media_encryption_info) = attachment.media_encryption_info.take() else {
+            return Err(JsError::new(
+                "The media encryption info are absent from the given encrypted attachment",
+            ));
         };
 
         let encrypted_data: &[u8] = attachment.encrypted_data.as_slice();

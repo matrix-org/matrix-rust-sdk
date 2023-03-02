@@ -19,8 +19,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
-    StateChanges, StoreError,
+    deserialized_responses, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember,
+    RoomType, Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -36,13 +36,15 @@ pub mod event_handler;
 mod http_client;
 pub mod media;
 pub mod room;
-mod sync;
+pub mod sync;
 
-#[cfg(feature = "sliding-sync")]
-mod sliding_sync;
+#[cfg(feature = "experimental-sliding-sync")]
+pub mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
+#[cfg(feature = "experimental-timeline")]
+mod events;
 
 pub use account::Account;
 #[cfg(feature = "sso-login")]
@@ -53,14 +55,15 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use media::Media;
-#[cfg(feature = "sliding-sync")]
+pub use ruma::{IdParseError, OwnedServerName, ServerName};
+#[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
-    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
-    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, UpdateSummary,
 };
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, feature = "testing"))]
+pub mod test_utils;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[ctor::ctor]
@@ -70,4 +73,10 @@ fn init_logging() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer().with_test_writer())
         .init();
+}
+
+/// Creates a server name from a user supplied string. The string is first
+/// sanitized by removing the http(s) scheme before being parsed.
+pub fn sanitize_server_name(s: &str) -> Result<OwnedServerName, IdParseError> {
+    ServerName::parse(s.trim_start_matches("http://").trim_start_matches("https://"))
 }

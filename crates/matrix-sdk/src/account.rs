@@ -78,7 +78,7 @@ impl Account {
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = get_display_name::v3::Request::new(user_id);
+        let request = get_display_name::v3::Request::new(user_id.to_owned());
         let request_config = self.client.request_config().force_auth();
         let response = self.client.send(request, Some(request_config)).await?;
         Ok(response.displayname)
@@ -102,7 +102,8 @@ impl Account {
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = set_display_name::v3::Request::new(user_id, name);
+        let request =
+            set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -127,7 +128,7 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = get_avatar_url::v3::Request::new(user_id);
+        let request = get_avatar_url::v3::Request::new(user_id.to_owned());
 
         let config = Some(RequestConfig::new().force_auth());
 
@@ -140,7 +141,8 @@ impl Account {
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = set_avatar_url::v3::Request::new(user_id, url);
+        let request =
+            set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -206,12 +208,12 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/selfie.jpg")?;
     ///
-    /// client.account().upload_avatar(&mime::IMAGE_JPEG, &image).await?;
+    /// client.account().upload_avatar(&mime::IMAGE_JPEG, image).await?;
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`Media::upload()`]: crate::Media::upload
-    pub async fn upload_avatar(&self, content_type: &Mime, data: &[u8]) -> Result<OwnedMxcUri> {
+    pub async fn upload_avatar(&self, content_type: &Mime, data: Vec<u8>) -> Result<OwnedMxcUri> {
         let upload_response = self.client.media().upload(content_type, data).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
@@ -229,17 +231,16 @@ impl Account {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let profile = client.account().get_profile().await? {
-    ///     println!(
-    ///         "You are '{:?}' with avatar '{:?}'",
-    ///         profile.displayname, profile.avatar_url
-    ///     );
-    /// }
+    /// let profile = client.account().get_profile().await?;
+    /// println!(
+    ///     "You are '{:?}' with avatar '{:?}'",
+    ///     profile.displayname, profile.avatar_url
+    /// );
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = get_profile::v3::Request::new(user_id);
+        let request = get_profile::v3::Request::new(user_id.to_owned());
         let request_config = self.client.request_config().force_auth();
         Ok(self.client.send(request, Some(request_config)).await?)
     }
@@ -289,9 +290,9 @@ impl Account {
     pub async fn change_password(
         &self,
         new_password: &str,
-        auth_data: Option<AuthData<'_>>,
+        auth_data: Option<AuthData>,
     ) -> Result<change_password::v3::Response> {
-        let request = assign!(change_password::v3::Request::new(new_password), {
+        let request = assign!(change_password::v3::Request::new(new_password.to_owned()), {
             auth: auth_data,
         });
         Ok(self.client.send(request, None).await?)
@@ -338,10 +339,10 @@ impl Account {
     pub async fn deactivate(
         &self,
         id_server: Option<&str>,
-        auth_data: Option<AuthData<'_>>,
+        auth_data: Option<AuthData>,
     ) -> Result<deactivate::v3::Response> {
         let request = assign!(deactivate::v3::Request::new(), {
-            id_server,
+            id_server: id_server.map(ToOwned::to_owned),
             auth: auth_data,
         });
         Ok(self.client.send(request, None).await?)
@@ -443,8 +444,8 @@ impl Account {
         send_attempt: UInt,
     ) -> Result<request_3pid_management_token_via_email::v3::Response> {
         let request = request_3pid_management_token_via_email::v3::Request::new(
-            client_secret,
-            email,
+            client_secret.to_owned(),
+            email.to_owned(),
             send_attempt,
         );
         Ok(self.client.send(request, None).await?)
@@ -520,9 +521,9 @@ impl Account {
         send_attempt: UInt,
     ) -> Result<request_3pid_management_token_via_msisdn::v3::Response> {
         let request = request_3pid_management_token_via_msisdn::v3::Request::new(
-            client_secret,
-            country,
-            phone_number,
+            client_secret.to_owned(),
+            country.to_owned(),
+            phone_number.to_owned(),
             send_attempt,
         );
         Ok(self.client.send(request, None).await?)
@@ -561,11 +562,12 @@ impl Account {
         &self,
         client_secret: &ClientSecret,
         sid: &SessionId,
-        auth_data: Option<AuthData<'_>>,
+        auth_data: Option<AuthData>,
     ) -> Result<add_3pid::v3::Response> {
-        let request = assign!(add_3pid::v3::Request::new(client_secret, sid), {
-            auth: auth_data,
-        });
+        let request =
+            assign!(add_3pid::v3::Request::new(client_secret.to_owned(), sid.to_owned()), {
+                auth: auth_data
+            });
         Ok(self.client.send(request, None).await?)
     }
 
@@ -624,8 +626,8 @@ impl Account {
         medium: Medium,
         id_server: Option<&str>,
     ) -> Result<delete_3pid::v3::Response> {
-        let request = assign!(delete_3pid::v3::Request::new(medium, address), {
-            id_server: id_server,
+        let request = assign!(delete_3pid::v3::Request::new(medium, address.to_owned()), {
+            id_server: id_server.map(ToOwned::to_owned),
         });
         Ok(self.client.send(request, None).await?)
     }
@@ -645,7 +647,7 @@ impl Account {
     /// if let Some(raw_content) = maybe_content {
     ///     let content = raw_content.deserialize()?;
     ///     println!("Ignored users:");
-    ///     for user_id in content.ignored_users {
+    ///     for user_id in content.ignored_users.keys() {
     ///         println!("- {user_id}");
     ///     }
     /// }
@@ -676,7 +678,8 @@ impl Account {
     /// # let client = Client::new("http://localhost:8080".parse()?).await?;
     /// # let account = client.account();
     /// use matrix_sdk::ruma::{
-    ///     events::ignored_user_list::IgnoredUserListEventContent, user_id,
+    ///     events::ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+    ///     user_id,
     /// };
     ///
     /// let mut content = account
@@ -685,7 +688,9 @@ impl Account {
     ///     .map(|c| c.deserialize())
     ///     .transpose()?
     ///     .unwrap_or_default();
-    /// content.ignored_users.push(user_id!("@foo:bar.com").to_owned());
+    /// content
+    ///     .ignored_users
+    ///     .insert(user_id!("@foo:bar.com").to_owned(), IgnoredUser::new());
     /// account.set_account_data(content).await?;
     /// # anyhow::Ok(()) };
     /// ```
@@ -699,7 +704,7 @@ impl Account {
         let own_user =
             self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let request = set_global_account_data::v3::Request::new(own_user, &content)?;
+        let request = set_global_account_data::v3::Request::new(own_user.to_owned(), &content)?;
 
         Ok(self.client.send(request, None).await?)
     }
@@ -713,7 +718,8 @@ impl Account {
         let own_user =
             self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let request = set_global_account_data::v3::Request::new_raw(own_user, event_type, content);
+        let request =
+            set_global_account_data::v3::Request::new_raw(own_user.to_owned(), event_type, content);
 
         Ok(self.client.send(request, None).await?)
     }

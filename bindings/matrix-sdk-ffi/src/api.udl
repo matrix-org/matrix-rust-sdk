@@ -1,8 +1,7 @@
 namespace matrix_sdk_ffi {};
 
 
-/// Cancels on drop
-interface StoppableSpawn {};
+interface TaskHandle {};
 
 [Error]
 interface ClientError {
@@ -26,7 +25,7 @@ dictionary RoomSubscription {
 };
 
 dictionary UpdateSummary {
-    sequence<string> views;
+    sequence<string> lists;
     sequence<string> rooms;
 };
 
@@ -46,13 +45,15 @@ enum SlidingSyncState {
 };
 
 enum SlidingSyncMode {
-    /// Sync up the entire room list first
-    "FullSync",
+    /// Sync up the entire room list first, page by page
+    "PagingFullSync",
+    /// Sync up the entire room list first through a growing window
+    "GrowingFullSync",
     /// Only ever sync the currently selected window
     "Selective",
 };
 
-callback interface SlidingSyncViewStateObserver {
+callback interface SlidingSyncListStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };
 
@@ -64,62 +65,62 @@ interface RoomListEntry {
 };
 
 [Enum]
-interface SlidingSyncViewRoomsListDiff {
-    Replace(sequence<RoomListEntry> values);
-    InsertAt(
-        u32 index,
-        RoomListEntry value
-    );
-    UpdateAt(
-        u32 index,
-        RoomListEntry value
-    );
-    RemoveAt(u32 index);
-    Move(
-        u32 old_index,
-        u32 new_index
-    );
-    Push(RoomListEntry value);
-    // The following are supported by the generic VecDiff-type but
-    // in sliding sync effectively do not happen and thus aren't exposed
-    // to not pollute the API: Pop(); Clear();
+interface SlidingSyncListRoomsListDiff {
+    Append(sequence<RoomListEntry> values);
+    Insert(u32 index, RoomListEntry value);
+    Set(u32 index, RoomListEntry value);
+    Remove(u32 index);
+    PushBack(RoomListEntry value);
+    PushFront(RoomListEntry value);
+    PopBack();
+    PopFront();
+    Clear();
+    Reset(sequence<RoomListEntry> values);
 };
 
-callback interface SlidingSyncViewRoomListObserver {
-    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+callback interface SlidingSyncListRoomListObserver {
+    void did_receive_update(SlidingSyncListRoomsListDiff diff);
 };
 
-callback interface SlidingSyncViewRoomsCountObserver {
+callback interface SlidingSyncListRoomsCountObserver {
     void did_receive_update(u32 count);
 };
 
-callback interface SlidingSyncViewRoomItemsObserver {
+callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
-interface SlidingSyncViewBuilder {
+interface SlidingSyncListBuilder {
     constructor();
 
     [Self=ByArc]
-    SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
+    SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
 
     [Self=ByArc]
-    SlidingSyncViewBuilder required_state(sequence<RequiredState> required_state);
+    SlidingSyncListBuilder send_updates_for_items(boolean enable);
 
     [Throws=ClientError, Self=ByArc]
-    SlidingSyncView build();
+    SlidingSyncList build();
 };
 
-interface SlidingSyncView {
-    StoppableSpawn observe_room_list(SlidingSyncViewRoomListObserver observer);
-    StoppableSpawn observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
-    StoppableSpawn observe_state(SlidingSyncViewStateObserver observer);
-    StoppableSpawn observe_room_items(SlidingSyncViewRoomItemsObserver observer);
-
-    sequence<RoomListEntry> current_rooms_list();
+interface SlidingSyncList {
+    TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
+    TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
+    TaskHandle observe_state(SlidingSyncListStateObserver observer);
+    TaskHandle observe_room_items(SlidingSyncListRoomItemsObserver observer);
 };
 
-interface SlidingSyncRoom {};
+interface SlidingSyncRoom {
+    [Throws=ClientError]
+    SlidingSyncSubscribeResult subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
+    [Throws=ClientError]
+    SlidingSyncSubscribeResult add_timeline_listener(TimelineListener listener);
+};
+
+dictionary SlidingSyncSubscribeResult {
+    sequence<TimelineItem> items;
+    TaskHandle task_handle;
+};
 
 interface SlidingSync {
     void set_observer(SlidingSyncObserver? observer);
@@ -129,7 +130,6 @@ interface SlidingSync {
     [Throws=ClientError]
     void unsubscribe(string room_id);
 
-    SlidingSyncView? get_view(string name);
     [Throws=ClientError]
     SlidingSyncRoom? get_room(string room_id);
     [Throws=ClientError]
@@ -169,16 +169,19 @@ interface Client {
     void login(string username, string password, string? initial_device_name, string? device_id);
 
     [Throws=ClientError]
-    void restore_login(string restore_token);
+    void restore_session(Session session);
 
     [Throws=ClientError]
-    string restore_token();
+    Session session();
 
     [Throws=ClientError]
     string user_id();
 
     [Throws=ClientError]
     string display_name();
+
+    [Throws=ClientError]
+    void set_display_name(string name);
 
     [Throws=ClientError]
     string avatar_url();
@@ -191,6 +194,9 @@ interface Client {
 
     [Throws=ClientError]
     void set_account_data(string event_type, string content);
+
+    [Throws=ClientError]
+    string upload_media(string mime_type, sequence<u8> content);
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
@@ -220,9 +226,48 @@ interface Client {
                     string? default_payload);
 };
 
+dictionary Session {
+    string access_token;
+    string? refresh_token;
+    string user_id;
+    string device_id;
+    string homeserver_url;
+    boolean is_soft_logout;
+    string? sliding_sync_proxy;
+};
+
+enum MembershipState {
+    /// The user is banned.
+    "Ban",
+    /// The user has been invited.
+    "Invite",
+    /// The user has joined.
+    "Join",
+    /// The user has requested to join.
+    "Knock",
+    /// The user has left.
+    "Leave",
+};
+
+dictionary RoomMember {
+    string user_id;
+    string? display_name;
+    string? avatar_url;
+    MembershipState membership;
+    boolean is_name_ambiguous;
+    i64 power_level;
+    i64 normalized_power_level;
+};
+
 interface Room {
     [Throws=ClientError]
     string display_name();
+
+    [Throws=ClientError]
+    boolean is_encrypted();
+
+    [Throws=ClientError]
+    sequence<RoomMember> members();
 
     [Throws=ClientError]
     string? member_avatar_url(string user_id);
@@ -230,132 +275,55 @@ interface Room {
     [Throws=ClientError]
     string? member_display_name(string user_id);
 
-    void add_timeline_listener(TimelineListener listener);
+    sequence<TimelineItem> add_timeline_listener(TimelineListener listener);
 
     // Loads older messages into the timeline.
     //
     // Raises an exception if there are no timeline listeners.
     [Throws=ClientError]
-    PaginationOutcome paginate_backwards(u16 limit);
+    void paginate_backwards(PaginationOptions opts);
 
     [Throws=ClientError]
+    void send_read_receipt(string event_id);
+
+    [Throws=ClientError]
+    void send_read_marker(string fully_read_event_id, string? read_receipt_event_id);
+
     void send(RoomMessageEventContent msg, string? txn_id);
 
     [Throws=ClientError]
     void send_reply(string msg, string in_reply_to_event_id, string? txn_id);
 
     [Throws=ClientError]
+    void edit(string new_msg, string original_event_id, string? txn_id);
+
+    [Throws=ClientError]
     void redact(string event_id, string? reason, string? txn_id);
+
+    [Throws=ClientError]
+    void report_content(string event_id, i32? score, string? reason);
+
+    [Throws=ClientError]
+    void send_reaction(string event_id, string key);
 };
 
 callback interface TimelineListener {
     void on_update(TimelineDiff update);
 };
 
-interface TimelineDiff {
-    [Self=ByArc]
-    sequence<TimelineItem>? replace();
-    [Self=ByArc]
-    InsertAtData? insert_at();
-    [Self=ByArc]
-    UpdateAtData? update_at();
-    u32? remove_at();
-    MoveData? move();
-    [Self=ByArc]
-    TimelineItem? push();
-};
+interface TimelineItem {};
 
-dictionary InsertAtData {
-    u32 index;
-    TimelineItem item;
-};
-
-dictionary UpdateAtData {
-    u32 index;
-    TimelineItem item;
-};
+interface TimelineDiff {};
 
 dictionary MoveData {
     u32 old_index;
     u32 new_index;
 };
 
-interface TimelineItem {};
-
-interface EventTimelineItem {
-    sequence<Reaction> reactions();
-};
-
-// Other methods defined via proc-macro
-interface Message {
-    MessageType? msgtype();
-};
-
 [Enum]
-interface MessageType {
-    Emote(EmoteMessageContent content);
-    Image(ImageMessageContent content);
-    Notice(NoticeMessageContent content);
-    Text(TextMessageContent content);
-};
-
-dictionary EmoteMessageContent {
-    string body;
-    FormattedBody? formatted;
-};
-
-dictionary ImageMessageContent {
-    string body;
-    MediaSource source;
-    ImageInfo? info;
-};
-
-dictionary ImageInfo {
-    u64? height;
-    u64? width;
-    string? mimetype;
-    u64? size;
-    ThumbnailInfo? thumbnail_info;
-    MediaSource? thumbnail_source;
-    string? blurhash;
-};
-
-dictionary ThumbnailInfo {
-    u64? height;
-    u64? width;
-    string? mimetype;
-    u64? size;
-};
-
-dictionary NoticeMessageContent {
-    string body;
-    FormattedBody? formatted;
-};
-
-dictionary TextMessageContent {
-    string body;
-    FormattedBody? formatted;
-};
-
-dictionary FormattedBody {
-    MessageFormat format;
-    string body;
-};
-
-enum MessageFormat {
-    "Html",
-    "Unknown",
-};
-
-dictionary Reaction {
-    string key;
-    u64 count;
-    // senders to come
-};
-
-dictionary PaginationOutcome {
-    // Whether there's more messages to be paginated.
-    boolean more_messages;
+interface PaginationOptions {
+    SingleRequest(u16 event_limit);
+    UntilNumItems(u16 event_limit, u16 items);
 };
 
 interface RoomMessageEventContent {};
@@ -364,24 +332,8 @@ interface MediaSource {
     string url();
 };
 
-[Error]
-enum AuthenticationError {
-    "ClientMissing",
-    "SessionMissing",
-    "Generic",
-};
-
 interface AuthenticationService {
-    constructor(string base_path);
-
-    [Throws=AuthenticationError]
-    void configure_homeserver(string server_name);
-
-    [Throws=AuthenticationError]
-    Client login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=AuthenticationError]
-    Client restore_with_access_token(string token, string device_id);
+    constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
 
 dictionary NotificationItem {
@@ -402,6 +354,8 @@ interface NotificationService {
 interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
+    void did_accept_verification_request();
+    void did_start_sas_verification();
     void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
     void did_fail();
     void did_cancel();
@@ -413,6 +367,9 @@ interface SessionVerificationController {
 
     [Throws=ClientError]
     void request_verification();
+
+    [Throws=ClientError]
+    void start_sas_verification();
 
     [Throws=ClientError]
     void approve_verification();

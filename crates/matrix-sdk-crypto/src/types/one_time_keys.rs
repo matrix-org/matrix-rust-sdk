@@ -114,7 +114,7 @@ pub enum OneTimeKey {
 
 #[cfg(test)]
 mod tests {
-    use matches::assert_matches;
+    use assert_matches::assert_matches;
     use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};

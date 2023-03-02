@@ -2,22 +2,36 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::future::join3;
 use matrix_sdk::{
-    ruma::{OwnedDeviceId, UserId},
+    ruma::{IdParseError, OwnedDeviceId, UserId},
     Session,
 };
+use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 
 pub struct AuthenticationService {
     base_path: String,
+    passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
+    custom_sliding_sync_proxy: RwLock<Option<String>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+impl Drop for AuthenticationService {
+    fn drop(&mut self) {
+        self.passphrase.zeroize();
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum AuthenticationError {
-    #[error("A successful call to use_server must be made first.")]
+    #[error("A successful call to configure_homeserver must be made first.")]
     ClientMissing,
+    #[error("{message}")]
+    InvalidServerName { message: String },
+    #[error("The homeserver doesn't provide a trusted a sliding sync proxy in its well-known configuration.")]
+    SlidingSyncNotAvailable,
     #[error("Login was successful but is missing a valid Session to configure the file store.")]
     SessionMissing,
     #[error("An error occurred: {message}")]
@@ -27,6 +41,12 @@ pub enum AuthenticationError {
 impl From<anyhow::Error> for AuthenticationError {
     fn from(e: anyhow::Error) -> AuthenticationError {
         AuthenticationError::Generic { message: e.to_string() }
+    }
+}
+
+impl From<IdParseError> for AuthenticationError {
+    fn from(e: IdParseError) -> AuthenticationError {
+        AuthenticationError::InvalidServerName { message: e.to_string() }
     }
 }
 
@@ -56,132 +76,20 @@ impl HomeserverLoginDetails {
     }
 }
 
-#[uniffi::export]
-impl AuthenticationService {
-    pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
-        self.homeserver_details.read().unwrap().clone()
-    }
-}
-
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
-    pub fn new(base_path: String) -> Self {
+    pub fn new(
+        base_path: String,
+        passphrase: Option<String>,
+        custom_sliding_sync_proxy: Option<String>,
+    ) -> Self {
         AuthenticationService {
             base_path,
+            passphrase,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
+            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
         }
-    }
-
-    /// Updates the service to authenticate with the homeserver for the
-    /// specified address.
-    pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
-        let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
-
-        if server_name.starts_with("http://") || server_name.starts_with("https://") {
-            builder = builder.homeserver_url(server_name)
-        } else {
-            builder = builder.server_name(server_name);
-        }
-
-        let client = builder.build().map_err(AuthenticationError::from)?;
-
-        RUNTIME.block_on(async move {
-            let details = Arc::new(self.details_from_client(&client).await?);
-
-            *self.client.write().unwrap() = Some(client);
-            *self.homeserver_details.write().unwrap() = Some(details);
-
-            Ok(())
-        })
-    }
-
-    /// Performs a password login using the current homeserver.
-    pub fn login(
-        &self,
-        username: String,
-        password: String,
-        initial_device_name: Option<String>,
-        device_id: Option<String>,
-    ) -> Result<Arc<Client>, AuthenticationError> {
-        let client = match &*self.client.read().unwrap() {
-            Some(client) => client.clone(),
-            None => return Err(AuthenticationError::ClientMissing),
-        };
-
-        // Login and ask the server for the full user ID as this could be different from
-        // the username that was entered.
-        client
-            .login(username, password, initial_device_name, device_id)
-            .map_err(AuthenticationError::from)?;
-        let whoami = client.whoami()?;
-
-        // Create a new client to setup the store path now the user ID is known.
-        let homeserver_url = client.homeserver();
-        let session = client.session().ok_or(AuthenticationError::SessionMissing)?;
-        let client = Arc::new(ClientBuilder::new())
-            .base_path(self.base_path.clone())
-            .homeserver_url(homeserver_url)
-            .username(whoami.user_id.to_string())
-            .build()
-            .map_err(AuthenticationError::from)?;
-
-        // Restore the client using the session from the login request.
-        client.restore_session(session).map_err(AuthenticationError::from)?;
-        Ok(client)
-    }
-
-    /// Restore an existing session on the current homeserver using an access
-    /// token issued by an authentication server.
-    /// # Arguments
-    ///
-    /// * `token` - The access token issued by the authentication server.
-    ///
-    /// * `device_id` - The device ID that the access token was scoped for.
-    pub fn restore_with_access_token(
-        &self,
-        token: String,
-        device_id: String,
-    ) -> Result<Arc<Client>, AuthenticationError> {
-        let client = match &*self.client.read().unwrap() {
-            Some(client) => client.clone(),
-            None => return Err(AuthenticationError::ClientMissing),
-        };
-
-        // Restore the client and ask the server for the full user ID as this
-        // could be different from the username that was entered.
-        let discovery_user_id = UserId::parse("@unknown:unknown")
-            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
-        let device_id: OwnedDeviceId = device_id.as_str().into();
-
-        let discovery_session = Session {
-            access_token: token.clone(),
-            refresh_token: None,
-            user_id: discovery_user_id,
-            device_id: device_id.clone(),
-        };
-
-        client.restore_session(discovery_session).map_err(AuthenticationError::from)?;
-        let whoami = client.whoami()?;
-
-        // Create the actual client with a store path from the user ID.
-        let homeserver_url = client.homeserver();
-        let session = Session {
-            access_token: token,
-            refresh_token: None,
-            user_id: whoami.user_id.clone(),
-            device_id,
-        };
-        let client = Arc::new(ClientBuilder::new())
-            .base_path(self.base_path.clone())
-            .homeserver_url(homeserver_url)
-            .username(whoami.user_id.to_string())
-            .build()
-            .map_err(AuthenticationError::from)?;
-
-        // Restore the client using the session.
-        client.restore_session(session).map_err(AuthenticationError::from)?;
-        Ok(client)
     }
 
     /// Get the homeserver login details from a client.
@@ -201,5 +109,156 @@ impl AuthenticationService {
         let supports_password_login = login_details.2.map_err(AuthenticationError::from)?;
 
         Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
+    }
+}
+
+#[uniffi::export]
+impl AuthenticationService {
+    pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
+        self.homeserver_details.read().unwrap().clone()
+    }
+
+    /// Updates the service to authenticate with the homeserver for the
+    /// specified address.
+    pub fn configure_homeserver(
+        &self,
+        server_name_or_homeserver_url: String,
+    ) -> Result<(), AuthenticationError> {
+        let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+
+        // Remove any URL scheme from the name to attempt discovery first.
+        let server_name = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url)
+            .map_err(AuthenticationError::from)?;
+
+        builder = builder.server_name(server_name.to_string());
+
+        let client = builder
+            .build()
+            .or_else(|e| {
+                if !server_name_or_homeserver_url.starts_with("http://")
+                    && !server_name_or_homeserver_url.starts_with("http://")
+                {
+                    return Err(e);
+                }
+                // When discovery fails, fallback to the homeserver URL if supplied.
+                let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+                builder = builder.homeserver_url(server_name_or_homeserver_url);
+                builder.build()
+            })
+            .map_err(AuthenticationError::from)?;
+
+        let details = RUNTIME.block_on(async { self.details_from_client(&client).await })?;
+
+        // Now we've verified that it's a valid homeserver, make sure
+        // there's a sliding sync proxy available one way or another.
+        if self.custom_sliding_sync_proxy.read().unwrap().is_none()
+            && client.discovered_sliding_sync_proxy().is_none()
+        {
+            return Err(AuthenticationError::SlidingSyncNotAvailable);
+        }
+
+        *self.client.write().unwrap() = Some(client);
+        *self.homeserver_details.write().unwrap() = Some(Arc::new(details));
+
+        Ok(())
+    }
+
+    /// Performs a password login using the current homeserver.
+    pub fn login(
+        &self,
+        username: String,
+        password: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<Arc<Client>, AuthenticationError> {
+        let Some(client) = self.client.read().unwrap().clone() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        // Login and ask the server for the full user ID as this could be different from
+        // the username that was entered.
+        client
+            .login(username, password, initial_device_name, device_id)
+            .map_err(AuthenticationError::from)?;
+        let whoami = client.whoami()?;
+
+        // Create a new client to setup the store path now the user ID is known.
+        let homeserver_url = client.homeserver();
+        let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
+
+        let sliding_sync_proxy: Option<String>;
+        if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
+            sliding_sync_proxy = Some(custom_proxy);
+        } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
+            sliding_sync_proxy = Some(discovered_proxy);
+        } else {
+            sliding_sync_proxy = None;
+        }
+
+        let client = Arc::new(ClientBuilder::new())
+            .base_path(self.base_path.clone())
+            .passphrase(self.passphrase.clone())
+            .homeserver_url(homeserver_url)
+            .sliding_sync_proxy(sliding_sync_proxy)
+            .username(whoami.user_id.to_string())
+            .build()
+            .map_err(AuthenticationError::from)?;
+
+        // Restore the client using the session from the login request.
+        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
+        Ok(client)
+    }
+
+    /// Restore an existing session on the current homeserver using an access
+    /// token issued by an authentication server.
+    /// # Arguments
+    ///
+    /// * `token` - The access token issued by the authentication server.
+    ///
+    /// * `device_id` - The device ID that the access token was scoped for.
+    pub fn restore_with_access_token(
+        &self,
+        token: String,
+        device_id: String,
+    ) -> Result<Arc<Client>, AuthenticationError> {
+        let Some(client) = self.client.read().unwrap().clone() else {
+            return Err(AuthenticationError::ClientMissing);
+        };
+
+        // Restore the client and ask the server for the full user ID as this
+        // could be different from the username that was entered.
+        let discovery_user_id = UserId::parse("@unknown:unknown")
+            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
+        let device_id: OwnedDeviceId = device_id.as_str().into();
+
+        let discovery_session = Session {
+            access_token: token.clone(),
+            refresh_token: None,
+            user_id: discovery_user_id,
+            device_id: device_id.clone(),
+        };
+
+        client.restore_session_inner(discovery_session).map_err(AuthenticationError::from)?;
+        let whoami = client.whoami()?;
+
+        // Create the actual client with a store path from the user ID.
+        let homeserver_url = client.homeserver();
+        let session = Session {
+            access_token: token,
+            refresh_token: None,
+            user_id: whoami.user_id.clone(),
+            device_id,
+        };
+        let client = Arc::new(ClientBuilder::new())
+            .base_path(self.base_path.clone())
+            .passphrase(self.passphrase.clone())
+            .homeserver_url(homeserver_url)
+            .username(whoami.user_id.to_string())
+            .build()
+            .map_err(AuthenticationError::from)?;
+
+        // Restore the client using the session.
+        client.restore_session_inner(session).map_err(AuthenticationError::from)?;
+        Ok(client)
     }
 }

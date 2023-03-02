@@ -55,6 +55,13 @@ pub enum AnyEvent<'a> {
 }
 
 impl AnyEvent<'_> {
+    pub fn event_type(&self) -> String {
+        match self {
+            Self::Room(e) => e.event_type().to_string(),
+            Self::ToDevice(e) => e.event_type().to_string(),
+        }
+    }
+
     pub fn sender(&self) -> &UserId {
         match self {
             Self::Room(e) => e.sender(),

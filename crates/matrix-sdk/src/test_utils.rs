@@ -1,3 +1,6 @@
+//!  Testing utilities - DO NOT USE IN PRODUCTION.
+
+#![allow(dead_code)]
 use matrix_sdk_base::Session;
 use ruma::{api::MatrixVersion, device_id, user_id};
 
@@ -24,7 +27,7 @@ pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         device_id: device_id!("DEVICEID").to_owned(),
     };
     let client = no_retry_test_client(homeserver_url).await;
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     client
 }

@@ -1,8 +1,9 @@
-use std::{borrow::Borrow, collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
+    StateChanges,
 };
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "e2e-encryption")]
@@ -11,38 +12,46 @@ use ruma::events::{
     SyncMessageLikeEvent,
 };
 use ruma::{
-    api::client::{
-        config::set_global_account_data,
-        filter::RoomEventFilter,
-        membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events::{self, v3::Direction},
-        room::get_room_event,
-        tag::{create_tag, delete_tag},
+    api::{
+        client::{
+            config::set_global_account_data,
+            error::ErrorKind,
+            filter::RoomEventFilter,
+            membership::{get_member_events, join_room_by_id, leave_room},
+            message::get_message_events,
+            room::get_room_event,
+            state::get_state_events_for_key,
+            tag::{create_tag, delete_tag},
+        },
+        Direction,
     },
     assign,
     events::{
         direct::DirectEventContent,
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
-            MediaSource,
+            encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            server_acl::RoomServerAclEventContent, MediaSource,
         },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
+    UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
+use super::Joined;
 use crate::{
-    event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
+    event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{RoomMember, RoomType},
+    room::{Left, RoomMember, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -95,21 +104,22 @@ impl Common {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left.
-    pub(crate) async fn leave(&self) -> Result<()> {
-        let request = leave_room::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
+    pub(crate) async fn leave(&self) -> Result<Left> {
+        let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
+        self.client.send(request, None).await?;
 
-        Ok(())
+        let base_room = self.client.base_client().room_left(self.room_id()).await?;
+        Left::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method.
-    pub(crate) async fn join(&self) -> Result<()> {
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
-
-        Ok(())
+    pub(crate) async fn join(&self) -> Result<Joined> {
+        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
+        let response = self.client.send(request, None).await?;
+        let base_room = self.client.base_client().room_joined(&response.room_id).await?;
+        Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)
     }
 
     /// Get the inner client saved in this room instance.
@@ -117,6 +127,12 @@ impl Common {
     /// Returns the client this room is part of.
     pub fn client(&self) -> Client {
         self.client.clone()
+    }
+
+    /// Get the sync state of this room, i.e. whether it was fully synced with
+    /// the server.
+    pub fn is_synced(&self) -> bool {
+        self.inner.is_state_fully_synced()
     }
 
     /// Gets the avatar of this room, if set.
@@ -149,12 +165,9 @@ impl Common {
     /// # })
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
-        if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
-            Ok(Some(self.client.media().get_media_content(&request, true).await?))
-        } else {
-            Ok(None)
-        }
+        let Some(url) = self.avatar_url() else { return Ok(None) };
+        let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
+        Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
@@ -185,7 +198,7 @@ impl Common {
     /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
-    pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
+    pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
         let http_response = self.client.send(request, None).await?;
@@ -248,7 +261,6 @@ impl Common {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
     }
@@ -259,13 +271,14 @@ impl Common {
     /// like edits and reactions as updates of existing items rather than new
     /// independent events.
     #[cfg(feature = "experimental-timeline")]
-    pub fn timeline(&self) -> Timeline {
-        Timeline::new(self)
+    pub async fn timeline(&self) -> Timeline {
+        Timeline::builder(self).track_read_marker_and_receipts().build().await
     }
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
-        let request = get_room_event::v3::Request::new(self.room_id(), event_id);
+        let request =
+            get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
@@ -303,7 +316,7 @@ impl Common {
 
             let _guard = mutex.lock().await;
 
-            let request = get_member_events::v3::Request::new(self.inner.room_id());
+            let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
             let response =
@@ -315,7 +328,71 @@ impl Common {
         }
     }
 
-    async fn ensure_members(&self) -> Result<()> {
+    async fn request_encryption_state(&self) -> Result<Option<RoomEncryptionEventContent>> {
+        if let Some(mutex) = self
+            .client
+            .inner
+            .encryption_state_request_locks
+            .get(self.inner.room_id())
+            .map(|m| m.clone())
+        {
+            // If a encryption state request is already going on, await the release of
+            // the lock.
+            _ = mutex.lock().await;
+
+            Ok(None)
+        } else {
+            let mutex = Arc::new(Mutex::new(()));
+            self.client
+                .inner
+                .encryption_state_request_locks
+                .insert(self.inner.room_id().to_owned(), mutex.clone());
+
+            let _guard = mutex.lock().await;
+
+            let request = get_state_events_for_key::v3::Request::new(
+                self.inner.room_id().to_owned(),
+                StateEventType::RoomEncryption,
+                "".to_owned(),
+            );
+            let response = match self.client.send(request, None).await {
+                Ok(response) => {
+                    Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
+                }
+                Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
+                Err(err) => return Err(err.into()),
+            };
+
+            let sync_lock = self.client.base_client().sync_lock().read().await;
+            let mut room_info = self.inner.clone_info();
+            room_info.mark_encryption_state_synced();
+            room_info.set_encryption_event(response.clone());
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.client.store().save_changes(&changes).await?;
+            self.update_summary(room_info);
+            drop(sync_lock);
+
+            self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
+
+            Ok(response)
+        }
+    }
+
+    /// Check whether this room is encrypted. If the room encryption state is
+    /// not synced yet, it will send a request to fetch it.
+    ///
+    /// Returns true if the room is encrypted, otherwise false.
+    pub async fn is_encrypted(&self) -> Result<bool> {
+        if !self.is_encryption_state_synced() {
+            let encryption = self.request_encryption_state().await?;
+            Ok(encryption.is_some())
+        } else {
+            Ok(self.inner.is_encrypted())
+        }
+    }
+
+    pub(crate) async fn ensure_members(&self) -> Result<()> {
         if !self.are_events_visible() {
             return Ok(());
         }
@@ -506,7 +583,7 @@ impl Common {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         Ok(self.client.store().get_state_events_static(self.room_id()).await?)
@@ -545,7 +622,7 @@ impl Common {
     /// ```
     pub async fn get_state_event_static<C>(&self) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
@@ -573,7 +650,7 @@ impl Common {
         state_key: &K,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent + RedactContent,
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -674,8 +751,12 @@ impl Common {
         tag_info: TagInfo,
     ) -> HttpResult<create_tag::v3::Response> {
         let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
-        let request =
-            create_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref(), tag_info);
+        let request = create_tag::v3::Request::new(
+            user_id.to_owned(),
+            self.inner.room_id().to_owned(),
+            tag.to_string(),
+            tag_info,
+        );
         self.client.send(request, None).await
     }
 
@@ -687,7 +768,11 @@ impl Common {
     /// * `tag` - The tag to remove.
     pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
         let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref());
+        let request = delete_tag::v3::Request::new(
+            user_id.to_owned(),
+            self.inner.room_id().to_owned(),
+            tag.to_string(),
+        );
         self.client.send(request, None).await
     }
 
@@ -731,7 +816,7 @@ impl Common {
             content.retain(|_, list| !list.is_empty());
         }
 
-        let request = set_global_account_data::v3::Request::new(user_id, &content)?;
+        let request = set_global_account_data::v3::Request::new(user_id.to_owned(), &content)?;
 
         self.client.send(request, None).await?;
         Ok(())
@@ -890,6 +975,48 @@ impl Common {
         let via = self.route().await?;
         Ok(self.room_id().matrix_event_uri_via(event_id, via))
     }
+
+    /// Get the latest receipt of a user in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to get.
+    ///
+    /// * `thread` - The thread containing the event of the receipt, if any.
+    ///
+    /// * `user_id` - The ID of the user.
+    ///
+    /// Returns the ID of the event on which the receipt applies and the
+    /// receipt.
+    pub async fn user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: &UserId,
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+        self.inner.user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+    }
+
+    /// Get the receipts for an event in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to get.
+    ///
+    /// * `thread` - The thread containing the event of the receipt, if any.
+    ///
+    /// * `event_id` - The ID of the event.
+    ///
+    /// Returns a list of IDs of users who have sent a receipt for the event and
+    /// the corresponding receipts.
+    pub async fn event_receipts(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: &EventId,
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+        self.inner.event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+    }
 }
 
 /// Options for [`messages`][Common::messages].
@@ -899,7 +1026,7 @@ impl Common {
 /// for details.
 #[derive(Debug)]
 #[non_exhaustive]
-pub struct MessagesOptions<'a> {
+pub struct MessagesOptions {
     /// The token to start returning events from.
     ///
     /// This token can be obtained from a `prev_batch` token returned for each
@@ -909,14 +1036,14 @@ pub struct MessagesOptions<'a> {
     /// If `from` isn't provided the homeserver shall return a list of messages
     /// from the first or last (per the value of the dir parameter) visible
     /// event in the room history for the requesting user.
-    pub from: Option<&'a str>,
+    pub from: Option<String>,
 
     /// The token to stop returning events at.
     ///
     /// This token can be obtained from a `prev_batch` token returned for each
     /// room by the sync API, or from a start or end token returned by a
     /// previous `messages` call.
-    pub to: Option<&'a str>,
+    pub to: Option<String>,
 
     /// The direction to return events in.
     pub dir: Direction,
@@ -927,10 +1054,10 @@ pub struct MessagesOptions<'a> {
     pub limit: UInt,
 
     /// A [`RoomEventFilter`] to filter returned events with.
-    pub filter: RoomEventFilter<'a>,
+    pub filter: RoomEventFilter,
 }
 
-impl<'a> MessagesOptions<'a> {
+impl MessagesOptions {
     /// Creates `MessagesOptions` with the given direction.
     ///
     /// All other parameters will be defaulted.
@@ -960,12 +1087,12 @@ impl<'a> MessagesOptions<'a> {
     /// Since the field is public, you can also assign to it directly. This
     /// method merely acts as a shorthand for that, because it is very
     /// common to set this field.
-    pub fn from(self, from: impl Into<Option<&'a str>>) -> Self {
-        Self { from: from.into(), ..self }
+    pub fn from<'a>(self, from: impl Into<Option<&'a str>>) -> Self {
+        Self { from: from.into().map(ToOwned::to_owned), ..self }
     }
 
-    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
-        assign!(get_message_events::v3::Request::new(room_id, self.dir), {
+    fn into_request(self, room_id: &RoomId) -> get_message_events::v3::Request {
+        assign!(get_message_events::v3::Request::new(room_id.to_owned(), self.dir), {
             from: self.from,
             to: self.to,
             limit: self.limit,

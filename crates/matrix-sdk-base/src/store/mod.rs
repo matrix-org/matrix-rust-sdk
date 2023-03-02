@@ -21,55 +21,48 @@
 //! store.
 
 use std::{
-    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     ops::Deref,
     pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
-    sync::Arc,
+    sync::{Arc, RwLockReadGuard as StdRwLockReadGuard},
 };
 
-use futures_signals::signal::{Mutable, ReadOnlyMutable};
+use eyeball::{Observable, SharedObservable};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
+mod traits;
 
-use async_trait::async_trait;
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
+use matrix_sdk_common::locks::RwLock;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::store::{CryptoStore, IntoCryptoStore};
+use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptEventContent, ReceiptType},
+        receipt::ReceiptEventContent,
         room::{
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
             redaction::OriginalSyncRoomRedactionEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use serde::de::DeserializeOwned;
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::MemberEvent,
-    media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
 };
@@ -77,7 +70,10 @@ use crate::{
 pub(crate) mod ambiguity_map;
 mod memory_store;
 
-pub use self::memory_store::MemoryStore;
+pub use self::{
+    memory_store::MemoryStore,
+    traits::{DynStateStore, IntoStateStore, StateStore, StateStoreExt},
+};
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -136,387 +132,30 @@ impl StoreError {
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
-/// An abstract state store trait that can be used to implement different stores
-/// for the SDK.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait StateStore: AsyncTraitDeps {
-    /// Save the given filter id under the given name.
-    ///
-    /// # Arguments
-    ///
-    /// * `filter_name` - The name that should be used to store the filter id.
-    ///
-    /// * `filter_id` - The filter id that should be stored in the state store.
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()>;
-
-    /// Save the set of state changes in the store.
-    async fn save_changes(&self, changes: &StateChanges) -> Result<()>;
-
-    /// Get the filter id that was stored under the given filter name.
-    ///
-    /// # Arguments
-    ///
-    /// * `filter_name` - The name that was used to store the filter id.
-    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>>;
-
-    /// Get the last stored sync token.
-    async fn get_sync_token(&self) -> Result<Option<String>>;
-
-    /// Get the stored presence event for the given user.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user for which we wish to fetch the presence
-    /// event for.
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>>;
-
-    /// Get a state event out of the state store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room the state event was received for.
-    ///
-    /// * `event_type` - The event type of the state event.
-    async fn get_state_event(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>>;
-
-    /// Get a list of state events for a given room and `StateEventType`.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room to find events for.
-    ///
-    /// * `event_type` - The event type.
-    async fn get_state_events(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>>;
-
-    /// Get the current profile for the given user in the given room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The room id the profile is used in.
-    ///
-    /// * `user_id` - The id of the user the profile belongs to.
-    async fn get_profile(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<Option<MinimalRoomMemberEvent>>;
-
-    /// Get the `MemberEvent` for the given state key in the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The room id the member event belongs to.
-    ///
-    /// * `state_key` - The user id that the member event defines the state for.
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<MemberEvent>>;
-
-    /// Get all the user ids of members for a given room, for stripped and
-    /// regular rooms alike.
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
-
-    /// Get all the user ids of members that are in the invited state for a
-    /// given room, for stripped and regular rooms alike.
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
-
-    /// Get all the user ids of members that are in the joined state for a
-    /// given room, for stripped and regular rooms alike.
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
-
-    /// Get all the pure `RoomInfo`s the store knows about.
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
-
-    /// Get all the pure `RoomInfo`s the store knows about.
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>>;
-
-    /// Get all the users that use the given display name in the given room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which the display name users should
-    /// be fetched for.
-    ///
-    /// * `display_name` - The display name that the users use.
-    async fn get_users_with_display_name(
-        &self,
-        room_id: &RoomId,
-        display_name: &str,
-    ) -> Result<BTreeSet<OwnedUserId>>;
-
-    /// Get an event out of the account data store.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_type` - The event type of the account data event.
-    async fn get_account_data_event(
-        &self,
-        event_type: GlobalAccountDataEventType,
-    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>>;
-
-    /// Get an event out of the room account data store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which the room account data event
-    ///   should
-    /// be fetched.
-    ///
-    /// * `event_type` - The event type of the room account data event.
-    async fn get_room_account_data_event(
-        &self,
-        room_id: &RoomId,
-        event_type: RoomAccountDataEventType,
-    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
-
-    /// Get an event out of the user room receipt store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which the receipt should be
-    ///   fetched.
-    ///
-    /// * `receipt_type` - The type of the receipt.
-    ///
-    /// * `user_id` - The id of the user for who the receipt should be fetched.
-    async fn get_user_room_receipt_event(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>>;
-
-    /// Get events out of the event room receipt store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which the receipts should be
-    ///   fetched.
-    ///
-    /// * `receipt_type` - The type of the receipts.
-    ///
-    /// * `event_id` - The id of the event for which the receipts should be
-    ///   fetched.
-    async fn get_event_room_receipt_events(
-        &self,
-        room_id: &RoomId,
-        receipt_type: ReceiptType,
-        event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>>;
-
-    /// Get arbitrary data from the custom store
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to fetch data for
-    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
-
-    /// Put arbitrary data into the custom store
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to insert data into
-    ///
-    /// * `value` - The value to insert
-    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>>;
-
-    /// Add a media file's content in the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    ///
-    /// * `content` - The content of the file.
-    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()>;
-
-    /// Get a media file's content out of the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>>;
-
-    /// Removes a media file's content from the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()>;
-
-    /// Removes all the media files' content associated to an `MxcUri` from the
-    /// media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `uri` - The `MxcUri` of the media files.
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
-
-    /// Removes a room and all elements associated from the state store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to delete.
-    async fn remove_room(&self, room_id: &RoomId) -> Result<()>;
-}
-
-/// Convenience functionality for state stores.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait StateStoreExt: StateStore {
-    /// Get a specific state event of statically-known type.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room the state event was received for.
-    async fn get_state_event_static<C>(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
-    where
-        C: StaticEventContent + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-        C::Redacted: RedactedStateEventContent + DeserializeOwned,
-    {
-        Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
-    }
-
-    /// Get a specific state event of statically-known type.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room the state event was received for.
-    async fn get_state_event_static_for_key<C, K>(
-        &self,
-        room_id: &RoomId,
-        state_key: &K,
-    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
-    where
-        C: StaticEventContent + StateEventContent + RedactContent,
-        C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
-        K: AsRef<str> + ?Sized + Sync,
-    {
-        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key.as_ref()).await?.map(Raw::cast))
-    }
-
-    /// Get a list of state events of a statically-known type for a given room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room to find events for.
-    async fn get_state_events_static<C>(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
-    where
-        C: StaticEventContent + StateEventContent + RedactContent,
-        C::Redacted: RedactedStateEventContent,
-    {
-        // FIXME: Could be more efficient, if we had streaming store accessor functions
-        Ok(self
-            .get_state_events(room_id, C::TYPE.into())
-            .await?
-            .into_iter()
-            .map(Raw::cast)
-            .collect())
-    }
-
-    /// Get an event of a statically-known type from the account data store.
-    async fn get_account_data_event_static<C>(
-        &self,
-    ) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>>
-    where
-        C: StaticEventContent + GlobalAccountDataEventContent,
-    {
-        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast))
-    }
-
-    /// Get an event of a statically-known type from the room account data
-    /// store.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which the room account data event
-    ///   should be fetched.
-    async fn get_room_account_data_event_static<C>(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
-    where
-        C: StaticEventContent + RoomAccountDataEventContent,
-    {
-        Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl<T: StateStore + ?Sized> StateStoreExt for T {}
-
-/// A type that can be type-erased into `Arc<dyn StateStore>`.
-///
-/// This trait is not meant to be implemented directly outside
-/// `matrix-sdk-crypto`, but it is automatically implemented for everything that
-/// implements `StateStore`.
-pub trait IntoStateStore {
-    #[doc(hidden)]
-    fn into_state_store(self) -> Arc<dyn StateStore>;
-}
-
-impl<T> IntoStateStore for T
-where
-    T: StateStore + Sized + 'static,
-{
-    fn into_state_store(self) -> Arc<dyn StateStore> {
-        Arc::new(self)
-    }
-}
-
-impl<T> IntoStateStore for Arc<T>
-where
-    T: StateStore + 'static,
-{
-    fn into_state_store(self) -> Arc<dyn StateStore> {
-        self
-    }
-}
-
 /// A state store wrapper for the SDK.
 ///
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Clone)]
 pub(crate) struct Store {
-    pub(super) inner: Arc<dyn StateStore>,
+    pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
-    pub(super) session_tokens: Mutable<Option<SessionTokens>>,
+    pub(super) session_tokens: SharedObservable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
+    /// A lock to synchronize access to the store, such that data by the sync is
+    /// never overwritten. The sync processing is supposed to use write access,
+    /// such that only it is currently accessing the store overall. Other things
+    /// might acquire read access, such that access to different rooms can be
+    /// parallelized.
+    sync_lock: Arc<RwLock<()>>,
 }
 
 impl Store {
-    /// Create a new Store with the default `MemoryStore`
-    pub fn open_memory_store() -> Self {
-        let inner = Arc::new(MemoryStore::new());
-
-        Self::new(inner)
-    }
-
     /// Create a new store, wrapping the given `StateStore`
-    pub fn new(inner: Arc<dyn StateStore>) -> Self {
+    pub fn new(inner: Arc<DynStateStore>) -> Self {
         Self {
             inner,
             session_meta: Default::default(),
@@ -524,28 +163,36 @@ impl Store {
             sync_token: Default::default(),
             rooms: Default::default(),
             stripped_rooms: Default::default(),
+            sync_lock: Default::default(),
         }
     }
 
-    /// Restore the access to the Store from the given `Session`, overwrites any
-    /// previously existing access to the Store.
-    pub async fn restore_session(&self, session: Session) -> Result<()> {
+    /// Get access to the syncing lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        &self.sync_lock
+    }
+
+    /// Set the meta of the session.
+    ///
+    /// Restores the state of this `Store` from the given `SessionMeta` and the
+    /// inner `StateStore`.
+    ///
+    /// This method panics if it is called twice.
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
         for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
-        let (session_meta, session_tokens) = session.into_parts();
-        self.session_meta.set(session_meta).expect("Session IDs were already set");
-        self.session_tokens.set(Some(session_tokens));
+        self.session_meta.set(session_meta).expect("Session Meta was already set");
 
         Ok(())
     }
@@ -555,10 +202,10 @@ impl Store {
         self.session_meta.get()
     }
 
-    /// The current [`SessionTokens`] containing our access token and optional
-    /// refresh token.
-    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
-        self.session_tokens.read_only()
+    /// The [`SessionTokens`] containing our access token and optional refresh
+    /// token.
+    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
+        self.session_tokens.read()
     }
 
     /// Set the current [`SessionTokens`].
@@ -570,7 +217,7 @@ impl Store {
     /// token and optional refresh token.
     pub fn session(&self) -> Option<Session> {
         let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens.get_cloned()?;
+        let tokens = self.session_tokens().clone()?;
         Some(Session::from_parts(meta.to_owned(), tokens))
     }
 
@@ -636,6 +283,7 @@ impl Store {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Store {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Store")
@@ -649,7 +297,7 @@ impl fmt::Debug for Store {
 }
 
 impl Deref for Store {
-    type Target = dyn StateStore;
+    type Target = DynStateStore;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -670,7 +318,7 @@ pub struct StateChanges {
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, SyncRoomMemberEvent>>,
+    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
@@ -689,7 +337,8 @@ pub struct StateChanges {
 
     /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
     /// `SyncRoomRedactionEvent`.
-    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OriginalSyncRoomRedactionEvent>>,
+    pub redactions:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<OriginalSyncRoomRedactionEvent>>>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -699,7 +348,8 @@ pub struct StateChanges {
     >,
     /// A mapping of `RoomId` to a map of users and their
     /// `StrippedRoomMemberEvent`.
-    pub stripped_members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, StrippedRoomMemberEvent>>,
+    pub stripped_members:
+        BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
     /// while knocking)
     pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
@@ -757,10 +407,16 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `StrippedMemberEvent`.
-    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedRoomMemberEvent) {
-        let user_id = event.state_key.clone();
-
-        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
+    pub fn add_stripped_member(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        event: Raw<StrippedRoomMemberEvent>,
+    ) {
+        self.stripped_members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(user_id.to_owned(), event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -780,11 +436,16 @@ impl StateChanges {
     }
 
     /// Redact an event in the room
-    pub fn add_redaction(&mut self, room_id: &RoomId, redaction: OriginalSyncRoomRedactionEvent) {
+    pub fn add_redaction(
+        &mut self,
+        room_id: &RoomId,
+        redacted_event_id: &EventId,
+        redaction: Raw<OriginalSyncRoomRedactionEvent>,
+    ) {
         self.redactions
             .entry(room_id.to_owned())
             .or_default()
-            .insert(redaction.redacts.clone(), redaction);
+            .insert(redacted_event_id.to_owned(), redaction);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -810,11 +471,11 @@ impl StateChanges {
 ///
 /// let store_config = StoreConfig::new();
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Option<Arc<dyn CryptoStore>>,
-    pub(crate) state_store: Option<Arc<dyn StateStore>>,
+    pub(crate) crypto_store: Arc<DynCryptoStore>,
+    pub(crate) state_store: Arc<DynStateStore>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -828,7 +489,11 @@ impl StoreConfig {
     /// Create a new default `StoreConfig`.
     #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            #[cfg(feature = "e2e-encryption")]
+            crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
+            state_store: Arc::new(MemoryStore::new()),
+        }
     }
 
     /// Set a custom implementation of a `CryptoStore`.
@@ -836,13 +501,19 @@ impl StoreConfig {
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: impl IntoCryptoStore) -> Self {
-        self.crypto_store = Some(store.into_crypto_store());
+        self.crypto_store = store.into_crypto_store();
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
-        self.state_store = Some(store.into_state_store());
+        self.state_store = store.into_state_store();
         self
+    }
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }

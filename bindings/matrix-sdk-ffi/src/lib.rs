@@ -1,6 +1,6 @@
 // TODO: target-os conditional would be good.
 
-#![allow(unused_qualifications)]
+#![allow(unused_qualifications, clippy::new_without_default)]
 
 macro_rules! unwrap_or_clone_arc_into_variant {
     (
@@ -20,6 +20,8 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
+mod platform;
+
 pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
@@ -31,15 +33,10 @@ pub mod sliding_sync;
 pub mod timeline;
 mod uniffi_api;
 
-use std::io;
-
 use client::Client;
 use client_builder::ClientBuilder;
-use matrix_sdk::Session;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
@@ -57,19 +54,9 @@ pub use self::{
 
 #[derive(Default, Debug)]
 pub struct ClientState {
-    is_guest: bool,
     has_first_synced: bool,
     is_syncing: bool,
     should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RestoreToken {
-    is_guest: bool,
-    homeurl: String,
-    session: Session,
-    #[serde(default)]
     is_soft_logout: bool,
 }
 
@@ -85,32 +72,32 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
-#[uniffi::export]
-fn setup_tracing(configuration: String) {
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(false).with_writer(io::stderr))
-        .init();
-}
+pub use platform::*;
 
 mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
     pub use crate::{
-        authentication_service::{AuthenticationService, HomeserverLoginDetails},
+        authentication_service::{
+            AuthenticationError, AuthenticationService, HomeserverLoginDetails,
+        },
         client::Client,
         client_builder::ClientBuilder,
-        room::{Membership, Room},
+        room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom,
-            SlidingSyncView, SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
+            SlidingSyncListBuilder, SlidingSyncRequestListFilters, SlidingSyncRoom, TaskHandle,
+            UnreadNotificationsCount,
         },
         timeline::{
-            EmoteMessageContent, EventTimelineItem, FormattedBody, ImageInfo, ImageMessageContent,
-            InsertAtData, Message, MessageType, NoticeMessageContent, Reaction, TextMessageContent,
-            ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem, TimelineItemContent,
-            TimelineKey, UpdateAtData, VirtualTimelineItem,
+            AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
+            EventTimelineItem, FileInfo, FileMessageContent, FormattedBody, ImageInfo,
+            ImageMessageContent, InsertData, MembershipChange, Message, MessageFormat, MessageType,
+            NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction, SetData,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
+            VirtualTimelineItem,
         },
     };
 }

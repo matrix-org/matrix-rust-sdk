@@ -12,25 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{any::type_name, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    any::type_name,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
-use http::Response as HttpResponse;
+use bytesize::ByteSize;
 use matrix_sdk_common::AsyncTraitDeps;
-use reqwest::Response;
 use ruma::{
     api::{
-        error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
-        OutgoingRequestAppserviceExt, SendAccessToken,
+        error::{FromHttpResponseError, IntoHttpError},
+        AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest, OutgoingRequestAppserviceExt,
+        SendAccessToken,
     },
     UserId,
 };
-use tracing::trace;
+use tracing::{debug, field::debug, instrument, trace};
 
 use crate::{config::RequestConfig, error::HttpError};
 
-pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -48,14 +56,13 @@ pub trait HttpSend: AsyncTraitDeps {
     /// * `request` - The http request that has been converted from a ruma
     ///   `Request`.
     ///
-    /// * `request_config` - The config used for this request.
-    ///
+    /// * `timeout` - A timeout for the full request > response cycle.
     /// # Examples
     ///
     /// ```
-    /// use matrix_sdk::{
-    ///     async_trait, bytes::Bytes, config::RequestConfig, HttpError, HttpSend,
-    /// };
+    /// use std::time::Duration;
+    ///
+    /// use matrix_sdk::{async_trait, bytes::Bytes, HttpError, HttpSend};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -75,7 +82,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///     async fn send_request(
     ///         &self,
     ///         request: http::Request<Bytes>,
-    ///         config: RequestConfig,
+    ///         timeout: Duration,
     ///     ) -> Result<http::Response<Bytes>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
@@ -90,7 +97,7 @@ pub trait HttpSend: AsyncTraitDeps {
     async fn send_request(
         &self,
         request: http::Request<Bytes>,
-        config: RequestConfig,
+        timeout: Duration,
     ) -> Result<http::Response<Bytes>, HttpError>;
 }
 
@@ -98,41 +105,33 @@ pub trait HttpSend: AsyncTraitDeps {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) request_config: RequestConfig,
+    next_request_id: Arc<AtomicU64>,
 }
 
 impl HttpClient {
     pub(crate) fn new(inner: Arc<dyn HttpSend>, request_config: RequestConfig) -> Self {
-        HttpClient { inner, request_config }
+        HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
-    #[tracing::instrument(
-        skip(self, request, access_token),
-        fields(request_type = type_name::<Request>()),
-    )]
-    pub async fn send<Request>(
+    fn get_request_id(&self) -> String {
+        let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
+        format!("REQ-{request_id}")
+    }
+
+    fn serialize_request<R>(
         &self,
-        request: Request,
-        config: Option<RequestConfig>,
+        request: R,
+        config: RequestConfig,
         homeserver: String,
         access_token: Option<&str>,
         user_id: Option<&UserId>,
         server_versions: &[MatrixVersion],
-    ) -> Result<Request::IncomingResponse, HttpError>
+    ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
-        Request: OutgoingRequest + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+        R: OutgoingRequest + Debug,
     {
-        let config = match config {
-            Some(config) => config,
-            None => self.request_config,
-        };
+        trace!(request_type = type_name::<R>(), "Serializing request");
 
-        let auth_scheme = Request::METADATA.authentication;
-        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
-            return Err(HttpError::NotClientRequest);
-        }
-
-        trace!("Serializing request");
         // We can't assert the identity without a user_id.
         let request = if let Some((access_token, user_id)) =
             access_token.filter(|_| config.assert_identity).zip(user_id)
@@ -164,13 +163,194 @@ impl HttpClient {
 
         let request = request.map(|body| body.freeze());
 
-        trace!("Sending request");
-        let response = self.inner.send_request(request, config).await?;
+        Ok(request)
+    }
 
-        trace!("Got response: {:?}", response);
+    async fn send_request<R>(
+        &self,
+        request: http::Request<Bytes>,
+        config: RequestConfig,
+    ) -> Result<(http::StatusCode, ByteSize, R::IncomingResponse), HttpError>
+    where
+        R: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<R::EndpointError>>,
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        let ret = {
+            use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+            use ruma::api::client::error::{
+                ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
+            };
 
-        let response = Request::IncomingResponse::try_from_http_response(response)?;
-        Ok(response)
+            use crate::RumaApiError;
+
+            let backoff =
+                ExponentialBackoff { max_elapsed_time: config.retry_timeout, ..Default::default() };
+            let retry_count = AtomicU64::new(1);
+
+            let send_request = || async {
+                let stop = if let Some(retry_limit) = config.retry_limit {
+                    retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
+                } else {
+                    false
+                };
+
+                // Turn errors into permanent errors when the retry limit is reached
+                let error_type = if stop {
+                    RetryError::Permanent
+                } else {
+                    |err: HttpError| {
+                        if let Some(api_error) = err.as_ruma_api_error() {
+                            let status_code = match api_error {
+                                RumaApiError::ClientApi(e) => match e.body {
+                                    ClientApiErrorBody::Standard {
+                                        kind: ClientApiErrorKind::LimitExceeded { retry_after_ms },
+                                        ..
+                                    } => {
+                                        return RetryError::Transient {
+                                            err,
+                                            retry_after: retry_after_ms,
+                                        };
+                                    }
+                                    _ => Some(e.status_code),
+                                },
+                                RumaApiError::Uiaa(_) => None,
+                                RumaApiError::Other(e) => Some(e.status_code),
+                            };
+
+                            if let Some(status_code) = status_code {
+                                if status_code.is_server_error() {
+                                    return RetryError::Transient { err, retry_after: None };
+                                }
+                            }
+                        }
+
+                        RetryError::Permanent(err)
+                    }
+                };
+
+                let response = self
+                    .inner
+                    .send_request(clone_request(&request), config.timeout)
+                    .await
+                    .map_err(error_type)?;
+
+                let status_code = response.status();
+                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+
+                let response = R::IncomingResponse::try_from_http_response(response)
+                    .map_err(|e| error_type(HttpError::from(e)))?;
+
+                Ok((status_code, response_size, response))
+            };
+
+            retry::<_, HttpError, _, _, _>(backoff, send_request).await?
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let ret = {
+            let response = self.inner.send_request(request, config.timeout).await?;
+            let status_code = response.status();
+            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+
+            (status_code, response_size, R::IncomingResponse::try_from_http_response(response)?)
+        };
+
+        Ok(ret)
+    }
+
+    #[instrument(
+        skip(self, access_token, config, request, user_id),
+        fields(
+            config,
+            path,
+            user_id,
+            request_size,
+            request_body,
+            request_id,
+            status,
+            response_size,
+        )
+    )]
+    pub async fn send<R>(
+        &self,
+        request: R,
+        config: Option<RequestConfig>,
+        homeserver: String,
+        access_token: Option<&str>,
+        user_id: Option<&UserId>,
+        server_versions: &[MatrixVersion],
+    ) -> Result<R::IncomingResponse, HttpError>
+    where
+        R: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<R::EndpointError>>,
+    {
+        let request_id = self.get_request_id();
+
+        let span = tracing::Span::current();
+
+        let config = match config {
+            Some(config) => config,
+            None => self.request_config,
+        };
+
+        // At this point in the code, the config isn't behind an Option anymore, that's
+        // why we record it here, instead of in the #[instrument] macro.
+        span.record("config", debug(config)).record("request_id", request_id);
+
+        // The user ID is only used if we're an app-service. Only log the user_id if
+        // it's `Some` and if assert_identity is set.
+        if config.assert_identity {
+            span.record("user_id", user_id.map(debug));
+        }
+
+        let auth_scheme = R::METADATA.authentication;
+        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+            return Err(HttpError::NotClientRequest);
+        }
+
+        let request = self.serialize_request(
+            request,
+            config,
+            homeserver,
+            access_token,
+            user_id,
+            server_versions,
+        )?;
+
+        let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
+        span.record("request_size", request_size.to_string_as(true));
+
+        // Since sliding sync is experimental, and the proxy might not do what we expect
+        // it to do given a specific request body, it's useful to log the
+        // request body here. This doesn't contain any personal information.
+        // TODO: Remove this once sliding sync isn't experimental anymore.
+        #[cfg(feature = "experimental-sliding-sync")]
+        if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
+            span.record("request_body", debug(request.body()));
+            span.record("path", request.uri().path_and_query().map(|p| p.as_str()));
+        } else {
+            span.record("path", request.uri().path());
+        }
+
+        #[cfg(not(feature = "experimental-sliding-sync"))]
+        span.record("path", request.uri().path());
+
+        debug!("Sending request");
+        match self.send_request::<R>(request, config).await {
+            Ok((status_code, response_size, response)) => {
+                span.record("status", status_code.as_u16())
+                    .record("response_size", response_size.to_string_as(true));
+                debug!("Got response");
+
+                Ok(response)
+            }
+            Err(e) => {
+                debug!("Error while sending request: {e:?}");
+
+                Err(e)
+            }
+        }
     }
 }
 
@@ -228,12 +408,24 @@ impl HttpSettings {
     }
 }
 
+// Clones all request parts except the extensions which can't be cloned.
+// See also https://github.com/hyperium/http/issues/395
+#[cfg(not(target_arch = "wasm32"))]
+fn clone_request(request: &http::Request<Bytes>) -> http::Request<Bytes> {
+    let mut builder = http::Request::builder()
+        .version(request.version())
+        .method(request.method())
+        .uri(request.uri());
+    *builder.headers_mut().unwrap() = request.headers().clone();
+    builder.body(request.body().clone()).unwrap()
+}
+
 async fn response_to_http_response(
-    mut response: Response,
+    mut response: reqwest::Response,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {
     let status = response.status();
 
-    let mut http_builder = HttpResponse::builder().status(status);
+    let mut http_builder = http::Response::builder().status(status);
     let headers = http_builder.headers_mut().expect("Can't get the response builder headers");
 
     for (k, v) in response.headers_mut().drain() {
@@ -247,89 +439,25 @@ async fn response_to_http_response(
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
 
-#[cfg(any(target_arch = "wasm32"))]
-async fn send_request(
-    client: &reqwest::Client,
-    request: http::Request<Bytes>,
-    _: RequestConfig,
-) -> Result<http::Response<Bytes>, HttpError> {
-    let request = reqwest::Request::try_from(request)?;
-    let response = client.execute(request).await?;
-
-    Ok(response_to_http_response(response).await?)
-}
-
-#[cfg(all(not(target_arch = "wasm32")))]
-async fn send_request(
-    client: &reqwest::Client,
-    request: http::Request<Bytes>,
-    config: RequestConfig,
-) -> Result<http::Response<Bytes>, HttpError> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-    use http::StatusCode;
-
-    let mut backoff = ExponentialBackoff::default();
-    let mut request = reqwest::Request::try_from(request)?;
-    let retry_limit = config.retry_limit;
-    let retry_count = AtomicU64::new(1);
-
-    *request.timeout_mut() = Some(config.timeout);
-
-    backoff.max_elapsed_time = config.retry_timeout;
-
-    let request = &request;
-    let retry_count = &retry_count;
-
-    let request = || async move {
-        let stop = if let Some(retry_limit) = retry_limit {
-            retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
-        } else {
-            false
-        };
-
-        // Turn errors into permanent errors when the retry limit is reached
-        let error_type = if stop {
-            RetryError::Permanent
-        } else {
-            |err| RetryError::Transient { err, retry_after: None }
-        };
-
-        let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
-
-        let response =
-            client.execute(request).await.map_err(|e| error_type(HttpError::Reqwest(e)))?;
-
-        let status_code = response.status();
-        // TODO TOO_MANY_REQUESTS will have a retry timeout which we should
-        // use.
-        if !stop
-            && (status_code.is_server_error() || response.status() == StatusCode::TOO_MANY_REQUESTS)
-        {
-            return Err(error_type(HttpError::Server(status_code)));
-        }
-
-        let response = response_to_http_response(response)
-            .await
-            .map_err(|e| RetryError::Permanent(HttpError::Reqwest(e)))?;
-
-        Ok(response)
-    };
-
-    let response = retry(backoff, request).await?;
-
-    Ok(response)
-}
-
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl HttpSend for reqwest::Client {
     async fn send_request(
         &self,
         request: http::Request<Bytes>,
-        config: RequestConfig,
+        _timeout: Duration,
     ) -> Result<http::Response<Bytes>, HttpError> {
-        send_request(self, request, config).await
+        #[allow(unused_mut)]
+        let mut request = reqwest::Request::try_from(request)?;
+
+        // reqwest's timeout functionality is not available on WASM
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *request.timeout_mut() = Some(_timeout);
+        }
+
+        let response = self.execute(request).await?;
+
+        Ok(response_to_http_response(response).await?)
     }
 }

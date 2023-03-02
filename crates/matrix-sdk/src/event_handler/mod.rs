@@ -53,7 +53,7 @@ use matrix_sdk_base::{
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{error, warn};
+use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
 use crate::{room, Client};
@@ -200,7 +200,7 @@ pub struct EventHandlerHandle {
 pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
-    type Future: Future + SendOutsideWasm + 'static;
+    type Future: EventHandlerFuture;
 
     /// Create a future for handling the given event.
     ///
@@ -210,6 +210,21 @@ pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// Returns `None` if one of the context extractors failed.
     #[doc(hidden)]
     fn handle_event(&self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
+}
+
+#[doc(hidden)]
+pub trait EventHandlerFuture:
+    Future<Output = <Self as EventHandlerFuture>::Output> + SendOutsideWasm + 'static
+{
+    type Output: EventHandlerResult;
+}
+
+impl<T> EventHandlerFuture for T
+where
+    T: Future + SendOutsideWasm + 'static,
+    <T as Future>::Output: EventHandlerResult,
+{
+    type Output = <T as Future>::Output;
 }
 
 #[doc(hidden)]
@@ -273,7 +288,6 @@ impl Client {
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
             let maybe_fut =
@@ -399,15 +413,19 @@ impl Client {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
         room: &Option<room::Room>,
         raw: &RawJsonValue,
-        ev_kind: HandlerKind,
-        ev_type: &str,
+        event_kind: HandlerKind,
+        event_type: &str,
         encryption_info: Option<&EncryptionInfo>,
     ) {
         let room_id = room.as_ref().map(|r| r.room_id());
+        if let Some(room_id) = room_id {
+            tracing::Span::current().record("room_id", debug(room_id));
+        }
 
         // Construct event handler futures
         let mut futures: FuturesUnordered<_> = self
@@ -416,7 +434,7 @@ impl Client {
             .handlers
             .read()
             .unwrap()
-            .get_handlers(ev_kind, ev_type, room_id)
+            .get_handlers(event_kind, event_type, room_id)
             .map(|(handle, handler_fn)| {
                 let data = EventHandlerData {
                     client: self.clone(),
@@ -430,9 +448,13 @@ impl Client {
             })
             .collect();
 
-        // Run the event handler futures with the `self.event_handlers.handlers`
-        // lock no longer being held.
-        while let Some(()) = futures.next().await {}
+        if !futures.is_empty() {
+            debug!(amount = futures.len(), "Calling event handlers");
+
+            // Run the event handler futures with the `self.event_handlers.handlers`
+            // lock no longer being held.
+            while let Some(()) = futures.next().await {}
+        }
     }
 }
 
@@ -464,8 +486,7 @@ macro_rules! impl_event_handler {
         where
             Ev: SyncEvent,
             Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
-            Fut: Future + SendOutsideWasm + 'static,
-            Fut::Output: EventHandlerResult,
+            Fut: EventHandlerFuture,
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;

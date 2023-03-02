@@ -15,13 +15,6 @@ pub use state_store::{
     MigrationConflictStrategy,
 };
 
-mod indexed_db_futures {
-    #[cfg(not(feature = "experimental-nodejs"))]
-    pub use indexed_db_futures::*;
-    #[cfg(feature = "experimental-nodejs")]
-    pub use indexed_db_futures_nodejs::*;
-}
-
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
 #[cfg(feature = "e2e-encryption")]
@@ -29,11 +22,9 @@ async fn open_stores_with_name(
     name: &str,
     passphrase: Option<&str>,
 ) -> Result<(IndexeddbStateStore, IndexeddbCryptoStore), OpenStoreError> {
-    let mut builder = IndexeddbStateStore::builder();
-    builder.name(name.to_owned());
-
+    let mut builder = IndexeddbStateStore::builder().name(name.to_owned());
     if let Some(passphrase) = passphrase {
-        builder.passphrase(passphrase.to_owned());
+        builder = builder.passphrase(passphrase.to_owned());
     }
 
     let state_store = builder.build().await.map_err(StoreError::from)?;
@@ -61,11 +52,10 @@ pub async fn make_store_config(
 
         #[cfg(not(feature = "e2e-encryption"))]
         {
-            let mut builder = IndexeddbStateStore::builder();
-            builder.name(name.to_owned());
+            let mut builder = IndexeddbStateStore::builder().name(name.to_owned());
 
             if let Some(passphrase) = passphrase {
-                builder.passphrase(passphrase.to_owned());
+                builder = builder.passphrase(passphrase.to_owned());
             }
 
             let state_store = builder.build().await.map_err(StoreError::from)?;

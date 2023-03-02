@@ -61,7 +61,6 @@ enum CiCommand {
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 enum FeatureSet {
-    Default,
     NoEncryption,
     NoSled,
     NoEncryptionAndSled,
@@ -90,7 +89,7 @@ enum WasmFeatureSet {
 
 impl CiArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace::root_path()?)?;
+        let _p = pushd(workspace::root_path()?)?;
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -127,7 +126,7 @@ fn check_bindings() -> Result<()> {
     cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
     cmd!(
         "
-        uniffi-bindgen generate
+        rustup run stable cargo run -p uniffi-bindgen -- generate
             --language kotlin
             --language swift
             --lib-file target/debug/libmatrix_sdk_ffi.a
@@ -138,7 +137,7 @@ fn check_bindings() -> Result<()> {
     .run()?;
     cmd!(
         "
-        uniffi-bindgen generate
+        rustup run stable cargo run -p uniffi-bindgen -- generate
             --language kotlin
             --language swift
             --lib-file target/debug/libmatrix_sdk_crypto_ffi.a
@@ -173,7 +172,8 @@ fn check_clippy() -> Result<()> {
     cmd!(
         "rustup run nightly cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
-            --no-default-features --features native-tls,sso-login
+            --no-default-features
+            --features native-tls,experimental-sliding-sync,sso-login,experimental-timeline
             -- -D warnings"
     )
     .run()?;
@@ -247,6 +247,9 @@ fn run_crypto_tests() -> Result<()> {
     .run()?;
 
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
+
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store")
+        .run()?;
 
     Ok(())
 }

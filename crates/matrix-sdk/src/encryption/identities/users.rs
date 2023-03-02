@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use matrix_sdk_base::{
     crypto::{
-        MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity, UserIdentity as InnerUserIdentity,
+        types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
+        UserIdentity as InnerUserIdentity,
     },
     locks::RwLock,
 };
@@ -475,12 +476,8 @@ impl OtherUserIdentity {
                 room.invite_user_by_id(self.inner.user_id()).await?;
             }
             room.clone()
-        } else if let Some(room) =
-            self.client.create_dm_room(self.inner.user_id().to_owned()).await?
-        {
-            room
         } else {
-            return Err(RequestVerificationError::RoomCreation(self.inner.user_id().to_owned()));
+            self.client.create_dm_room(self.inner.user_id().to_owned()).await?
         };
 
         let response = room

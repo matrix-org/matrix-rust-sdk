@@ -16,7 +16,7 @@ use ruma::{
         },
         media::get_content_thumbnail::v3::Method,
         session::get_login_types::v3::LoginType,
-        uiaa::{self, UiaaResponse},
+        uiaa,
     },
     assign, device_id,
     directory::Filter,
@@ -132,7 +132,6 @@ async fn login_with_sso() {
             Ok(())
         })
         .identity_provider_id(&idp.id)
-        .send()
         .await
         .unwrap();
 
@@ -185,15 +184,20 @@ async fn login_error() {
         .await;
 
     if let Err(err) = client.login_username("example", "wordpass").send().await {
-        if let Some(RumaApiError::ClientApi(client_api::Error { kind, message, status_code })) =
+        if let Some(RumaApiError::ClientApi(client_api::Error { status_code, body })) =
             err.as_ruma_api_error()
         {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:?}, expected `Error::RumaResponse");
         }
@@ -215,27 +219,26 @@ async fn register_error() {
         .await;
 
     let user = assign!(RegistrationRequest::new(), {
-        username: Some("user"),
-        password: Some("password"),
+        username: Some("user".to_owned()),
+        password: Some("password".to_owned()),
         auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-            uiaa::FallbackAcknowledgement::new("foobar"),
+            uiaa::FallbackAcknowledgement::new("foobar".to_owned()),
         )),
         kind: RegistrationKind::User,
     });
 
     if let Err(err) = client.register(user).await {
-        if let Some(RumaApiError::Uiaa(UiaaResponse::MatrixError(client_api::Error {
-            kind,
-            message,
-            status_code,
-        }))) = err.as_ruma_api_error()
-        {
-            if *kind != client_api::error::ErrorKind::Forbidden {
-                panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
-            }
-
-            assert_eq!(message, "Invalid password");
+        if let Some(client_api::Error { status_code, body }) = err.as_client_api_error() {
             assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+                if *kind != client_api::error::ErrorKind::Forbidden {
+                    panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
+                }
+
+                assert_eq!(message, "Invalid password");
+            } else {
+                panic!("non-standard error body")
+            }
         } else {
             panic!("found the wrong `Error` type {err:#?}, expected `UiaaResponse`");
         }
@@ -255,8 +258,6 @@ async fn sync() {
     let response = client.sync_once(sync_settings).await.unwrap();
 
     assert_ne!(response.next_batch, "");
-
-    assert!(client.sync_token().await.is_some());
 }
 
 #[async_test]
@@ -314,7 +315,7 @@ async fn delete_devices() {
     let devices = &[device_id!("DEVICEID").to_owned()];
 
     if let Err(e) = client.delete_devices(devices, None).await {
-        if let Some(info) = e.uiaa_response() {
+        if let Some(info) = e.as_uiaa_response() {
             let mut auth_parameters = BTreeMap::new();
 
             let identifier = json!({
@@ -326,10 +327,10 @@ async fn delete_devices() {
 
             let auth_data = uiaa::AuthData::Password(assign!(
                 uiaa::Password::new(
-                    uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-                    "wordpass",
+                    uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+                    "wordpass".to_owned(),
                 ), {
-                    session: info.session.as_deref(),
+                    session: info.session.clone(),
                 }
             ));
 
@@ -343,7 +344,7 @@ async fn resolve_room_alias() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg"))
+        .and(path("/_matrix/client/r0/directory/room/%23alias:example.org"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::GET_ALIAS))
         .mount(&server)
         .await;
@@ -362,7 +363,7 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     let room = client.get_left_room(room_id);
     assert!(room.is_none());
@@ -370,7 +371,6 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_some());
 
-    let sync_token = client.sync_token().await.unwrap();
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
@@ -398,7 +398,7 @@ async fn join_room_by_id() {
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
         // field
-        client.join_room_by_id(room_id).await.unwrap().room_id,
+        client.join_room_by_id(room_id).await.unwrap().room_id(),
         room_id
     );
 }
@@ -423,7 +423,7 @@ async fn join_room_by_id_or_alias() {
             .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
             .await
             .unwrap()
-            .room_id,
+            .room_id(),
         room_id!("!testroom:example.org")
     );
 }
@@ -454,7 +454,7 @@ async fn room_search_filtered() {
         .mount(&server)
         .await;
 
-    let generic_search_term = Some("cheese");
+    let generic_search_term = Some("cheese".to_owned());
     let filter = assign!(Filter::new(), { generic_search_term });
     let request = assign!(PublicRoomsFilterRequest::new(), { filter });
 
@@ -505,12 +505,9 @@ async fn get_media_content() {
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/download/localhost/textfile"))
         .respond_with(ResponseTemplate::new(200).set_body_string("Some very interesting text."))
-        .expect(2)
         .mount(&server)
         .await;
 
-    client.media().get_media_content(&request, true).await.unwrap();
-    client.media().get_media_content(&request, true).await.unwrap();
     client.media().get_media_content(&request, false).await.unwrap();
 }
 
@@ -530,18 +527,16 @@ async fn get_media_file() {
     );
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/example%2Eorg/image"))
+        .and(path("/_matrix/media/r0/download/example.org/image"))
         .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .expect(1)
         .named("get_file")
         .mount(&server)
         .await;
 
-    client.media().get_file(event_content.clone(), true).await.unwrap();
-    client.media().get_file(event_content.clone(), true).await.unwrap();
+    client.media().get_file(event_content.clone(), false).await.unwrap();
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
+        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
         .respond_with(
             ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
         )
@@ -555,7 +550,7 @@ async fn get_media_file() {
         .get_thumbnail(
             event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            true,
+            false,
         )
         .await
         .unwrap();

@@ -16,7 +16,6 @@
 
 use std::io::Error as IoError;
 
-use http::StatusCode;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
@@ -28,7 +27,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::uiaa::{UiaaInfo, UiaaResponse},
-        error::{FromHttpResponseError, IntoHttpError, ServerError},
+        error::{FromHttpResponseError, IntoHttpError},
     },
     events::tag::InvalidUserTagName,
     IdParseError,
@@ -54,15 +53,27 @@ pub enum RumaApiError {
     /// A user-interactive authentication API error.
     ///
     /// When registering or authenticating, the Matrix server can send a
-    /// `UiaaResponse` as the error type, this is a User-Interactive
-    /// Authentication API response. This represents an error with
-    /// information about how to authenticate the user.
-    #[error(transparent)]
-    Uiaa(UiaaResponse),
+    /// `UiaaInfo` as the error type, this is a User-Interactive Authentication
+    /// API response. This represents an error with information about how to
+    /// authenticate the user.
+    #[error("User-Interactive Authentication required.")]
+    Uiaa(UiaaInfo),
 
     /// Another API response error.
     #[error(transparent)]
     Other(ruma::api::error::MatrixError),
+}
+
+impl RumaApiError {
+    /// If `self` is `ClientApi(e)`, returns `Some(e)`.
+    ///
+    /// Otherwise, returns `None`.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        match self {
+            Self::ClientApi(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 /// An HTTP error, representing either a connection error or an error while
@@ -90,10 +101,6 @@ pub enum HttpError {
     #[error(transparent)]
     IntoHttp(#[from] IntoHttpError),
 
-    /// The server returned a status code that should be retried.
-    #[error("Server returned an error {0}")]
-    Server(StatusCode),
-
     /// The given request can't be cloned and thus can't be retried.
     #[error("The request cannot be cloned")]
     UnableToCloneRequest,
@@ -103,13 +110,49 @@ pub enum HttpError {
     RefreshToken(#[from] RefreshTokenError),
 }
 
+#[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl HttpError {
-    /// If `self` is `Api(Server(Known(e)))`, returns `Some(e)`.
+    /// If `self` is
+    /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)(e))</code>,
+    /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
         match self {
-            Self::Api(FromHttpResponseError::Server(ServerError::Known(e))) => Some(e),
+            Self::Api(FromHttpResponseError::Server(e)) => Some(e),
+            _ => None,
+        }
+    }
+
+    /// Shorthand for
+    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
+    }
+
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(i)) => Some(i),
             _ => None,
         }
     }
@@ -127,6 +170,10 @@ pub enum Error {
     /// client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
+
+    /// This request failed because the local data wasn't sufficient.
+    #[error("Local cache doesn't contain all necessary data to perform the action.")]
+    InsufficientData,
 
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
@@ -194,9 +241,19 @@ pub enum Error {
     ImageError(#[from] ImageError),
 
     /// An error occurred within sliding-sync
-    #[cfg(feature = "sliding-sync")]
+    #[cfg(feature = "experimental-sliding-sync")]
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
+
+    /// An error occurred in the timeline.
+    #[cfg(feature = "experimental-timeline")]
+    #[error(transparent)]
+    Timeline(#[from] crate::room::timeline::Error),
+
+    /// The client is in inconsistent state. This happens when we set a room to
+    /// a specific type, but then cannot get it in this type.
+    #[error("The internal client state is inconsistent.")]
+    InconsistentState,
 
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
@@ -205,13 +262,49 @@ pub enum Error {
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
+#[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
 impl Error {
-    /// If `self` is `Http(Api(Server(Known(e))))`, returns `Some(e)`.
+    /// If `self` is
+    /// <code>[Http](Self::Http)([Api](HttpError::Api)([Server](FromHttpResponseError::Server)(e)))</code>,
+    /// returns `Some(e)`.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
         match self {
             Error::Http(e) => e.as_ruma_api_error(),
+            _ => None,
+        }
+    }
+
+    /// Shorthand for
+    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::client::Error> {
+        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client-API endpoints, returns the error kind (`errcode`).
+    pub fn client_api_error_kind(&self) -> Option<&ruma::api::client::error::ErrorKind> {
+        self.as_client_api_error().and_then(|e| match &e.body {
+            ruma::api::client::error::ErrorBody::Standard { kind, .. } => Some(kind),
+            _ => None,
+        })
+    }
+
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
+        match self.as_ruma_api_error() {
+            Some(RumaApiError::Uiaa(i)) => Some(i),
             _ => None,
         }
     }
@@ -245,79 +338,37 @@ pub enum RoomKeyImportError {
     Export(#[from] KeyExportError),
 }
 
-impl HttpError {
-    /// Try to destructure the error into an universal interactive auth info.
-    ///
-    /// Some requests require universal interactive auth, doing such a request
-    /// will always fail the first time with a 401 status code, the response
-    /// body will contain info how the client can authenticate.
-    ///
-    /// The request will need to be retried, this time containing additional
-    /// authentication data.
-    ///
-    /// This method is an convenience method to get to the info the server
-    /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
-            _ => None,
-        }
-    }
-}
-
-impl Error {
-    /// Try to destructure the error into an universal interactive auth info.
-    ///
-    /// Some requests require universal interactive auth, doing such a request
-    /// will always fail the first time with a 401 status code, the response
-    /// body will contain info how the client can authenticate.
-    ///
-    /// The request will need to be retried, this time containing additional
-    /// authentication data.
-    ///
-    /// This method is an convenience method to get to the info the server
-    /// returned on the first, failed request.
-    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        match self.as_ruma_api_error() {
-            Some(RumaApiError::Uiaa(UiaaResponse::AuthResponse(i))) => Some(i),
-            _ => None,
-        }
-    }
-}
-
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::ClientApi)))
+        Self::Api(err.map(RumaApiError::ClientApi))
     }
 }
 
 impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
     fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Uiaa)))
+        Self::Api(err.map(|e| match e {
+            UiaaResponse::AuthResponse(i) => RumaApiError::Uiaa(i),
+            UiaaResponse::MatrixError(e) => RumaApiError::ClientApi(e),
+        }))
     }
 }
 
 impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
-        Self::Api(err.map(|e| e.map(RumaApiError::Other)))
+        Self::Api(err.map(RumaApiError::Other))
     }
 }
 
 impl From<SdkBaseError> for Error {
     fn from(e: SdkBaseError) -> Self {
         match e {
-            SdkBaseError::AuthenticationRequired => Self::AuthenticationRequired,
             SdkBaseError::StateStore(e) => Self::StateStore(e),
-            SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
-            SdkBaseError::IoError(e) => Self::Io(e),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
-            #[cfg(feature = "e2e-encryption")]
-            SdkBaseError::MegolmError(e) => Self::MegolmError(e),
             #[cfg(feature = "eyre")]
             _ => Self::UnknownError(eyre::eyre!(e).into()),
             #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]

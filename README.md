@@ -1,4 +1,4 @@
-![Build Status](https://img.shields.io/github/workflow/status/matrix-org/matrix-rust-sdk/CI?style=flat-square)
+![Build Status](https://img.shields.io/github/actions/workflow/status/matrix-org/matrix-rust-sdk/ci.yml?style=flat-square)
 [![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/main.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
@@ -26,7 +26,7 @@ The rust-sdk consists of multiple crates that can be picked at your convenience:
 
 ## Minimum Supported Rust Version (MSRV)
 
-These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.64`
+These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.65`.
 
 ## Status
 

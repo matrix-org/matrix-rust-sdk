@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use futures::executor::block_on;
+use matrix_sdk::{ruma::events::room::message::RoomMessageEventContent, Client};
 use tokio::sync::mpsc;
 use tracing::warn;
 use tuirealm::{
@@ -14,7 +16,7 @@ use tuirealm::{
 };
 
 use super::{
-    components::{Details, Label, Logger, Rooms, StatusBar},
+    components::{Details, InputText, Label, Logger, Rooms, StatusBar},
     Id, JackInEvent, MatrixPoller, Msg,
 };
 use crate::client::state::SlidingSyncState;
@@ -32,6 +34,7 @@ pub struct Model {
     pub show_logger: bool,
     sliding_sync: SlidingSyncState,
     tx: mpsc::Sender<SlidingSyncState>,
+    pub client: Client,
 }
 
 impl Model {
@@ -39,6 +42,7 @@ impl Model {
         sliding_sync: SlidingSyncState,
         tx: mpsc::Sender<SlidingSyncState>,
         poller: MatrixPoller,
+        client: Client,
     ) -> Self {
         let app = Self::init_app(sliding_sync.clone(), poller);
 
@@ -50,6 +54,7 @@ impl Model {
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             show_logger: true,
+            client,
         }
     }
 }
@@ -85,8 +90,14 @@ impl Model {
                     .constraints([Constraint::Length(35), Constraint::Min(23)].as_ref())
                     .split(chunks[1]);
 
+                let details_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(10), Constraint::Max(3)].as_ref())
+                    .split(body_chunks[1]);
+
                 self.app.view(&Id::Rooms, f, body_chunks[0]);
-                self.app.view(&Id::Details, f, body_chunks[1]);
+                self.app.view(&Id::Details, f, details_chunks[0]);
+                self.app.view(&Id::TextMessage, f, details_chunks[1]);
                 self.app.view(&Id::Status, f, chunks[2]);
                 self.app.view(&Id::Label, f, chunks[0]);
                 if self.show_logger {
@@ -133,6 +144,7 @@ impl Model {
             )
             .is_ok());
 
+        assert!(app.mount(Id::TextMessage, Box::<InputText>::default(), vec![]).is_ok());
         assert!(app
             .mount(
                 Id::Rooms,
@@ -174,13 +186,21 @@ impl Update<Msg> for Model {
                 }
                 Msg::Clock => None,
                 Msg::RoomsBlur => {
-                    // Give focus to letter counter
-                    let _ = self.app.blur();
-                    assert!(self.app.active(&Id::Details).is_ok());
+                    // Give focus to room details
+                    if self.sliding_sync.has_selected_room() {
+                        let _ = self.app.blur();
+                        assert!(self.app.active(&Id::Details).is_ok());
+                    }
                     None
                 }
                 Msg::DetailsBlur => {
-                    // Give focus to letter counter
+                    // Give focus to room list
+                    let _ = self.app.blur();
+                    assert!(self.app.active(&Id::TextMessage).is_ok());
+                    None
+                }
+                Msg::TextBlur => {
+                    // Give focus to room list
                     let _ = self.app.blur();
                     assert!(self.app.active(&Id::Rooms).is_ok());
                     None
@@ -189,6 +209,17 @@ impl Update<Msg> for Model {
                     warn!("setting room, sending msg");
                     self.sliding_sync.select_room(r);
                     let _ = self.tx.try_send(self.sliding_sync.clone());
+                    None
+                }
+                Msg::SendMessage(m) => {
+                    if let Some(tl) = &**self.sliding_sync.room_timeline.read() {
+                        block_on(async move {
+                            // fire and forget
+                            tl.send(RoomMessageEventContent::text_plain(m).into(), None).await;
+                        });
+                    } else {
+                        warn!("asked to send message, but no room is selected");
+                    }
                     None
                 }
             }

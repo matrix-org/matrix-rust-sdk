@@ -27,11 +27,14 @@ pub use error::{
 };
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
-pub use machine::{KeyRequestPair, OlmMachine};
+pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
+use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
+    backups::SignatureState,
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
+use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -43,8 +46,9 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
-    CancelInfo, ConfirmVerificationResult, QrCode, RequestVerificationResult, Sas, ScanResult,
-    StartSasResult, Verification, VerificationRequest,
+    CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
+    RequestVerificationResult, Sas, SasListener, SasState, ScanResult, StartSasResult,
+    Verification, VerificationRequest, VerificationRequestListener, VerificationRequestState,
 };
 
 /// Struct collecting data that is important to migrate to the rust-sdk
@@ -161,6 +165,20 @@ impl From<anyhow::Error> for MigrationError {
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
 pub fn migrate(
+    data: MigrationData,
+    path: &str,
+    passphrase: Option<String>,
+    progress_listener: Box<dyn ProgressListener>,
+) -> anyhow::Result<()> {
+    use tokio::runtime::Runtime;
+    let runtime = Runtime::new()?;
+    runtime.block_on(async move {
+        migrate_data(data, path, passphrase, progress_listener).await?;
+        Ok(())
+    })
+}
+
+async fn migrate_data(
     mut data: MigrationData,
     path: &str,
     passphrase: Option<String>,
@@ -170,8 +188,6 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use matrix_sdk_sled::SledCryptoStore;
-    use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
         olm::{Account, Session},
@@ -193,9 +209,7 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let runtime = Runtime::new()?;
-    let store =
-        runtime.block_on(SledCryptoStore::open_with_passphrase(path, passphrase.as_deref()))?;
+    let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -292,11 +306,13 @@ pub fn migrate(
         data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
 
     let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
-    runtime.block_on(cross_signing.import_secrets_unchecked(
-        data.cross_signing.master_key.as_deref(),
-        data.cross_signing.self_signing_key.as_deref(),
-        data.cross_signing.user_signing_key.as_deref(),
-    ))?;
+    cross_signing
+        .import_secrets_unchecked(
+            data.cross_signing.master_key.as_deref(),
+            data.cross_signing.self_signing_key.as_deref(),
+            data.cross_signing.user_signing_key.as_deref(),
+        )
+        .await?;
 
     data.cross_signing.master_key.zeroize();
     data.cross_signing.self_signing_key.zeroize();
@@ -312,8 +328,7 @@ pub fn migrate(
         .collect::<anyhow::Result<_>>()?;
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
-
-    runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
+    store.save_tracked_users(tracked_users.as_slice()).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -327,7 +342,7 @@ pub fn migrate(
         backup_version: data.backup_version,
         ..Default::default()
     };
-    runtime.block_on(store.save_changes(changes))?;
+    store.save_changes(changes).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
@@ -458,11 +473,15 @@ pub struct DecryptedEvent {
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
     pub forwarding_curve25519_chain: Vec<String>,
+    /// The verification state of the device that sent us the event, note this
+    /// is the state of the device at the time of decryption. It may change in
+    /// the future if a device gets verified or deleted.
+    pub verification_state: VerificationState,
 }
 
 /// Struct representing the state of our private cross signing keys, it shows
 /// which private cross signing keys we have locally stored.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, uniffi::Record)]
 pub struct CrossSigningStatus {
     /// Do we have the master key.
     pub has_master: bool,
@@ -487,6 +506,7 @@ pub struct CrossSigningKeyExport {
 }
 
 /// Struct holding the number of room keys we have.
+#[derive(uniffi::Record)]
 pub struct RoomKeyCounts {
     /// The total number of room keys.
     pub total: i64,
@@ -495,6 +515,7 @@ pub struct RoomKeyCounts {
 }
 
 /// Backup keys and information we load from the store.
+#[derive(uniffi::Object)]
 pub struct BackupKeys {
     /// The recovery key as a base64 encoded string.
     recovery_key: Arc<BackupRecoveryKey>,
@@ -502,6 +523,7 @@ pub struct BackupKeys {
     backup_version: String,
 }
 
+#[uniffi::export]
 impl BackupKeys {
     /// Get the recovery key that we're holding on to.
     pub fn recovery_key(&self) -> Arc<BackupRecoveryKey> {
@@ -570,7 +592,15 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 mod uniffi_types {
-    pub use crate::{backup_recovery_key::BackupRecoveryKey, machine::OlmMachine};
+    pub use crate::{
+        backup_recovery_key::{
+            BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
+        },
+        error::CryptoStoreError,
+        machine::OlmMachine,
+        responses::Request,
+        BackupKeys, CrossSigningStatus, RoomKeyCounts,
+    };
 }
 
 #[cfg(test)]

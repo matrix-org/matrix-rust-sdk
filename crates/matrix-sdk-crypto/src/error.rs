@@ -18,7 +18,7 @@ use thiserror::Error;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::store::CryptoStoreError;
-use crate::olm::SessionExportError;
+use crate::{olm::SessionExportError, types::SignedKey};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -85,16 +85,29 @@ pub enum MegolmError {
 
     /// Decryption failed because we're missing the room key that was to encrypt
     /// the event.
-    #[error("decryption failed because the room key is missing")]
+    #[error("Can't find the room key to decrypt the event")]
     MissingRoomKey,
+
+    /// Decryption failed because of a mismatch between the identity keys of the
+    /// device we received the room key from and the identity keys recorded in
+    /// the plaintext of the room key to-device message.
+    #[error(
+        "decryption failed because of mismatched identity keys of the sending device and those recorded in the to-device message"
+    )]
+    MismatchedIdentityKeys {
+        /// The Ed25519 key recorded in the room key's to-device message.
+        key_ed25519: Box<Ed25519PublicKey>,
+        /// The Ed25519 identity key of the device sending the room key.
+        device_ed25519: Option<Box<Ed25519PublicKey>>,
+        /// The Curve25519 key recorded in the room key's to-device message.
+        key_curve25519: Box<Curve25519PublicKey>,
+        /// The Curve25519 identity key of the device sending the room key.
+        device_curve25519: Option<Box<Curve25519PublicKey>>,
+    },
 
     /// The encrypted megolm message couldn't be decoded.
     #[error(transparent)]
     Decode(#[from] vodozemac::DecodeError),
-
-    /// The room where a group session should be shared is not encrypted.
-    #[error("The room where a group session should be shared is not encrypted")]
-    EncryptionNotEnabled,
 
     /// The event could not have been decrypted.
     #[error(transparent)]
@@ -196,6 +209,10 @@ pub enum SignatureError {
     #[error("the given signature is not valid and can't be decoded")]
     InvalidSignature,
 
+    /// The signing key that used to sign the object has been changed.
+    #[error("the signing key that used to sign the object has changed, old: {0:?}, new: {1:?}")]
+    SigningKeyChanged(Option<Box<Ed25519PublicKey>>, Option<Box<Ed25519PublicKey>>),
+
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] CanonicalJsonError),
@@ -233,8 +250,18 @@ pub enum SessionCreationError {
     OneTimeKeyUnknown(OwnedUserId, OwnedDeviceId),
 
     /// Failed to verify the one-time key signatures.
-    #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
-    InvalidSignature(OwnedUserId, OwnedDeviceId, SignatureError),
+    #[error(
+        "Failed to verify the signature of a one-time key, key: {one_time_key:?}, \
+        signing_key: {signing_key:?}: {error:?}"
+    )]
+    InvalidSignature {
+        /// The one-time key that failed the signature verification.
+        one_time_key: SignedKey,
+        /// The key that was used to verify the signature.
+        signing_key: Option<Ed25519PublicKey>,
+        /// The exact error describing why the signature verification failed.
+        error: SignatureError,
+    },
 
     /// The user's device is missing a curve25519 key.
     #[error(

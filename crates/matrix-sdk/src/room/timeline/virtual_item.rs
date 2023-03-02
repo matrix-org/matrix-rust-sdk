@@ -12,11 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::MilliSecondsSinceUnixEpoch;
+
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
 #[derive(Clone, Debug)]
 pub enum VirtualTimelineItem {
     /// A divider between messages of two days.
-    DayDivider,
+    ///
+    /// The value is a timestamp in milliseconds since Unix Epoch on the given
+    /// day in local time.
+    DayDivider(MilliSecondsSinceUnixEpoch),
+
     /// The user's own read marker.
     ReadMarker,
+
+    /// A loading indicator for a pagination request.
+    LoadingIndicator,
+
+    /// The beginning of the visible timeline.
+    ///
+    /// There might be earlier events the user is not allowed to see due to
+    /// history visibility.
+    TimelineStart,
 }

@@ -75,7 +75,7 @@ pub use file_encryption::{
 };
 pub use gossiping::GossipRequest;
 pub use identities::{
-    Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
@@ -86,13 +86,15 @@ pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
-pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
+pub use store::{
+    CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo, TrackedUser,
+};
 pub use verification::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,
-    SasState, Verification, VerificationRequest,
+    SasState, Verification, VerificationRequest, VerificationRequestState,
 };
 #[cfg(feature = "qrcode")]
-pub use verification::{QrVerification, ScanError};
+pub use verification::{QrVerification, QrVerificationState, ScanError};
 
 /// Re-exported Error types from the [vodozemac](https://crates.io/crates/vodozemac) crate.
 pub mod vodozemac {
@@ -101,6 +103,9 @@ pub mod vodozemac {
         olm::{
             DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
         },
-        DecodeError, KeyError, PickleError, SignatureError,
+        DecodeError, KeyError, PickleError, SignatureError, VERSION,
     };
 }
+
+/// The version of the matrix-sdk-cypto crate being used
+pub static VERSION: &str = env!("CARGO_PKG_VERSION");

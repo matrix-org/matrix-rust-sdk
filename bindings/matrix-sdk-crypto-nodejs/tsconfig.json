@@ -5,6 +5,6 @@
     "typedocOptions": {
         "entryPoints": ["index.d.ts"],
         "out": "docs",
-        "readme": "README.md",
+        "readme": "README.md"
     }
 }

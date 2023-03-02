@@ -1,62 +1,80 @@
-const { UserId, DeviceId, DeviceKeyId, DeviceKeyAlgorithm, DeviceKeyAlgorithmName, RoomId, ServerName } = require('../');
+const {
+    UserId,
+    DeviceId,
+    DeviceKeyId,
+    DeviceKeyAlgorithm,
+    DeviceKeyAlgorithmName,
+    RoomId,
+    ServerName,
+} = require("../");
 
 describe(UserId.name, () => {
-    test('cannot be invalid', () => {
-        expect(() => { new UserId('@foobar') }).toThrow();
+    test("cannot be invalid", () => {
+        expect(() => {
+            new UserId("@foobar");
+        }).toThrow();
     });
 
-    const user = new UserId('@foo:bar.org');
+    const user = new UserId("@foo:bar.org");
 
-    test('localpart is present', () => {
-        expect(user.localpart).toStrictEqual('foo');
+    test("localpart is present", () => {
+        expect(user.localpart).toStrictEqual("foo");
     });
 
-    test('server name is present', () => {
+    test("server name is present", () => {
         expect(user.serverName).toBeInstanceOf(ServerName);
     });
 
-    test('user ID is not historical', () => {
+    test("user ID is not historical", () => {
         expect(user.isHistorical()).toStrictEqual(false);
     });
 
-    test('can read the user ID as a string', () => {
-        expect(user.toString()).toStrictEqual('@foo:bar.org');
-    })
+    test("can read the user ID as a string", () => {
+        expect(user.toString()).toStrictEqual("@foo:bar.org");
+    });
 });
 
 describe(DeviceId.name, () => {
-    const device = new DeviceId('foo');
+    const device = new DeviceId("foo");
 
-    test('can read the device ID as a string', () => {
-        expect(device.toString()).toStrictEqual('foo');
-    })
+    test("can read the device ID as a string", () => {
+        expect(device.toString()).toStrictEqual("foo");
+    });
 });
 
 describe(DeviceKeyId.name, () => {
     for (const deviceKey of [
-        { name: 'ed25519',
-          id: 'ed25519:foobar',
-          algorithmName: DeviceKeyAlgorithmName.Ed25519,
-          algorithm: 'ed25519',
-          deviceId: 'foobar' },
+        {
+            name: "ed25519",
+            id: "ed25519:foobar",
+            algorithmName: DeviceKeyAlgorithmName.Ed25519,
+            algorithm: "ed25519",
+            deviceId: "foobar",
+        },
 
-        { name: 'curve25519',
-          id: 'curve25519:foobar',
-          algorithmName: DeviceKeyAlgorithmName.Curve25519,
-          algorithm: 'curve25519',
-          deviceId: 'foobar' },
+        {
+            name: "curve25519",
+            id: "curve25519:foobar",
+            algorithmName: DeviceKeyAlgorithmName.Curve25519,
+            algorithm: "curve25519",
+            deviceId: "foobar",
+        },
 
-        { name: 'signed curve25519',
-          id: 'signed_curve25519:foobar',
-          algorithmName: DeviceKeyAlgorithmName.SignedCurve25519,
-          algorithm: 'signed_curve25519',
-          deviceId: 'foobar' },
+        {
+            name: "signed curve25519",
+            id: "signed_curve25519:foobar",
+            algorithmName: DeviceKeyAlgorithmName.SignedCurve25519,
+            algorithm: "signed_curve25519",
+            deviceId: "foobar",
+        },
 
-        { name: 'unknown',
-          id: 'hello:foobar',
-          algorithmName: DeviceKeyAlgorithmName.Unknown,
-          algorithm: 'hello',
-          deviceId: 'foobar' },
+        {
+            name: "unknown",
+            id: "hello:foobar",
+            algorithmName: DeviceKeyAlgorithmName.Unknown,
+            algorithm: "hello",
+            deviceId: "foobar",
+        },
     ]) {
         test(`${deviceKey.name} algorithm`, () => {
             const dk = new DeviceKeyId(deviceKey.id);
@@ -69,8 +87,8 @@ describe(DeviceKeyId.name, () => {
     }
 });
 
-describe('DeviceKeyAlgorithmName', () => {
-    test('has the correct variants', () => {
+describe("DeviceKeyAlgorithmName", () => {
+    test("has the correct variants", () => {
         expect(DeviceKeyAlgorithmName.Ed25519).toStrictEqual(0);
         expect(DeviceKeyAlgorithmName.Curve25519).toStrictEqual(1);
         expect(DeviceKeyAlgorithmName.SignedCurve25519).toStrictEqual(2);
@@ -79,40 +97,44 @@ describe('DeviceKeyAlgorithmName', () => {
 });
 
 describe(RoomId.name, () => {
-    test('cannot be invalid', () => {
-        expect(() => { new RoomId('!foo') }).toThrow();
+    test("cannot be invalid", () => {
+        expect(() => {
+            new RoomId("!foo");
+        }).toThrow();
     });
 
-    const room = new RoomId('!foo:bar.org');
+    const room = new RoomId("!foo:bar.org");
 
-    test('localpart is present', () => {
-        expect(room.localpart).toStrictEqual('foo');
+    test("localpart is present", () => {
+        expect(room.localpart).toStrictEqual("foo");
     });
 
-    test('server name is present', () => {
+    test("server name is present", () => {
         expect(room.serverName).toBeInstanceOf(ServerName);
     });
 
-    test('can read the room ID as string', () => {
-        expect(room.toString()).toStrictEqual('!foo:bar.org');
+    test("can read the room ID as string", () => {
+        expect(room.toString()).toStrictEqual("!foo:bar.org");
     });
 });
 
 describe(ServerName.name, () => {
-    test('cannot be invalid', () => {
-        expect(() => { new ServerName('@foobar') }).toThrow()
+    test("cannot be invalid", () => {
+        expect(() => {
+            new ServerName("@foobar");
+        }).toThrow();
     });
 
-    test('host is present', () => {
-        expect(new ServerName('foo.org').host).toStrictEqual('foo.org');
+    test("host is present", () => {
+        expect(new ServerName("foo.org").host).toStrictEqual("foo.org");
     });
 
-    test('port can be optional', () => {
-        expect(new ServerName('foo.org').port).toStrictEqual(null);
-        expect(new ServerName('foo.org:1234').port).toStrictEqual(1234);
+    test("port can be optional", () => {
+        expect(new ServerName("foo.org").port).toStrictEqual(null);
+        expect(new ServerName("foo.org:1234").port).toStrictEqual(1234);
     });
 
-    test('server is not an IP literal', () => {
-        expect(new ServerName('foo.org').isIpLiteral()).toStrictEqual(false);
+    test("server is not an IP literal", () => {
+        expect(new ServerName("foo.org").isIpLiteral()).toStrictEqual(false);
     });
 });

@@ -17,28 +17,25 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::RwLockReadGuard as StdRwLockReadGuard,
 };
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
-use futures_signals::signal::ReadOnlyMutable;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncTimelineEvent, Timeline,
-    },
-    instant::Instant,
-};
+use eyeball::Observable;
+use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, MemoryStore as MemoryCryptoStore},
-    EncryptionSettings, MegolmError, OlmError, OlmMachine, ToDeviceRequest,
+    store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::{history_visibility::HistoryVisibility, redaction::SyncRoomRedactionEvent},
+    room::{
+        history_visibility::HistoryVisibility, message::MessageType,
+        redaction::SyncRoomRedactionEvent,
+    },
     AnySyncMessageLikeEvent, SyncMessageLikeEvent,
 };
 use ruma::{
@@ -62,13 +59,15 @@ use tracing::{debug, info, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
+    deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
-        StoreConfig,
+        ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
+        StateStoreExt, Store, StoreConfig,
     },
-    Session, SessionMeta, SessionTokens, StateStore,
+    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
+    Session, SessionMeta, SessionTokens,
 };
 
 /// A no IO Client implementation.
@@ -79,12 +78,15 @@ use crate::{
 pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
-    /// The store used for encryption
+    /// The store used for encryption.
+    ///
+    /// This field is only meant to be used for `OlmMachine` initialization.
+    /// All operations on it happen inside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
-    crypto_store: Arc<dyn CryptoStore>,
+    crypto_store: Arc<DynCryptoStore>,
     /// The olm-machine that is created once the
-    /// [`Session`][crate::session::Session] is set via
-    /// [`BaseClient::restore_login`]
+    /// [`SessionMeta`][crate::session::SessionMeta] is set via
+    /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
 }
@@ -112,15 +114,10 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "e2e-encryption")]
-        let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
-
         BaseClient {
-            store,
+            store: Store::new(config.state_store),
             #[cfg(feature = "e2e-encryption")]
-            crypto_store,
+            crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
         }
@@ -140,7 +137,7 @@ impl BaseClient {
     /// If the client is currently logged in, this will return a
     /// [`SessionTokens`] object which contains the access token and optional
     /// refresh token. Otherwise it returns `None`.
-    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
         self.store.session_tokens()
     }
 
@@ -152,8 +149,7 @@ impl BaseClient {
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
-    /// [`Session`][crate::session::Session] object which can later be given to
-    /// [`BaseClient::restore_login`].
+    /// [`Session`][crate::session::Session] object.
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
@@ -166,6 +162,12 @@ impl BaseClient {
         self.store.get_rooms()
     }
 
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        self.store.get_or_create_room(room_id, room_type).await
+    }
+
     /// Get all the rooms this client knows about.
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
         self.store.get_stripped_rooms()
@@ -173,7 +175,7 @@ impl BaseClient {
 
     /// Get a reference to the store.
     #[allow(unknown_lints, clippy::explicit_auto_deref)]
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         &*self.store
     }
 
@@ -192,30 +194,39 @@ impl BaseClient {
         &self,
         response: &api::session::login::v3::Response,
     ) -> Result<()> {
-        let session = Session {
+        let tokens = SessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone(),
+        };
+        self.set_session_tokens(tokens);
+
+        let meta = SessionMeta {
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
-        self.restore_login(session).await
+        self.set_session_meta(meta).await
     }
 
-    /// Restore a previously logged in session.
+    /// Set the meta of the session.
+    ///
+    /// If encryption is enabled, this also initializes or restores the
+    /// `OlmMachine`.
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a previous login
-    ///   call.
-    pub async fn restore_login(&self, session: Session) -> Result<()> {
-        debug!(user_id = %session.user_id, device_id = %session.device_id, "Restoring login");
-        self.store.restore_session(session.clone()).await?;
+    /// * `session_meta` - The meta of a session that the user already has from
+    ///   a previous login call.
+    ///
+    /// This method panics if it is called twice.
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
+        debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
+        self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
         {
             let olm_machine = OlmMachine::with_store(
-                &session.user_id,
-                &session.device_id,
+                &session_meta.user_id,
+                &session_meta.device_id,
                 self.crypto_store.clone(),
             )
             .await
@@ -236,19 +247,47 @@ impl BaseClient {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    async fn handle_unencrypted_verification_event(
+    async fn handle_verification_event(
         &self,
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
         if let Some(olm) = self.olm_machine() {
-            olm.receive_unencrypted_verification_event(
-                &event.clone().into_full_event(room_id.to_owned()),
-            )
-            .await?;
+            olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
+                .await?;
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    async fn decrypt_sync_room_event(
+        &self,
+        event: &Raw<AnySyncTimelineEvent>,
+        room_id: &RoomId,
+    ) -> Result<Option<SyncTimelineEvent>> {
+        let Some(olm) = self.olm_machine() else { return Ok(None) };
+
+        let event = olm.decrypt_room_event(event.cast_ref(), room_id).await?;
+        let event: SyncTimelineEvent = event.into();
+
+        if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
+            match &e {
+                AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+                    original_event,
+                )) => {
+                    if let MessageType::VerificationRequest(_) = &original_event.content.msgtype {
+                        self.handle_verification_event(&e, room_id).await?;
+                    }
+                }
+                _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                    self.handle_verification_event(&e, room_id).await?;
+                }
+                _ => (),
+            }
+        }
+
+        Ok(Some(event))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -302,11 +341,10 @@ impl BaseClient {
                                         .insert(member.sender().to_owned(), member.into());
                                 }
 
-                                changes
-                                    .members
-                                    .entry(room_id.to_owned())
-                                    .or_default()
-                                    .insert(member.state_key().to_owned(), member.clone());
+                                changes.members.entry(room_id.to_owned()).or_default().insert(
+                                    member.state_key().to_owned(),
+                                    event.event.clone().cast(),
+                                );
                             }
                             _ => {
                                 room_info.handle_state_event(s);
@@ -326,7 +364,8 @@ impl BaseClient {
                             ),
                         ) => {
                             room_info.handle_redaction(r);
-                            changes.add_redaction(room_id, r.clone());
+                            let raw_event = event.event.clone().cast();
+                            changes.add_redaction(room_id, &r.redacts, raw_event);
                         }
 
                         #[cfg(feature = "e2e-encryption")]
@@ -334,13 +373,10 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Some(olm) = self.olm_machine() {
-                                    if let Ok(decrypted) = olm
-                                        .decrypt_room_event(event.event.cast_ref(), room_id)
-                                        .await
-                                    {
-                                        event = decrypted.into();
-                                    }
+                                if let Ok(Some(e)) =
+                                    self.decrypt_sync_room_event(&event.event, room_id).await
+                                {
+                                    event = e;
                                 }
                             }
                             AnySyncMessageLikeEvent::RoomMessage(
@@ -349,12 +385,12 @@ impl BaseClient {
                                 ruma::events::room::message::MessageType::VerificationRequest(
                                     _,
                                 ) => {
-                                    self.handle_unencrypted_verification_event(e, room_id).await?;
+                                    self.handle_verification_event(e, room_id).await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                self.handle_unencrypted_verification_event(e, room_id).await?;
+                                self.handle_verification_event(e, room_id).await?;
                             }
                             _ => (),
                         },
@@ -417,7 +453,7 @@ impl BaseClient {
         for raw_event in events {
             match raw_event.deserialize() {
                 Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                    members.insert(member.state_key.clone(), member);
+                    members.insert(member.state_key.clone(), raw_event.clone().cast());
                 }
                 Ok(e) => {
                     room_info.handle_stripped_state_event(&e);
@@ -428,7 +464,7 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        room_id = %room_info.room_id,
+                        room_id = ?room_info.room_id,
                         "Couldn't deserialize stripped state event: {err:?}",
                     );
                 }
@@ -457,7 +493,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(%room_id, "Couldn't deserialize state event: {e:?}");
+                    warn!(?room_id, "Couldn't deserialize state event: {e:?}");
                     continue;
                 }
             };
@@ -482,7 +518,7 @@ impl BaseClient {
                     profiles.insert(member.sender().to_owned(), member.borrow().into());
                 }
 
-                members.insert(member.state_key().to_owned(), member);
+                members.insert(member.state_key().to_owned(), raw_event.clone().cast());
             } else {
                 state_events
                     .entry(event.event_type())
@@ -522,7 +558,8 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(error = ?e, "Failed to deserialize a global account data event");
+                    let event_type: Option<String> = raw_event.get_field("type").ok().flatten();
+                    warn!(event_type, "Failed to deserialize a global account data event: {e}");
                     continue;
                 }
             };
@@ -579,6 +616,53 @@ impl BaseClient {
         }
     }
 
+    /// User has joined a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
+        if room.room_type() != RoomType::Joined {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_joined();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+        }
+
+        Ok(room)
+    }
+
+    /// User has left a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
+        if room.room_type() != RoomType::Left {
+            let _sync_lock = self.sync_lock().read().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.update_summary(room_info); // Update the cached room handle
+        }
+
+        Ok(room)
+    }
+
+    /// Get access to the store's sync lock.
+    pub fn sync_lock(&self) -> &RwLock<()> {
+        self.store.sync_lock()
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -605,7 +689,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
+            return Ok(SyncResponse::default());
         }
 
         let now = Instant::now();
@@ -637,6 +721,7 @@ impl BaseClient {
 
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
+            room_info.mark_state_fully_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -689,10 +774,10 @@ impl BaseClient {
 
                         let user_ids: Vec<&UserId> =
                             joined.iter().chain(&invited).map(Deref::deref).collect();
-                        o.update_tracked_users(user_ids).await
+                        o.update_tracked_users(user_ids).await?
                     }
 
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
                 }
             }
 
@@ -717,6 +802,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
 
             let mut user_ids = self
                 .handle_state(
@@ -757,6 +843,7 @@ impl BaseClient {
             if let Some(r) = self.store.get_room(&room_id) {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited();
+                room_info.mark_state_fully_synced();
                 changes.add_room(room_info);
             }
 
@@ -784,14 +871,15 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
+        let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
         *self.store.sync_token.write().await = Some(next_batch.clone());
         self.apply_changes(&changes).await;
+        drop(sync_lock);
 
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch,
             rooms: new_rooms,
             presence,
             account_data: account_data.events,
@@ -836,18 +924,7 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::v3::Response,
     ) -> Result<MembersResponse> {
-        let members: Vec<_> = response
-            .chunk
-            .iter()
-            .filter_map(|event| match event.deserialize() {
-                Ok(ev) => Some(ev),
-                Err(e) => {
-                    debug!(?event, "Failed to deserialize m.room.member event: {e}");
-                    None
-                }
-            })
-            .collect();
-
+        let mut chunk = Vec::with_capacity(response.chunk.len());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
@@ -859,40 +936,58 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             let mut user_ids = BTreeSet::new();
 
-            for member in &members {
-                let member: SyncRoomMemberEvent = member.clone().into();
-
-                if self.store.get_member_event(room_id, member.state_key()).await?.is_none() {
-                    #[cfg(feature = "e2e-encryption")]
-                    match member.membership() {
-                        MembershipState::Join | MembershipState::Invite => {
-                            user_ids.insert(member.state_key().to_owned());
-                        }
-                        _ => (),
+            for raw_event in &response.chunk {
+                let member = match raw_event.deserialize() {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        let event_id: Option<String> =
+                            raw_event.get_field("event_id").ok().flatten();
+                        debug!(event_id, "Failed to deserialize member event: {e}");
+                        continue;
                     }
+                };
 
-                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                // TODO: All the actions in this loop used to be done only when the membership
+                // event was not in the store before. This was changed with the new room API,
+                // because e.g. leaving a room makes members events outdated and they need to be
+                // fetched by `get_members`. Therefore, they need to be overwritten here, even
+                // if they exist.
+                // However, this makes a new problem occur where setting the member events here
+                // potentially races with the sync.
+                // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
 
-                    if member.state_key() == member.sender() {
-                        changes
-                            .profiles
-                            .entry(room_id.to_owned())
-                            .or_default()
-                            .insert(member.sender().to_owned(), member.borrow().into());
+                #[cfg(feature = "e2e-encryption")]
+                match member.membership() {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key().to_owned());
                     }
+                    _ => (),
+                }
 
+                let sync_member: SyncRoomMemberEvent = member.clone().into();
+
+                ambiguity_cache.handle_event(&changes, room_id, &sync_member).await?;
+
+                if member.state_key() == member.sender() {
                     changes
-                        .members
+                        .profiles
                         .entry(room_id.to_owned())
                         .or_default()
-                        .insert(member.state_key().to_owned(), member);
+                        .insert(member.sender().to_owned(), sync_member.into());
                 }
+
+                changes
+                    .members
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(member.state_key().to_owned(), raw_event.clone().cast());
+                chunk.push(member);
             }
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine() {
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
 
@@ -904,7 +999,7 @@ impl BaseClient {
         }
 
         Ok(MembersResponse {
-            chunk: members,
+            chunk,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
         })
     }
@@ -969,7 +1064,7 @@ impl BaseClient {
                     joined.iter().chain(&invited)
                 };
 
-                let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
+                let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
                 Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
@@ -1037,8 +1132,12 @@ impl BaseClient {
 
         let member_count = room_info.active_members_count();
 
-        let user_display_name = if let Some(member) =
-            changes.members.get(room_id).and_then(|members| members.get(user_id))
+        // TODO: Use if let chain once stable
+        let user_display_name = if let Some(Ok(member)) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+            .map(Raw::deserialize)
         {
             member
                 .as_original()
@@ -1089,12 +1188,16 @@ impl BaseClient {
         room_info: &RoomInfo,
         changes: &StateChanges,
     ) {
-        let room_id = &room_info.room_id;
+        let room_id = &*room_info.room_id;
 
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-        if let Some(member) =
-            changes.members.get(&**room_id).and_then(|members| members.get(user_id))
+        // TODO: Use if let chain once stable
+        if let Some(Ok(member)) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+            .map(Raw::deserialize)
         {
             push_rules.user_display_name = member
                 .as_original()
@@ -1104,7 +1207,7 @@ impl BaseClient {
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
-            .get(&**room_id)
+            .get(room_id)
             .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize().ok())
         {
@@ -1136,7 +1239,7 @@ mod tests {
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{DisplayName, RoomType, Session};
+    use crate::{DisplayName, RoomType, SessionMeta};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1145,9 +1248,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_login(Session {
-                access_token: "token".to_owned(),
-                refresh_token: None,
+            .set_session_meta(SessionMeta {
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })
@@ -1200,9 +1301,7 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .restore_login(Session {
-                access_token: "token".to_owned(),
-                refresh_token: None,
+            .set_session_meta(SessionMeta {
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })

@@ -51,7 +51,7 @@ lipo -create \
   -output "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a"
 
 # Generate uniffi files
-uniffi-bindgen generate \
+cargo uniffi-bindgen generate \
   --language swift \
   --lib-file "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   --config "${SRC_ROOT}/bindings/${TARGET_CRATE}/uniffi.toml" \

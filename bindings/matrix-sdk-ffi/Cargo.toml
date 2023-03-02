@@ -6,37 +6,48 @@ homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
 license = "Apache-2.0"
 readme = "README.md"
-rust-version = "1.56"
+rust-version = { workspace = true }
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [lib]
-crate-type = ["staticlib"]
-
-[features]
-default = ["experimental-room-preview"] # the whole crate is still very experimental, so this is fine
-experimental-room-preview = ["matrix-sdk/experimental-room-preview"]
+crate-type = ["cdylib", "staticlib"]
 
 [build-dependencies]
-uniffi_build = { workspace = true, features = ["builtin-bindgen"] }
+uniffi = { workspace = true, features = ["build"] }
 
 [dependencies]
-anyhow = "1.0.51"
+anyhow = { workspace = true }
+base64 = "0.21"
+eyeball = { workspace = true }
+eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
-futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.17", default-features = false }
-# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
+mime = "0.3.16"
+# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync", "socks"], version = "0.6.0" }
-once_cell = "1.10.0"
+once_cell = { workspace = true }
+opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client", "http-proto"] }
+ruma = { workspace = true, features = ["unstable-sanitize"] }
 sanitize-filename-reader-friendly = "2.2.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1" }
-thiserror = "1.0.30"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-opentelemetry = { version = "0.18.0" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uniffi = { workspace = true }
-uniffi_macros = { workspace = true }
 rand = "0.8.5"
+url = "2.2.2"
+zeroize = { workspace = true }
+
+
+[target.'cfg(target_os = "android")'.dependencies]
+log-panics = { version = "2", features = ["with-backtrace"]}
+tracing-android = "0.2.0"
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "experimental-sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "experimental-sliding-sync", "socks"], version = "0.6.0" }

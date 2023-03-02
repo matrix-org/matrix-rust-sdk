@@ -4,6 +4,7 @@ use matrix_sdk_crypto::{
     store::CryptoStoreError as InnerStoreError, KeyExportError, MegolmError, OlmError,
     SecretImportError as RustSecretImportError, SignatureError as InnerSignatureError,
 };
+use matrix_sdk_sqlite::OpenStoreError;
 use ruma::{IdParseError, OwnedUserId};
 
 #[derive(Debug, thiserror::Error)]
@@ -38,8 +39,11 @@ pub enum SignatureError {
     UnknownUserIdentity(String),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum CryptoStoreError {
+    #[error("Failed to open the store")]
+    OpenStore(#[from] OpenStoreError),
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
     #[error(transparent)]
@@ -58,6 +62,19 @@ pub enum DecryptionError {
     Serialization(#[from] serde_json::Error),
     #[error(transparent)]
     Identifier(#[from] IdParseError),
+    #[error("Megolm decryption error: {error_message}")]
+    Megolm { error_message: String },
+    #[error("Can't find the room key to decrypt the event")]
+    MissingRoomKey,
     #[error(transparent)]
-    Megolm(#[from] MegolmError),
+    Store(#[from] InnerStoreError),
+}
+
+impl From<MegolmError> for DecryptionError {
+    fn from(value: MegolmError) -> Self {
+        match value {
+            MegolmError::MissingRoomKey => Self::MissingRoomKey,
+            _ => Self::Megolm { error_message: value.to_string() },
+        }
+    }
 }

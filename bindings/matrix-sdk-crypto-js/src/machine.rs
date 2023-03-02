@@ -1,6 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
 use js_sys::{Array, Function, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
@@ -13,7 +13,7 @@ use crate::{
     identifiers, identities,
     js::downcast,
     olm, requests,
-    requests::OutgoingRequest,
+    requests::{OutgoingRequest, ToDeviceRequest},
     responses::{self, response_from_string},
     store, sync_events, types, verification, vodozemac,
 };
@@ -28,7 +28,17 @@ pub struct OlmMachine {
 
 #[wasm_bindgen]
 impl OlmMachine {
-    /// Create a new memory based `OlmMachine`.
+    /// Constructor will always fail. To create a new `OlmMachine`, please use
+    /// the `initialize` method.
+    ///
+    /// Why this pattern? `initialize` returns a `Promise`. Returning a
+    // `Promise` from a constructor is not idiomatic in JavaScript.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<OlmMachine, JsError> {
+        Err(JsError::new("To build an `OlmMachine`, please use the `initialize` method"))
+    }
+
+    /// Create a new `OlmMachine`.
     ///
     /// The created machine will keep the encryption keys either in a IndexedDB
     /// based store, or in a memory store and once the objects is dropped,
@@ -49,9 +59,7 @@ impl OlmMachine {
     ///
     /// * `store_passphrase` - The passphrase that should be used to encrypt the
     ///   IndexedDB based
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(
+    pub fn initialize(
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
         store_name: Option<String>,
@@ -62,16 +70,7 @@ impl OlmMachine {
 
         future_to_promise(async move {
             let store = match (store_name, store_passphrase) {
-                // We need this `#[cfg]` because `IndexeddbCryptoStore`
-                // implements `CryptoStore` only on `target_arch =
-                // "wasm32"`. Without that, we could have a compilation
-                // error when checking the entire workspace. In
-                // practise, it doesn't impact this crate because it's
-                // always compiled for `wasm32`.
-                #[cfg(target_arch = "wasm32")]
                 (Some(store_name), Some(mut store_passphrase)) => {
-                    use std::sync::Arc;
-
                     use zeroize::Zeroize;
 
                     let store = Some(
@@ -79,8 +78,7 @@ impl OlmMachine {
                             &store_name,
                             &store_passphrase,
                         )
-                        .await
-                        .map(Arc::new)?,
+                        .await?,
                     );
 
                     store_passphrase.zeroize();
@@ -88,15 +86,9 @@ impl OlmMachine {
                     store
                 }
 
-                #[cfg(target_arch = "wasm32")]
-                (Some(store_name), None) => {
-                    use std::sync::Arc;
-                    Some(
-                        matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_name(&store_name)
-                            .await
-                            .map(Arc::new)?,
-                    )
-                }
+                (Some(store_name), None) => Some(
+                    matrix_sdk_indexeddb::IndexeddbCryptoStore::open_with_name(&store_name).await?,
+                ),
 
                 (None, Some(_)) => {
                     return Err(anyhow::Error::msg(
@@ -105,11 +97,18 @@ impl OlmMachine {
                     ))
                 }
 
-                _ => None,
+                (None, None) => None,
             };
 
             Ok(OlmMachine {
                 inner: match store {
+                    // We need this `#[cfg]` because `IndexeddbCryptoStore`
+                    // implements `CryptoStore` only on `target_arch =
+                    // "wasm32"`. Without that, we could have a compilation
+                    // error when checking the entire workspace. In practice,
+                    // it doesn't impact this crate because it's always
+                    // compiled for `wasm32`.
+                    #[cfg(target_arch = "wasm32")]
                     Some(store) => {
                         matrix_sdk_crypto::OlmMachine::with_store(
                             user_id.as_ref(),
@@ -118,7 +117,7 @@ impl OlmMachine {
                         )
                         .await?
                     }
-                    None => {
+                    _ => {
                         matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
                             .await
                     }
@@ -153,30 +152,42 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
-    /// Get all the tracked users of our own device.
+    /// Get the list of users whose devices we are currently tracking.
+    ///
+    /// A user can be marked for tracking using the
+    /// [`update_tracked_users`](#method.update_tracked_users) method.
     ///
     /// Returns a `Set<UserId>`.
     #[wasm_bindgen(js_name = "trackedUsers")]
-    pub fn tracked_users(&self) -> Set {
+    pub fn tracked_users(&self) -> Result<Promise, JsError> {
         let set = Set::new(&JsValue::UNDEFINED);
+        let me = self.inner.clone();
 
-        for user in self.inner.tracked_users() {
-            set.add(&identifiers::UserId::from(user).into());
-        }
-
-        set
+        Ok(future_to_promise(async move {
+            for user in me.tracked_users().await? {
+                set.add(&identifiers::UserId::from(user).into());
+            }
+            Ok(set)
+        }))
     }
 
-    /// Update the tracked users.
+    /// Update the list of tracked users.
     ///
-    /// `users` is an iterator over user IDs that should be marked for
-    /// tracking.
+    /// The OlmMachine maintains a list of users whose devices we are keeping
+    /// track of: these are known as "tracked users". These must be users
+    /// that we share a room with, so that the server sends us updates for
+    /// their device lists.
     ///
-    /// This will mark users that weren't seen before for a key query
-    /// and tracking.
+    /// # Arguments
     ///
-    /// If the user is already known to the Olm machine, it will not
-    /// be considered for a key query.
+    /// * `users` - An array of user ids that should be added to the list of
+    ///   tracked users
+    ///
+    /// Any users that hadn't been seen before will be flagged for a key query
+    /// immediately, and whenever `receive_sync_changes` receives a
+    /// "changed" notification for that user in the future.
+    ///
+    /// Users that were already in the list are unaffected.
     #[wasm_bindgen(js_name = "updateTrackedUsers")]
     pub fn update_tracked_users(&self, users: &Array) -> Result<Promise, JsError> {
         let users = users
@@ -187,7 +198,7 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            me.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+            me.update_tracked_users(users.iter().map(AsRef::as_ref)).await?;
             Ok(JsValue::UNDEFINED)
         }))
     }
@@ -471,6 +482,8 @@ impl OlmMachine {
     /// `room_id` is the room ID. `users` is an array of `UserId`
     /// objects. `encryption_settings` are an `EncryptionSettings`
     /// object.
+    ///
+    /// Returns an array of `ToDeviceRequest`s.
     #[wasm_bindgen(js_name = "shareRoomKey")]
     pub fn share_room_key(
         &self,
@@ -489,20 +502,27 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(serde_json::to_string(
-                &me.share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
-                    .await?,
-            )?)
+            let to_device_requests = me
+                .share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
+                .await?;
+
+            // convert each request to our own ToDeviceRequest struct, and then wrap it in a
+            // JsValue.
+            //
+            // Then collect the results into a javascript Array, throwing any errors into
+            // the promise.
+            Ok(to_device_requests
+                .into_iter()
+                .map(|td| ToDeviceRequest::try_from(td.deref()).map(JsValue::from))
+                .collect::<Result<Array, _>>()?)
         }))
     }
 
     /// Get the a key claiming request for the user/device pairs that
     /// we are missing Olm sessions for.
     ///
-    /// Returns `NULL` if no key claiming request needs to be sent
-    /// out, otherwise it returns an `Array` where the first key is
-    /// the transaction ID as a string, and the second key is the keys
-    /// claim request serialized to JSON.
+    /// Returns `null` if no key claiming request needs to be sent
+    /// out, otherwise it returns a `KeysClaimRequest` object.
     ///
     /// Sessions need to be established between devices so group
     /// sessions for a room can be shared with them.
@@ -625,24 +645,24 @@ impl OlmMachine {
             .collect()
     }
 
-    /// Receive an unencrypted verification event.
+    /// Receive a verification event.
     ///
-    /// This method can be used to pass verification events that are
-    /// happening in unencrypted rooms to the `OlmMachine`.
-    ///
-    /// Note: This does not need to be called for encrypted events
-    /// since those will get passed to the `OlmMachine` during
-    /// decryption.
-    #[wasm_bindgen(js_name = "receiveUnencryptedVerificationEvent")]
-    pub fn receive_unencrypted_verification_event(&self, event: &str) -> Result<Promise, JsError> {
-        let event: ruma::events::AnyMessageLikeEvent = serde_json::from_str(event)?;
+    /// This method can be used to pass verification events that are happening
+    /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
+    #[wasm_bindgen(js_name = "receiveVerificationEvent")]
+    pub fn receive_verification_event(
+        &self,
+        event: &str,
+        room_id: &identifiers::RoomId,
+    ) -> Result<Promise, JsError> {
+        let room_id = room_id.inner.clone();
+        let event: ruma::events::AnySyncMessageLikeEvent = serde_json::from_str(event)?;
+        let event = event.into_full_event(room_id);
+
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(me
-                .receive_unencrypted_verification_event(&event)
-                .await
-                .map(|_| JsValue::UNDEFINED)?)
+            Ok(me.receive_verification_event(&event).await.map(|_| JsValue::UNDEFINED)?)
         }))
     }
 
@@ -747,4 +767,12 @@ impl OlmMachine {
             passphrase,
         )?)?)
     }
+
+    /// Shut down the `OlmMachine`.
+    ///
+    /// The `OlmMachine` cannot be used after this method has been called.
+    ///
+    /// All associated resources will be closed too, like IndexedDB
+    /// connections.
+    pub fn close(self) {}
 }

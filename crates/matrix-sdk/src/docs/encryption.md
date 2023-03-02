@@ -164,9 +164,9 @@ Please note that, unless a client is specifically set up to ignore
 unverified devices, verifying devices is **not** necessary for encryption
 to work.
 
-1. Make sure the `encryption` feature is enabled.
+1. Make sure the `e2e-encryption` feature is enabled.
 2. To persist the encryption keys, you can use [`ClientBuilder::store_config`]
-   or of the other `_store` methods on [`ClientBuilder`].
+   or one of the other `_store` methods on [`ClientBuilder`].
 
 ## Restoring a client
 
@@ -190,7 +190,7 @@ have been uploaded and tied to a device ID.
 
 1. Log in with the password using [`Client::login_username()`].
 2. Store the access token, preferably somewhere secure.
-3. Use [`Client::restore_login()`] the next time the client starts.
+3. Use [`Client::restore_session()`] the next time the client starts.
 
 **Note** that the access token is directly connected to a device ID that
 lives on a server. If you're skipping step one of this method, remember that
@@ -215,7 +215,7 @@ is **not** supported using the default store.
 
 | Failure | Cause | Fix |
 | ------------------- | ----- | ----------- |
-| No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
+| No messages get encrypted nor decrypted | The `e2e-encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
 | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sled` |
 | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
 | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |

@@ -25,13 +25,15 @@ pub use crate::{
 };
 
 mod client;
+pub mod deserialized_responses;
 mod error;
 pub mod media;
 mod rooms;
 mod session;
-#[cfg(feature = "sliding-sync")]
+#[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 pub mod store;
+pub mod sync;
 mod utils;
 
 pub use client::BaseClient;

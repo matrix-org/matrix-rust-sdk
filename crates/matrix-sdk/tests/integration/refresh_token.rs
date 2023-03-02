@@ -1,18 +1,12 @@
 use std::time::Duration;
 
-use futures::{
-    channel::{mpsc, oneshot},
-    StreamExt,
-};
-use futures_signals::signal::SignalExt;
-use matches::assert_matches;
-use matrix_sdk::{
-    config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, RumaApiError, Session,
-};
+use assert_matches::assert_matches;
+use futures::{channel::mpsc, StreamExt};
+use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
-        client::{account::register, error::ErrorKind, Error as ClientApiError},
+        client::{account::register, error::ErrorKind},
         MatrixVersion,
     },
     assign, device_id, user_id,
@@ -84,7 +78,6 @@ async fn login_sso_refresh_token() {
         })
         .identity_provider_id(&idp.id)
         .request_refresh_token()
-        .send()
         .await
         .unwrap();
 
@@ -111,8 +104,8 @@ async fn register_refresh_token() {
         .await;
 
     let req = assign!(register::v3::Request::new(), {
-        username: Some("user"),
-        password: Some("password"),
+        username: Some("user".to_owned()),
+        password: Some("password".to_owned()),
         auth: None,
         refresh_token: true,
     });
@@ -154,7 +147,7 @@ async fn refresh_token() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     let tokens = client.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "1234");
@@ -210,7 +203,7 @@ async fn refresh_token_not_handled() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -229,10 +222,7 @@ async fn refresh_token_not_handled() {
         .await;
 
     let res = client.whoami().await.unwrap_err();
-    assert_matches!(
-        res.as_ruma_api_error(),
-        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
-    );
+    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }));
 }
 
 #[async_test]
@@ -252,29 +242,18 @@ async fn refresh_token_handled_success() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
-    let mut tokens_stream = client.session_tokens_signal().to_stream();
-    let (tokens_sender, tokens_receiver) = oneshot::channel::<()>();
-    spawn(async move {
-        let tokens = tokens_stream.next().await.flatten().unwrap();
-        assert_eq!(tokens.access_token, "1234");
-        assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
-
+    let mut tokens_stream = client.session_tokens_stream();
+    let tokens_join_handle = spawn(async move {
         let tokens = tokens_stream.next().await.flatten().unwrap();
         assert_eq!(tokens.access_token, "5678");
         assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
-
-        tokens_sender.send(()).unwrap();
     });
 
-    let mut tokens_changed_stream = client.session_tokens_changed_signal().to_stream();
-    let (changed_sender, changed_receiver) = oneshot::channel::<()>();
-    spawn(async move {
+    let mut tokens_changed_stream = client.session_tokens_changed_stream();
+    let changed_join_handle = spawn(async move {
         tokens_changed_stream.next().await.unwrap();
-        tokens_changed_stream.next().await.unwrap();
-
-        changed_sender.send(()).unwrap();
     });
 
     Mock::given(method("POST"))
@@ -306,8 +285,8 @@ async fn refresh_token_handled_success() {
         .await;
 
     client.whoami().await.unwrap();
-    tokens_receiver.await.unwrap();
-    changed_receiver.await.unwrap();
+    tokens_join_handle.await.unwrap();
+    changed_join_handle.await.unwrap();
 }
 
 #[async_test]
@@ -327,7 +306,7 @@ async fn refresh_token_handled_failure() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -360,10 +339,7 @@ async fn refresh_token_handled_failure() {
         .await;
 
     let res = client.whoami().await.unwrap_err();
-    assert_matches!(
-        res.as_ruma_api_error(),
-        Some(RumaApiError::ClientApi(ClientApiError { kind: ErrorKind::UnknownToken { .. }, .. }))
-    )
+    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 
 #[async_test]
@@ -383,7 +359,7 @@ async fn refresh_token_handled_multi_success() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -460,7 +436,7 @@ async fn refresh_token_handled_multi_failure() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -537,7 +513,7 @@ async fn refresh_token_handled_other_error() {
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    client.restore_login(session).await.unwrap();
+    client.restore_session(session).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))

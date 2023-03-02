@@ -6,12 +6,14 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
+    room::Receipts,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    api::client::membership::Invite3pidInit, assign, event_id,
-    events::room::message::RoomMessageEventContent, mxc_uri, thirdparty, uint, user_id,
-    TransactionId,
+    api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
+    assign, event_id,
+    events::{receipt::ReceiptThread, room::message::RoomMessageEventContent},
+    mxc_uri, thirdparty, uint, user_id, TransactionId,
 };
 use serde_json::json;
 use wiremock::{
@@ -19,7 +21,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn invite_user_by_id() {
@@ -65,10 +67,10 @@ async fn invite_user_by_3pid() {
 
     room.invite_user_by_3pid(
         Invite3pidInit {
-            id_server: "example.org",
-            id_access_token: "IdToken",
+            id_server: "example.org".to_owned(),
+            id_access_token: "IdToken".to_owned(),
             medium: thirdparty::Medium::Email,
-            address: "address",
+            address: "address".to_owned(),
         }
         .into(),
     )
@@ -145,7 +147,7 @@ async fn kick_user() {
 }
 
 #[async_test]
-async fn read_receipt() {
+async fn send_single_receipt() {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("POST"))
@@ -161,14 +163,14 @@ async fn read_receipt() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let event_id = event_id!("$xxxxxx:example.org");
+    let event_id = event_id!("$xxxxxx:example.org").to_owned();
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    room.read_receipt(event_id).await.unwrap();
+    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await.unwrap();
 }
 
 #[async_test]
-async fn read_marker() {
+async fn send_multiple_receipts() {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("POST"))
@@ -184,10 +186,11 @@ async fn read_marker() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let event_id = event_id!("$xxxxxx:example.org");
+    let event_id = event_id!("$xxxxxx:example.org").to_owned();
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    room.read_marker(event_id, None).await.unwrap();
+    let receipts = Receipts::new().fully_read_marker(event_id);
+    room.send_multiple_receipts(receipts).await.unwrap();
 }
 
 #[async_test]
@@ -256,6 +259,7 @@ async fn room_message_send() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -297,6 +301,7 @@ async fn room_attachment_send() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -308,7 +313,7 @@ async fn room_attachment_send() {
         .send_attachment(
             "image",
             &mime::IMAGE_JPEG,
-            "Hello world".as_bytes(),
+            b"Hello world".to_vec(),
             AttachmentConfig::new(),
         )
         .await
@@ -346,6 +351,7 @@ async fn room_attachment_send_info() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -361,7 +367,7 @@ async fn room_attachment_send_info() {
     }));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
         .await
         .unwrap();
 
@@ -397,6 +403,7 @@ async fn room_attachment_send_wrong_info() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -413,7 +420,7 @@ async fn room_attachment_send_wrong_info() {
     }));
 
     let response =
-        room.send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config).await;
+        room.send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config).await;
 
     response.unwrap_err();
 }
@@ -455,6 +462,7 @@ async fn room_attachment_send_info_thumbnail() {
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
+    mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -463,8 +471,8 @@ async fn room_attachment_send_info_thumbnail() {
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let config = AttachmentConfig::with_thumbnail(Thumbnail {
-        data: "Thumbnail".as_bytes(),
-        content_type: &mime::IMAGE_JPEG,
+        data: b"Thumbnail".to_vec(),
+        content_type: mime::IMAGE_JPEG,
         info: Some(BaseThumbnailInfo {
             height: Some(uint!(360)),
             width: Some(uint!(480)),
@@ -479,7 +487,7 @@ async fn room_attachment_send_info_thumbnail() {
     }));
 
     let response = room
-        .send_attachment("image", &mime::IMAGE_JPEG, "Hello world".as_bytes(), config)
+        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
         .await
         .unwrap();
 

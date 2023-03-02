@@ -22,13 +22,14 @@ use matrix_sdk::{
         serde::Raw,
         TransactionId, UInt,
     },
-    Client as MatrixClient, Error, LoopCtrl, RumaApiError, Session,
+    Client as MatrixClient, Error, LoopCtrl,
 };
+use tokio::sync::broadcast;
+use tracing::{debug, warn};
 use serde_json::Value;
 
 use super::{
-    room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
-    RUNTIME,
+    room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
 };
 use crate::client;
 
@@ -82,6 +83,11 @@ pub struct Client {
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+    /// The sliding sync proxy that the client is configured to use by default.
+    /// If this value is `Some`, it will be automatically added to the builder
+    /// when calling `sliding_sync()`.
+    pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
+    pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
 }
 
 impl Client {
@@ -97,18 +103,20 @@ impl Client {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
                     session_verification_controller.process_to_device_message(ev).await;
                 } else {
-                    tracing::warn!(
-                        "received to-device message, but verification controller isn't ready"
-                    );
+                    debug!("received to-device message, but verification controller isn't ready");
                 }
             }
         });
+
+        let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
 
         Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
+            sliding_sync_proxy: Arc::new(RwLock::new(None)),
+            sliding_sync_reset_broadcast_tx,
         }
     }
 
@@ -133,21 +141,35 @@ impl Client {
         })
     }
 
-    /// Restores the client from a `RestoreToken`.
-    pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
-        let RestoreToken { session, homeurl: _, is_guest: _, is_soft_logout } =
-            serde_json::from_str(&restore_token)?;
-
-        // update soft logout state
-        self.state.write().unwrap().is_soft_logout = is_soft_logout;
-
-        self.restore_session(session)
-    }
-
     /// Restores the client from a `Session`.
     pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
+        let Session {
+            access_token,
+            refresh_token,
+            user_id,
+            device_id,
+            homeserver_url: _,
+            is_soft_logout,
+            sliding_sync_proxy,
+        } = session;
+
+        // update the client state
+        self.state.write().unwrap().is_soft_logout = is_soft_logout;
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
+
+        let session = matrix_sdk::Session {
+            access_token,
+            refresh_token,
+            user_id: user_id.try_into()?,
+            device_id: device_id.into(),
+        };
+        self.restore_session_inner(session)
+    }
+
+    /// Restores the client from a `matrix_sdk::Session`.
+    pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.restore_login(session).await?;
+            self.client.restore_session(session).await?;
             Ok(())
         })
     }
@@ -166,6 +188,18 @@ impl Client {
         self.client.authentication_issuer().await.map(|server| server.to_string())
     }
 
+    /// The sliding sync proxy that is trusted by the homeserver. `None` when
+    /// not configured.
+    pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
+        RUNTIME.block_on(async move {
+            self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+        })
+    }
+
+    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<String>) {
+        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
+    }
+
     /// Whether or not the client's homeserver supports the password login flow.
     pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.client.get_login_types().await?;
@@ -182,16 +216,24 @@ impl Client {
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
-    pub fn restore_token(&self) -> anyhow::Result<String> {
+    pub fn session(&self) -> anyhow::Result<Session> {
         RUNTIME.block_on(async move {
-            let session = self.client.session().context("Missing session")?;
-            let homeurl = self.client.homeserver().await.into();
-            Ok(serde_json::to_string(&RestoreToken {
-                session,
-                homeurl,
-                is_guest: self.state.read().unwrap().is_guest,
-                is_soft_logout: self.state.read().unwrap().is_soft_logout,
-            })?)
+            let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
+                self.client.session().context("Missing session")?;
+            let homeserver_url = self.client.homeserver().await.into();
+            let state = self.state.read().unwrap();
+            let is_soft_logout = state.is_soft_logout;
+            let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
+
+            Ok(Session {
+                access_token,
+                refresh_token,
+                user_id: user_id.to_string(),
+                device_id: device_id.to_string(),
+                homeserver_url,
+                is_soft_logout,
+                sliding_sync_proxy,
+            })
         })
     }
 
@@ -205,6 +247,17 @@ impl Client {
         RUNTIME.block_on(async move {
             let display_name = l.account().get_display_name().await?.context("No User ID found")?;
             Ok(display_name)
+        })
+    }
+
+    pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
+        let client = self.client.clone();
+        RUNTIME.block_on(async move {
+            client
+                .account()
+                .set_display_name(Some(name.as_str()))
+                .await
+                .context("Unable to set display name")
         })
     }
 
@@ -240,6 +293,16 @@ impl Client {
             let raw_content = Raw::from_json_string(content)?;
             self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
             Ok(())
+        })
+    }
+
+    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> anyhow::Result<String> {
+        let l = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let mime_type: mime::Mime = mime_type.parse()?;
+            let response = l.media().upload(&mime_type, data).await?;
+            Ok(String::from(response.content_uri))
         })
     }
 
@@ -297,7 +360,8 @@ impl Client {
                 .await?
                 .context("Failed retrieving user identity")?;
 
-            let session_verification_controller = SessionVerificationController::new(user_identity);
+            let session_verification_controller =
+                SessionVerificationController::new(self.client.encryption(), user_identity);
 
             *self.session_verification_controller.write().await =
                 Some(session_verification_controller.clone());
@@ -318,19 +382,25 @@ impl Client {
 
     /// Process a sync error and return loop control accordingly
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        if let Some(RumaApiError::ClientApi(error)) = sync_error.as_ruma_api_error() {
-            if let ErrorKind::UnknownToken { soft_logout } = error.kind {
-                self.state.write().unwrap().is_soft_logout = soft_logout;
+        let client_api_error_kind = sync_error.client_api_error_kind();
+        match client_api_error_kind {
+            Some(ErrorKind::UnknownToken { soft_logout }) => {
+                self.state.write().unwrap().is_soft_logout = *soft_logout;
                 if let Some(delegate) = &*self.delegate.read().unwrap() {
                     delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(soft_logout);
+                    delegate.did_receive_auth_error(*soft_logout);
                 }
-                return LoopCtrl::Break;
+                LoopCtrl::Break
+            }
+            Some(ErrorKind::UnknownPos) => {
+                let _ = self.sliding_sync_reset_broadcast_tx.send(());
+                LoopCtrl::Continue
+            }
+            _ => {
+                warn!("Ignoring sync error: {sync_error:?}");
+                LoopCtrl::Continue
             }
         }
-
-        tracing::warn!("Ignoring sync error: {:?}", sync_error);
-        LoopCtrl::Continue
     }
 
     /// Registers a pusher with given parameters
@@ -395,12 +465,7 @@ impl Client {
 
     /// Indication whether we are currently syncing
     pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
-    }
-
-    /// Is this a guest account?
-    pub fn is_guest(&self) -> bool {
-        self.state.read().unwrap().is_guest
+        self.state.read().unwrap().is_syncing
     }
 
     /// Flag indicating whether the session is in soft logout mode
@@ -433,7 +498,7 @@ impl Client {
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
+            let sync_settings = SyncSettings::new().filter(Filter::FilterId(filter_id));
 
             client
                 .sync_with_result_callback(sync_settings, |result| async {
@@ -462,6 +527,25 @@ impl Client {
                 .unwrap();
         });
     }
+}
+
+pub struct Session {
+    // Same fields as the Session type in matrix-sdk, just simpler types
+    /// The access token used for this session.
+    pub access_token: String,
+    /// The token used for [refreshing the access token], if any.
+    ///
+    /// [refreshing the access token]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub refresh_token: Option<String>,
+    /// The user the access token was issued for.
+    pub user_id: String,
+    /// The ID of the client device.
+    pub device_id: String,
+
+    // FFI-only fields (for now)
+    pub homeserver_url: String,
+    pub is_soft_logout: bool,
+    pub sliding_sync_proxy: Option<String>,
 }
 
 #[uniffi::export]

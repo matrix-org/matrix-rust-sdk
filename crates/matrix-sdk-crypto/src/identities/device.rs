@@ -31,7 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -41,16 +41,17 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
-    store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
+    store::{Changes, DeviceChanges, DynCryptoStore, Result as StoreResult},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
             room::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
-        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey, SigningKey,
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
+    MegolmError, OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest,
+    VerificationRequest,
 };
 
 /// A read-only version of a `Device`.
@@ -157,16 +158,104 @@ impl Device {
     /// An `InboundGroupSession` is exchanged between devices as an Olm
     /// encrypted `m.room_key` event. This method determines if this `Device`
     /// can be confirmed as the creator and owner of the `m.room_key`.
-    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> bool {
+    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> Result<bool, MegolmError> {
         if session.has_been_imported() {
-            false
-        } else if let Some(SigningKey::Ed25519(key)) =
-            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519)
+            // An imported room key means that we did not receive the room key as a
+            // `m.room_key` event when the room key was initially exchanged.
+            //
+            // This could mean a couple of things:
+            //      1. We received the room key as a `m.forwarded_room_key`.
+            //      2. We imported the room key through a file export.
+            //      3. We imported the room key through a backup.
+            //
+            // To be certain that a `Device` is the owner of a room key we need to have a
+            // proof that the `Curve25519` key of this `Device` was used to
+            // initially exchange the room key. This proof is provided by the Olm decryption
+            // step, see below for further clarification.
+            //
+            // Each of the above room key methods that receive room keys do not contain this
+            // proof and we received only a claim that the room key is tied to a
+            // `Curve25519` key.
+            //
+            // Since there's no way to verify that the claim is true, we say that we don't
+            // know that the room key belongs to this device.
+            Ok(false)
+        } else if let Some(key) =
+            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
-            self.ed25519_key().map(|k| k == *key).unwrap_or(false)
-                && self.curve25519_key().map(|k| k == session.sender_key).unwrap_or(false)
+            // Room keys are received as an `m.room.encrypted` event using the `m.olm`
+            // algorithm. Upon decryption of the `m.room.encrypted` event, the
+            // decrypted content will contain also a `Ed25519` public key[1].
+            //
+            // The inclusion of this key means that the `Curve25519` key of the `Device` and
+            // Olm `Session`, established using the DH authentication of the
+            // double ratchet, binds the `Ed25519` key of the `Device`
+            //
+            // On the other hand, the `Ed25519` key is binding the `Curve25519` key
+            // using a signature which is uploaded to the server as
+            // `device_keys` and downloaded by us using a `/keys/query` request.
+            //
+            // A `Device` is considered to be the owner of a room key iff:
+            //     1. The `Curve25519` key that was used to establish the Olm `Session`
+            //        that was used to decrypt the event is binding the `Ed25519`key
+            //        of this `Device`.
+            //     2. The `Ed25519` key of this device has signed a `device_keys` object
+            //        that contains the `Curve25519` key from step 1.
+            //
+            // We don't need to check the signature of the `Device` here, since we don't
+            // accept a `Device` unless it has a valid `Ed25519` signature.
+            //
+            // We do check that the `Curve25519` that was used to decrypt the event carrying
+            // the `m.room_key` and the `Ed25519` key that was part of the
+            // decrypted content matches the keys found in this `Device`.
+            //
+            // ```text
+            //                                              ┌───────────────────────┐
+            //                                              │ EncryptedToDeviceEvent│
+            //                                              └───────────────────────┘
+            //                                                         │
+            //    ┌──────────────────────────────────┐                 │
+            //    │              Device              │                 ▼
+            //    ├──────────────────────────────────┤        ┌──────────────────┐
+            //    │            Device Keys           │        │      Session     │
+            //    ├────────────────┬─────────────────┤        ├──────────────────┤
+            //    │   Ed25519 Key  │  Curve25519 Key │◄──────►│  Curve25519 Key  │
+            //    └────────────────┴─────────────────┘        └──────────────────┘
+            //            ▲                                            │
+            //            │                                            │
+            //            │                                            │ Decrypt
+            //            │                                            │
+            //            │                                            ▼
+            //            │                                 ┌───────────────────────┐
+            //            │                                 │  DecryptedOlmV1Event  │
+            //            │                                 ├───────────────────────┤
+            //            │                                 │         keys          │
+            //            │                                 ├───────────────────────┤
+            //            └────────────────────────────────►│       Ed25519 Key     │
+            //                                              └───────────────────────┘
+            // ```
+            //
+            // [1]: https://spec.matrix.org/v1.5/client-server-api/#molmv1curve25519-aes-sha2
+            let ed25519_comparison = self.ed25519_key().map(|k| k == key);
+            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key);
+
+            match (ed25519_comparison, curve25519_comparison) {
+                // If we have any of the keys but they don't turn out to match, refuse to decrypt
+                // instead.
+                (_, Some(false)) | (Some(false), _) => Err(MegolmError::MismatchedIdentityKeys {
+                    key_ed25519: key.into(),
+                    device_ed25519: self.ed25519_key().map(Into::into),
+                    key_curve25519: session.sender_key().into(),
+                    device_curve25519: self.curve25519_key().map(Into::into),
+                }),
+                // If both keys match, we have ourselves an owner.
+                (Some(true), Some(true)) => Ok(true),
+                // In the remaining cases, the device is missing at least one of the required
+                // identity keys, so we default to a negative answer.
+                _ => Ok(false),
+            }
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -208,11 +297,8 @@ impl Device {
 
     /// Get the Olm sessions that belong to this device.
     pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        if let Some(k) = self.curve25519_key() {
-            self.verification_machine.store.get_sessions(&k.to_base64()).await
-        } else {
-            Ok(None)
-        }
+        let Some(k) = self.curve25519_key() else { return Ok(None) };
+        self.verification_machine.store.get_sessions(&k.to_base64()).await
     }
 
     /// Is this device considered to be verified.
@@ -425,29 +511,17 @@ impl ReadOnlyDevice {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&DeviceKey> {
-        self.inner.keys.get(&DeviceKeyId::from_parts(algorithm, self.device_id()))
+        self.inner.get_key(algorithm)
     }
 
     /// Get the Curve25519 key of the given device.
     pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Curve25519).and_then(|k| {
-            if let DeviceKey::Curve25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.inner.curve25519_key()
     }
 
     /// Get the Ed25519 key of the given device.
     pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Ed25519).and_then(|k| {
-            if let DeviceKey::Ed25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.inner.ed25519_key()
     }
 
     /// Get a map containing all the device keys.
@@ -568,16 +642,14 @@ impl ReadOnlyDevice {
 
     pub(crate) async fn encrypt(
         &self,
-        store: &dyn CryptoStore,
+        store: &DynCryptoStore,
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let sender_key = if let Some(k) = self.curve25519_key() {
-            k
-        } else {
+        let Some(sender_key) = self.curve25519_key() else {
             warn!(
-                user_id = %self.user_id(),
-                device_id = %self.device_id(),
+                user_id = ?self.user_id(),
+                device_id = ?self.device_id(),
                 "Trying to encrypt a Megolm session, but the device doesn't \
                 have a curve25519 key",
             );
@@ -592,9 +664,7 @@ impl ReadOnlyDevice {
             None
         };
 
-        let mut session = if let Some(s) = session {
-            s
-        } else {
+        let Some(mut session) = session else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
                 but no Olm session is found",
@@ -606,15 +676,32 @@ impl ReadOnlyDevice {
 
         let message = session.encrypt(self, event_type, content).await?;
 
+        trace!(
+            user_id = ?self.user_id(),
+            device_id = ?self.device_id(),
+            session_id = session.session_id(),
+            "Successfully encrypted a Megolm session",
+        );
+
         Ok((session, message))
     }
 
     /// Update a device with a new device keys struct.
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         self.verify_device_keys(device_keys)?;
-        self.inner = device_keys.clone().into();
 
-        Ok(())
+        if self.user_id() != device_keys.user_id || self.device_id() != device_keys.device_id {
+            Err(SignatureError::UserIdMismatch)
+        } else if self.ed25519_key() != device_keys.ed25519_key() {
+            Err(SignatureError::SigningKeyChanged(
+                self.ed25519_key().map(Box::new),
+                device_keys.ed25519_key().map(Box::new),
+            ))
+        } else {
+            self.inner = device_keys.clone().into();
+
+            Ok(())
+        }
     }
 
     pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
