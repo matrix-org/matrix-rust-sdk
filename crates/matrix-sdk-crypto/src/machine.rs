@@ -85,7 +85,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
+    SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -194,7 +195,7 @@ impl OlmMachine {
         );
 
         #[cfg(feature = "backups_v1")]
-            let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
 
         OlmMachine {
             user_id,
@@ -818,7 +819,7 @@ impl OlmMachine {
                 // Set the secret name so other consumers of the event know
                 // what this event is about.
                 if let Ok(ToDeviceEvents::SecretSend(mut e)) =
-                decrypted.result.raw_event.deserialize_as()
+                    decrypted.result.raw_event.deserialize_as()
                 {
                     e.content.secret_name = name;
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
@@ -951,7 +952,7 @@ impl OlmMachine {
                     Err(err) => {
                         if let OlmError::SessionWedged(sender, curve_key) = err {
                             if let Err(e) =
-                            self.session_manager.mark_device_as_wedged(&sender, curve_key).await
+                                self.session_manager.mark_device_as_wedged(&sender, curve_key).await
                             {
                                 error!(
                                     error = ?e,
@@ -1198,7 +1199,7 @@ impl OlmMachine {
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
         if let Some(session) =
-        self.store.get_inbound_group_session(room_id, content.session_id()).await?
+            self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
             tracing::Span::current().record("sender_key", session.sender_key().to_base64());
 
@@ -1651,10 +1652,11 @@ pub(crate) mod tests {
     use ruma::{
         api::{
             client::{
-                keys::{claim_keys, get_keys, upload_keys},
+                keys::{
+                    claim_keys, get_keys, get_keys::v3::Response as KeyQueryResponse, upload_keys,
+                },
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
-                keys::get_keys::v3::Response as KeyQueryResponse,
             },
             IncomingResponse,
         },
@@ -1679,14 +1681,22 @@ pub(crate) mod tests {
     };
 
     use super::testing::response_from_file;
-    use crate::{error::EventError, machine::OlmMachine, olm::{InboundGroupSession, OutboundGroupSession, VerifyJson}, types::{
-        events::{
-            room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
-            ToDeviceEvent,
+    use crate::{
+        error::EventError,
+        machine::OlmMachine,
+        olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
+        types::{
+            events::{
+                room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                ToDeviceEvent,
+            },
+            CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
         },
-        DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
-    }, utilities::json_convert, verification::tests::{outgoing_request_to_event, request_to_event}, EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest, UserIdentities};
-    use crate::types::CrossSigningKey;
+        utilities::json_convert,
+        verification::tests::{outgoing_request_to_event, request_to_event},
+        EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
+        UserIdentities,
+    };
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
@@ -1702,7 +1712,6 @@ pub(crate) mod tests {
     fn bob_device_id() -> &'static DeviceId {
         device_id!("NTHHPZDPRN")
     }
-
 
     fn user_id() -> &'static UserId {
         user_id!("@bob:example.com")
@@ -2137,8 +2146,8 @@ pub(crate) mod tests {
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
         if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
-                                                 MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
-                                             )) = decrypted_event
+            MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
+        )) = decrypted_event
         {
             assert_eq!(&sender, alice.user_id());
             if let MessageType::Text(c) = &content.msgtype {
@@ -2195,8 +2204,10 @@ pub(crate) mod tests {
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
 
-        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
-
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            encryption_info.verification_state
+        );
 
         // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
@@ -2208,7 +2219,10 @@ pub(crate) mod tests {
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
 
-        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            encryption_info.verification_state
+        );
 
         setup_cross_signing_for_machine(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
@@ -2216,12 +2230,14 @@ pub(crate) mod tests {
         let alice_id_from_bob = bob.get_identity(alice.user_id(), None).await.unwrap();
         assert_matches!(alice_id_from_bob, Some(UserIdentities::Other(_)));
 
-
         // we setup cross signing but nothing is signed yet
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
 
-        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            encryption_info.verification_state
+        );
 
         // Let alice sign her device
         sign_alice_device_for_machine(&alice, &bob).await;
@@ -2229,7 +2245,10 @@ pub(crate) mod tests {
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
 
-        assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), encryption_info.verification_state);
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity),
+            encryption_info.verification_state
+        );
 
         mark_alice_identity_as_verified(&alice, &bob).await;
         let encryption_info =
@@ -2246,39 +2265,38 @@ pub(crate) mod tests {
         // As soon as the key source is unsafe the verification state (or existence) of
         // the device is meaningless
         assert_eq!(
-            VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::InsecureSource)),
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::InsecureSource
+            )),
             encryption_info.verification_state
         );
-
     }
 
     async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
-        let (alice_upload_signing, _) = alice
-            .bootstrap_cross_signing(false)
-            .await
-            .expect("Expect Alice x-signing key request");
+        let (alice_upload_signing, _) =
+            alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
-        let (bob_upload_signing, _) = bob
-            .bootstrap_cross_signing(false)
-            .await
-            .expect("Expect Bob x-signing key request");
+        let (bob_upload_signing, _) =
+            bob.bootstrap_cross_signing(false).await.expect("Expect Bob x-signing key request");
 
-        let bob_device_keys = bob.get_device(bob.user_id(), bob.device_id(), None)
+        let bob_device_keys = bob
+            .get_device(bob.user_id(), bob.device_id(), None)
             .await
             .unwrap()
             .unwrap()
             .as_device_keys()
             .to_owned();
 
-        let alice_device_keys = alice.get_device(alice.user_id(), alice.device_id(), None)
+        let alice_device_keys = alice
+            .get_device(alice.user_id(), alice.device_id(), None)
             .await
             .unwrap()
             .unwrap()
             .as_device_keys()
             .to_owned();
 
-        // We only want to setup cross signing we don't actually sign the current devices.
-        // so we ignore the new device signatures
+        // We only want to setup cross signing we don't actually sign the current
+        // devices. so we ignore the new device signatures
         let json = json!({
             "device_keys": {
                 bob.user_id() : { bob.device_id() : bob_device_keys},
@@ -2307,21 +2325,20 @@ pub(crate) mod tests {
         bob.receive_keys_query_response(&kq_response).await.unwrap();
     }
 
-
     async fn sign_alice_device_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
-        let (upload_signing, upload_signature) = alice
-            .bootstrap_cross_signing(false)
-            .await
-            .expect("Expect Alice x-signing key request");
+        let (upload_signing, upload_signature) =
+            alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
 
-        let mut device_keys = alice.get_device(alice.user_id(), alice.device_id(), None)
+        let mut device_keys = alice
+            .get_device(alice.user_id(), alice.device_id(), None)
             .await
             .unwrap()
             .unwrap()
             .as_device_keys()
             .to_owned();
 
-        let raw_extracted = upload_signature.signed_keys
+        let raw_extracted = upload_signature
+            .signed_keys
             .get(alice.user_id())
             .unwrap()
             .iter()
@@ -2332,15 +2349,22 @@ pub(crate) mod tests {
 
         let new_signature: DeviceKeys = serde_json::from_str(raw_extracted).unwrap();
 
-        let self_sign_key_id = upload_signing.self_signing_key.as_ref().unwrap().get_first_key_and_id().unwrap().0.to_owned();
+        let self_sign_key_id = upload_signing
+            .self_signing_key
+            .as_ref()
+            .unwrap()
+            .get_first_key_and_id()
+            .unwrap()
+            .0
+            .to_owned();
 
         device_keys.signatures.add_signature(
             alice.user_id().to_owned(),
             self_sign_key_id.to_owned(),
-            new_signature.signatures.get_signature(alice.user_id(), &self_sign_key_id).unwrap()
+            new_signature.signatures.get_signature(alice.user_id(), &self_sign_key_id).unwrap(),
         );
 
-        let updated_keys_with_x_signing = json!({device_keys.device_id.to_string(): device_keys});
+        let updated_keys_with_x_signing = json!({ device_keys.device_id.to_string(): device_keys });
 
         let json = json!({
             "device_keys": {
@@ -2364,50 +2388,48 @@ pub(crate) mod tests {
 
         alice.receive_keys_query_response(&kq_response).await.unwrap();
         bob.receive_keys_query_response(&kq_response).await.unwrap();
-
     }
 
     async fn mark_alice_identity_as_verified(alice: &OlmMachine, bob: &OlmMachine) {
-        let alice_device = bob.get_device(alice.user_id(), alice.device_id(), None)
-            .await.unwrap().unwrap();
+        let alice_device =
+            bob.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
 
-        let alice_identity = bob.get_identity(alice.user_id(), None)
-            .await.unwrap().unwrap().other().unwrap();
-        let upload_request = alice_identity
-            .verify().await.unwrap();
+        let alice_identity =
+            bob.get_identity(alice.user_id(), None).await.unwrap().unwrap().other().unwrap();
+        let upload_request = alice_identity.verify().await.unwrap();
 
-        let raw_extracted = upload_request.signed_keys
-            .get(alice.user_id())
-            .unwrap()
-            .iter()
-            .next()
-            .unwrap()
-            .1
-            .get();
+        let raw_extracted =
+            upload_request.signed_keys.get(alice.user_id()).unwrap().iter().next().unwrap().1.get();
 
-        let new_signature : CrossSigningKey = serde_json::from_str(raw_extracted).unwrap();
+        let new_signature: CrossSigningKey = serde_json::from_str(raw_extracted).unwrap();
 
         let user_key_id = bob
             .bootstrap_cross_signing(false)
             .await
             .expect("Expect Alice x-signing key request")
             .0
-            .user_signing_key.unwrap().get_first_key_and_id().unwrap().0.to_owned();
+            .user_signing_key
+            .unwrap()
+            .get_first_key_and_id()
+            .unwrap()
+            .0
+            .to_owned();
 
         // add the new signature to alice msk
-        let mut alice_updated_msk = alice_device.device_owner_identity.as_ref().unwrap().master_key().as_ref().to_owned();
+        let mut alice_updated_msk =
+            alice_device.device_owner_identity.as_ref().unwrap().master_key().as_ref().to_owned();
 
         alice_updated_msk.signatures.add_signature(
             bob.user_id().to_owned(),
             user_key_id.to_owned(),
-            new_signature.signatures.get_signature(bob.user_id(), &user_key_id).unwrap()
+            new_signature.signatures.get_signature(bob.user_id(), &user_key_id).unwrap(),
         );
 
         let alice_x_keys = alice
             .bootstrap_cross_signing(false)
             .await
-            .expect("Expect Alice x-signing key request").0;
-
+            .expect("Expect Alice x-signing key request")
+            .0;
 
         let json = json!({
             "device_keys": {
@@ -2434,8 +2456,13 @@ pub(crate) mod tests {
 
         // so alice identity should be now trusted
 
-        assert!(bob.get_identity(alice.user_id(), None)
-            .await.unwrap().unwrap().other().unwrap()
+        assert!(bob
+            .get_identity(alice.user_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
             .is_verified());
     }
 
@@ -2470,9 +2497,9 @@ pub(crate) mod tests {
             fake_room_id,
             EncryptionSettings::default(),
         )
-            .unwrap()
-            .session_key()
-            .await;
+        .unwrap()
+        .session_key()
+        .await;
 
         let web_unverified_inbound_session = InboundGroupSession::new(
             Curve25519PublicKey::from_base64("LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc")
@@ -2483,7 +2510,7 @@ pub(crate) mod tests {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
-            .unwrap();
+        .unwrap();
 
         let (state, _) = bob
             .get_verification_state(&web_unverified_inbound_session, other_user_id)
@@ -2506,7 +2533,7 @@ pub(crate) mod tests {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
-            .unwrap();
+        .unwrap();
 
         let (state, _) =
             bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
