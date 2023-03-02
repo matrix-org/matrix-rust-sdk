@@ -229,13 +229,10 @@ impl BaseClient {
         }
 
         // Process receipts now we have rooms
-        if let Some(receipts) = receipt.as_ref() {
+        if let Some(receipts) = &receipt {
             for (room_id, receipt_edu) in &receipts.rooms {
-                if let Some(content) = match receipt_edu.deserialize() {
-                    Ok(AnyEphemeralRoomEvent::Receipt(event)) => Some(event.content),
-                    _ => None,
-                } {
-                    changes.add_receipts(&room_id, content);
+                if let Ok(AnyEphemeralRoomEvent::Receipt(event)) = receipt_edu.deserialize() {
+                    changes.add_receipts(&room_id, event.content);
                 }
             }
         }
