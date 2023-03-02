@@ -19,7 +19,7 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{debug, warn};
 
 use super::{
@@ -73,14 +73,31 @@ impl Client {
 
         let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
 
-        Client {
+        let client = Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx,
-        }
+        };
+
+        let mut unknown_token_error_receiver = client.subscribe_to_unknown_token_errors();
+        let client_clone = client.clone();
+        RUNTIME.spawn(async move {
+            loop {
+                match unknown_token_error_receiver.recv().await {
+                    Ok(unknown_token) => client_clone.process_unknown_token_error(unknown_token),
+                    Err(receive_error) => {
+                        if let RecvError::Closed = receive_error {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        client
     }
 
     /// Login using a username and password.
@@ -347,14 +364,6 @@ impl Client {
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
         let client_api_error_kind = sync_error.client_api_error_kind();
         match client_api_error_kind {
-            Some(ErrorKind::UnknownToken { soft_logout }) => {
-                self.state.write().unwrap().is_soft_logout = *soft_logout;
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(*soft_logout);
-                }
-                LoopCtrl::Break
-            }
             Some(ErrorKind::UnknownPos) => {
                 let _ = self.sliding_sync_reset_broadcast_tx.send(());
                 LoopCtrl::Continue
@@ -363,6 +372,13 @@ impl Client {
                 warn!("Ignoring sync error: {sync_error:?}");
                 LoopCtrl::Continue
             }
+        }
+    }
+
+    fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
+        if let Some(delegate) = &*self.delegate.read().unwrap() {
+            delegate.did_update_restore_token();
+            delegate.did_receive_auth_error(unknown_token.soft_logout);
         }
     }
 }
