@@ -198,6 +198,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
+      # install protoc in case we end up rebuilding opentelemetry-proto
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
 
