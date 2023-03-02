@@ -232,7 +232,7 @@ impl BaseClient {
         if let Some(receipts) = &receipt {
             for (room_id, receipt_edu) in &receipts.rooms {
                 if let Ok(AnyEphemeralRoomEvent::Receipt(event)) = receipt_edu.deserialize() {
-                    changes.add_receipts(&room_id, event.content);
+                    changes.add_receipts(room_id, event.content);
                 }
             }
         }
