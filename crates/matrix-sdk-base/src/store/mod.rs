@@ -70,6 +70,8 @@ use crate::{
 pub(crate) mod ambiguity_map;
 mod memory_store;
 
+#[cfg(any(test, feature = "testing"))]
+pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
     traits::{DynStateStore, IntoStateStore, StateStore, StateStoreExt},
