@@ -15,22 +15,36 @@ pub enum VerificationState {
     /// user that we have verified.
     /// Other states give you more details about the level of trust.
     Verified,
-    /// A signed device of an unverified user.
-    /// Message is coming from a cross signed device of a user
-    /// identity that we haven't yet verified.
-    SignedDeviceOfUnverifiedUser,
-    /// An unsigned device of a verified user.
-    UnSignedDeviceOfVerifiedUser,
-    /// The device is not signed by the user, and
-    /// we haven't verified the user
-    UnSignedDeviceOfUnverifiedUser,
-    /// The device is unknown or deleted.
-    UnknownDevice,
-    /// The key is coming from an unsafe source, and authenticity cannot
-    /// be established.
-    UnsafeSource,
+    /// The message could not be linked to a verified user identity. The
+    /// verification level that was achieved is supplied as a struct member.
+    Unverified(VerificationLevel),
 }
 
+/// The partial verification level we were able to achieve for a received event
+/// or to-device message.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub enum VerificationLevel {
+    /// The message was sent by a user identity we have not verified.
+    UnverifiedIdentity,
+    /// The message was sent by a device not linked to (signed by) any user
+    /// identity.
+    UnsignedDevice,
+    /// We weren't able to link the message back to any device. This might be
+    /// because the message claims to have been sent by a device which we have
+    /// not been able to obtain (for example, because the device was since
+    /// deleted) or because the key to decrypt the message was obtained from
+    /// an insecure source.
+    None(DeviceLinkProblem),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub enum DeviceLinkProblem {
+    /// The device is deleted or unknown
+    MissingDevice,
+    /// The key was obtained from an insecure source.
+    /// Could be imported from file, symmetric backup, unsafe forward..
+    InsecureSource,
+}
 /// The algorithm specific information of a decrypted event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum AlgorithmInfo {
@@ -50,10 +64,10 @@ pub enum AlgorithmInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
-    /// `verification_state` is as well Verified.
+    /// `verification_state` is `Verified` as well.
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
-    /// untrusted data unless `verification_state` is as well Verified.
+    ///  untrusted data unless `verification_state` is `Verified` as well.
     pub sender_device: Option<OwnedDeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,

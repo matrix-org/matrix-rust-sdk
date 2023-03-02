@@ -20,7 +20,10 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, TimelineEvent, VerificationState},
+    deserialized_responses::{
+        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
+        VerificationState,
+    },
     locks::Mutex,
 };
 use ruma::{
@@ -191,7 +194,7 @@ impl OlmMachine {
         );
 
         #[cfg(feature = "backups_v1")]
-        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+            let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
 
         OlmMachine {
             user_id,
@@ -575,7 +578,7 @@ impl OlmMachine {
     }
 
     #[instrument(
-        skip_all,
+    skip_all,
         // This function is only ever called by add_room_key via
         // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
@@ -815,7 +818,7 @@ impl OlmMachine {
                 // Set the secret name so other consumers of the event know
                 // what this event is about.
                 if let Ok(ToDeviceEvents::SecretSend(mut e)) =
-                    decrypted.result.raw_event.deserialize_as()
+                decrypted.result.raw_event.deserialize_as()
                 {
                     e.content.secret_name = name;
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
@@ -948,7 +951,7 @@ impl OlmMachine {
                     Err(err) => {
                         if let OlmError::SessionWedged(sender, curve_key) = err {
                             if let Err(e) =
-                                self.session_manager.mark_device_as_wedged(&sender, curve_key).await
+                            self.session_manager.mark_device_as_wedged(&sender, curve_key).await
                             {
                                 error!(
                                     error = ?e,
@@ -1090,61 +1093,67 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        Ok(if session.has_been_imported() {
-            // the sender_key is claimed we can't check any authenticity
-            // No point of trying to find the matching device
-            (VerificationState::UnsafeSource, None)
-        } else if let Some(device) = self
+        let claimed_device = self
             .get_user_devices(sender, None)
             .await?
             .devices()
-            .find(|d| d.curve25519_key() == Some(session.sender_key()))
-        {
-            // We found a matching device, let's check if it owns the session
-            if device.is_owner_of_session(session)? {
-                // We want to make a distinction between an unsigned device of a verified
-                // owner and an unsigned device of an unverified user
-                let device_owner_verified = device.is_device_owner_verified();
+            .find(|d| d.curve25519_key() == Some(session.sender_key()));
 
-                if device.is_our_own_device() || device.is_verified() {
-                    // Special case that to consider local trust
-                    (VerificationState::Verified, Some(device.device_id().to_owned()))
-                } else if device.is_cross_signed_by_owner() {
-                    // The device is cross signed by this owner
-                    // Meaning that the user did self verify it properly
-                    // Let's check if we trust the identity
-                    if device_owner_verified {
-                        // can this happen? in this case the device would be verified
-                        (VerificationState::Verified, Some(device.device_id().to_owned()))
-                    } else {
-                        (
-                            VerificationState::SignedDeviceOfUnverifiedUser,
-                            Some(device.device_id().to_owned()),
-                        )
-                    }
-                } else if device_owner_verified {
-                    // The user is verified by us but the user hasn't self-verified their device
-                    (
-                        VerificationState::UnSignedDeviceOfVerifiedUser,
-                        Some(device.device_id().to_owned()),
-                    )
+        match claimed_device {
+            None => {
+                let link_problem = if session.has_been_imported() {
+                    DeviceLinkProblem::InsecureSource
                 } else {
-                    // The user is not verified by us,
-                    // and the device is not properly verified by them
-                    (
-                        VerificationState::UnSignedDeviceOfUnverifiedUser,
-                        Some(device.device_id().to_owned()),
-                    )
-                }
-            } else {
-                // The device is not confirmed of being creator of that key
-                (VerificationState::UnsafeSource, Some(device.device_id().to_owned()))
+                    DeviceLinkProblem::MissingDevice
+                };
+                // We didn't find a device, no way to know if we should trust
+                // the `InboundGroupSession` or not.
+                Ok((VerificationState::Unverified(VerificationLevel::None(link_problem)), None))
             }
-        } else {
-            // We didn't find a device, no way to know if we should trust
-            // the `InboundGroupSession` or not.
-            (VerificationState::UnknownDevice, None)
-        })
+            Some(device) => {
+                let owned_device_id = device.device_id().to_owned();
+                // We found a matching device, let's check if it owns the session
+                if !(device.is_owner_of_session(session)?) {
+                    // The key cannot be linked to an owning device.
+                    Ok((
+                        VerificationState::Unverified(VerificationLevel::None(
+                            DeviceLinkProblem::InsecureSource,
+                        )),
+                        Some(owned_device_id),
+                    ))
+                } else {
+                    let device_owner_verified = device.is_device_owner_verified();
+                    // We only consider cross trust and not local trust.
+                    // If your own device is not signed and send a message, it will
+                    // be seen as Unverified.
+                    if device.is_cross_signed_by_owner() {
+                        // The device is cross signed by this owner
+                        // Meaning that the user did self verify it properly
+                        // Let's check if we trust the identity
+                        Ok(if device_owner_verified {
+                            // can this happen? in this case the device would be verified
+                            (VerificationState::Verified, Some(owned_device_id))
+                        } else {
+                            (
+                                VerificationState::Unverified(
+                                    VerificationLevel::UnverifiedIdentity,
+                                ),
+                                Some(owned_device_id),
+                            )
+                        })
+                    } else {
+                        // The user is verified by us but the user hasn't self-verified their device
+                        // or
+                        // The user is not verified by us and the device is not properly verified by
+                        // them
+                        Ok((
+                            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+                            Some(owned_device_id),
+                        ))
+                    }
+                }
+            }
+        }
     }
 
     /// Get some metadata pertaining to a given group session.
@@ -1177,10 +1186,10 @@ impl OlmMachine {
     }
 
     #[instrument(
-        skip_all,
-        // This function is only ever called by decrypt_room_event, so
-        // room_id, sender, algorithm and session_id are recorded already
-        fields(sender_key, event_type),
+    skip_all,
+    // This function is only ever called by decrypt_room_event, so
+    // room_id, sender, algorithm and session_id are recorded already
+    fields(sender_key, event_type),
     )]
     async fn decrypt_megolm_events(
         &self,
@@ -1189,7 +1198,7 @@ impl OlmMachine {
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
         if let Some(session) =
-            self.store.get_inbound_group_session(room_id, content.session_id()).await?
+        self.store.get_inbound_group_session(room_id, content.session_id()).await?
         {
             tracing::Span::current().record("sender_key", session.sender_key().to_base64());
 
@@ -1635,7 +1644,9 @@ pub(crate) mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::deserialized_responses::VerificationState;
+    use matrix_sdk_common::deserialized_responses::{
+        DeviceLinkProblem, VerificationLevel, VerificationState,
+    };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
@@ -1643,6 +1654,7 @@ pub(crate) mod tests {
                 keys::{claim_keys, get_keys, upload_keys},
                 sync::sync_events::DeviceLists,
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
+                keys::get_keys::v3::Response as KeyQueryResponse,
             },
             IncomingResponse,
         },
@@ -1667,21 +1679,14 @@ pub(crate) mod tests {
     };
 
     use super::testing::response_from_file;
-    use crate::{
-        error::EventError,
-        machine::OlmMachine,
-        olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
-        types::{
-            events::{
-                room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
-                ToDeviceEvent,
-            },
-            DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
+    use crate::{error::EventError, machine::OlmMachine, olm::{InboundGroupSession, OutboundGroupSession, VerifyJson}, types::{
+        events::{
+            room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+            ToDeviceEvent,
         },
-        utilities::json_convert,
-        verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
-    };
+        DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
+    }, utilities::json_convert, verification::tests::{outgoing_request_to_event, request_to_event}, EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest, UserIdentities};
+    use crate::types::CrossSigningKey;
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
@@ -1693,6 +1698,11 @@ pub(crate) mod tests {
     fn alice_device_id() -> &'static DeviceId {
         device_id!("JLAFKJWSCS")
     }
+
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("NTHHPZDPRN")
+    }
+
 
     fn user_id() -> &'static UserId {
         user_id!("@bob:example.com")
@@ -1728,7 +1738,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
-        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(user_id(), bob_device_id()).await;
         machine.account.inner.update_uploaded_key_count(0);
         let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
@@ -2127,8 +2137,8 @@ pub(crate) mod tests {
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
         if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
-            MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
-        )) = decrypted_event
+                                                 MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
+                                             )) = decrypted_event
         {
             assert_eq!(&sender, alice.user_id());
             if let MessageType::Text(c) = &content.msgtype {
@@ -2184,18 +2194,44 @@ pub(crate) mod tests {
 
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
-        assert_eq!(
-            VerificationState::UnSignedDeviceOfUnverifiedUser,
-            encryption_info.verification_state
-        );
 
-        // mark the alice device as verified
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
+
+
+        // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
             .await
             .unwrap()
             .unwrap()
             .set_trust_state(LocalTrust::Verified);
 
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
+
+        setup_cross_signing_for_machine(&alice, &bob).await;
+        let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
+        assert_matches!(bob_id_from_alice, Some(UserIdentities::Other(_)));
+        let alice_id_from_bob = bob.get_identity(alice.user_id(), None).await.unwrap();
+        assert_matches!(alice_id_from_bob, Some(UserIdentities::Other(_)));
+
+
+        // we setup cross signing but nothing is signed yet
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), encryption_info.verification_state);
+
+        // Let alice sign her device
+        sign_alice_device_for_machine(&alice, &bob).await;
+
+        let encryption_info =
+            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), encryption_info.verification_state);
+
+        mark_alice_identity_as_verified(&alice, &bob).await;
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
@@ -2206,22 +2242,201 @@ pub(crate) mod tests {
 
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
-        assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
 
         // As soon as the key source is unsafe the verification state (or existence) of
         // the device is meaningless
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::InsecureSource)),
+            encryption_info.verification_state
+        );
 
-        bob.get_device(alice.user_id(), alice_device_id(), None)
+    }
+
+    async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
+        let (alice_upload_signing, _) = alice
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("Expect Alice x-signing key request");
+
+        let (bob_upload_signing, _) = bob
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("Expect Bob x-signing key request");
+
+        let bob_device_keys = bob.get_device(bob.user_id(), bob.device_id(), None)
             .await
             .unwrap()
             .unwrap()
-            .set_trust_state(LocalTrust::Unset);
+            .as_device_keys()
+            .to_owned();
 
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let alice_device_keys = alice.get_device(alice.user_id(), alice.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .as_device_keys()
+            .to_owned();
 
-        // Should still be unsafe and not unverified
-        assert_eq!(VerificationState::UnsafeSource, encryption_info.verification_state);
+        // We only want to setup cross signing we don't actually sign the current devices.
+        // so we ignore the new device signatures
+        let json = json!({
+            "device_keys": {
+                bob.user_id() : { bob.device_id() : bob_device_keys},
+                alice.user_id() : { alice.device_id():  alice_device_keys }
+            },
+            "failures": {},
+            "master_keys": {
+                bob.user_id() : bob_upload_signing.master_key.unwrap(),
+                alice.user_id() : alice_upload_signing.master_key.unwrap()
+            },
+            "user_signing_keys": {
+                bob.user_id() : bob_upload_signing.user_signing_key.unwrap(),
+                alice.user_id() : alice_upload_signing.user_signing_key.unwrap()
+            },
+            "self_signing_keys": {
+                bob.user_id() : bob_upload_signing.self_signing_key.unwrap(),
+                alice.user_id() : alice_upload_signing.self_signing_key.unwrap()
+            },
+          }
+        );
+
+        let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
+            .expect("Can't parse the keys upload response");
+
+        alice.receive_keys_query_response(&kq_response).await.unwrap();
+        bob.receive_keys_query_response(&kq_response).await.unwrap();
+    }
+
+
+    async fn sign_alice_device_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
+        let (upload_signing, upload_signature) = alice
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("Expect Alice x-signing key request");
+
+        let mut device_keys = alice.get_device(alice.user_id(), alice.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .as_device_keys()
+            .to_owned();
+
+        let raw_extracted = upload_signature.signed_keys
+            .get(alice.user_id())
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .get();
+
+        let new_signature: DeviceKeys = serde_json::from_str(raw_extracted).unwrap();
+
+        let self_sign_key_id = upload_signing.self_signing_key.as_ref().unwrap().get_first_key_and_id().unwrap().0.to_owned();
+
+        device_keys.signatures.add_signature(
+            alice.user_id().to_owned(),
+            self_sign_key_id.to_owned(),
+            new_signature.signatures.get_signature(alice.user_id(), &self_sign_key_id).unwrap()
+        );
+
+        let updated_keys_with_x_signing = json!({device_keys.device_id.to_string(): device_keys});
+
+        let json = json!({
+            "device_keys": {
+                alice.user_id() : updated_keys_with_x_signing
+            },
+            "failures": {},
+            "master_keys": {
+                alice.user_id() : upload_signing.master_key.unwrap(),
+            },
+            "user_signing_keys": {
+                alice.user_id() : upload_signing.user_signing_key.unwrap(),
+            },
+            "self_signing_keys": {
+                alice.user_id() : upload_signing.self_signing_key.unwrap(),
+            },
+          }
+        );
+
+        let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
+            .expect("Can't parse the keys upload response");
+
+        alice.receive_keys_query_response(&kq_response).await.unwrap();
+        bob.receive_keys_query_response(&kq_response).await.unwrap();
+
+    }
+
+    async fn mark_alice_identity_as_verified(alice: &OlmMachine, bob: &OlmMachine) {
+        let alice_device = bob.get_device(alice.user_id(), alice.device_id(), None)
+            .await.unwrap().unwrap();
+
+        let alice_identity = bob.get_identity(alice.user_id(), None)
+            .await.unwrap().unwrap().other().unwrap();
+        let upload_request = alice_identity
+            .verify().await.unwrap();
+
+        let raw_extracted = upload_request.signed_keys
+            .get(alice.user_id())
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .get();
+
+        let new_signature : CrossSigningKey = serde_json::from_str(raw_extracted).unwrap();
+
+        let user_key_id = bob
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("Expect Alice x-signing key request")
+            .0
+            .user_signing_key.unwrap().get_first_key_and_id().unwrap().0.to_owned();
+
+        // add the new signature to alice msk
+        let mut alice_updated_msk = alice_device.device_owner_identity.as_ref().unwrap().master_key().as_ref().to_owned();
+
+        alice_updated_msk.signatures.add_signature(
+            bob.user_id().to_owned(),
+            user_key_id.to_owned(),
+            new_signature.signatures.get_signature(bob.user_id(), &user_key_id).unwrap()
+        );
+
+        let alice_x_keys = alice
+            .bootstrap_cross_signing(false)
+            .await
+            .expect("Expect Alice x-signing key request").0;
+
+
+        let json = json!({
+            "device_keys": {
+                alice.user_id() : { alice.device_id():  alice_device.as_device_keys().to_owned() }
+            },
+            "failures": {},
+            "master_keys": {
+                alice.user_id() : alice_updated_msk,
+            },
+            "user_signing_keys": {
+                alice.user_id() : alice_x_keys.user_signing_key.unwrap(),
+            },
+            "self_signing_keys": {
+                alice.user_id() : alice_x_keys.self_signing_key.unwrap(),
+            },
+          }
+        );
+
+        let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
+            .expect("Can't parse the keys upload response");
+
+        alice.receive_keys_query_response(&kq_response).await.unwrap();
+        bob.receive_keys_query_response(&kq_response).await.unwrap();
+
+        // so alice identity should be now trusted
+
+        assert!(bob.get_identity(alice.user_id(), None)
+            .await.unwrap().unwrap().other().unwrap()
+            .is_verified());
     }
 
     #[async_test]
@@ -2255,9 +2470,9 @@ pub(crate) mod tests {
             fake_room_id,
             EncryptionSettings::default(),
         )
-        .unwrap()
-        .session_key()
-        .await;
+            .unwrap()
+            .session_key()
+            .await;
 
         let web_unverified_inbound_session = InboundGroupSession::new(
             Curve25519PublicKey::from_base64("LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc")
@@ -2268,13 +2483,19 @@ pub(crate) mod tests {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
-        .unwrap();
+            .unwrap();
 
         let (state, _) = bob
             .get_verification_state(&web_unverified_inbound_session, other_user_id)
             .await
             .unwrap();
-        assert_eq!(VerificationState::UnSignedDeviceOfUnverifiedUser, state);
+        match state {
+            VerificationState::Unverified(level) => match level {
+                VerificationLevel::UnsignedDevice => {}
+                _ => panic!("Unexpected verification level"),
+            },
+            _ => panic!("Unexpected verification state"),
+        }
 
         let web_signed_inbound_session = InboundGroupSession::new(
             Curve25519PublicKey::from_base64("XJixbpnfIk+RqcK5T6moqVY9d9Q1veR8WjjSlNiQNT0")
@@ -2285,11 +2506,17 @@ pub(crate) mod tests {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
-        .unwrap();
+            .unwrap();
 
         let (state, _) =
             bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
-        assert_eq!(VerificationState::SignedDeviceOfUnverifiedUser, state);
+        match state {
+            VerificationState::Unverified(level) => match level {
+                VerificationLevel::UnverifiedIdentity => {}
+                _ => panic!("Unexpected verification level"),
+            },
+            _ => panic!("Unexpected verification state"),
+        }
     }
 
     #[async_test]
