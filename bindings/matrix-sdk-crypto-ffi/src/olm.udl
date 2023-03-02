@@ -429,6 +429,7 @@ dictionary MigrationData {
     sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
+    record<string, RoomSettings> room_settings;
 };
 
 dictionary SessionMigrationData {
