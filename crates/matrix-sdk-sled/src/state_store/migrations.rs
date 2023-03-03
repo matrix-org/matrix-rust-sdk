@@ -170,7 +170,7 @@ mod test {
     use tempfile::TempDir;
 
     use super::MigrationConflictStrategy;
-    use crate::state_store::{Result, SledStateStore, SledStoreError, ROOM_STATE};
+    use crate::state_store::{keys, Result, SledStateStore, SledStoreError};
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
@@ -293,7 +293,7 @@ mod test {
         store
             .room_state
             .insert(
-                store.encode_key(ROOM_STATE, (room_id, StateEventType::RoomTopic, "")),
+                store.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomTopic, "")),
                 store.serialize_value(&wrong_redacted_state_event).unwrap(),
             )
             .unwrap();
