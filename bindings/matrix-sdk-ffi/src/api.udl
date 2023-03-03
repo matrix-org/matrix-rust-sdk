@@ -10,7 +10,6 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
-    void did_update_restore_token();
 };
 
 dictionary RequiredState {
@@ -208,7 +207,6 @@ dictionary Session {
     string user_id;
     string device_id;
     string homeserver_url;
-    boolean is_soft_logout;
     string? sliding_sync_proxy;
 };
 
