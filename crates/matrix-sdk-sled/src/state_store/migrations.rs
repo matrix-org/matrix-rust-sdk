@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::store::{Result as StoreResult, StoreError};
+use matrix_sdk_base::{
+    store::{Result as StoreResult, StoreError},
+    StateStoreDataKey,
+};
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use sled::{transaction::TransactionError, Batch, Transactional, Tree};
 use tracing::debug;
@@ -167,13 +170,13 @@ impl SledStateStore {
             let mut batch = sled::Batch::default();
 
             // Sync token
-            let sync_token = session.get(keys::SYNC_TOKEN.encode())?;
+            let sync_token = session.get(StateStoreDataKey::SyncToken.encoding_key().encode())?;
             if let Some(sync_token) = sync_token {
-                batch.insert(keys::SYNC_TOKEN.encode(), sync_token);
+                batch.insert(StateStoreDataKey::SyncToken.encoding_key().encode(), sync_token);
             }
 
             // Filters
-            let key = self.encode_key(keys::SESSION, keys::FILTER);
+            let key = self.encode_key(keys::SESSION, StateStoreDataKey::Filter("").encoding_key());
             for res in session.scan_prefix(key) {
                 let (key, value) = res?;
                 batch.insert(key, value);
@@ -222,6 +225,7 @@ pub const V1_DB_STORES: &[&str] = &[
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_base::StateStoreDataKey;
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{AnySyncStateEvent, StateEventType},
@@ -391,13 +395,22 @@ mod test {
 
         let session = store.inner.open_tree(old_keys::SESSION).unwrap();
         let mut batch = sled::Batch::default();
-        batch.insert(keys::SYNC_TOKEN.encode(), store.serialize_value(&sync_token).unwrap());
         batch.insert(
-            store.encode_key(keys::SESSION, (keys::FILTER, filter_1)),
+            StateStoreDataKey::SyncToken.encoding_key().encode(),
+            store.serialize_value(&sync_token).unwrap(),
+        );
+        batch.insert(
+            store.encode_key(
+                keys::SESSION,
+                (StateStoreDataKey::Filter("").encoding_key(), filter_1),
+            ),
             store.serialize_value(&filter_1_id).unwrap(),
         );
         batch.insert(
-            store.encode_key(keys::SESSION, (keys::FILTER, filter_2)),
+            store.encode_key(
+                keys::SESSION,
+                (StateStoreDataKey::Filter("").encoding_key(), filter_2),
+            ),
             store.serialize_value(&filter_2_id).unwrap(),
         );
         session.apply_batch(batch).unwrap();
@@ -412,13 +425,31 @@ mod test {
             .build()
             .unwrap();
 
-        let stored_sync_token = store.get_sync_token().await.unwrap().unwrap();
+        let stored_sync_token = store
+            .get_kv_data(StateStoreDataKey::SyncToken)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_sync_token()
+            .unwrap();
         assert_eq!(stored_sync_token, sync_token);
 
-        let stored_filter_1_id = store.get_filter(filter_1).await.unwrap().unwrap();
+        let stored_filter_1_id = store
+            .get_kv_data(StateStoreDataKey::Filter(filter_1))
+            .await
+            .unwrap()
+            .unwrap()
+            .into_filter()
+            .unwrap();
         assert_eq!(stored_filter_1_id, filter_1_id);
 
-        let stored_filter_2_id = store.get_filter(filter_2).await.unwrap().unwrap();
+        let stored_filter_2_id = store
+            .get_kv_data(StateStoreDataKey::Filter(filter_2))
+            .await
+            .unwrap()
+            .unwrap()
+            .into_filter()
+            .unwrap();
         assert_eq!(stored_filter_2_id, filter_2_id);
     }
 }

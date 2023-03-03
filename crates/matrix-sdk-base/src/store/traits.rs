@@ -41,29 +41,42 @@ use crate::{
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStore: AsyncTraitDeps {
     /// The error type used by this state store.
-    type Error: fmt::Debug + Into<StoreError>;
+    type Error: fmt::Debug + Into<StoreError> + From<serde_json::Error>;
 
-    /// Save the given filter id under the given name.
+    /// Get key-value data from the store.
     ///
     /// # Arguments
     ///
-    /// * `filter_name` - The name that should be used to store the filter id.
+    /// * `key` - The key to fetch data for.
+    async fn get_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+    ) -> Result<Option<StateStoreDataValue>, Self::Error>;
+
+    /// Put key-value data into the store.
     ///
-    /// * `filter_id` - The filter id that should be stored in the state store.
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<(), Self::Error>;
+    /// # Arguments
+    ///
+    /// * `key` - The key to identify the data in the store.
+    ///
+    /// * `value` - The data to insert.
+    ///
+    /// Panics if the key and value variants do not match.
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<(), Self::Error>;
+
+    /// Remove key-value data from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to remove the data for.
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<(), Self::Error>;
 
     /// Save the set of state changes in the store.
     async fn save_changes(&self, changes: &StateChanges) -> Result<(), Self::Error>;
-
-    /// Get the filter id that was stored under the given filter name.
-    ///
-    /// # Arguments
-    ///
-    /// * `filter_name` - The name that was used to store the filter id.
-    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>, Self::Error>;
-
-    /// Get the last stored sync token.
-    async fn get_sync_token(&self) -> Result<Option<String>, Self::Error>;
 
     /// Get the stored presence event for the given user.
     ///
@@ -308,20 +321,27 @@ impl<T: fmt::Debug> fmt::Debug for EraseStateStoreError<T> {
 impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     type Error = StoreError;
 
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<(), Self::Error> {
-        self.0.save_filter(filter_name, filter_id).await.map_err(Into::into)
+    async fn get_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+    ) -> Result<Option<StateStoreDataValue>, Self::Error> {
+        self.0.get_kv_data(key).await.map_err(Into::into)
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<(), Self::Error> {
+        self.0.set_kv_data(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<(), Self::Error> {
+        self.0.remove_kv_data(key).await.map_err(Into::into)
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<(), Self::Error> {
         self.0.save_changes(changes).await.map_err(Into::into)
-    }
-
-    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>, Self::Error> {
-        self.0.get_filter(filter_name).await.map_err(Into::into)
-    }
-
-    async fn get_sync_token(&self) -> Result<Option<String>, Self::Error> {
-        self.0.get_sync_token().await.map_err(Into::into)
     }
 
     async fn get_presence_event(
@@ -603,5 +623,53 @@ where
         // SAFETY: EraseStateStoreError is repr(transparent) so T and
         //         EraseStateStoreError<T> have the same layout and ABI
         unsafe { Arc::from_raw(ptr_erased) }
+    }
+}
+
+/// A value for key-value data that should be persisted into the store.
+#[derive(Debug, Clone)]
+pub enum StateStoreDataValue {
+    /// The sync token.
+    SyncToken(String),
+
+    /// A filter with the given ID.
+    Filter(String),
+}
+
+impl StateStoreDataValue {
+    /// Get this value if it is a sync token.
+    pub fn into_sync_token(self) -> Option<String> {
+        match self {
+            Self::SyncToken(token) => Some(token),
+            Self::Filter(_) => None,
+        }
+    }
+
+    /// Get this value if it is a filter.
+    pub fn into_filter(self) -> Option<String> {
+        match self {
+            Self::SyncToken(_) => None,
+            Self::Filter(id) => Some(id),
+        }
+    }
+}
+
+/// A key for key-value data.
+#[derive(Debug, Clone, Copy)]
+pub enum StateStoreDataKey<'a> {
+    /// The sync token.
+    SyncToken,
+
+    /// A filter with the given name.
+    Filter(&'a str),
+}
+
+impl<'a> StateStoreDataKey<'a> {
+    /// The string to use to encode this key.
+    pub const fn encoding_key(&self) -> &str {
+        match self {
+            Self::SyncToken => "sync_token",
+            Self::Filter(_) => "filter",
+        }
     }
 }

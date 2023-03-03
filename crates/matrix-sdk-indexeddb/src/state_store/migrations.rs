@@ -20,6 +20,7 @@ use std::{
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
 use js_sys::Date as JsDate;
+use matrix_sdk_base::StateStoreDataKey;
 use matrix_sdk_store_encryption::StoreCipher;
 use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
@@ -376,12 +377,23 @@ async fn migrate_to_v4(
     let sync_token = sync_token_store.get(&JsValue::from_str(OLD_KEYS::SYNC_TOKEN))?.await?;
 
     if let Some(sync_token) = sync_token {
-        values.push((encode_key(store_cipher, KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN), sync_token));
+        values.push((
+            encode_key(
+                store_cipher,
+                StateStoreDataKey::SyncToken.encoding_key(),
+                StateStoreDataKey::SyncToken.encoding_key(),
+            ),
+            sync_token,
+        ));
     }
 
     // Filters
     let session_store = tx.object_store(OLD_KEYS::SESSION)?;
-    let range = encode_to_range(store_cipher, KEYS::FILTER, KEYS::FILTER)?;
+    let range = encode_to_range(
+        store_cipher,
+        StateStoreDataKey::Filter("").encoding_key(),
+        StateStoreDataKey::Filter("").encoding_key(),
+    )?;
     if let Some(cursor) = session_store.open_cursor_with_range(&range)?.await? {
         while let Some(key) = cursor.key() {
             let value = cursor.value();
@@ -410,7 +422,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
-    use matrix_sdk_base::{StateStore, StoreError};
+    use matrix_sdk_base::{StateStore, StateStoreDataKey, StoreError};
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{AnySyncStateEvent, StateEventType},
@@ -701,11 +713,19 @@ mod tests {
 
             let session_store = tx.object_store(OLD_KEYS::SESSION)?;
             session_store.put_key_val(
-                &encode_key(None, KEYS::FILTER, (KEYS::FILTER, filter_1)),
+                &encode_key(
+                    None,
+                    StateStoreDataKey::Filter("").encoding_key(),
+                    (StateStoreDataKey::Filter("").encoding_key(), filter_1),
+                ),
                 &serialize_event(None, &filter_1_id)?,
             )?;
             session_store.put_key_val(
-                &encode_key(None, KEYS::FILTER, (KEYS::FILTER, filter_2)),
+                &encode_key(
+                    None,
+                    StateStoreDataKey::Filter("").encoding_key(),
+                    (StateStoreDataKey::Filter("").encoding_key(), filter_2),
+                ),
                 &serialize_event(None, &filter_2_id)?,
             )?;
 
@@ -716,13 +736,28 @@ mod tests {
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
-        let stored_sync_token = store.get_sync_token().await.unwrap().unwrap();
+        let stored_sync_token = store
+            .get_kv_data(StateStoreDataKey::SyncToken)
+            .await?
+            .unwrap()
+            .into_sync_token()
+            .unwrap();
         assert_eq!(stored_sync_token, sync_token);
 
-        let stored_filter_1_id = store.get_filter(filter_1).await.unwrap().unwrap();
+        let stored_filter_1_id = store
+            .get_kv_data(StateStoreDataKey::Filter(filter_1))
+            .await?
+            .unwrap()
+            .into_filter()
+            .unwrap();
         assert_eq!(stored_filter_1_id, filter_1_id);
 
-        let stored_filter_2_id = store.get_filter(filter_2).await.unwrap().unwrap();
+        let stored_filter_2_id = store
+            .get_kv_data(StateStoreDataKey::Filter(filter_2))
+            .await?
+            .unwrap()
+            .into_filter()
+            .unwrap();
         assert_eq!(stored_filter_2_id, filter_2_id);
 
         Ok(())
