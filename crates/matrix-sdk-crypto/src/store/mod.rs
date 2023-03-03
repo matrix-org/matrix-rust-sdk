@@ -625,22 +625,65 @@ impl Store {
         Ok(())
     }
 
-    /// Save the list of users and their outdated/dirty flags to the store.
+    /// Add entries to the list of users being tracked for device changes
     ///
-    /// This method will fill up the store-internal caches, unlike the method on
-    /// the various [`CryptoStore`] implementations.
-    pub async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
-        for &(user, dirty) in users {
-            if dirty {
-                self.users_for_key_query_cache.insert(user.to_owned());
-            } else {
-                self.users_for_key_query_cache.remove(user);
+    /// Any users not already on the list are flagged as awaiting a key query.
+    /// Users that were already in the list are unaffected.
+    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+        self.load_tracked_users().await?;
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+
+        for user_id in users {
+            if !self.tracked_users_cache.contains(user_id) {
+                self.tracked_users_cache.insert(user_id.to_owned());
+                self.users_for_key_query_cache.insert(user_id.to_owned());
+                store_updates.push((user_id, true))
             }
-
-            self.tracked_users_cache.insert(user.to_owned());
         }
+        self.inner.save_tracked_users(&store_updates).await?;
+        Ok(())
+    }
 
-        self.inner.save_tracked_users(users).await?;
+    /// Process notifications that users have changed devices.
+    ///
+    /// This is used to handle the list of device-list updates that is received
+    /// from the `/sync` response. Any users *whose device lists we are
+    /// tracking* are flagged as needing a key query. Users whose devices we
+    /// are not tracking are ignored.
+    pub async fn mark_tracked_users_as_changed(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        self.load_tracked_users().await?;
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+
+        for user_id in users {
+            if self.tracked_users_cache.contains(user_id) {
+                self.users_for_key_query_cache.insert(user_id.to_owned());
+                store_updates.push((user_id, true));
+            }
+        }
+        self.inner.save_tracked_users(&store_updates).await?;
+        Ok(())
+    }
+
+    /// Flag that the given users devices are now up-to-date.
+    ///
+    /// This is called after processing the response to a /keys/query request.
+    /// Any users whose device lists we are tracking are removed from the
+    /// list of those pending a /keys/query.
+    pub async fn mark_tracked_users_as_up_to_date(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        for user_id in users {
+            if self.tracked_users_cache.contains(user_id) {
+                self.users_for_key_query_cache.remove(user_id);
+                store_updates.push((user_id, false));
+            }
+        }
+        self.inner.save_tracked_users(&store_updates).await?;
 
         Ok(())
     }

@@ -695,15 +695,7 @@ impl IdentityManager {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        let mut changed_user: Vec<(&UserId, bool)> = Vec::new();
-
-        for user_id in users {
-            if self.store.is_user_tracked(user_id).await? {
-                changed_user.push((user_id, true))
-            }
-        }
-
-        self.store.save_tracked_users(&changed_user).await
+        self.store.mark_tracked_users_as_changed(users).await
     }
 
     /// See the docs for [`OlmMachine::update_tracked_users()`].
@@ -711,23 +703,14 @@ impl IdentityManager {
         &self,
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        let mut tracked_users = Vec::new();
-
-        for user_id in users {
-            if !self.store.is_user_tracked(user_id).await? {
-                tracked_users.push((user_id, true));
-            }
-        }
-
-        self.store.save_tracked_users(&tracked_users).await
+        self.store.update_tracked_users(users.into_iter()).await
     }
 
     pub async fn mark_tracked_users_as_up_to_date(
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<()> {
-        let updated_users: Vec<(&UserId, bool)> = users.map(|u| (u, false)).collect();
-        self.store.save_tracked_users(&updated_users).await
+        self.store.mark_tracked_users_as_up_to_date(users).await
     }
 }
 
