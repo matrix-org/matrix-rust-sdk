@@ -27,6 +27,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
+use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 use tracing::{
@@ -419,6 +420,8 @@ impl ClientBuilder {
         #[cfg(feature = "experimental-sliding-sync")]
         let sliding_sync_proxy = sliding_sync_proxy.map(RwLock::new);
 
+        let (unknown_token_error_sender, _) = broadcast::channel(1);
+
         let inner = Arc::new(ClientInner {
             homeserver,
             authentication_issuer,
@@ -441,6 +444,7 @@ impl ClientBuilder {
             sync_beat: event_listener::Event::new(),
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
+            unknown_token_error_sender,
         });
 
         debug!("Done building the Client");

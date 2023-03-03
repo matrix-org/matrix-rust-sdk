@@ -68,6 +68,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
@@ -123,6 +124,13 @@ pub enum LoopCtrl {
     Continue,
     /// Break out of the loop.
     Break,
+}
+
+/// Wrapper struct for ErrorKind::UnknownToken
+#[derive(Debug, Clone)]
+pub struct UnknownToken {
+    /// Whether or not the session was soft logged out
+    pub soft_logout: bool,
 }
 
 /// An async/await enabled Matrix client.
@@ -181,6 +189,9 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+    /// Client API UnknownToken error publisher. Allows the subscriber logout
+    /// the user when any request fails because of an invalid access token
+    pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -1843,7 +1854,8 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
-        self.inner
+        let response = self
+            .inner
             .http_client
             .send(
                 request,
@@ -1853,7 +1865,20 @@ impl Client {
                 self.user_id(),
                 self.server_versions().await?,
             )
-            .await
+            .await;
+
+        if let Err(http_error) = &response {
+            if let Some(ErrorKind::UnknownToken { soft_logout }) =
+                http_error.client_api_error_kind()
+            {
+                _ = self
+                    .inner
+                    .unknown_token_error_sender
+                    .send(UnknownToken { soft_logout: *soft_logout });
+            }
+        }
+
+        response
     }
 
     async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
@@ -2440,6 +2465,12 @@ impl Client {
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
         self.send(request, None).await
+    }
+
+    /// Subscribes a new receiver to client UnknownToken errors
+    pub fn subscribe_to_unknown_token_errors(&self) -> broadcast::Receiver<UnknownToken> {
+        let broadcast = &self.inner.unknown_token_error_sender;
+        broadcast.subscribe()
     }
 }
 
