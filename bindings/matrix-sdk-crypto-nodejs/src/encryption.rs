@@ -109,42 +109,48 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
 
 /// The verification state of the device that sent an event to us.
 #[napi]
-pub enum VerificationState {
-    /// This the only state were the authenticity is
-    /// guaranteed. It's coming from a device belonging to a
-    /// user that we have verified.
-    /// Other states give you more details about the level of trust.
-    Verified,
-    /// A signed device of an unverified user.
-    /// Message is coming from a cross signed device of a user
-    /// identity that we haven't yet verified.
-    SignedDeviceOfUnverifiedUser,
-    /// An unsigned device of a verified user.
-    UnSignedDeviceOfVerifiedUser,
-    /// The device is not signed by the user, and
-    /// we haven't verified the user
-    UnSignedDeviceOfUnverifiedUser,
-    /// The device is unknown or deleted.
-    UnknownDevice,
-    /// The key is coming from an unsafe source, and authenticity cannot
-    /// be established.
-    UnsafeSource,
-    /// The key used to decrypt as an inconsistent set of identity keys.
-    /// Potential attack?
-    Mismatch,
+pub enum ShieldColor {
+    GREEN,
+    RED,
+    GRAY,
+    NONE,
 }
 
-impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
-        use matrix_sdk_common::deserialized_responses::VerificationState::*;
+#[napi]
+pub struct ShieldState {
+    pub color: ShieldColor,
+    // Can't expose as need to imp copy
+    // So giving access via get/set
+    pub message: Option<String>,
+}
 
+// #[wasm_bindgen]
+// impl ShieldState {
+//     #[wasm_bindgen(getter)]
+//     pub fn message(&self) -> Option<String> {
+//         self.message.clone()
+//     }
+//
+//     #[wasm_bindgen(setter)]
+//     pub fn set_message(&mut self, message: Option<String>) {
+//         self.message = message;
+//     }
+// }
+
+impl From<&matrix_sdk_common::deserialized_responses::ShieldState> for ShieldState {
+    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldState) -> Self {
+        ShieldState { color: ShieldColor::from(&value.color), message: value.message.clone() }
+    }
+}
+
+impl From<&matrix_sdk_common::deserialized_responses::ShieldColor> for ShieldColor {
+    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldColor) -> Self {
+        use matrix_sdk_common::deserialized_responses::ShieldColor::*;
         match value {
-            Verified => Self::Verified,
-            SignedDeviceOfUnverifiedUser => Self::SignedDeviceOfUnverifiedUser,
-            UnSignedDeviceOfVerifiedUser => Self::UnSignedDeviceOfVerifiedUser,
-            UnSignedDeviceOfUnverifiedUser => Self::UnSignedDeviceOfUnverifiedUser,
-            UnknownDevice => Self::UnknownDevice,
-            UnsafeSource => Self::UnsafeSource,
+            GREEN => Self::GREEN,
+            RED => Self::RED,
+            GRAY => Self::GRAY,
+            NONE => Self::NONE,
         }
     }
 }

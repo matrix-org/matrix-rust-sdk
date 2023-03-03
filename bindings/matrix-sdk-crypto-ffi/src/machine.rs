@@ -655,11 +655,17 @@ impl OlmMachine {
     /// * `event` - The serialized encrypted version of the event.
     ///
     /// * `room_id` - The unique id of the room where the event was sent to.
+    ///
+    /// * `strict_shields` - If true messages will be decorated with strict
+    ///   warnings (use false
+    /// to match legacy behaviour where unsafe keys have lower warnings and
+    /// unverified identities are not decorated).
     pub fn decrypt_room_event(
         &self,
         event: &str,
         room_id: &str,
         handle_verification_events: bool,
+        strict_shields: bool,
     ) -> Result<DecryptedEvent, DecryptionError> {
         // Element Android wants only the content and the type and will create a
         // decrypted event with those two itself, this struct makes sure we
@@ -710,7 +716,11 @@ impl OlmMachine {
                         .get(&DeviceKeyAlgorithm::Ed25519)
                         .cloned(),
                     forwarding_curve25519_chain: vec![],
-                    verification_state: encryption_info.verification_state,
+                    shield_state: if strict_shields {
+                        encryption_info.verification_state.to_shield_state_strict()
+                    } else {
+                        encryption_info.verification_state.to_shield_state_lax()
+                    },
                 }
             }
         })

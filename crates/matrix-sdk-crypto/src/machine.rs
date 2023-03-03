@@ -1646,7 +1646,7 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_common::deserialized_responses::{
-        DeviceLinkProblem, VerificationLevel, VerificationState,
+        DeviceLinkProblem, EncryptionInfo, ShieldColor, VerificationLevel, VerificationState,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -2209,6 +2209,8 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
+        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
+
         // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
             .await
@@ -2223,6 +2225,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
+        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
 
         setup_cross_signing_for_machine(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
@@ -2238,6 +2241,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
+        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
 
         // Let alice sign her device
         sign_alice_device_for_machine(&alice, &bob).await;
@@ -2250,10 +2254,13 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
+        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::NONE);
+
         mark_alice_identity_as_verified(&alice, &bob).await;
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
+        assert_shield(&encryption_info, ShieldColor::GREEN, ShieldColor::GREEN);
 
         // Simulate an imported session, to change verification state
         let imported = InboundGroupSession::from_export(&export).unwrap();
@@ -2270,6 +2277,13 @@ pub(crate) mod tests {
             )),
             encryption_info.verification_state
         );
+
+        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::GRAY);
+    }
+
+    fn assert_shield(info: &EncryptionInfo, strict: ShieldColor, lax: ShieldColor) {
+        assert_eq!(info.verification_state.to_shield_state_strict().color, strict);
+        assert_eq!(info.verification_state.to_shield_state_lax().color, lax);
     }
 
     async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
@@ -2516,13 +2530,7 @@ pub(crate) mod tests {
             .get_verification_state(&web_unverified_inbound_session, other_user_id)
             .await
             .unwrap();
-        match state {
-            VerificationState::Unverified(level) => match level {
-                VerificationLevel::UnsignedDevice => {}
-                _ => panic!("Unexpected verification level"),
-            },
-            _ => panic!("Unexpected verification state"),
-        }
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), state);
 
         let web_signed_inbound_session = InboundGroupSession::new(
             Curve25519PublicKey::from_base64("XJixbpnfIk+RqcK5T6moqVY9d9Q1veR8WjjSlNiQNT0")
@@ -2537,13 +2545,8 @@ pub(crate) mod tests {
 
         let (state, _) =
             bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
-        match state {
-            VerificationState::Unverified(level) => match level {
-                VerificationLevel::UnverifiedIdentity => {}
-                _ => panic!("Unexpected verification level"),
-            },
-            _ => panic!("Unexpected verification state"),
-        }
+
+        assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), state);
     }
 
     #[async_test]

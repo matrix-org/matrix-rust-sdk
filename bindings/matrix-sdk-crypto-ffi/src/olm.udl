@@ -80,7 +80,7 @@ dictionary DecryptedEvent {
     string sender_curve25519_key;
     string? claimed_ed25519_key;
     sequence<string> forwarding_curve25519_chain;
-    VerificationState verification_state;
+    ShieldState shield_state;
 };
 
 dictionary Device {
@@ -312,13 +312,17 @@ enum LocalTrust {
     "Unset",
 };
 
-enum VerificationState {
-    "Verified",
-    "SignedDeviceOfUnverifiedUser",
-    "UnSignedDeviceOfVerifiedUser",
-    "UnSignedDeviceOfUnverifiedUser",
-    "UnknownDevice",
-    "UnsafeSource",
+
+enum ShieldColor {
+    "GREEN",
+    "RED",
+    "GRAY",
+    "NONE",
+};
+
+dictionary ShieldState {
+    string? message;
+    ShieldColor color;
 };
 
 enum EventEncryptionAlgorithm {
@@ -365,7 +369,7 @@ interface OlmMachine {
     );
 
     [Throws=DecryptionError]
-    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id, boolean handle_verificaton_events);
+    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id, boolean handle_verificaton_events, boolean strict_shields);
     [Throws=CryptoStoreError]
     string encrypt([ByRef] string room_id, [ByRef] string event_type, [ByRef] string content);
 
