@@ -1,21 +1,14 @@
 use std::sync::Arc;
 
-use matrix_sdk::{
-    room::timeline::{BundledReactions, EventTimelineItem, Message, TimelineItemContent},
-    ruma::{
-        events::room::{
-            message::{ImageMessageEventContent, MessageType, TextMessageEventContent},
-            ImageInfo,
-        },
-        EventId, MilliSecondsSinceUnixEpoch, MxcUri, UInt, UserId,
-    },
-};
-use rand::Rng;
+use matrix_sdk::{ruma::EventId, Client};
+use ruma::{api::client::room, RoomId};
 
+use super::RUNTIME;
 use crate::TimelineItem;
 
 #[allow(dead_code)]
 pub struct NotificationService {
+    client: Client,
     base_path: String,
     user_id: String,
 }
@@ -40,8 +33,8 @@ impl NotificationService {
     /// Will be used to fetch an event after receiving a notification.
     /// Please note that this will be called on a new process than the
     /// application context.
-    pub fn new(base_path: String, user_id: String) -> Self {
-        NotificationService { base_path, user_id }
+    pub fn new(client: Client, base_path: String, user_id: String) -> Self {
+        NotificationService { client, base_path, user_id }
     }
 
     /// Get notification item for a given room_id and event_id.
@@ -51,43 +44,13 @@ impl NotificationService {
         room_id: String,
         event_id: String,
     ) -> anyhow::Result<Option<NotificationItem>> {
-        let text_message_type = MessageType::Text(TextMessageEventContent::plain("Notified text"));
-        let mut image_info = ImageInfo::new();
-        image_info.height = UInt::new(640);
-        image_info.width = UInt::new(638);
-        image_info.mimetype = Some("image/jpeg".to_owned());
-        image_info.size = UInt::new(118141);
-        image_info.blurhash = Some("TFF~Ba5at616yD^%~T-oXU9bt6kr".to_owned());
-        let image_message_type = MessageType::Image(ImageMessageEventContent::plain(
-            "body".to_owned(),
-            (*Box::<MxcUri>::from("mxc://matrix.org/vNOdmUTIPIwWvMneNzyCzNhb")).to_owned(),
-            Some(Box::new(image_info)),
-        ));
-
-        let random = rand::thread_rng().gen_range(0..2);
-
-        let sdk_event = EventTimelineItem {
-            key: TimelineKey::EventId(EventId::parse(event_id.to_owned()).unwrap()),
-            event_id: Some(EventId::parse(event_id.to_owned()).unwrap()),
-            sender: UserId::parse("@username:example.com").unwrap(),
-            content: TimelineItemContent::Message(Message {
-                msgtype: match random {
-                    1 => image_message_type,
-                    _ => text_message_type,
-                },
-                in_reply_to: None,
-                edited: false,
-            }),
-            reactions: BundledReactions::default(),
-            origin_server_ts: Some(MilliSecondsSinceUnixEpoch::now()),
-            is_own: false,
-            encryption_info: None,
-            raw: None,
-        };
-
+        let room_id = RoomId::parse(room_id)?;
+        let event_id = EventId::parse(event_id)?;
+        let request = room::get_room_event::v3::Request::new(room_id, event_id);
+        let response = RUNTIME.block_on(self.client.send(request, Default::default()))?;
         let item = NotificationItem {
             item: Arc::new(TimelineItem(matrix_sdk::room::timeline::TimelineItem::Event(
-                sdk_event,
+                timeline_event.into(),
             ))),
             title: "ismailgulek".to_owned(),
             subtitle: Some("Element iOS - Internal".to_owned()),

@@ -156,9 +156,9 @@ interface PushFormat {
   EventIdOnly();
 };
 
-interface HttpPusherData {
+dictionary HttpPusherData {
     string url;
-    PushFormat format;
+    PushFormat? format;
     string? default_payload;
 };
 
