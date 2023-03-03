@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
@@ -23,10 +26,12 @@ use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
-use super::{deserialize_event, serialize_event, Result, ALL_STORES, KEYS};
+use super::{
+    deserialize_event, encode_key, encode_to_range, serialize_event, Result, ALL_STORES, KEYS,
+};
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 3;
+const CURRENT_DB_VERSION: u32 = 4;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -46,6 +51,13 @@ pub enum MigrationConflictStrategy {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct StoreKeyWrapper(Vec<u8>);
+
+#[allow(non_snake_case)]
+mod OLD_KEYS {
+    // Old stores
+    pub const SESSION: &str = "session";
+    pub const SYNC_TOKEN: &str = "sync_token";
+}
 
 pub async fn upgrade_meta_db(
     meta_name: &str,
@@ -104,14 +116,37 @@ pub async fn upgrade_meta_db(
     Ok((meta_db, store_cipher))
 }
 
+// Helper struct for upgrading the inner DB.
+#[derive(Debug, Clone, Default)]
+pub struct OngoingMigration {
+    // Names of stores to drop.
+    drop_stores: HashSet<&'static str>,
+    // Names of stores to create.
+    create_stores: HashSet<&'static str>,
+    // Store name => key-value data to add.
+    data: HashMap<&'static str, Vec<(JsValue, JsValue)>>,
+}
+
+impl OngoingMigration {
+    /// Merge this migration with the given one.
+    fn merge(&mut self, other: OngoingMigration) {
+        self.drop_stores.extend(other.drop_stores);
+        self.create_stores.extend(other.create_stores);
+
+        for (store, data) in other.data {
+            let entry = self.data.entry(store).or_default();
+            entry.extend(data);
+        }
+    }
+}
+
 pub async fn upgrade_inner_db(
     name: &str,
     store_cipher: Option<&StoreCipher>,
     migration_strategy: MigrationConflictStrategy,
     meta_db: &IdbDatabase,
 ) -> Result<IdbDatabase> {
-    let mut should_create_stores = false;
-    let mut should_drop_stores = false;
+    let mut migration = OngoingMigration::default();
     {
         // This is a hack, we need to open the database a first time to get the current
         // version.
@@ -138,17 +173,17 @@ pub async fn upgrade_inner_db(
         // Upgrades to v1 and v2 (re)create empty stores, while the other upgrades
         // change data that is already in the stores, so we use exclusive branches here.
         if old_version == 0 {
-            should_create_stores = true;
+            migration.create_stores.extend(ALL_STORES);
         } else if old_version < 2 && has_store_cipher {
             match migration_strategy {
                 MigrationConflictStrategy::BackupAndDrop => {
                     backup_v1(&pre_db, meta_db).await?;
-                    should_drop_stores = true;
-                    should_create_stores = true;
+                    migration.drop_stores.extend(V1_STORES);
+                    migration.create_stores.extend(ALL_STORES);
                 }
                 MigrationConflictStrategy::Drop => {
-                    should_drop_stores = true;
-                    should_create_stores = true;
+                    migration.drop_stores.extend(V1_STORES);
+                    migration.create_stores.extend(ALL_STORES);
                 }
                 MigrationConflictStrategy::Raise => {
                     return Err(IndexeddbStateStoreError::MigrationConflict {
@@ -158,8 +193,13 @@ pub async fn upgrade_inner_db(
                     });
                 }
             }
-        } else if old_version < 3 {
-            migrate_to_v3(&pre_db, store_cipher).await?;
+        } else {
+            if old_version < 3 {
+                migrate_to_v3(&pre_db, store_cipher).await?;
+            }
+            if old_version < 4 {
+                migration.merge(migrate_to_v4(&pre_db, store_cipher).await?);
+            }
         }
 
         pre_db.close();
@@ -168,33 +208,59 @@ pub async fn upgrade_inner_db(
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
     db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
         // Changing the format can only happen in the upgrade procedure
-        if should_drop_stores {
-            drop_stores(evt.db())?;
+        for store in &migration.drop_stores {
+            evt.db().delete_object_store(store)?;
         }
-
-        if should_create_stores {
-            create_stores(evt.db())?;
+        for store in &migration.create_stores {
+            evt.db().create_object_store(store)?;
         }
 
         Ok(())
     }));
 
-    Ok(db_req.into_future().await?)
+    let db = db_req.into_future().await?;
+
+    // Finally, we can add data to the newly created tables if needed.
+    if !migration.data.is_empty() {
+        let stores: Vec<_> = migration.data.keys().copied().collect();
+        let tx = db.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+
+        for (name, data) in migration.data {
+            let store = tx.object_store(name)?;
+            for (key, value) in data {
+                store.put_key_val(&key, &value)?;
+            }
+        }
+
+        tx.await.into_result()?;
+    }
+
+    Ok(db)
 }
 
-fn drop_stores(db: &IdbDatabase) -> Result<(), JsValue> {
-    for name in ALL_STORES {
-        db.delete_object_store(name)?;
-    }
-    Ok(())
-}
-
-fn create_stores(db: &IdbDatabase) -> Result<(), JsValue> {
-    for name in ALL_STORES {
-        db.create_object_store(name)?;
-    }
-    Ok(())
-}
+pub const V1_STORES: &[&str] = &[
+    OLD_KEYS::SESSION,
+    KEYS::ACCOUNT_DATA,
+    KEYS::MEMBERS,
+    KEYS::PROFILES,
+    KEYS::DISPLAY_NAMES,
+    KEYS::JOINED_USER_IDS,
+    KEYS::INVITED_USER_IDS,
+    KEYS::ROOM_STATE,
+    KEYS::ROOM_INFOS,
+    KEYS::PRESENCE,
+    KEYS::ROOM_ACCOUNT_DATA,
+    KEYS::STRIPPED_ROOM_INFOS,
+    KEYS::STRIPPED_MEMBERS,
+    KEYS::STRIPPED_ROOM_STATE,
+    KEYS::STRIPPED_JOINED_USER_IDS,
+    KEYS::STRIPPED_INVITED_USER_IDS,
+    KEYS::ROOM_USER_RECEIPTS,
+    KEYS::ROOM_EVENT_RECEIPTS,
+    KEYS::MEDIA,
+    KEYS::CUSTOM,
+    OLD_KEYS::SYNC_TOKEN,
+];
 
 async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let now = JsDate::now();
@@ -204,14 +270,14 @@ async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
         // migrating to version 1
         let db = evt.db();
-        for name in ALL_STORES {
+        for name in V1_STORES {
             db.create_object_store(name)?;
         }
         Ok(())
     }));
     let target = db_req.into_future().await?;
 
-    for name in ALL_STORES {
+    for name in V1_STORES {
         let source_tx = source.transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?;
         let source_obj = source_tx.object_store(name)?;
         let Some(curs) = source_obj
@@ -294,6 +360,50 @@ async fn migrate_to_v3(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -> 
     tx.await.into_result().map_err(|e| e.into())
 }
 
+/// Move the content of the SYNC_TOKEN and SESSION stores to the new KV store.
+async fn migrate_to_v4(
+    db: &IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<OngoingMigration> {
+    let tx = db.transaction_on_multi_with_mode(
+        &[OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION],
+        IdbTransactionMode::Readonly,
+    )?;
+    let mut values = Vec::new();
+
+    // Sync token
+    let sync_token_store = tx.object_store(OLD_KEYS::SYNC_TOKEN)?;
+    let sync_token = sync_token_store.get(&JsValue::from_str(OLD_KEYS::SYNC_TOKEN))?.await?;
+
+    if let Some(sync_token) = sync_token {
+        values.push((encode_key(store_cipher, KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN), sync_token));
+    }
+
+    // Filters
+    let session_store = tx.object_store(OLD_KEYS::SESSION)?;
+    let range = encode_to_range(store_cipher, KEYS::FILTER, KEYS::FILTER)?;
+    if let Some(cursor) = session_store.open_cursor_with_range(&range)?.await? {
+        while let Some(key) = cursor.key() {
+            let value = cursor.value();
+            values.push((key, value));
+            cursor.continue_cursor()?.await?;
+        }
+    }
+
+    tx.await.into_result()?;
+
+    let mut data = HashMap::new();
+    if !values.is_empty() {
+        data.insert(KEYS::KV, values);
+    }
+
+    Ok(OngoingMigration {
+        drop_stores: [OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION].into_iter().collect(),
+        create_stores: [KEYS::KV].into_iter().collect(),
+        data,
+    })
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -310,10 +420,12 @@ mod tests {
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
 
-    use super::{MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
+    use super::{
+        MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, OLD_KEYS, V1_STORES,
+    };
     use crate::{
         safe_encode::SafeEncode,
-        state_store::{serialize_event, Result, ALL_STORES, KEYS},
+        state_store::{encode_key, serialize_event, Result, ALL_STORES, KEYS},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };
 
@@ -327,8 +439,14 @@ mod tests {
                 let db = evt.db();
 
                 // Initialize stores.
-                for name in ALL_STORES {
-                    db.create_object_store(name)?;
+                if version < 4 {
+                    for name in V1_STORES {
+                        db.create_object_store(name)?;
+                    }
+                } else {
+                    for name in ALL_STORES {
+                        db.create_object_store(name)?;
+                    }
                 }
 
                 Ok(())
@@ -553,6 +671,59 @@ mod tests {
         // Check versions.
         assert_eq!(store.version(), CURRENT_DB_VERSION);
         assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v4() -> Result<()> {
+        let name = format!("migrating-v4-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        let sync_token = "a_very_unique_string";
+        let filter_1 = "filter_1";
+        let filter_1_id = "filter_1_id";
+        let filter_2 = "filter_2";
+        let filter_2_id = "filter_2_id";
+
+        // Populate DB with old table.
+        {
+            let db = create_fake_db(&name, 3).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let sync_token_store = tx.object_store(OLD_KEYS::SYNC_TOKEN)?;
+            sync_token_store.put_key_val(
+                &JsValue::from_str(OLD_KEYS::SYNC_TOKEN),
+                &serialize_event(None, &sync_token)?,
+            )?;
+
+            let session_store = tx.object_store(OLD_KEYS::SESSION)?;
+            session_store.put_key_val(
+                &encode_key(None, KEYS::FILTER, (KEYS::FILTER, filter_1)),
+                &serialize_event(None, &filter_1_id)?,
+            )?;
+            session_store.put_key_val(
+                &encode_key(None, KEYS::FILTER, (KEYS::FILTER, filter_2)),
+                &serialize_event(None, &filter_2_id)?,
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        let stored_sync_token = store.get_sync_token().await.unwrap().unwrap();
+        assert_eq!(stored_sync_token, sync_token);
+
+        let stored_filter_1_id = store.get_filter(filter_1).await.unwrap().unwrap();
+        assert_eq!(stored_filter_1_id, filter_1_id);
+
+        let stored_filter_2_id = store.get_filter(filter_2).await.unwrap().unwrap();
+        assert_eq!(stored_filter_2_id, filter_2_id);
 
         Ok(())
     }
