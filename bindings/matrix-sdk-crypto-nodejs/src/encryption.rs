@@ -107,7 +107,7 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     }
 }
 
-/// The verification state of the device that sent an event to us.
+/// Message shield decoration color abstraction
 #[napi]
 pub enum ShieldColor {
     GREEN,

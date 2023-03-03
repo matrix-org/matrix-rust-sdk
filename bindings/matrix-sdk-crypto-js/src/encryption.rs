@@ -108,34 +108,38 @@ impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgo
     }
 }
 
+/// Message shield decoration color abstraction
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy)]
 pub enum ShieldColor {
+    /// Trusted
     GREEN,
+    /// Important warning
     RED,
+    /// Low warning
     GRAY,
+    /// No warning
     NONE,
 }
 
+/// Message shield decoration color abstraction.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct ShieldState {
+    /// The shield color
     pub color: ShieldColor,
     // Can't expose as need to imp copy
     // So giving access via get/set
     message: Option<String>,
 }
 
+/// Directive for clients on how to decorate a decrypted message.
 #[wasm_bindgen]
 impl ShieldState {
+    /// Error message that can be displayed as a tooltip
     #[wasm_bindgen(getter)]
     pub fn message(&self) -> Option<String> {
         self.message.clone()
-    }
-
-    #[wasm_bindgen(setter)]
-    pub fn set_message(&mut self, message: Option<String>) {
-        self.message = message;
     }
 }
 

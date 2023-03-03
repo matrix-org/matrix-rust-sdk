@@ -190,11 +190,11 @@ impl DecryptedRoomEvent {
     /// note this is the state of the device at the time of
     /// decryption. It may change in the future if a device gets
     /// verified or deleted.
-    #[wasm_bindgen(getter, js_name = "shieldState")]
+    #[wasm_bindgen(js_name = "shieldState")]
     pub fn shield_state(&self, strict: bool) -> Option<encryption::ShieldState> {
         let state = &self.encryption_info.as_ref()?.verification_state;
         if strict {
-            Some(state.to_shield_state_lax().borrow().into())
+            Some(state.to_shield_state_strict().borrow().into())
         } else {
             Some(state.to_shield_state_lax().borrow().into())
         }

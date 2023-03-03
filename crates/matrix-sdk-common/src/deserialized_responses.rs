@@ -7,6 +7,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Message shield decoration color abstraction.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub enum ShieldColor {
     /// Trusted
