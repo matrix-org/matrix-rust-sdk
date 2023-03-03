@@ -613,12 +613,16 @@ impl Store {
         Ok(())
     }
 
-    /// Mark that the given user has an outdated device list.
+    /// Mark the given user as being tracked for device lists, and mark that it
+    /// has an outdated device list.
     ///
     /// This means that the user will be considered for a `/keys/query` request
     /// next time [`Store::users_for_key_query()`] is called.
     pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
-        self.save_tracked_users(&[(user, true)]).await
+        self.users_for_key_query_cache.insert(user.to_owned());
+        self.tracked_users_cache.insert(user.to_owned());
+        self.inner.save_tracked_users(&[(user, true)]).await?;
+        Ok(())
     }
 
     /// Save the list of users and their outdated/dirty flags to the store.
