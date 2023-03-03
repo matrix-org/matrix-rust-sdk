@@ -17,12 +17,12 @@ use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use sled::{transaction::TransactionError, Batch, Transactional, Tree};
 use tracing::debug;
 
-use super::{Result, SledStateStore, SledStoreError, ALL_DB_STORES};
+use super::{keys, Result, SledStateStore, SledStoreError};
+use crate::encode_key::EncodeKey;
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 const VERSION_KEY: &str = "state-store-version";
-const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
@@ -66,6 +66,10 @@ impl SledStateStore {
 
         if old_version < 3 {
             self.migrate_to_v3()?;
+        }
+
+        if old_version < 4 {
+            self.migrate_to_v4()?;
             return Ok(());
         }
 
@@ -99,13 +103,11 @@ impl SledStateStore {
         Ok(())
     }
 
-    pub fn drop_tables(self) -> StoreResult<()> {
-        for name in ALL_DB_STORES {
+    pub fn drop_v1_tables(self) -> StoreResult<()> {
+        for name in V1_DB_STORES {
             self.inner.drop_tree(name).map_err(StoreError::backend)?;
         }
-        for name in ALL_GLOBAL_KEYS {
-            self.inner.remove(name).map_err(StoreError::backend)?;
-        }
+        self.inner.remove(VERSION_KEY).map_err(StoreError::backend)?;
 
         Ok(())
     }
@@ -157,7 +159,66 @@ impl SledStateStore {
 
         self.set_db_version(3u8)
     }
+
+    /// Replace the SYNC_TOKEN and SESSION trees by KV.
+    fn migrate_to_v4(&self) -> Result<()> {
+        {
+            let session = &self.inner.open_tree(old_keys::SESSION)?;
+            let mut batch = sled::Batch::default();
+
+            // Sync token
+            let sync_token = session.get(keys::SYNC_TOKEN.encode())?;
+            if let Some(sync_token) = sync_token {
+                batch.insert(keys::SYNC_TOKEN.encode(), sync_token);
+            }
+
+            // Filters
+            let key = self.encode_key(keys::SESSION, keys::FILTER);
+            for res in session.scan_prefix(key) {
+                let (key, value) = res?;
+                batch.insert(key, value);
+            }
+            self.kv.apply_batch(batch)?;
+        }
+
+        // This was unused so we can just drop it.
+        self.inner.drop_tree(old_keys::SYNC_TOKEN)?;
+        self.inner.drop_tree(old_keys::SESSION)?;
+
+        self.set_db_version(4)
+    }
 }
+
+mod old_keys {
+    /// Old stores.
+    pub const SYNC_TOKEN: &str = "sync_token";
+    pub const SESSION: &str = "session";
+}
+
+pub const V1_DB_STORES: &[&str] = &[
+    keys::ACCOUNT_DATA,
+    old_keys::SYNC_TOKEN,
+    keys::DISPLAY_NAME,
+    keys::INVITED_USER_ID,
+    keys::JOINED_USER_ID,
+    keys::MEDIA,
+    keys::MEMBER,
+    keys::PRESENCE,
+    keys::PROFILE,
+    keys::ROOM_ACCOUNT_DATA,
+    keys::ROOM_EVENT_RECEIPT,
+    keys::ROOM_INFO,
+    keys::ROOM_STATE,
+    keys::ROOM_USER_RECEIPT,
+    keys::ROOM,
+    old_keys::SESSION,
+    keys::STRIPPED_INVITED_USER_ID,
+    keys::STRIPPED_JOINED_USER_ID,
+    keys::STRIPPED_ROOM_INFO,
+    keys::STRIPPED_ROOM_MEMBER,
+    keys::STRIPPED_ROOM_STATE,
+    keys::CUSTOM,
+];
 
 #[cfg(test)]
 mod test {
@@ -169,8 +230,11 @@ mod test {
     use serde_json::json;
     use tempfile::TempDir;
 
-    use super::MigrationConflictStrategy;
-    use crate::state_store::{keys, Result, SledStateStore, SledStoreError};
+    use super::{old_keys, MigrationConflictStrategy};
+    use crate::{
+        encode_key::EncodeKey,
+        state_store::{keys, Result, SledStateStore, SledStoreError},
+    };
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
@@ -308,5 +372,53 @@ mod test {
         let event =
             store.get_state_event(room_id, StateEventType::RoomTopic, "").await.unwrap().unwrap();
         event.deserialize().unwrap();
+    }
+
+    #[async_test]
+    pub async fn migrating_v3_to_v4() {
+        let sync_token = "a_very_unique_string";
+        let filter_1 = "filter_1";
+        let filter_1_id = "filter_1_id";
+        let filter_2 = "filter_2";
+        let filter_2_id = "filter_2_id";
+
+        let folder = TempDir::new().unwrap();
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        let session = store.inner.open_tree(old_keys::SESSION).unwrap();
+        let mut batch = sled::Batch::default();
+        batch.insert(keys::SYNC_TOKEN.encode(), store.serialize_value(&sync_token).unwrap());
+        batch.insert(
+            store.encode_key(keys::SESSION, (keys::FILTER, filter_1)),
+            store.serialize_value(&filter_1_id).unwrap(),
+        );
+        batch.insert(
+            store.encode_key(keys::SESSION, (keys::FILTER, filter_2)),
+            store.serialize_value(&filter_2_id).unwrap(),
+        );
+        session.apply_batch(batch).unwrap();
+
+        store.set_db_version(3).unwrap();
+        drop(session);
+        drop(store);
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        let stored_sync_token = store.get_sync_token().await.unwrap().unwrap();
+        assert_eq!(stored_sync_token, sync_token);
+
+        let stored_filter_1_id = store.get_filter(filter_1).await.unwrap().unwrap();
+        assert_eq!(stored_filter_1_id, filter_1_id);
+
+        let stored_filter_2_id = store.get_filter(filter_2).await.unwrap().unwrap();
+        assert_eq!(stored_filter_2_id, filter_2_id);
     }
 }
