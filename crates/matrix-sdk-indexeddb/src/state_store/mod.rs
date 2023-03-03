@@ -93,7 +93,6 @@ mod KEYS {
     pub const INTERNAL_STATE: &str = "matrix-sdk-state";
     pub const BACKUPS_META: &str = "backups";
 
-    pub const SESSION: &str = "session";
     pub const ACCOUNT_DATA: &str = "account_data";
 
     pub const MEMBERS: &str = "members";
@@ -119,12 +118,10 @@ mod KEYS {
     pub const MEDIA: &str = "media";
 
     pub const CUSTOM: &str = "custom";
+    pub const KV: &str = "kv";
 
-    pub const SYNC_TOKEN: &str = "sync_token";
-
-    /// All names of the state stores for convenience.
+    /// All names of the current state stores for convenience.
     pub const ALL_STORES: &[&str] = &[
-        SESSION,
         ACCOUNT_DATA,
         MEMBERS,
         PROFILES,
@@ -144,13 +141,14 @@ mod KEYS {
         ROOM_EVENT_RECEIPTS,
         MEDIA,
         CUSTOM,
-        SYNC_TOKEN,
+        KV,
     ];
 
     // static keys
 
     pub const STORE_KEY: &str = "store_key";
     pub const FILTER: &str = "filter";
+    pub const SYNC_TOKEN: &str = "sync_token";
 }
 
 pub use KEYS::ALL_STORES;
@@ -170,6 +168,31 @@ fn deserialize_event<T: DeserializeOwned>(
         Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
         None => Ok(event.into_serde()?),
     }
+}
+
+fn encode_key<T>(store_cipher: Option<&StoreCipher>, table_name: &str, key: T) -> JsValue
+where
+    T: SafeEncode,
+{
+    match store_cipher {
+        Some(cipher) => key.encode_secure(table_name, cipher),
+        None => key.encode(),
+    }
+}
+
+fn encode_to_range<T>(
+    store_cipher: Option<&StoreCipher>,
+    table_name: &str,
+    key: T,
+) -> Result<IdbKeyRange>
+where
+    T: SafeEncode,
+{
+    match store_cipher {
+        Some(cipher) => key.encode_to_range_secure(table_name, cipher),
+        None => key.encode_to_range(),
+    }
+    .map_err(|e| IndexeddbStateStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
 }
 
 /// Builder for [`IndexeddbStateStore`].
@@ -290,21 +313,14 @@ impl IndexeddbStateStore {
     where
         T: SafeEncode,
     {
-        match &self.store_cipher {
-            Some(cipher) => key.encode_secure(table_name, cipher),
-            None => key.encode(),
-        }
+        encode_key(self.store_cipher.as_deref(), table_name, key)
     }
 
     fn encode_to_range<T>(&self, table_name: &str, key: T) -> Result<IdbKeyRange>
     where
         T: SafeEncode,
     {
-        match &self.store_cipher {
-            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
-            None => key.encode_to_range(),
-        }
-        .map_err(|e| IndexeddbStateStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
+        encode_to_range(self.store_cipher.as_deref(), table_name, key)
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
@@ -432,9 +448,9 @@ impl_state_store! {
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
+            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readwrite)?;
 
-        let obj = tx.object_store(KEYS::SESSION)?;
+        let obj = tx.object_store(KEYS::KV)?;
 
         obj.put_key_val(
             &self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)),
@@ -448,8 +464,8 @@ impl_state_store! {
 
     async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
         self.inner
-            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::SESSION)?
+            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::KV)?
             .get(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)))?
             .await?
             .map(|f| self.deserialize_event(f))
@@ -458,9 +474,9 @@ impl_state_store! {
 
     async fn get_sync_token(&self) -> Result<Option<String>> {
         self.inner
-            .transaction_on_one_with_mode(KEYS::SYNC_TOKEN, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::SYNC_TOKEN)?
-            .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
+            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::KV)?
+            .get(&self.encode_key(KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -468,8 +484,7 @@ impl_state_store! {
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let mut stores: HashSet<&'static str> = [
-            (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
-            (changes.session.is_some(), KEYS::SESSION),
+            (changes.sync_token.is_some(), KEYS::KV),
             (!changes.ambiguity_maps.is_empty(), KEYS::DISPLAY_NAMES),
             (!changes.account_data.is_empty(), KEYS::ACCOUNT_DATA),
             (!changes.presence.is_empty(), KEYS::PRESENCE),
@@ -528,8 +543,8 @@ impl_state_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         if let Some(s) = &changes.sync_token {
-            tx.object_store(KEYS::SYNC_TOKEN)?
-                .put_key_val(&JsValue::from_str(KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
+            tx.object_store(KEYS::KV)?
+                .put_key_val(&self.encode_key(KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
         }
 
         if !changes.ambiguity_maps.is_empty() {
