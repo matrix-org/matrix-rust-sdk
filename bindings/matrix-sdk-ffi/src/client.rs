@@ -17,9 +17,7 @@ use matrix_sdk::{
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{debug, warn};
 
-use super::{
-    room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
-};
+use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -30,13 +28,11 @@ impl std::ops::Deref for Client {
 
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
-    fn did_update_restore_token(&self);
 }
 
 #[derive(Clone)]
 pub struct Client {
     pub(crate) client: MatrixClient,
-    state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
@@ -48,7 +44,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(client: MatrixClient, state: ClientState) -> Self {
+    pub fn new(client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
             matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -69,7 +65,6 @@ impl Client {
 
         let client = Client {
             client,
-            state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
@@ -123,12 +118,9 @@ impl Client {
             user_id,
             device_id,
             homeserver_url: _,
-            is_soft_logout,
             sliding_sync_proxy,
         } = session;
 
-        // update the client state
-        self.state.write().unwrap().is_soft_logout = is_soft_logout;
         *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
 
         let session = matrix_sdk::Session {
@@ -195,8 +187,6 @@ impl Client {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
             let homeserver_url = self.client.homeserver().await.into();
-            let state = self.state.read().unwrap();
-            let is_soft_logout = state.is_soft_logout;
             let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
 
             Ok(Session {
@@ -205,7 +195,6 @@ impl Client {
                 user_id: user_id.to_string(),
                 device_id: device_id.to_string(),
                 homeserver_url,
-                is_soft_logout,
                 sliding_sync_proxy,
             })
         })
@@ -371,7 +360,6 @@ impl Client {
 
     fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
         if let Some(delegate) = &*self.delegate.read().unwrap() {
-            delegate.did_update_restore_token();
             delegate.did_receive_auth_error(unknown_token.soft_logout);
         }
     }
@@ -382,11 +370,6 @@ impl Client {
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
         RUNTIME.block_on(async move { self.async_homeserver().await })
-    }
-
-    /// Flag indicating whether the session is in soft logout mode
-    pub fn is_soft_logout(&self) -> bool {
-        self.state.read().unwrap().is_soft_logout
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
@@ -409,7 +392,6 @@ pub struct Session {
 
     // FFI-only fields (for now)
     pub homeserver_url: String,
-    pub is_soft_logout: bool,
     pub sliding_sync_proxy: Option<String>,
 }
 

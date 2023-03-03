@@ -51,11 +51,6 @@ pub use self::{
     timeline::*,
 };
 
-#[derive(Default, Debug)]
-pub struct ClientState {
-    is_soft_logout: bool,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error("client error: {msg}")]
