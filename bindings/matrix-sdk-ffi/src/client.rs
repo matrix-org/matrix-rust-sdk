@@ -5,26 +5,21 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
-        api::{
-            self,
-            client::{
-                account::whoami,
-                error::ErrorKind,
-                filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-                media::get_content_thumbnail::v3::Method,
-                push::set_pusher::v3::PusherInit,
-                session::get_login_types,
-                sync::sync_events::v3::Filter,
-            },
+        api::client::{
+            account::whoami,
+            error::ErrorKind,
+            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+            media::get_content_thumbnail::v3::Method,
+            push::{PusherIds, PusherInit, PusherKind},
+            session::get_login_types,
+            sync::sync_events::v3::Filter,
         },
         events::{room::MediaSource, AnyToDeviceEvent},
-        push::PusherData,
         serde::Raw,
         TransactionId, UInt,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
-use serde_json::Value;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
@@ -32,22 +27,6 @@ use super::{
     room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
 };
 use crate::client;
-
-#[derive(Clone)]
-pub enum PusherKind {
-    Http,
-    Email,
-}
-
-impl PusherKind {
-    pub fn convert(&self) -> api::client::push::PusherKind {
-        use api::client::push::PusherKind as PK;
-        match self {
-            client::PusherKind::Http => PK::Http,
-            client::PusherKind::Email => PK::Email,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub enum PushFormat {
@@ -407,7 +386,7 @@ impl Client {
     pub fn set_pusher(
         &self,
         pushkey: String,
-        kind: Option<PusherKind>,
+        kind: PusherKind,
         app_id: String,
         app_display_name: String,
         device_display_name: String,
@@ -418,30 +397,10 @@ impl Client {
         default_payload: Option<String>,
     ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let mut pusher_data = PusherData::new();
-            pusher_data.url = url;
-            pusher_data.format = match format {
-                Some(fmt) => Some(fmt.convert()),
-                _ => None,
-            };
-            pusher_data.default_payload = match default_payload {
-                Some(json) => serde_json::from_str(&json)?,
-                _ => Value::Null,
-            };
+            let ids = PusherIds::new(pushkey, app_id);
 
-            let pusher_init = PusherInit {
-                pushkey: pushkey,
-                kind: match kind {
-                    Some(knd) => Some(knd.convert()),
-                    None => None,
-                },
-                app_id: app_id,
-                app_display_name: app_display_name,
-                device_display_name: device_display_name,
-                profile_tag: profile_tag,
-                lang: lang,
-                data: pusher_data,
-            };
+            let pusher_init =
+                PusherInit { ids, kind, app_display_name, device_display_name, profile_tag, lang };
             match self.client.set_pusher(pusher_init.into()).await {
                 Ok(_) => Ok(()),
                 Err(error) => Err(anyhow!(error.to_string())),

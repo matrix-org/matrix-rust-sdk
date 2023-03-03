@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    room::timeline::{
-        BundledReactions, EventTimelineItem, Message, TimelineItemContent, TimelineKey,
-    },
+    room::timeline::{BundledReactions, EventTimelineItem, Message, TimelineItemContent},
     ruma::{
         events::room::{
             message::{ImageMessageEventContent, MessageType, TextMessageEventContent},
@@ -50,7 +48,7 @@ impl NotificationService {
     /// Returns none if this notification should not be displayed to the user.
     pub fn get_notification_item(
         &self,
-        _room_id: String,
+        room_id: String,
         event_id: String,
     ) -> anyhow::Result<Option<NotificationItem>> {
         let text_message_type = MessageType::Text(TextMessageEventContent::plain("Notified text"));
