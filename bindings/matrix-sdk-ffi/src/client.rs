@@ -2,16 +2,11 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
-    config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
-            account::whoami,
-            error::ErrorKind,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-            media::get_content_thumbnail::v3::Method,
+            account::whoami, error::ErrorKind, media::get_content_thumbnail::v3::Method,
             session::get_login_types,
-            sync::sync_events::v3::Filter,
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
@@ -34,7 +29,6 @@ impl std::ops::Deref for Client {
 }
 
 pub trait ClientDelegate: Sync + Send {
-    fn did_receive_sync_update(&self);
     fn did_receive_auth_error(&self, is_soft_logout: bool);
     fn did_update_restore_token(&self);
 }
@@ -390,17 +384,6 @@ impl Client {
         RUNTIME.block_on(async move { self.async_homeserver().await })
     }
 
-    /// Indication whether we've received a first sync response since
-    /// establishing the client (in memory)
-    pub fn has_first_synced(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
-    }
-
-    /// Indication whether we are currently syncing
-    pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().is_syncing
-    }
-
     /// Flag indicating whether the session is in soft logout mode
     pub fn is_soft_logout(&self) -> bool {
         self.state.read().unwrap().is_soft_logout
@@ -408,57 +391,6 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
-    }
-
-    pub fn start_sync(&self, timeline_limit: Option<u16>) {
-        let client = self.client.clone();
-        let state = self.state.clone();
-        let delegate = self.delegate.clone();
-        let local_self = self.clone();
-        RUNTIME.spawn(async move {
-            let mut filter = FilterDefinition::default();
-            let mut room_filter = RoomFilter::default();
-            let mut event_filter = RoomEventFilter::default();
-            let mut timeline_filter = RoomEventFilter::default();
-
-            event_filter.lazy_load_options =
-                LazyLoadOptions::Enabled { include_redundant_members: false };
-            room_filter.state = event_filter;
-            filter.room = room_filter;
-
-            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
-            filter.room.timeline = timeline_filter;
-
-            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
-
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(filter_id));
-
-            client
-                .sync_with_result_callback(sync_settings, |result| async {
-                    Ok(if result.is_ok() {
-                        if !state.read().unwrap().has_first_synced {
-                            state.write().unwrap().has_first_synced = true;
-                        }
-
-                        if state.read().unwrap().should_stop_syncing {
-                            state.write().unwrap().is_syncing = false;
-                            return Ok(LoopCtrl::Break);
-                        } else if !state.read().unwrap().is_syncing {
-                            state.write().unwrap().is_syncing = true;
-                        }
-
-                        if let Some(delegate) = &*delegate.read().unwrap() {
-                            delegate.did_receive_sync_update()
-                        }
-
-                        LoopCtrl::Continue
-                    } else {
-                        local_self.process_sync_error(result.err().unwrap())
-                    })
-                })
-                .await
-                .unwrap();
-        });
     }
 }
 

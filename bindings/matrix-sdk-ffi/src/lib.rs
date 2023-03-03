@@ -53,9 +53,6 @@ pub use self::{
 
 #[derive(Default, Debug)]
 pub struct ClientState {
-    has_first_synced: bool,
-    is_syncing: bool,
-    should_stop_syncing: bool,
     is_soft_logout: bool,
 }
 

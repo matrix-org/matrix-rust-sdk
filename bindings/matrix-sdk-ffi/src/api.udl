@@ -9,7 +9,6 @@ interface ClientError {
 };
 
 callback interface ClientDelegate {
-    void did_receive_sync_update();
     void did_receive_auth_error(boolean is_soft_logout);
     void did_update_restore_token();
 };
