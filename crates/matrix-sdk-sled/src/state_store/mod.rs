@@ -103,10 +103,14 @@ impl From<SledStoreError> for StoreError {
 }
 
 mod keys {
+    // Static keys
+    pub const SYNC_TOKEN: &str = "sync_token";
+    pub const SESSION: &str = "session";
+    pub const FILTER: &str = "filter";
+
     // Stores
     pub const ACCOUNT_DATA: &str = "account-data";
     pub const CUSTOM: &str = "custom";
-    pub const SYNC_TOKEN: &str = "sync_token";
     pub const DISPLAY_NAME: &str = "display-name";
     pub const INVITED_USER_ID: &str = "invited-user-id";
     pub const JOINED_USER_ID: &str = "joined-user-id";
@@ -120,40 +124,13 @@ mod keys {
     pub const ROOM_STATE: &str = "room-state";
     pub const ROOM_USER_RECEIPT: &str = "room-user-receipt";
     pub const ROOM: &str = "room";
-    pub const SESSION: &str = "session";
     pub const STRIPPED_INVITED_USER_ID: &str = "stripped-invited-user-id";
     pub const STRIPPED_JOINED_USER_ID: &str = "stripped-joined-user-id";
     pub const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
     pub const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
     pub const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
-
-    pub const ALL_DB_STORES: &[&str] = &[
-        ACCOUNT_DATA,
-        SYNC_TOKEN,
-        DISPLAY_NAME,
-        INVITED_USER_ID,
-        JOINED_USER_ID,
-        MEDIA,
-        MEMBER,
-        PRESENCE,
-        PROFILE,
-        ROOM_ACCOUNT_DATA,
-        ROOM_EVENT_RECEIPT,
-        ROOM_INFO,
-        ROOM_STATE,
-        ROOM_USER_RECEIPT,
-        ROOM,
-        SESSION,
-        STRIPPED_INVITED_USER_ID,
-        STRIPPED_JOINED_USER_ID,
-        STRIPPED_ROOM_INFO,
-        STRIPPED_ROOM_MEMBER,
-        STRIPPED_ROOM_STATE,
-        CUSTOM,
-    ];
+    pub const KV: &str = "kv";
 }
-
-use keys::ALL_DB_STORES;
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
@@ -268,11 +245,11 @@ impl SledStateStoreBuilder {
                     ));
                     fs_extra::dir::create_all(&new_path, false)?;
                     fs_extra::dir::copy(path, new_path, &fs_extra::dir::CopyOptions::new())?;
-                    store.drop_tables()?;
+                    store.drop_v1_tables()?;
                     return self.build();
                 }
                 MigrationConflictStrategy::Drop => {
-                    store.drop_tables()?;
+                    store.drop_v1_tables()?;
                     return self.build();
                 }
                 MigrationConflictStrategy::Raise => migration_res?,
@@ -303,7 +280,7 @@ pub struct SledStateStore {
     path: Option<PathBuf>,
     pub(crate) inner: Db,
     store_cipher: Option<Arc<StoreCipher>>,
-    session: Tree,
+    kv: Tree,
     account_data: Tree,
     members: Tree,
     profiles: Tree,
@@ -341,7 +318,7 @@ impl SledStateStore {
         path: Option<PathBuf>,
         store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self> {
-        let session = db.open_tree(keys::SESSION)?;
+        let kv = db.open_tree(keys::KV)?;
         let account_data = db.open_tree(keys::ACCOUNT_DATA)?;
 
         let members = db.open_tree(keys::MEMBER)?;
@@ -372,7 +349,7 @@ impl SledStateStore {
             path,
             inner: db,
             store_cipher,
-            session,
+            kv,
             account_data,
             members,
             profiles,
@@ -435,22 +412,22 @@ impl SledStateStore {
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.session.insert(
-            self.encode_key(keys::SESSION, ("filter", filter_name)),
+        self.kv.insert(
+            self.encode_key(keys::SESSION, (keys::FILTER, filter_name)),
             self.serialize_value(&filter_id)?,
         )?;
         Ok(())
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        self.session
-            .get(self.encode_key(keys::SESSION, ("filter", filter_name)))?
+        self.kv
+            .get(self.encode_key(keys::SESSION, (keys::FILTER, filter_name)))?
             .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        self.session.get(keys::SYNC_TOKEN.encode())?.map(|t| self.deserialize_value(&t)).transpose()
+        self.kv.get(keys::SYNC_TOKEN.encode())?.map(|t| self.deserialize_value(&t)).transpose()
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -811,10 +788,10 @@ impl SledStateStore {
         ret?;
 
         // user state
-        let ret: Result<(), TransactionError<SledStoreError>> = (&self.session, &self.account_data)
-            .transaction(|(session, account_data)| {
+        let ret: Result<(), TransactionError<SledStoreError>> = (&self.kv, &self.account_data)
+            .transaction(|(kv, account_data)| {
                 if let Some(s) = &changes.sync_token {
-                    session.insert(
+                    kv.insert(
                         keys::SYNC_TOKEN.encode(),
                         self.serialize_value(s).map_err(ConflictableTransactionError::Abort)?,
                     )?;
