@@ -108,8 +108,8 @@ impl Client {
         Ok(response)
     }
 
-    /// Construct a [`EncryptedFile`][ruma::events::room::EncryptedFile] by encrypting
-    /// and uploading a provided reader.
+    /// Construct a [`EncryptedFile`][ruma::events::room::EncryptedFile] by
+    /// encrypting and uploading a provided reader.
     ///
     /// # Arguments
     /// * `content_type` - The content type of the file.
