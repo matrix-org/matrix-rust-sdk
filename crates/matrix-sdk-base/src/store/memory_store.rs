@@ -37,7 +37,10 @@ use ruma::{
 use tracing::{debug, info, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::{deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent};
+use crate::{
+    deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent,
+    StateStoreDataKey, StateStoreDataValue,
+};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -119,18 +122,48 @@ impl MemoryStore {
         }
     }
 
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.filters.insert(filter_name.to_owned(), filter_id.to_owned());
+    async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
+        match key {
+            StateStoreDataKey::SyncToken => {
+                Ok(self.sync_token.read().unwrap().clone().map(StateStoreDataValue::SyncToken))
+            }
+            StateStoreDataKey::Filter(filter_name) => Ok(self
+                .filters
+                .get(filter_name)
+                .map(|f| StateStoreDataValue::Filter(f.value().clone()))),
+        }
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<()> {
+        match key {
+            StateStoreDataKey::SyncToken => {
+                *self.sync_token.write().unwrap() =
+                    Some(value.into_sync_token().expect("Session data not a sync token"))
+            }
+            StateStoreDataKey::Filter(filter_name) => {
+                self.filters.insert(
+                    filter_name.to_owned(),
+                    value.into_filter().expect("Session data not a filter"),
+                );
+            }
+        }
 
         Ok(())
     }
 
-    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        Ok(self.filters.get(filter_name).map(|f| f.to_string()))
-    }
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
+        match key {
+            StateStoreDataKey::SyncToken => *self.sync_token.write().unwrap() = None,
+            StateStoreDataKey::Filter(filter_name) => {
+                self.filters.remove(filter_name);
+            }
+        }
 
-    async fn get_sync_token(&self) -> Result<Option<String>> {
-        Ok(self.sync_token.read().unwrap().clone())
+        Ok(())
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -596,20 +629,24 @@ impl MemoryStore {
 impl StateStore for MemoryStore {
     type Error = StoreError;
 
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.save_filter(filter_name, filter_id).await
+    async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
+        self.get_kv_data(key).await
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<()> {
+        self.set_kv_data(key, value).await
+    }
+
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
+        self.remove_kv_data(key).await
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         self.save_changes(changes).await
-    }
-
-    async fn get_filter(&self, filter_id: &str) -> Result<Option<String>> {
-        self.get_filter(filter_id).await
-    }
-
-    async fn get_sync_token(&self) -> Result<Option<String>> {
-        self.get_sync_token().await
     }
 
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {

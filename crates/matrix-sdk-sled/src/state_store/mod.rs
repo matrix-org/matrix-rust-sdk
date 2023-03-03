@@ -26,7 +26,7 @@ use matrix_sdk_base::{
     deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo,
+    MinimalStateEvent, RoomInfo, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 use ruma::{
@@ -104,9 +104,7 @@ impl From<SledStoreError> for StoreError {
 
 mod keys {
     // Static keys
-    pub const SYNC_TOKEN: &str = "sync_token";
     pub const SESSION: &str = "session";
-    pub const FILTER: &str = "filter";
 
     // Stores
     pub const ACCOUNT_DATA: &str = "account-data";
@@ -411,23 +409,54 @@ impl SledStateStore {
         }
     }
 
-    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.kv.insert(
-            self.encode_key(keys::SESSION, (keys::FILTER, filter_name)),
-            self.serialize_value(&filter_id)?,
-        )?;
+    fn encode_kv_data_key(&self, key: StateStoreDataKey<'_>) -> Vec<u8> {
+        match key {
+            StateStoreDataKey::SyncToken => key.encoding_key().encode(),
+            StateStoreDataKey::Filter(filter_name) => {
+                self.encode_key(keys::SESSION, (key.encoding_key(), filter_name))
+            }
+        }
+    }
+
+    async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
+        let encoded_key = self.encode_kv_data_key(key);
+
+        let value =
+            self.kv.get(encoded_key)?.map(|e| self.deserialize_value::<String>(&e)).transpose()?;
+
+        let value = match key {
+            StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
+            StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
+        };
+
+        Ok(value)
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<()> {
+        let encoded_key = self.encode_kv_data_key(key);
+
+        let value = match key {
+            StateStoreDataKey::SyncToken => {
+                value.into_sync_token().expect("Session data not a sync token")
+            }
+            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
+        };
+
+        self.kv.insert(encoded_key, self.serialize_value(&value)?)?;
+
         Ok(())
     }
 
-    pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        self.kv
-            .get(self.encode_key(keys::SESSION, (keys::FILTER, filter_name)))?
-            .map(|f| self.deserialize_value(&f))
-            .transpose()
-    }
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
+        let encoded_key = self.encode_kv_data_key(key);
 
-    pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        self.kv.get(keys::SYNC_TOKEN.encode())?.map(|t| self.deserialize_value(&t)).transpose()
+        self.kv.remove(encoded_key)?;
+
+        Ok(())
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -792,7 +821,7 @@ impl SledStateStore {
             .transaction(|(kv, account_data)| {
                 if let Some(s) = &changes.sync_token {
                     kv.insert(
-                        keys::SYNC_TOKEN.encode(),
+                        self.encode_kv_data_key(StateStoreDataKey::SyncToken),
                         self.serialize_value(s).map_err(ConflictableTransactionError::Abort)?,
                     )?;
                 }
@@ -1323,20 +1352,27 @@ impl SledStateStore {
 impl StateStore for SledStateStore {
     type Error = StoreError;
 
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
-        self.save_filter(filter_name, filter_id).await.map_err(Into::into)
+    async fn get_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+    ) -> StoreResult<Option<StateStoreDataValue>> {
+        self.get_kv_data(key).await.map_err(Into::into)
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> StoreResult<()> {
+        self.set_kv_data(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> StoreResult<()> {
+        self.remove_kv_data(key).await.map_err(Into::into)
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> StoreResult<()> {
         self.save_changes(changes).await.map_err(Into::into)
-    }
-
-    async fn get_filter(&self, filter_id: &str) -> StoreResult<Option<String>> {
-        self.get_filter(filter_id).await.map_err(Into::into)
-    }
-
-    async fn get_sync_token(&self) -> StoreResult<Option<String>> {
-        self.get_sync_token().await.map_err(Into::into)
     }
 
     async fn get_presence_event(

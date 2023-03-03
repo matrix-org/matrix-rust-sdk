@@ -74,7 +74,10 @@ mod memory_store;
 pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DynStateStore, IntoStateStore, StateStore, StateStoreExt},
+    traits::{
+        DynStateStore, IntoStateStore, StateStore, StateStoreDataKey, StateStoreDataValue,
+        StateStoreExt,
+    },
 };
 
 /// State store specific error type.
@@ -191,7 +194,8 @@ impl Store {
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
-        let token = self.get_sync_token().await?;
+        let token =
+            self.get_kv_data(StateStoreDataKey::SyncToken).await?.and_then(|s| s.into_sync_token());
         *self.sync_token.write().await = token;
 
         self.session_meta.set(session_meta).expect("Session Meta was already set");

@@ -25,7 +25,7 @@ use matrix_sdk_base::{
     deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo,
+    MinimalStateEvent, RoomInfo, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -147,8 +147,6 @@ mod KEYS {
     // static keys
 
     pub const STORE_KEY: &str = "store_key";
-    pub const FILTER: &str = "filter";
-    pub const SYNC_TOKEN: &str = "sync_token";
 }
 
 pub use KEYS::ALL_STORES;
@@ -413,6 +411,15 @@ impl IndexeddbStateStore {
             .map(|f| self.deserialize_event(f))
             .transpose()
     }
+
+    fn encode_kv_data_key(&self, key: StateStoreDataKey<'_>) -> JsValue {
+        match key {
+            StateStoreDataKey::SyncToken => self.encode_key(key.encoding_key(), key.encoding_key()),
+            StateStoreDataKey::Filter(filter_name) => {
+                self.encode_key(key.encoding_key(), (key.encoding_key(), filter_name))
+            }
+        }
+    }
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -445,41 +452,71 @@ macro_rules! impl_state_store {
 }
 
 impl_state_store! {
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
+    async fn get_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+    ) -> Result<Option<StateStoreDataValue>> {
+        let encoded_key = self.encode_kv_data_key(key);
+
+        let value = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::KV)?
+            .get(&encoded_key)?
+            .await?
+            .map(|f| self.deserialize_event::<String>(f))
+            .transpose()?;
+
+        let value = match key {
+            StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
+            StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
+        };
+
+        Ok(value)
+    }
+
+    async fn set_kv_data(
+        &self,
+        key: StateStoreDataKey<'_>,
+        value: StateStoreDataValue,
+    ) -> Result<()> {
+        let encoded_key = self.encode_kv_data_key(key);
+
+        let value = match key {
+            StateStoreDataKey::SyncToken => {
+                value.into_sync_token().expect("Session data not a sync token")
+            }
+            StateStoreDataKey::Filter(_) => {
+                value.into_filter().expect("Session data not a filter")
+            }
+        };
+
         let tx = self
             .inner
             .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readwrite)?;
 
         let obj = tx.object_store(KEYS::KV)?;
 
-        obj.put_key_val(
-            &self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)),
-            &self.serialize_event(&filter_id)?,
-        )?;
+        obj.put_key_val(&encoded_key, &self.serialize_event(&value)?)?;
 
         tx.await.into_result()?;
 
         Ok(())
     }
 
-    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        self.inner
-            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::KV)?
-            .get(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)))?
-            .await?
-            .map(|f| self.deserialize_event(f))
-            .transpose()
-    }
+    async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
+        let encoded_key = self.encode_kv_data_key(key);
 
-    async fn get_sync_token(&self) -> Result<Option<String>> {
-        self.inner
-            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::KV)?
-            .get(&self.encode_key(KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN))?
-            .await?
-            .map(|f| self.deserialize_event(f))
-            .transpose()
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::KV, IdbTransactionMode::Readwrite)?;
+        let obj = tx.object_store(KEYS::KV)?;
+
+        obj.delete(&encoded_key)?;
+
+        tx.await.into_result()?;
+
+        Ok(())
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -543,8 +580,10 @@ impl_state_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         if let Some(s) = &changes.sync_token {
-            tx.object_store(KEYS::KV)?
-                .put_key_val(&self.encode_key(KEYS::SYNC_TOKEN, KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
+            tx.object_store(KEYS::KV)?.put_key_val(
+                &self.encode_kv_data_key(StateStoreDataKey::SyncToken),
+                &self.serialize_event(s)?,
+            )?;
         }
 
         if !changes.ambiguity_maps.is_empty() {

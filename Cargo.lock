@@ -2677,6 +2677,7 @@ dependencies = [
 name = "matrix-sdk-base"
 version = "0.6.1"
 dependencies = [
+ "assert_matches",
  "assign",
  "async-stream",
  "async-trait",
