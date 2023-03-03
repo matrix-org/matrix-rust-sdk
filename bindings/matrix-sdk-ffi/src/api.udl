@@ -152,14 +152,20 @@ interface SlidingSyncBuilder {
 };
 
 [Enum]
-interface PusherKind {
-  Http();
-  Email();
+interface PushFormat {
+  EventIdOnly();
+};
+
+interface HttpPusherData {
+    string url;
+    PushFormat format;
+    string? default_payload;
 };
 
 [Enum]
-interface PushFormat {
-  EventIdOnly();
+interface PusherKind {
+  Http(HttpPusherData data);
+  Email();
 };
 
 interface Client {
@@ -215,15 +221,12 @@ interface Client {
 
     [Throws=ClientError]
     void set_pusher(string pushkey,
-                    PusherKind? kind,
+                    PusherKind kind,
                     string app_id,
                     string app_display_name,
                     string device_display_name,
                     string? profile_tag,
-                    string lang,
-                    string? url,
-                    PushFormat? format,
-                    string? default_payload);
+                    string lang);
 };
 
 dictionary Session {

@@ -4233,6 +4233,7 @@ dependencies = [
  "ruma-client-api",
  "ruma-common",
  "ruma-federation-api",
+ "ruma-push-gateway-api",
 ]
 
 [[package]]
@@ -4335,6 +4336,18 @@ dependencies = [
  "serde",
  "syn",
  "toml 0.7.2",
+]
+
+[[package]]
+name = "ruma-push-gateway-api"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c02fac59c8be44a129213394269d7c72cc9adef1f2ce16dc16ebbe4b3dc7bb78"
+dependencies = [
+ "js_int",
+ "ruma-common",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

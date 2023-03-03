@@ -10,7 +10,7 @@ use matrix_sdk::{
             error::ErrorKind,
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             media::get_content_thumbnail::v3::Method,
-            push::{PusherIds, PusherInit, PusherKind},
+            push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             session::get_login_types,
             sync::sync_events::v3::Filter,
         },
@@ -20,6 +20,8 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
+use serde_json::Value;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
@@ -29,15 +31,47 @@ use super::{
 use crate::client;
 
 #[derive(Clone)]
+pub struct HttpPusherData {
+    pub url: String,
+    pub format: Option<PushFormat>,
+    pub default_payload: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum PusherKind {
+    Http(HttpPusherData),
+    Email,
+}
+
+impl PusherKind {
+    pub fn convert(&self) -> anyhow::Result<RumaPusherKind> {
+        match self {
+            PusherKind::Http(data) => {
+                let mut ruma_data = RumaHttpPusherData::new(data.url);
+                if let Some(payload) = data.default_payload {
+                    let json: Value = serde_json::from_str(&payload)?;
+                    ruma_data.default_payload = json;
+                }
+                ruma_data.format = data.format.map(|f| f.convert());
+                Ok(RumaPusherKind::Http(ruma_data))
+            }
+            PusherKind::Email => {
+                let ruma_data = EmailPusherData::new();
+                Ok(RumaPusherKind::Email(ruma_data))
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
 pub enum PushFormat {
     EventIdOnly,
 }
 
 impl PushFormat {
-    pub fn convert(&self) -> matrix_sdk::ruma::push::PushFormat {
-        use matrix_sdk::ruma::push::PushFormat as PF;
+    pub fn convert(&self) -> RumaPushFormat {
         match self {
-            client::PushFormat::EventIdOnly => PF::EventIdOnly,
+            client::PushFormat::EventIdOnly => RumaPushFormat::EventIdOnly,
         }
     }
 }
@@ -392,15 +426,18 @@ impl Client {
         device_display_name: String,
         profile_tag: Option<String>,
         lang: String,
-        url: Option<String>,
-        format: Option<PushFormat>,
-        default_payload: Option<String>,
     ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             let ids = PusherIds::new(pushkey, app_id);
 
-            let pusher_init =
-                PusherInit { ids, kind, app_display_name, device_display_name, profile_tag, lang };
+            let pusher_init = PusherInit {
+                ids,
+                kind: kind.convert()?,
+                app_display_name,
+                device_display_name,
+                profile_tag,
+                lang,
+            };
             match self.client.set_pusher(pusher_init.into()).await {
                 Ok(_) => Ok(()),
                 Err(error) => Err(anyhow!(error.to_string())),
