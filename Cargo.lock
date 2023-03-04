@@ -2871,6 +2871,7 @@ name = "matrix-sdk-indexeddb"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "async-trait",
  "base64 0.21.0",
  "dashmap",
