@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
@@ -29,8 +26,8 @@ use web_sys::IdbTransactionMode;
 use super::{deserialize_event, serialize_event, Result, ALL_STORES, KEYS};
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: f64 = 1.2;
-const CURRENT_META_DB_VERSION: f64 = 2.0;
+const CURRENT_DB_VERSION: u32 = 3;
+const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
@@ -55,17 +52,19 @@ pub async fn upgrade_meta_db(
     passphrase: Option<&str>,
 ) -> Result<(IdbDatabase, Option<Arc<StoreCipher>>)> {
     // Meta database.
-    let mut db_req: OpenDbRequest = IdbDatabase::open_f64(meta_name, CURRENT_META_DB_VERSION)?;
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(meta_name, CURRENT_META_DB_VERSION)?;
     db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
         let db = evt.db();
-        if evt.old_version() < 1.0 {
-            // migrating to version 1
+        let old_version = evt.old_version() as u32;
 
+        if old_version < 1 {
             db.create_object_store(KEYS::INTERNAL_STATE)?;
-            db.create_object_store(KEYS::BACKUPS_META)?;
-        } else if evt.old_version() < 2.0 {
+        }
+
+        if old_version < 2 {
             db.create_object_store(KEYS::BACKUPS_META)?;
         }
+
         Ok(())
     }));
 
@@ -111,65 +110,72 @@ pub async fn upgrade_inner_db(
     migration_strategy: MigrationConflictStrategy,
     meta_db: &IdbDatabase,
 ) -> Result<IdbDatabase> {
-    let mut recreate_stores = false;
+    let mut should_create_stores = false;
+    let mut should_drop_stores = false;
     {
-        // checkup up in a separate call, whether we have to backup or do anything else
-        // to the db. Unfortunately the set_on_upgrade_needed doesn't allow async fn
-        // which we need to execute the backup.
+        // This is a hack, we need to open the database a first time to get the current
+        // version.
+        // The indexed_db_futures crate doesn't let us access the transaction so we
+        // can't migrate data inside the `onupgradeneeded` callback. Instead we see if
+        // we need to migrate some data before the upgrade, then let the store process
+        // the upgrade.
+        // See <https://github.com/Alorel/rust-indexed-db/issues/20>
         let has_store_cipher = store_cipher.is_some();
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, 1.0)?;
-        let created = Arc::new(AtomicBool::new(false));
-        let created_inner = created.clone();
+        let pre_db = IdbDatabase::open(name)?.into_future().await?;
 
-        db_req.set_on_upgrade_needed(Some(
-            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-                // in case this is a fresh db, we dont't want to trigger
-                // further migrations other than just creating the full
-                // schema.
-                if evt.old_version() < 1.0 {
-                    create_stores(evt.db())?;
-                    created_inner.store(true, Ordering::Relaxed);
-                }
-                Ok(())
-            },
-        ));
+        // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
+        // works with an unsigned integer.
+        // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
+        let mut old_version = pre_db.version() as u32;
 
-        let pre_db = db_req.into_future().await?;
-        let old_version = pre_db.version();
+        // Inside the `onupgradeneeded` callback we would know whether it's a new DB
+        // because the old version would be set to 0, here it is already set to 1 so we
+        // check if the stores exist.
+        if old_version == 1 && pre_db.object_store_names().next().is_none() {
+            old_version = 0;
+        }
 
-        if created.load(Ordering::Relaxed) {
-            // this is a fresh DB, nothing to do
-        } else if old_version == 1.0 && has_store_cipher {
+        // Upgrades to v1 and v2 (re)create empty stores, while the other upgrades
+        // change data that is already in the stores, so we use exclusive branches here.
+        if old_version == 0 {
+            should_create_stores = true;
+        } else if old_version < 2 && has_store_cipher {
             match migration_strategy {
                 MigrationConflictStrategy::BackupAndDrop => {
-                    backup(&pre_db, meta_db).await?;
-                    recreate_stores = true;
+                    backup_v1(&pre_db, meta_db).await?;
+                    should_drop_stores = true;
+                    should_create_stores = true;
                 }
                 MigrationConflictStrategy::Drop => {
-                    recreate_stores = true;
+                    should_drop_stores = true;
+                    should_create_stores = true;
                 }
                 MigrationConflictStrategy::Raise => {
                     return Err(IndexeddbStateStoreError::MigrationConflict {
                         name: name.to_owned(),
                         old_version,
                         new_version: CURRENT_DB_VERSION,
-                    })
+                    });
                 }
             }
-        } else if old_version < 1.2 {
-            migrate_to_v1_2(&pre_db, store_cipher).await?;
-        } else {
-            // Nothing to be done
+        } else if old_version < 3 {
+            migrate_to_v3(&pre_db, store_cipher).await?;
         }
+
+        pre_db.close();
     }
 
-    let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, CURRENT_DB_VERSION)?;
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
     db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        // changing the format can only happen in the upgrade procedure
-        if recreate_stores {
+        // Changing the format can only happen in the upgrade procedure
+        if should_drop_stores {
             drop_stores(evt.db())?;
+        }
+
+        if should_create_stores {
             create_stores(evt.db())?;
         }
+
         Ok(())
     }));
 
@@ -190,7 +196,7 @@ fn create_stores(db: &IdbDatabase) -> Result<(), JsValue> {
     Ok(())
 }
 
-async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
+async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let now = JsDate::now();
     let backup_name = format!("backup-{}-{now}", source.name());
 
@@ -206,24 +212,24 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let target = db_req.into_future().await?;
 
     for name in ALL_STORES {
-        let tx = target.transaction_on_one_with_mode(name, IdbTransactionMode::Readwrite)?;
-
-        let obj = tx.object_store(name)?;
-
-        if let Some(curs) = source
-            .transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?
-            .object_store(name)?
+        let source_tx = source.transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?;
+        let source_obj = source_tx.object_store(name)?;
+        let Some(curs) = source_obj
             .open_cursor()?
-            .await?
-        {
-            while let Some(key) = curs.key() {
-                obj.put_key_val(&key, &curs.value())?;
+            .await? else {
+                continue;
+            };
 
-                curs.continue_cursor()?.await?;
-            }
+        let data = curs.into_vec(0).await?;
+
+        let target_tx = target.transaction_on_one_with_mode(name, IdbTransactionMode::Readwrite)?;
+        let target_obj = target_tx.object_store(name)?;
+
+        for kv in data {
+            target_obj.put_key_val(kv.key(), kv.value())?;
         }
 
-        tx.await.into_result()?;
+        target_tx.await.into_result()?;
     }
 
     let tx =
@@ -236,7 +242,7 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     Ok(())
 }
 
-async fn v1_2_fix_store(
+async fn v3_fix_store(
     store: &IdbObjectStore<'_>,
     store_cipher: Option<&StoreCipher>,
 ) -> Result<()> {
@@ -275,14 +281,15 @@ async fn v1_2_fix_store(
     Ok(())
 }
 
-async fn migrate_to_v1_2(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<()> {
+/// Fix serialized redacted state events.
+async fn migrate_to_v3(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<()> {
     let tx = db.transaction_on_multi_with_mode(
         &[KEYS::ROOM_STATE, KEYS::ROOM_INFOS],
         IdbTransactionMode::Readwrite,
     )?;
 
-    v1_2_fix_store(&tx.object_store(KEYS::ROOM_STATE)?, store_cipher).await?;
-    v1_2_fix_store(&tx.object_store(KEYS::ROOM_INFOS)?, store_cipher).await?;
+    v3_fix_store(&tx.object_store(KEYS::ROOM_STATE)?, store_cipher).await?;
+    v3_fix_store(&tx.object_store(KEYS::ROOM_INFOS)?, store_cipher).await?;
 
     tx.await.into_result().map_err(|e| e.into())
 }
@@ -291,8 +298,9 @@ async fn migrate_to_v1_2(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+    use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
-    use matrix_sdk_base::StateStore;
+    use matrix_sdk_base::{StateStore, StoreError};
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{AnySyncStateEvent, StateEventType},
@@ -302,18 +310,27 @@ mod tests {
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
 
-    use super::{serialize_event, MigrationConflictStrategy, Result, ALL_STORES, KEYS};
-    use crate::{safe_encode::SafeEncode, IndexeddbStateStore, IndexeddbStateStoreError};
+    use super::{MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
+    use crate::{
+        safe_encode::SafeEncode,
+        state_store::{serialize_event, Result, ALL_STORES, KEYS},
+        IndexeddbStateStore, IndexeddbStateStoreError,
+    };
 
-    pub async fn create_fake_db(name: &str, version: f64) -> Result<IdbDatabase> {
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, version)?;
+    const CUSTOM_DATA_KEY: &[u8] = b"custom_data_key";
+    const CUSTOM_DATA: &[u8] = b"some_custom_data";
+
+    pub async fn create_fake_db(name: &str, version: u32) -> Result<IdbDatabase> {
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
         db_req.set_on_upgrade_needed(Some(
             move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-                // migrating to version 1
                 let db = evt.db();
+
+                // Initialize stores.
                 for name in ALL_STORES {
                     db.create_object_store(name)?;
                 }
+
                 Ok(())
             },
         ));
@@ -321,38 +338,78 @@ mod tests {
     }
 
     #[async_test]
-    pub async fn test_no_upgrade() -> Result<()> {
-        let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+    pub async fn test_new_store() -> Result<()> {
+        let name = format!("new-store-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
 
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         // simple check that the layout exists.
-        assert_eq!(store.get_sync_token().await?, None);
+        assert_eq!(store.get_custom_value(CUSTOM_DATA_KEY).await?, None);
+
+        // Check versions.
+        assert_eq!(store.version(), CURRENT_DB_VERSION);
+        assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
+
         Ok(())
     }
 
     #[async_test]
-    pub async fn test_migrating_v1_to_1_1_plain() -> Result<()> {
-        let name =
-            format!("migrating-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
-        create_fake_db(&name, 1.0).await?;
+    pub async fn test_migrating_v1_to_v2_plain() -> Result<()> {
+        let name = format!("migrating-v2-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&name, 1).await?;
+            let tx =
+                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(KEYS::CUSTOM)?;
+            let jskey = JsValue::from_str(
+                core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
+            );
+            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            tx.await.into_result()?;
+            db.close();
+        }
 
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
-        assert_eq!(store.get_sync_token().await?, None);
+        // Custom data is still there.
+        let stored_data = assert_matches!(
+            store.get_custom_value(CUSTOM_DATA_KEY).await?,
+            Some(d) => d
+        );
+        assert_eq!(stored_data, CUSTOM_DATA);
+
+        // Check versions.
+        assert_eq!(store.version(), CURRENT_DB_VERSION);
+        assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
+
         Ok(())
     }
 
     #[async_test]
-    pub async fn test_migrating_v1_to_1_1_with_pw() -> Result<()> {
+    pub async fn test_migrating_v1_to_v2_with_pw() -> Result<()> {
         let name =
-            format!("migrating-1.1-with-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+            format!("migrating-v2-with-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
         let passphrase = "somepassphrase".to_owned();
-        create_fake_db(&name, 1.0).await?;
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&name, 1).await?;
+            let tx =
+                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(KEYS::CUSTOM)?;
+            let jskey = JsValue::from_str(
+                core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
+            );
+            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            tx.await.into_result()?;
+            db.close();
+        }
 
         // this transparently migrates to the latest version
         let store =
@@ -360,18 +417,37 @@ mod tests {
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, true);
         assert!(store.latest_backup().await?.is_some(), "No backup_found");
-        assert_eq!(store.get_sync_token().await?, None);
+        // the data is gone
+        assert_eq!(store.get_custom_value(CUSTOM_DATA_KEY).await?, None);
+
+        // Check versions.
+        assert_eq!(store.version(), CURRENT_DB_VERSION);
+        assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
+
         Ok(())
     }
 
     #[async_test]
-    pub async fn test_migrating_v1_to_1_1_with_pw_drops() -> Result<()> {
+    pub async fn test_migrating_v1_to_v2_with_pw_drops() -> Result<()> {
         let name = format!(
-            "migrating-1.1-with-cipher-drops-{}",
+            "migrating-v2-with-cipher-drops-{}",
             Uuid::new_v4().as_hyphenated().to_string()
         );
         let passphrase = "some-other-passphrase".to_owned();
-        create_fake_db(&name, 1.0).await?;
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&name, 1).await?;
+            let tx =
+                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(KEYS::CUSTOM)?;
+            let jskey = JsValue::from_str(
+                core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
+            );
+            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            tx.await.into_result()?;
+            db.close();
+        }
 
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder()
@@ -380,20 +456,39 @@ mod tests {
             .migration_conflict_strategy(MigrationConflictStrategy::Drop)
             .build()
             .await?;
-        // this creates a backup by default
+        // this doesn't create a backup
         assert_eq!(store.has_backups().await?, false);
-        assert_eq!(store.get_sync_token().await?, None);
+        // the data is gone
+        assert_eq!(store.get_custom_value(CUSTOM_DATA_KEY).await?, None);
+
+        // Check versions.
+        assert_eq!(store.version(), CURRENT_DB_VERSION);
+        assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
+
         Ok(())
     }
 
     #[async_test]
-    pub async fn test_migrating_v1_to_1_1_with_pw_raise() -> Result<()> {
+    pub async fn test_migrating_v1_to_v2_with_pw_raise() -> Result<()> {
         let name = format!(
-            "migrating-1.1-with-cipher-raises-{}",
+            "migrating-v2-with-cipher-raises-{}",
             Uuid::new_v4().as_hyphenated().to_string()
         );
         let passphrase = "some-other-passphrase".to_owned();
-        create_fake_db(&name, 1.0).await?;
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&name, 1).await?;
+            let tx =
+                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(KEYS::CUSTOM)?;
+            let jskey = JsValue::from_str(
+                core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
+            );
+            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            tx.await.into_result()?;
+            db.close();
+        }
 
         // this transparently migrates to the latest version
         let store_res = IndexeddbStateStore::builder()
@@ -403,17 +498,15 @@ mod tests {
             .build()
             .await;
 
-        if let Err(IndexeddbStateStoreError::MigrationConflict { .. }) = store_res {
-            // all fine!
-        } else {
-            assert!(false, "Conflict didn't raise: {:?}", store_res)
-        }
+        assert_matches!(store_res, Err(IndexeddbStateStoreError::MigrationConflict { .. }));
+
         Ok(())
     }
 
     #[async_test]
-    pub async fn test_migrating_to_v1_2() -> Result<()> {
-        let name = format!("migrating-1.2-{}", Uuid::new_v4().as_hyphenated().to_string());
+    pub async fn test_migrating_to_v3() -> Result<()> {
+        let name = format!("migrating-v3-{}", Uuid::new_v4().as_hyphenated().to_string());
+
         // An event that fails to deserialize.
         let wrong_redacted_state_event = json!({
             "content": null,
@@ -441,13 +534,14 @@ mod tests {
 
         // Populate DB with wrong event.
         {
-            let db = create_fake_db(&name, 1.1).await?;
+            let db = create_fake_db(&name, 2).await?;
             let tx =
                 db.transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readwrite)?;
             let state = tx.object_store(KEYS::ROOM_STATE)?;
             let key = (room_id, StateEventType::RoomTopic, "").encode();
             state.put_key_val(&key, &serialize_event(None, &wrong_redacted_state_event)?)?;
             tx.await.into_result()?;
+            db.close();
         }
 
         // this transparently migrates to the latest version
@@ -455,6 +549,10 @@ mod tests {
         let event =
             store.get_state_event(room_id, StateEventType::RoomTopic, "").await.unwrap().unwrap();
         event.deserialize().unwrap();
+
+        // Check versions.
+        assert_eq!(store.version(), CURRENT_DB_VERSION);
+        assert_eq!(store.meta_version(), CURRENT_META_DB_VERSION);
 
         Ok(())
     }

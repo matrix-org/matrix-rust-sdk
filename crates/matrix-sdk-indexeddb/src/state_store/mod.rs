@@ -62,7 +62,7 @@ pub enum IndexeddbStateStoreError {
     #[error(transparent)]
     StoreError(#[from] StoreError),
     #[error("Can't migrate {name} from {old_version} to {new_version} without deleting data. See MigrationConflictStrategy for ways to configure.")]
-    MigrationConflict { name: String, old_version: f64, new_version: f64 },
+    MigrationConflict { name: String, old_version: u32, new_version: u32 },
 }
 
 impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
@@ -244,6 +244,16 @@ impl IndexeddbStateStore {
     /// Generate a IndexeddbStateStoreBuilder with default parameters
     pub fn builder() -> IndexeddbStateStoreBuilder {
         IndexeddbStateStoreBuilder::new()
+    }
+
+    /// The version of the database containing the data.
+    pub fn version(&self) -> u32 {
+        self.inner.version() as u32
+    }
+
+    /// The version of the database containing the metadata.
+    pub fn meta_version(&self) -> u32 {
+        self.meta.version() as u32
     }
 
     /// Whether this database has any migration backups
