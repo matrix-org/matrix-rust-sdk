@@ -91,7 +91,7 @@ impl KeysQueryListener {
         timeout: Duration,
         user: &UserId,
     ) -> Result<UserKeyQueryResult, ElapsedError> {
-        let users_for_key_query = self.store.users_for_key_query().await.unwrap_or_default();
+        let (users_for_key_query, _) = self.store.users_for_key_query().await.unwrap_or_default();
 
         if users_for_key_query.contains(user) {
             if let Err(e) = self.wait(timeout).await {
@@ -134,6 +134,10 @@ pub(crate) struct IdentityManager {
 /// Details of an in-flight key query request
 #[derive(Debug, Clone, Default)]
 struct KeysQueryRequestDetails {
+    /// The sequence number, to be passed to
+    /// `Store.mark_tracked_users_as_up_to_date`.
+    seqno: i64,
+
     /// A single batch of queries returned by the Store is broken up into one or
     /// more actual KeysQueryRequests, each with their own request id. We
     /// record the outstanding request ids here.
@@ -216,15 +220,19 @@ impl IdentityManager {
 
         self.store.save_changes(changes).await?;
 
-        // if this request is one of those we expected to be in flight, tell the store
-        // to mark devices up to date
-        let removed = {
+        // if this request is one of those we expected to be in flight, pass the
+        // sequence number back to the store so that it can mark devices up to
+        // date
+        let (seqno, removed) = {
             let mut kqrd = self.keys_query_request_details.lock().await;
-            kqrd.request_ids.remove(request_id)
+            (kqrd.seqno, kqrd.request_ids.remove(request_id))
         };
         if removed {
             self.store
-                .mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
+                .mark_tracked_users_as_up_to_date(
+                    response.device_keys.keys().map(Deref::deref),
+                    seqno,
+                )
                 .await?;
         }
 
@@ -691,19 +699,19 @@ impl IdentityManager {
         // forget about any previous key queries in flight
         *(self.keys_query_request_details.lock().await) = KeysQueryRequestDetails::default();
 
-        let users = self.store.users_for_key_query().await?;
+        let (users, seqno) = self.store.users_for_key_query().await?;
 
         // We always want to track our own user, but in case we aren't in an encrypted
         // room yet, we won't be tracking ourselves yet. This ensures we are always
         // tracking ourselves.
         //
         // The check for emptiness is done first for performance.
-        let users =
+        let (users, seqno) =
             if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
                 self.store.mark_user_as_changed(self.user_id()).await?;
                 self.store.users_for_key_query().await?
             } else {
-                users
+                (users, seqno)
             };
 
         if users.is_empty() {
@@ -1037,7 +1045,7 @@ pub(crate) mod tests {
             "Receiving a device changes update for a user we don't track does nothing"
         );
         assert!(
-            !manager.store.users_for_key_query().await.unwrap().contains(alice),
+            !manager.store.users_for_key_query().await.unwrap().0.contains(alice),
             "The user we don't track doesn't end up in the `/keys/query` request"
         );
     }
@@ -1131,6 +1139,37 @@ pub(crate) mod tests {
             manager.store.tracked_users().await.unwrap().contains(manager.user_id()),
             "Our own user is now tracked"
         );
+    }
+
+    /// if a user is invalidated while a /keys/query request is in flight, that
+    /// user is not removed from the list of outdated users when the
+    /// response is received
+    #[async_test]
+    async fn invalidation_race_handling() {
+        let manager = manager().await;
+        let alice = other_user_id();
+        manager.update_tracked_users([alice]).await.unwrap();
+
+        // alice should be in the list of key queries
+        let (reqid, req) = manager.users_for_key_query().await.unwrap().pop().unwrap();
+        assert!(req.device_keys.contains_key(alice));
+
+        // another invalidation turns up
+        manager.receive_device_changes([alice].into_iter()).await.unwrap();
+
+        // the response from the query arrives
+        manager.receive_keys_query_response(&reqid, &other_key_query()).await.unwrap();
+
+        // alice should *still* be in the list of key queries
+        let (reqid, req) = manager.users_for_key_query().await.unwrap().pop().unwrap();
+        assert!(req.device_keys.contains_key(alice));
+
+        // another key query response
+        manager.receive_keys_query_response(&reqid, &other_key_query()).await.unwrap();
+
+        // finally alice should not be in the list
+        let queries = manager.users_for_key_query().await.unwrap();
+        assert!(!queries.iter().any(|(_, r)| r.device_keys.contains_key(alice)));
     }
 
     #[async_test]
