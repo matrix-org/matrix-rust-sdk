@@ -149,6 +149,11 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+dictionary PusherIdentifiers {
+    string pushkey;
+    string app_id;
+};
+
 [Enum]
 interface PushFormat {
   EventIdOnly();
@@ -218,9 +223,8 @@ interface Client {
     void logout();
 
     [Throws=ClientError]
-    void set_pusher(string pushkey,
+    void set_pusher(PusherIdentifiers identifiers,
                     PusherKind kind,
-                    string app_id,
                     string app_display_name,
                     string device_display_name,
                     string? profile_tag,

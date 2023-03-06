@@ -26,6 +26,18 @@ use super::{room::Room, session_verification::SessionVerificationController, RUN
 use crate::client;
 
 #[derive(Clone)]
+pub struct PusherIdentifiers {
+    pub pushkey: String,
+    pub app_id: String,
+}
+
+impl PusherIdentifiers {
+    pub fn convert(&self) -> PusherIds {
+        PusherIds::new(self.pushkey.clone(), self.app_id.clone())
+    }
+}
+
+#[derive(Clone)]
 pub struct HttpPusherData {
     pub url: String,
     pub format: Option<PushFormat>,
@@ -413,16 +425,15 @@ impl Client {
     /// Registers a pusher with given parameters
     pub fn set_pusher(
         &self,
-        pushkey: String,
+        identifiers: PusherIdentifiers,
         kind: PusherKind,
-        app_id: String,
         app_display_name: String,
         device_display_name: String,
         profile_tag: Option<String>,
         lang: String,
     ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let ids = PusherIds::new(pushkey, app_id);
+            let ids = identifiers.convert();
 
             let pusher_init = PusherInit {
                 ids,
