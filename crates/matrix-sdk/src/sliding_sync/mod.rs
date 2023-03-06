@@ -900,7 +900,7 @@ impl SlidingSync {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(|e| e.to_device.as_ref().and_then(|t| t.since.to_owned()));
+                .and_then(|e| e.to_device.as_ref()?.since.to_owned());
 
             let mut extensions: ExtensionsConfig = Default::default();
             extensions.to_device = Some(assign!(ToDeviceConfig::default(), { since }));
