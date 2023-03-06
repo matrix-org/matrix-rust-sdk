@@ -31,9 +31,9 @@ pub struct PusherIdentifiers {
     pub app_id: String,
 }
 
-impl PusherIdentifiers {
-    pub fn convert(&self) -> PusherIds {
-        PusherIds::new(self.pushkey.clone(), self.app_id.clone())
+impl From<PusherIdentifiers> for PusherIds {
+    fn from(value: PusherIdentifiers) -> Self {
+        PusherIds::new(value.pushkey, value.app_id)
     }
 }
 
@@ -50,16 +50,18 @@ pub enum PusherKind {
     Email,
 }
 
-impl PusherKind {
-    pub fn convert(&self) -> anyhow::Result<RumaPusherKind> {
-        match self {
+impl TryFrom<PusherKind> for RumaPusherKind {
+    type Error = anyhow::Error;
+
+    fn try_from(value: PusherKind) -> anyhow::Result<Self> {
+        match value {
             PusherKind::Http { data } => {
-                let mut ruma_data = RumaHttpPusherData::new(data.url.clone());
-                if let Some(payload) = &data.default_payload {
-                    let json: Value = serde_json::from_str(payload)?;
+                let mut ruma_data = RumaHttpPusherData::new(data.url);
+                if let Some(payload) = data.default_payload {
+                    let json: Value = serde_json::from_str(&payload)?;
                     ruma_data.default_payload = json;
                 }
-                ruma_data.format = data.format.clone().map(|f| f.convert());
+                ruma_data.format = data.format.map(|f| f.into());
                 Ok(RumaPusherKind::Http(ruma_data))
             }
             PusherKind::Email => {
@@ -75,9 +77,9 @@ pub enum PushFormat {
     EventIdOnly,
 }
 
-impl PushFormat {
-    pub fn convert(&self) -> RumaPushFormat {
-        match self {
+impl From<PushFormat> for RumaPushFormat {
+    fn from(value: PushFormat) -> Self {
+        match value {
             client::PushFormat::EventIdOnly => RumaPushFormat::EventIdOnly,
         }
     }
@@ -433,11 +435,11 @@ impl Client {
         lang: String,
     ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            let ids = identifiers.convert();
+            let ids = identifiers.into();
 
             let pusher_init = PusherInit {
                 ids,
-                kind: kind.convert()?,
+                kind: kind.try_into()?,
                 app_display_name,
                 device_display_name,
                 profile_tag,

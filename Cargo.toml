@@ -46,10 +46,6 @@ zeroize = "1.3.0"
 # Default release profile, select with `--release`
 [profile.release]
 lto = true
-strip = true
-panic = "abort"
-opt-level = 'z'
-codegen-units = 1
 
 # Default development profile; default for most Cargo commands, otherwise
 # selected with `--debug`
