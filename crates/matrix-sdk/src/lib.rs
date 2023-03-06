@@ -49,7 +49,7 @@ mod events;
 pub use account::Account;
 #[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};

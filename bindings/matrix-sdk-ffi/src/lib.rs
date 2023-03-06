@@ -52,14 +52,6 @@ pub use self::{
     session_verification::*, sliding_sync::*, timeline::*,
 };
 
-#[derive(Default, Debug)]
-pub struct ClientState {
-    has_first_synced: bool,
-    is_syncing: bool,
-    should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error("client error: {msg}")]

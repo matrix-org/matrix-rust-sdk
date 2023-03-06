@@ -36,8 +36,8 @@ impl NotificationService {
     /// Returns none if this notification should not be displayed to the user.
     pub fn get_notification_item(
         &self,
-        room_id: String,
-        event_id: String,
+        _room_id: String,
+        _event_id: String,
     ) -> anyhow::Result<Option<NotificationItem>> {
         // TODO: Implement
         Ok(None)
