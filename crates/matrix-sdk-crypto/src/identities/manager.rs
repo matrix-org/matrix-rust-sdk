@@ -196,7 +196,8 @@ impl IdentityManager {
         };
 
         self.store.save_changes(changes).await?;
-        self.mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
+        self.store
+            .mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
             .await?;
 
         let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
@@ -704,13 +705,6 @@ impl IdentityManager {
         users: impl IntoIterator<Item = &UserId>,
     ) -> StoreResult<()> {
         self.store.update_tracked_users(users.into_iter()).await
-    }
-
-    pub async fn mark_tracked_users_as_up_to_date(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<()> {
-        self.store.mark_tracked_users_as_up_to_date(users).await
     }
 }
 
