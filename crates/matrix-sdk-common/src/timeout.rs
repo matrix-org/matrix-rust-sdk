@@ -44,7 +44,7 @@ where
     }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 pub(crate) mod tests {
     use std::{future, time::Duration};
 
