@@ -1041,7 +1041,7 @@ pub(crate) mod tests {
         );
         manager.receive_device_changes([alice].iter().map(Deref::deref)).await.unwrap();
         assert!(
-            !manager.store.is_user_tracked(alice).await.unwrap(),
+            !manager.store.tracked_users().await.unwrap().contains(alice),
             "Receiving a device changes update for a user we don't track does nothing"
         );
         assert!(

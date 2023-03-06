@@ -798,13 +798,6 @@ impl Store {
         Ok(())
     }
 
-    /// Are we tracking the list of devices this user has?
-    pub async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool> {
-        self.load_tracked_users().await?;
-
-        Ok(self.tracked_users_cache.contains(user_id))
-    }
-
     /// Get the set of users that has the outdate/dirty flag set for their list
     /// of devices.
     ///
