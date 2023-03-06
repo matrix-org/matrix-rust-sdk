@@ -1132,7 +1132,6 @@ impl OlmMachine {
                         // Meaning that the user did self verify it properly
                         // Let's check if we trust the identity
                         Ok(if device_owner_verified {
-                            // can this happen? in this case the device would be verified
                             (VerificationState::Verified, Some(owned_device_id))
                         } else {
                             (
@@ -1143,10 +1142,7 @@ impl OlmMachine {
                             )
                         })
                     } else {
-                        // The user is verified by us but the user hasn't self-verified their device
-                        // or
-                        // The user is not verified by us and the device is not properly verified by
-                        // them
+                        // The device owner hasn't self-verified its device
                         Ok((
                             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
                             Some(owned_device_id),

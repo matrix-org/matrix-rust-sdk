@@ -134,10 +134,12 @@ pub enum VerificationLevel {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum DeviceLinkProblem {
-    /// The device is deleted or unknown
+    /// The device is missing, either because it was deleted, or you haven't
+    /// yet downoaled it or the server is erroneously omitting it (federation
+    /// lag).
     MissingDevice,
-    /// The key was obtained from an insecure source.
-    /// Could be imported from file, symmetric backup, unsafe forward..
+    /// The key was obtained from an insecure source: imported from a file,
+    /// obtained from a legacy (asymmetric) backup, unsafe key forward, etc.
     InsecureSource,
 }
 
