@@ -2734,6 +2734,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "cfg-if",
+ "ctor",
  "ctr",
  "dashmap",
  "event-listener",
@@ -2758,6 +2759,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "vodozemac",
  "zeroize",
 ]
