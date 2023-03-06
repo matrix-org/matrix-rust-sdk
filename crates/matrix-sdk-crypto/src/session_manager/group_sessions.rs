@@ -20,6 +20,7 @@ use std::{
 
 use dashmap::DashMap;
 use futures_util::future::join_all;
+use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     events::{AnyToDeviceEventContent, ToDeviceEventType},
@@ -390,40 +391,17 @@ impl GroupSessionManager {
 
         for user_id in users {
             let user_devices = self.store.get_user_devices_filtered(user_id).await?;
-            let non_blacklisted_devices: Vec<Device> = user_devices
-                .devices()
-                .filter(|d| {
-                    if settings.only_allow_trusted_devices {
-                        !d.is_blacklisted() && d.is_verified()
+
+            let (share_with, withhelds): (Vec<Device>, Vec<(Device, WithheldCode)>) =
+                user_devices.devices().partition_map(|d| {
+                    if d.is_blacklisted() {
+                        Either::Right((d, WithheldCode::Blacklisted))
+                    } else if settings.only_allow_trusted_devices && !d.is_verified() {
+                        Either::Right((d, WithheldCode::Unverified))
                     } else {
-                        !d.is_blacklisted()
+                        Either::Left(d)
                     }
-                })
-                .collect();
-
-            user_devices.devices().for_each(|d| {
-                if d.is_blacklisted() {
-                    withheld_devices
-                        .entry(user_id.to_owned())
-                        .or_default()
-                        .push((d, WithheldCode::Blacklisted))
-                } else if settings.only_allow_trusted_devices && !d.is_verified() {
-                    withheld_devices
-                        .entry(user_id.to_owned())
-                        .or_default()
-                        .push((d, WithheldCode::Unverified))
-                }
-            });
-
-            /*let withheld_blacklist: Vec<Device> =
-                user_devices.devices().filter(|d| d.is_blacklisted()).collect();
-
-            let withheld_unverified: Vec<Device> = if settings.only_allow_trusted_devices {
-                // do not re-add blacklisted even if they are unverified
-                user_devices.devices().filter(|d| !d.is_blacklisted() && !d.is_verified()).collect()
-            } else {
-                Vec::with_capacity(0)
-            };*/
+                });
 
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
@@ -432,7 +410,7 @@ impl GroupSessionManager {
             if !should_rotate {
                 // Device IDs that should receive this session
                 let non_blacklisted_device_ids: HashSet<&DeviceId> =
-                    non_blacklisted_devices.iter().map(|d| d.device_id()).collect();
+                    share_with.iter().map(|d| d.device_id()).collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
@@ -456,20 +434,8 @@ impl GroupSessionManager {
                 };
             }
 
-            devices.entry(user_id.to_owned()).or_default().extend(non_blacklisted_devices);
-
-            /*if !withheld_unverified.is_empty() {
-                withheld_devices
-                    .entry(WithheldCode::Unverified)
-                    .or_default()
-                    .extend(withheld_unverified);
-            }
-            if !withheld_blacklist.is_empty() {
-                withheld_devices
-                    .entry(WithheldCode::Blacklisted)
-                    .or_default()
-                    .extend(withheld_blacklist);
-            }*/
+            devices.entry(user_id.to_owned()).or_default().extend(share_with);
+            withheld_devices.entry(user_id.to_owned()).or_default().extend(withhelds)
         }
 
         trace!(
