@@ -22,11 +22,13 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::{
     executor::spawn,
+    locks::Mutex,
     timeout::{timeout, ElapsedError},
 };
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
-    OwnedDeviceId, OwnedServerName, OwnedUserId, ServerName, UserId,
+    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
+    UserId,
 };
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -124,6 +126,18 @@ pub(crate) struct IdentityManager {
     keys_query_listener: KeysQueryListener,
     failures: FailuresCache<OwnedServerName>,
     store: Store,
+
+    /// details of the current "in-flight" key query request, if any
+    keys_query_request_details: Arc<Mutex<KeysQueryRequestDetails>>,
+}
+
+/// Details of an in-flight key query request
+#[derive(Debug, Clone, Default)]
+struct KeysQueryRequestDetails {
+    /// A single batch of queries returned by the Store is broken up into one or
+    /// more actual KeysQueryRequests, each with their own request id. We
+    /// record the outstanding request ids here.
+    request_ids: HashSet<OwnedTransactionId>,
 }
 
 impl IdentityManager {
@@ -131,6 +145,7 @@ impl IdentityManager {
 
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
         let keys_query_listener = KeysQueryListener::new(store.clone());
+        let keys_query_request_details = Mutex::new(KeysQueryRequestDetails::default());
 
         IdentityManager {
             user_id,
@@ -138,6 +153,7 @@ impl IdentityManager {
             store,
             keys_query_listener,
             failures: Default::default(),
+            keys_query_request_details: keys_query_request_details.into(),
         }
     }
 
@@ -156,13 +172,16 @@ impl IdentityManager {
     ///
     /// # Arguments
     ///
+    /// * `request_id` - The request_id returned by users_for_key_query
     /// * `response` - The keys query response of the request that the client
     /// performed.
     pub async fn receive_keys_query_response(
         &self,
+        request_id: &TransactionId,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         debug!(
+            ?request_id,
             users = ?response.device_keys.keys().collect::<BTreeSet<_>>(),
             failures = ?response.failures,
             "Handling a keys query response"
@@ -196,9 +215,18 @@ impl IdentityManager {
         };
 
         self.store.save_changes(changes).await?;
-        self.store
-            .mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
-            .await?;
+
+        // if this request is one of those we expected to be in flight, tell the store
+        // to mark devices up to date
+        let removed = {
+            let mut kqrd = self.keys_query_request_details.lock().await;
+            kqrd.request_ids.remove(request_id)
+        };
+        if removed {
+            self.store
+                .mark_tracked_users_as_up_to_date(response.device_keys.keys().map(Deref::deref))
+                .await?;
+        }
 
         let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
@@ -220,6 +248,7 @@ impl IdentityManager {
             identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
 
         debug!(
+            ?request_id,
             ?new_devices,
             ?changed_devices,
             ?deleted_devices,
@@ -645,17 +674,23 @@ impl IdentityManager {
         Ok((changes, changed_identity))
     }
 
-    /// Get a key query request if one is needed.
+    /// Get a list of key query requests needed.
     ///
-    /// Returns a key query request if the client should query E2E keys,
-    /// otherwise None.
+    /// # Returns
+    ///
+    /// A list of pairs of `(request_id, request)`
     ///
     /// The response of a successful key query requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_query_response`].
     ///
     /// [`OlmMachine`]: struct.OlmMachine.html
     /// [`receive_keys_query_response`]: #method.receive_keys_query_response
-    pub async fn users_for_key_query(&self) -> StoreResult<Vec<KeysQueryRequest>> {
+    pub async fn users_for_key_query(
+        &self,
+    ) -> StoreResult<Vec<(OwnedTransactionId, KeysQueryRequest)>> {
+        // forget about any previous key queries in flight
+        *(self.keys_query_request_details.lock().await) = KeysQueryRequestDetails::default();
+
         let users = self.store.users_for_key_query().await?;
 
         // We always want to track our own user, but in case we aren't in an encrypted
@@ -672,17 +707,24 @@ impl IdentityManager {
             };
 
         if users.is_empty() {
-            Ok(Vec::new())
-        } else {
-            let users: Vec<OwnedUserId> =
-                users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();
-
-            Ok(users
-                .chunks(Self::MAX_KEY_QUERY_USERS)
-                .map(|u| u.iter().map(|u| (u.clone(), Vec::new())).collect())
-                .map(KeysQueryRequest::new)
-                .collect())
+            return Ok(Vec::new());
         }
+
+        let mut result: Vec<(OwnedTransactionId, KeysQueryRequest)> = Vec::new();
+        let mut kqrd = KeysQueryRequestDetails { seqno, request_ids: HashSet::new() };
+
+        let filtered_users: Vec<OwnedUserId> =
+            users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();
+
+        for c in filtered_users.chunks(Self::MAX_KEY_QUERY_USERS) {
+            let request_id = TransactionId::new();
+            let req = KeysQueryRequest::new(c.iter().map(|u| (u.clone(), Vec::new())).collect());
+            debug!(?request_id, users = ?c, "Created keys query request");
+            result.push((request_id.clone(), req));
+            kqrd.request_ids.insert(request_id);
+        }
+        *(self.keys_query_request_details.lock().await) = kqrd;
+        Ok(result)
     }
 
     /// Receive the list of users that contained changed devices from the
@@ -957,24 +999,12 @@ pub(crate) mod tests {
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{client::keys::get_keys::v3::Response as KeysQueryResponse, IncomingResponse},
-        device_id, user_id,
+        device_id, user_id, TransactionId,
     };
     use serde_json::json;
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
 
-    fn key_query_without_failures() -> KeysQueryResponse {
-        let response = json!({
-            "device_keys": {
-                "@alice:example.org": {
-                },
-            }
-        });
-
-        let response = response_from_file(&response);
-
-        KeysQueryResponse::try_from_http_response(response).unwrap()
-    }
     fn key_query_with_failures() -> KeysQueryResponse {
         let response = json!({
             "device_keys": {
@@ -1029,7 +1059,10 @@ pub(crate) mod tests {
 
         let task = tokio::task::spawn(async move { listener.wait(Duration::from_secs(10)).await });
 
-        manager.receive_keys_query_response(&other_key_query()).await.unwrap();
+        manager
+            .receive_keys_query_response(&TransactionId::new(), &other_key_query())
+            .await
+            .unwrap();
 
         task.await.unwrap().unwrap();
 
@@ -1062,7 +1095,10 @@ pub(crate) mod tests {
 
         let device_keys = manager.store.account().device_keys().await;
         manager
-            .receive_keys_query_response(&key_query(identity_request, device_keys))
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &key_query(identity_request, device_keys),
+            )
             .await
             .unwrap();
 
@@ -1112,40 +1148,28 @@ pub(crate) mod tests {
             manager.store.tracked_users().await.unwrap().contains(alice),
             "Alice is tracked after being marked as tracked"
         );
-        assert!(manager
-            .users_for_key_query()
-            .await
-            .unwrap()
-            .iter()
-            .any(|r| r.device_keys.contains_key(alice)));
+        let (reqid, req) = manager.users_for_key_query().await.unwrap().pop().unwrap();
+        assert!(req.device_keys.contains_key(alice));
 
+        // a failure should stop us querying for the user's keys.
         let response = key_query_with_failures();
-
-        manager.receive_keys_query_response(&response).await.unwrap();
+        manager.receive_keys_query_response(&reqid, &response).await.unwrap();
         assert!(manager.failures.contains(alice.server_name()));
         assert!(!manager
             .users_for_key_query()
             .await
             .unwrap()
             .iter()
-            .any(|r| r.device_keys.contains_key(alice)));
+            .any(|(_, r)| r.device_keys.contains_key(alice)));
 
-        let response = key_query_without_failures();
-        manager.receive_keys_query_response(&response).await.unwrap();
-        assert!(!manager.failures.contains(alice.server_name()));
-        assert!(!manager
-            .users_for_key_query()
-            .await
-            .unwrap()
-            .iter()
-            .any(|r| r.device_keys.contains_key(alice)));
-
-        manager.store.mark_user_as_changed(alice).await.unwrap();
+        // clearing the failure flag should make the user reappear in the query list.
+        // XXX: how is this meant to happen in the application?
+        manager.failures.remove([alice.server_name().to_owned()].iter());
         assert!(manager
             .users_for_key_query()
             .await
             .unwrap()
             .iter()
-            .any(|r| r.device_keys.contains_key(alice)));
+            .any(|(_, r)| r.device_keys.contains_key(alice)));
     }
 }
