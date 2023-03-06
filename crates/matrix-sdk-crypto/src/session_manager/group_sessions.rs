@@ -109,6 +109,22 @@ impl GroupSessionCache {
     }
 }
 
+/// Returned by `collect_session_recipients`.
+/// Informations indicating whether the session needs to be rotated
+/// (`should_rotate`) and the list of users/devices that should receive
+/// (`devices`) or not the session,  including withheld reason
+/// `withheld_devices`.
+#[derive(Debug)]
+pub struct CollectRecipientsResult {
+    /// If true the outbound session should be rotated
+    pub should_rotate: bool,
+    /// The map of user|device that should receive the session
+    pub devices: HashMap<OwnedUserId, Vec<Device>>,
+    /// The map of user|device that won't receive the key with the withheld
+    /// code.
+    pub withheld_devices: HashMap<OwnedUserId, Vec<(Device, WithheldCode)>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GroupSessionManager {
     account: Account,
@@ -340,18 +356,15 @@ impl GroupSessionManager {
     /// Given a list of user and an outbound session, return the list of users
     /// and their devices that this session should be shared with.
     ///
-    /// Returns a boolean indicating whether the session needs to be rotated and
-    /// the list of users/devices that should receive the session.
+    /// Returns informations indicating whether the session needs to be rotated
+    /// and the list of users/devices that should receive or not the session
+    /// (with withheld reason).
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(
-        bool,
-        HashMap<OwnedUserId, Vec<Device>>,
-        HashMap<OwnedUserId, Vec<(Device, WithheldCode)>>,
-    )> {
+    ) -> OlmResult<CollectRecipientsResult> {
         let users: HashSet<&UserId> = users.collect();
         let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
         let mut withheld_devices: HashMap<OwnedUserId, Vec<(Device, WithheldCode)>> =
@@ -445,7 +458,7 @@ impl GroupSessionManager {
             "Done calculating group session recipients"
         );
 
-        Ok((should_rotate, devices, withheld_devices))
+        Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
 
     pub async fn encrypt_request(
@@ -506,7 +519,7 @@ impl GroupSessionManager {
         // Collect the recipient devices and check if either the settings
         // or the recipient list changed in a way that requires the
         // session to be rotated.
-        let (should_rotate, devices, withheld_devices) =
+        let CollectRecipientsResult { should_rotate, devices, withheld_devices } =
             self.collect_session_recipients(users, &encryption_settings, &outbound).await?;
 
         let outbound = if should_rotate {
@@ -761,6 +774,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use crate::{
+        session_manager::group_sessions::CollectRecipientsResult,
         types::{
             events::room_key_withheld::{
                 RoomKeyWithheldContent, RoomKeyWithheldContent::MegolmV1AesSha2, WithheldCode,
@@ -1032,7 +1046,7 @@ mod tests {
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let (should_rotate, _, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &EncryptionSettings::default(), &outbound)
             .await
@@ -1045,7 +1059,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &settings, &outbound)
             .await
@@ -1058,7 +1072,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1087,7 +1101,7 @@ mod tests {
 
         let users = [user_id].into_iter();
 
-        let (_, recipients, _) = machine
+        let CollectRecipientsResult { devices: recipients, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1104,7 +1118,7 @@ mod tests {
             EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
         let users = [user_id].into_iter();
 
-        let (_, recipients, _) = machine
+        let CollectRecipientsResult { devices: recipients, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1117,11 +1131,12 @@ mod tests {
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
-        let (_, recipients, withheld) = machine
-            .group_session_manager
-            .collect_session_recipients(users, &settings, &outbound)
-            .await
-            .expect("We should be able to collect the session recipients");
+        let CollectRecipientsResult { devices: recipients, withheld_devices: withheld, .. } =
+            machine
+                .group_session_manager
+                .collect_session_recipients(users, &settings, &outbound)
+                .await
+                .expect("We should be able to collect the session recipients");
 
         assert!(recipients[user_id]
             .iter()
