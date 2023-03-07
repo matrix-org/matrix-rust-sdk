@@ -181,14 +181,11 @@ impl OlmMachine {
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
-        let event = identity_manager.listen_for_received_queries();
-
         let session_manager = SessionManager::new(
             account.clone(),
             users_for_key_claim,
             key_request_machine.clone(),
             store.clone(),
-            event,
         );
 
         #[cfg(feature = "backups_v1")]

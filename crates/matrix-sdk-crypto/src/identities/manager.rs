@@ -16,15 +16,10 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     ops::Deref,
     sync::Arc,
-    time::Duration,
 };
 
 use futures_util::future::join_all;
-use matrix_sdk_common::{
-    executor::spawn,
-    locks::Mutex,
-    timeout::{timeout, ElapsedError},
-};
+use matrix_sdk_common::{executor::spawn, locks::Mutex};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
     OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
@@ -56,13 +51,6 @@ struct IdentityChange {
     private: Option<PrivateCrossSigningIdentity>,
 }
 
-/// A listener that can notify if a `/keys/query` response has been received.
-#[derive(Clone, Debug)]
-pub(crate) struct KeysQueryListener {
-    inner: Arc<event_listener::Event>,
-    store: Store,
-}
-
 /// Result type telling us if a `/keys/query` response was expected for a given
 /// user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,59 +62,10 @@ pub(crate) enum UserKeyQueryResult {
     TimeoutExpired,
 }
 
-impl KeysQueryListener {
-    pub(crate) fn new(store: Store) -> Self {
-        Self { inner: event_listener::Event::new().into(), store }
-    }
-
-    /// Notify our listeners that we received a `/keys/query` response.
-    fn notify(&self) {
-        self.inner.notify(usize::MAX);
-    }
-
-    /// Wait for a `/keys/query` response to be received if one is expected for
-    /// the given user.
-    ///
-    /// If the given timeout has elapsed the method will stop waiting and return
-    /// an error.
-    pub async fn wait_if_user_pending(
-        &self,
-        timeout: Duration,
-        user: &UserId,
-    ) -> Result<UserKeyQueryResult, ElapsedError> {
-        let (users_for_key_query, _) = self.store.users_for_key_query().await.unwrap_or_default();
-
-        if users_for_key_query.contains(user) {
-            if let Err(e) = self.wait(timeout).await {
-                warn!(
-                    user_id = ?user,
-                    "The user has a pending `/key/query` request which did \
-                    not finish yet, some devices might be missing."
-                );
-
-                Err(e)
-            } else {
-                Ok(UserKeyQueryResult::WasPending)
-            }
-        } else {
-            Ok(UserKeyQueryResult::WasNotPending)
-        }
-    }
-
-    /// Wait for a `/keys/query` response to be received.
-    ///
-    /// If the given timeout has elapsed the method will stop waiting and return
-    /// an error.
-    pub async fn wait(&self, duration: Duration) -> Result<(), ElapsedError> {
-        timeout(self.inner.listen(), duration).await
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
-    keys_query_listener: KeysQueryListener,
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
@@ -151,14 +90,12 @@ impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
-        let keys_query_listener = KeysQueryListener::new(store.clone());
         let keys_query_request_details = Mutex::new(KeysQueryRequestDetails::default());
 
         IdentityManager {
             user_id,
             device_id,
             store,
-            keys_query_listener,
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
         }
@@ -166,10 +103,6 @@ impl IdentityManager {
 
     fn user_id(&self) -> &UserId {
         &self.user_id
-    }
-
-    pub fn listen_for_received_queries(&self) -> KeysQueryListener {
-        self.keys_query_listener.clone()
     }
 
     /// Receive a successful keys query response.
@@ -267,8 +200,6 @@ impl IdentityManager {
             ?changed_identities,
             "Finished handling of the keys/query response"
         );
-
-        self.keys_query_listener.notify();
 
         Ok((devices, identities))
     }
@@ -1006,7 +937,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{ops::Deref, time::Duration};
+    use std::ops::Deref;
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -1067,16 +998,10 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
-        let listener = manager.listen_for_received_queries();
-
-        let task = tokio::task::spawn(async move { listener.wait(Duration::from_secs(10)).await });
-
         manager
             .receive_keys_query_response(&TransactionId::new(), &other_key_query())
             .await
             .unwrap();
-
-        task.await.unwrap().unwrap();
 
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);

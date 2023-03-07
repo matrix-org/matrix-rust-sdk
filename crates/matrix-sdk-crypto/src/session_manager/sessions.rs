@@ -34,7 +34,7 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    identities::{KeysQueryListener, UserKeyQueryResult},
+    identities::UserKeyQueryResult,
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
@@ -55,7 +55,6 @@ pub(crate) struct SessionManager {
     wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
-    keys_query_listener: KeysQueryListener,
     failures: FailuresCache<OwnedServerName>,
 }
 
@@ -69,7 +68,6 @@ impl SessionManager {
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
         key_request_machine: GossipMachine,
         store: Store,
-        keys_query_listener: KeysQueryListener,
     ) -> Self {
         Self {
             account,
@@ -78,7 +76,6 @@ impl SessionManager {
             users_for_key_claim,
             wedged_devices: Default::default(),
             outgoing_to_device_requests: Default::default(),
-            keys_query_listener,
             failures: Default::default(),
         }
     }
@@ -419,7 +416,7 @@ mod tests {
     use super::SessionManager;
     use crate::{
         gossiping::GossipMachine,
-        identities::{IdentityManager, KeysQueryListener, ReadOnlyDevice},
+        identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{IntoCryptoStore, MemoryStore, Store},
@@ -494,13 +491,7 @@ mod tests {
             users_for_key_claim.clone(),
         );
 
-        SessionManager::new(
-            account,
-            users_for_key_claim,
-            key_request,
-            store.clone(),
-            KeysQueryListener::new(store),
-        )
+        SessionManager::new(account, users_for_key_claim, key_request, store)
     }
 
     #[async_test]
