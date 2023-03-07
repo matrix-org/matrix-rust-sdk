@@ -331,8 +331,17 @@ impl TryFrom<WithheldHelper> for RoomKeyWithheldContent {
             }
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => {
-                let content: MegolmV1AesSha2WithheldContent = serde_json::from_value(value.other)?;
-                Self::MegolmV2AesSha2(content.into())
+                let content = match value.code {
+                    WithheldCode::NoOlm => {
+                        let content: NoOlmWithheldContent = serde_json::from_value(value.other)?;
+                        MegolmV1AesSha2WithheldContent::NoOlmContent(content.into())
+                    }
+                    _ => {
+                        let content: AnyWithheldContent = serde_json::from_value(value.other)?;
+                        MegolmV1AesSha2WithheldContent::AnyContent((value.code, content.into()))
+                    }
+                };
+                Self::MegolmV2AesSha2(content)
             }
             _ => Self::Unknown(UnknownRoomKeyWithHeld {
                 algorithm: value.algorithm,
