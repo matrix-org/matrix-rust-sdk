@@ -10,7 +10,7 @@ use matrix_sdk::{
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
-        TransactionId, UInt,
+        OwnedUserId, TransactionId, UInt,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
@@ -243,6 +243,20 @@ impl Client {
     pub fn device_id(&self) -> anyhow::Result<String> {
         let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
+    }
+
+    pub fn create_room(&self, invite: Vec<OwnedUserId>) -> anyhow::Result<()> {
+        let client = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let mut request = ruma::api::client::room::create_room::v3::Request::new();
+            request.invite = invite;
+
+            let response = client.create_room(request).await?;
+            let _id = response.room_id();
+
+            Ok(())
+        })
     }
 
     /// Get the content of the event of the given type out of the account data
