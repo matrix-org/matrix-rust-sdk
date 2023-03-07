@@ -11,10 +11,7 @@ use matrix_sdk::{
     room::Room,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},
-        events::room::message::{
-            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
-            TextMessageEventContent,
-        },
+        events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
     Client,
 };
@@ -221,8 +218,8 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
 
     // We only want to log text messages.
     let MessageType::Text(msgtype) = &event.content.msgtype else {
-            return;
-        };
+        return;
+    };
 
     let member = room
         .get_member(&event.sender)
