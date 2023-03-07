@@ -670,10 +670,6 @@ pub struct SlidingSync {
     /// the intended state of the extensions being supplied to sliding /sync
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
-
-    /// the last extensions known to be successfully sent to the server.
-    /// if the current extensions match this, we can avoid sending them again.
-    sent_extensions: Arc<Mutex<Option<ExtensionsConfig>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -814,6 +810,8 @@ impl SlidingSync {
     }
 
     fn update_to_device_since(&self, since: String) {
+        // FIXME: Find a better place where the to-device since token should be
+        // persisted.
         self.extensions
             .lock()
             .unwrap()
@@ -870,12 +868,52 @@ impl SlidingSync {
         self.rooms.read().unwrap().values().cloned().collect()
     }
 
+    fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
+        if pos.is_none() {
+            // The pos is `None`, it's either our initial sync or the proxy forgot about us
+            // and sent us an `UnknownPos` error. We need to send out the config for our
+            // extensions.
+            let mut extensions = self.extensions.lock().unwrap().clone().unwrap_or_default();
+
+            // Always enable to-device events and the e2ee-extension on the initial request,
+            // no matter what the caller wants.
+            //
+            // The to-device `since` parameter is either `None` or guaranteed to be set
+            // because the `update_to_device_since()` method updates the
+            // self.extensions field and they get persisted to the store using the
+            // `cache_to_storage()` method.
+            //
+            // The token is also loaded from storage in the `SlidingSyncBuilder::build()`
+            // method.
+            let mut to_device = extensions.to_device.unwrap_or_default();
+            to_device.enabled = Some(true);
+
+            extensions.to_device = Some(to_device);
+            extensions.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+
+            extensions
+        } else {
+            // We already enabled all the things, just fetch out the to-device since token
+            // out of self.extensions and set it in a new, and empty, `ExtensionsConfig`.
+            let since = self
+                .extensions
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|e| e.to_device.as_ref()?.since.to_owned());
+
+            let mut extensions: ExtensionsConfig = Default::default();
+            extensions.to_device = Some(assign!(ToDeviceConfig::default(), { since }));
+
+            extensions
+        }
+    }
+
     /// Handle the HTTP response.
     #[instrument(skip_all, fields(lists = list_generators.len()))]
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
-        extensions: Option<ExtensionsConfig>,
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         // Handle and transform a Sliding Sync Response to a `SyncResponse`.
@@ -950,12 +988,6 @@ impl SlidingSync {
                 self.update_to_device_since(to_device.next_batch);
             }
 
-            // Track the most recently successfully sent extensions (needed for sticky
-            // semantics).
-            if extensions.is_some() {
-                *self.sent_extensions.lock().unwrap() = extensions;
-            }
-
             UpdateSummary { lists: updated_lists, rooms }
         };
 
@@ -995,18 +1027,7 @@ impl SlidingSync {
         let room_subscriptions = self.subscriptions.read().unwrap().clone();
         let unsubscribe_rooms = mem::take(&mut *self.unsubscribe.write().unwrap());
         let timeout = Duration::from_secs(30);
-
-        // Implement stickiness by only sending extensions if they have
-        // changed since the last time we sent them
-        let extensions = {
-            let extensions = self.extensions.lock().unwrap();
-
-            if *extensions == *self.sent_extensions.lock().unwrap() {
-                None
-            } else {
-                extensions.clone()
-            }
-        };
+        let extensions = self.prepare_extension_config(pos.as_deref());
 
         debug!("Sending the sliding sync request");
 
@@ -1023,7 +1044,7 @@ impl SlidingSync {
                 timeout: Some(timeout),
                 room_subscriptions,
                 unsubscribe_rooms,
-                extensions: extensions.clone().unwrap_or_default(),
+                extensions,
             }),
             Some(request_config),
             self.homeserver.as_ref().map(ToString::to_string),
@@ -1056,7 +1077,7 @@ impl SlidingSync {
 
         debug!("Sliding sync response received");
 
-        let updates = self.handle_response(response, extensions, list_generators).await?;
+        let updates = self.handle_response(response, list_generators).await?;
 
         debug!("Sliding sync response has been handled");
 
@@ -1125,9 +1146,6 @@ impl SlidingSync {
                                 // To “restart” a Sliding Sync session, we set `pos` to its initial value.
                                 Observable::set(&mut self.pos.write().unwrap(), None);
 
-                                // We also need to reset our extensions to the last known good ones.
-                                *self.extensions.lock().unwrap() = self.sent_extensions.lock().unwrap().take();
-
                                 debug!(?self.extensions, "Sliding Sync has been reset");
                             });
                         }
@@ -1167,10 +1185,13 @@ pub struct UpdateSummary {
 
 #[cfg(test)]
 mod test {
+    use assert_matches::assert_matches;
     use ruma::room_id;
     use serde_json::json;
+    use wiremock::MockServer;
 
     use super::*;
+    use crate::test_utils::logged_in_client;
 
     #[tokio::test]
     async fn check_find_room_in_list() -> Result<()> {
@@ -1225,6 +1246,46 @@ mod test {
         assert_eq!(
             list.find_rooms_in_list(&[a02.clone(), a05, a09.clone()]),
             vec![(2, a02), (9, a09)]
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn to_device_is_enabled_when_pos_is_none() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sync = client.sliding_sync().await.build().await?;
+        let extensions = sync.prepare_extension_config(None);
+
+        // If the user doesn't provide any extension config, we enable to-device and
+        // e2ee anyways.
+        assert_matches!(
+            extensions.to_device,
+            Some(ToDeviceConfig { enabled: Some(true), since: None, .. })
+        );
+        assert_matches!(extensions.e2ee, Some(E2EEConfig { enabled: Some(true), .. }));
+
+        let some_since = "some_since".to_owned();
+        sync.update_to_device_since(some_since.to_owned());
+        let extensions = sync.prepare_extension_config(Some("foo"));
+
+        // If there's a `pos` and to-device `since` token, we make sure we put the token
+        // into the extension config. The rest doesn't need to be re-enabled due to
+        // stickyness.
+        assert_matches!(
+            extensions.to_device,
+            Some(ToDeviceConfig { enabled: None, since: Some(since), .. }) if since == some_since
+        );
+        assert_matches!(extensions.e2ee, None);
+
+        let extensions = sync.prepare_extension_config(None);
+        // Even if there isn't a `pos`, if we have a to-device `since` token, we put it
+        // into the request.
+        assert_matches!(
+            extensions.to_device,
+            Some(ToDeviceConfig { enabled: Some(true), since: Some(since), .. }) if since == some_since
         );
 
         Ok(())
