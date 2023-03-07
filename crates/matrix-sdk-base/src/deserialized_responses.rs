@@ -82,7 +82,6 @@ impl RawMemberEvent {
 }
 
 /// Wrapper around both MemberEvent-Types
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum MemberEvent {
     /// A member event from a room in joined or left state.
