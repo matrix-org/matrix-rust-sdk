@@ -171,6 +171,10 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
+    /// This request failed because the local data wasn't sufficient.
+    #[error("Local cache doesn't contain all necessary data to perform the action.")]
+    InsufficientData,
+
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
     #[cfg(feature = "e2e-encryption")]

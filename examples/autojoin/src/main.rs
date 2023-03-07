@@ -43,22 +43,10 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    #[allow(unused_mut)]
-    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
-
-    #[cfg(feature = "sled")]
-    {
-        // The location to save files to
-        let home = dirs::home_dir().expect("no home directory found").join("autojoin_bot");
-        client_builder = client_builder.sled_store(home, None)?;
-    }
-
-    #[cfg(feature = "indexeddb")]
-    {
-        client_builder = client_builder.indexeddb_store("autojoin_bot", None).await?;
-    }
-
-    let client = client_builder.build().await?;
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
+    let client = Client::builder().homeserver_url(homeserver_url).build().await?;
 
     client.login_username(username, password).initial_device_display_name("autojoin bot").await?;
 

@@ -12,36 +12,16 @@ on:
       - synchronize
       - ready_for_review
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   xtask:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check xtask cache
-        uses: actions/cache@v3
-        id: xtask-cache
-        with:
-          path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
-
-      - name: Install rust stable toolchain
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        if: steps.xtask-cache.outputs.cache-hit != 'true'
-        run: |
-          cargo build -p xtask
+    uses: ./.github/workflows/xtask.yml
 
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
@@ -64,26 +44,35 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.name }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Test
         run: |
-          cargo run -p xtask -- ci test-features ${{ matrix.name }}
+          target/debug/xtask ci test-features ${{ matrix.name }}
 
   test-matrix-sdk-examples:
     name: 🐧 [m]-examples
@@ -105,14 +94,15 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Test
         run: |
-          cargo run -p xtask -- ci examples
+          target/debug/xtask ci examples
 
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
@@ -134,14 +124,15 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Test
         run: |
-          cargo run -p xtask -- ci test-crypto
+          target/debug/xtask ci test-crypto
 
   test-all-crates:
     name: ${{ matrix.name }}
@@ -166,7 +157,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -174,15 +165,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Can't use `${{ matrix.* }}` inside uses
-      - name: Install Rust
+      - name: Install Rust stable
         if: matrix.rust == 'stable'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust
+      - name: Install Rust beta
         if: matrix.rust == 'beta'
         uses: dtolnay/rust-toolchain@beta
 
-      - name: Install Rust
+      - name: Install Rust nightly
         if: matrix.rust == 'nightly'
         uses: dtolnay/rust-toolchain@nightly
 
@@ -256,23 +247,32 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.cmd }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Rust Check
         run: |
-          cargo run -p xtask -- ci wasm ${{ matrix.cmd }}
+          target/debug/xtask ci wasm ${{ matrix.cmd }}
 
       - name: Wasm-Pack test
         run: |
-          cargo run -p xtask -- ci wasm-pack ${{ matrix.cmd }}
+          target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
   test-appservice:
     name: ${{ matrix.os-name }} [m]-appservice
@@ -286,13 +286,15 @@ jobs:
         include:
           - os: ubuntu-latest
             os-name: 🐧
+            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-linux }}"
 
           - os: macos-latest
             os-name: 🍏
+            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-macos }}"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -304,14 +306,15 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ matrix.xtask-cachekey }}"
+          fail-on-cache-miss: true
 
       - name: Run checks
         run: |
-          cargo run -p xtask -- ci test-appservice
+          target/debug/xtask ci test-appservice
 
   formatting:
     name: Check Formatting
@@ -367,14 +370,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get xtask
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: target/debug/xtask
-          key: xtask-${{ hashFiles('xtask/**') }}
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
 
       - name: Clippy
         run: |
-          cargo run -p xtask -- ci clippy
+          target/debug/xtask ci clippy
 
   integration-tests:
     name: Integration test

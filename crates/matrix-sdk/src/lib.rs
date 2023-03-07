@@ -49,7 +49,7 @@ mod events;
 pub use account::Account;
 #[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
@@ -58,8 +58,8 @@ pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
-    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
-    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, UpdateSummary,
 };
 
 #[cfg(any(test, feature = "testing"))]

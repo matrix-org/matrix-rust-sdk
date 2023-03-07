@@ -13,10 +13,10 @@ app_dirs2 = "2"
 chrono = "0.4.23"
 clap = { version = "4.0.29", features = ["derive", "env"] }
 dialoguer = "0.10.2"
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyre = "0.6"
 futures = { version = "0.3.1" }
-futures-signals = "0.3.24"
 matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled", "experimental-sliding-sync", "experimental-timeline"], version = "0.6.0" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common", version = "0.6.0" }
 matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled", features = ["state-store", "crypto-store"], version = "0.2.0" }

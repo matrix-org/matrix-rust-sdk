@@ -14,11 +14,12 @@ impl Client {
     #[instrument(skip(self, response))]
     pub(crate) async fn process_sliding_sync(
         &self,
-        response: v4::Response,
+        response: &v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
         debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;
+
         Ok(response)
     }
 }

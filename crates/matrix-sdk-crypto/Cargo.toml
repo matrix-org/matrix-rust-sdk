@@ -60,6 +60,7 @@ tokio = { version = "1.24", default-features = false, features = ["time"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 assert_matches = "1.5.0"
+ctor.workspace = true
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 http = { workspace = true }
 indoc = "1.0.4"
@@ -67,3 +68,4 @@ matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { version = "1.24.2", default-features = false, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

@@ -21,6 +21,7 @@ use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
         reaction::ReactionEventContent,
+        receipt::{Receipt, ReceiptType},
         relation::{Annotation, Replacement},
         room::{
             encrypted::RoomEncryptedEventContent,
@@ -46,8 +47,10 @@ use super::{
         MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
         Sticker,
     },
-    find_read_marker, rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails,
-    Message, ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    find_read_marker,
+    read_receipts::maybe_add_implicit_read_receipt,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails, Message,
+    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
@@ -72,6 +75,7 @@ pub(super) struct TimelineEventMetadata {
     pub(super) is_own_event: bool,
     pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
+    pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
 }
 
 #[derive(Clone)]
@@ -201,6 +205,9 @@ pub(super) struct TimelineEventHandler<'a> {
     pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     fully_read_event_in_timeline: &'a mut bool,
+    track_read_receipts: bool,
+    users_read_receipts:
+        &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
     result: HandleEventResult,
 }
 
@@ -224,6 +231,7 @@ impl<'a> TimelineEventHandler<'a> {
         event_meta: TimelineEventMetadata,
         flow: Flow,
         state: &'a mut TimelineInnerState,
+        track_read_receipts: bool,
     ) -> Self {
         Self {
             meta: event_meta,
@@ -233,6 +241,8 @@ impl<'a> TimelineEventHandler<'a> {
             pending_reactions: &mut state.pending_reactions,
             fully_read_event: &mut state.fully_read_event,
             fully_read_event_in_timeline: &mut state.fully_read_event_in_timeline,
+            track_read_receipts,
+            users_read_receipts: &mut state.users_read_receipts,
             result: HandleEventResult::default(),
         }
     }
@@ -397,11 +407,11 @@ impl<'a> TimelineEventHandler<'a> {
 
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
-            if let TimelineItemContent::RedactedMessage = remote_event_item.content {
+            if let TimelineItemContent::RedactedMessage = remote_event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
             } else {
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
@@ -464,7 +474,7 @@ impl<'a> TimelineEventHandler<'a> {
                     return None;
                 };
 
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
 
                 let count = {
                     let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
@@ -532,15 +542,17 @@ impl<'a> TimelineEventHandler<'a> {
         let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
-        let item = match &self.flow {
-            Flow::Local { txn_id, timestamp } => EventTimelineItem::Local(LocalEventTimelineItem {
-                send_state: EventSendState::NotSentYet,
-                transaction_id: txn_id.to_owned(),
-                sender,
-                sender_profile,
-                timestamp: *timestamp,
-                content,
-            }),
+        let mut item = match &self.flow {
+            Flow::Local { txn_id, timestamp } => {
+                EventTimelineItem::Local(LocalEventTimelineItem::new(
+                    EventSendState::NotSentYet,
+                    txn_id.to_owned(),
+                    sender,
+                    sender_profile,
+                    *timestamp,
+                    content,
+                ))
+            }
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -549,21 +561,20 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                EventTimelineItem::Remote(RemoteEventTimelineItem {
-                    event_id: event_id.clone(),
+                EventTimelineItem::Remote(RemoteEventTimelineItem::new(
+                    event_id.clone(),
                     sender,
                     sender_profile,
-                    timestamp: *origin_server_ts,
+                    *origin_server_ts,
                     content,
                     reactions,
-                    is_own: self.meta.is_own_event,
-                    encryption_info: self.meta.encryption_info.clone(),
-                    raw: raw_event.clone(),
-                })
+                    self.meta.read_receipts.clone(),
+                    self.meta.is_own_event,
+                    self.meta.encryption_info.clone(),
+                    raw_event.clone(),
+                ))
             }
         };
-
-        let item = Arc::new(TimelineItem::Event(item));
 
         match &self.flow {
             Flow::Local { timestamp, .. } => {
@@ -586,7 +597,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.items.push_back(Arc::new(TimelineItem::day_divider(*timestamp)));
                 }
 
-                self.items.push_back(item);
+                self.items.push_back(Arc::new(item.into()));
             }
 
             Flow::Remote {
@@ -631,7 +642,17 @@ impl<'a> TimelineEventHandler<'a> {
                         .insert(offset, Arc::new(TimelineItem::day_divider(*origin_server_ts)));
                 }
 
-                self.items.insert(offset + 1, item);
+                if self.track_read_receipts {
+                    maybe_add_implicit_read_receipt(
+                        offset,
+                        &mut item,
+                        self.meta.is_own_event,
+                        self.items,
+                        self.users_read_receipts,
+                    );
+                }
+
+                self.items.insert(offset + 1, Arc::new(item.into()));
             }
 
             Flow::Remote {
@@ -672,8 +693,19 @@ impl<'a> TimelineEventHandler<'a> {
                     {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
+
+                        if self.track_read_receipts {
+                            maybe_add_implicit_read_receipt(
+                                idx,
+                                &mut item,
+                                self.meta.is_own_event,
+                                self.items,
+                                self.users_read_receipts,
+                            );
+                        }
+
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, item);
+                        self.items.set(idx, Arc::new(item.into()));
                         return;
                     } else {
                         // In more complex cases, remove the item and day
@@ -729,14 +761,24 @@ impl<'a> TimelineEventHandler<'a> {
                     self.items.push_back(Arc::new(TimelineItem::day_divider(*origin_server_ts)));
                 }
 
+                if self.track_read_receipts {
+                    maybe_add_implicit_read_receipt(
+                        self.items.len(),
+                        &mut item,
+                        self.meta.is_own_event,
+                        self.items,
+                        self.users_read_receipts,
+                    );
+                }
+
                 trace!("Adding new remote timeline item at the end");
-                self.items.push_back(item);
+                self.items.push_back(Arc::new(item.into()));
             }
 
             #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
-                self.items.set(*idx, item);
+                self.items.set(*idx, Arc::new(item.into()));
             }
         }
 

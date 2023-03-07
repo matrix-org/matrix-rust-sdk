@@ -24,19 +24,22 @@ use ruma::{
     },
     assign,
     events::{
-        receipt::ReceiptThread, room::message::RoomMessageEventContent, EmptyStateKey,
-        MessageLikeEventContent, StateEventContent,
+        receipt::ReceiptThread,
+        room::{message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent},
+        EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, Int, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, instrument};
 
 use super::Left;
 use crate::{
-    attachment::AttachmentConfig, error::HttpResult, room::Common, BaseRoom, Client, Result,
-    RoomType,
+    attachment::AttachmentConfig,
+    error::{Error, HttpResult},
+    room::Common,
+    BaseRoom, Client, Result, RoomType,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -353,25 +356,25 @@ impl Joined {
     /// room if necessary and share a room key that can be shared with them.
     ///
     /// Does nothing if no room key needs to be shared.
+    // TODO: expose this publicly so people can pre-share a group session if
+    // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
-        // TODO: expose this publicly so people can pre-share a group session if
-        // e.g. a user starts to type a message for a room.
-        if let Some(mutex) =
-            self.client.inner.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
-        {
+        let mut map = self.client.inner.group_session_locks.lock().await;
+
+        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
             // If a group session share request is already going on, await the
             // release of the lock.
+            drop(map);
             _ = mutex.lock().await;
         } else {
             // Otherwise create a new lock and share the group
             // session.
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .inner
-                .group_session_locks
-                .insert(self.inner.room_id().to_owned(), mutex.clone());
+            map.insert(self.inner.room_id().to_owned(), mutex.clone());
+
+            drop(map);
 
             let _guard = mutex.lock().await;
 
@@ -385,7 +388,7 @@ impl Joined {
 
             let response = self.share_room_key().await;
 
-            self.client.inner.group_session_locks.remove(self.inner.room_id());
+            self.client.inner.group_session_locks.lock().await.remove(self.inner.room_id());
 
             // If one of the responses failed invalidate the group
             // session as using it would end up in undecryptable
@@ -618,7 +621,7 @@ impl Joined {
                 );
 
                 if !self.are_members_synced() {
-                    self.request_members().await?;
+                    self.ensure_members().await?;
                     // TODO query keys here?
                 }
 
@@ -823,6 +826,36 @@ impl Joined {
             .await?;
 
         self.send(RoomMessageEventContent::new(content), config.txn_id.as_deref()).await
+    }
+
+    /// Update the power levels of a select set of users of this room.
+    ///
+    /// Issue a `power_levels` state event request to the server, changing the
+    /// given UserId -> Int levels. May fail if the `power_levels` aren't
+    /// locally known yet or the server rejects the state event update, e.g.
+    /// because of insufficient permissions. Neither permissions to update
+    /// nor whether the data might be stale is checked prior to issuing the
+    /// request.
+    pub async fn update_power_levels(
+        &self,
+        updates: Vec<(&UserId, Int)>,
+    ) -> Result<send_state_event::v3::Response> {
+        let raw_pl_event = self
+            .get_state_event_static::<RoomPowerLevelsEventContent>()
+            .await?
+            .ok_or(Error::InsufficientData)?;
+
+        let mut power_levels = raw_pl_event.deserialize()?.power_levels();
+
+        for (user_id, new_level) in updates {
+            if new_level == power_levels.users_default {
+                power_levels.users.remove(user_id);
+            } else {
+                power_levels.users.insert(user_id.to_owned(), new_level);
+            }
+        }
+
+        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
     /// Send a state event with an empty state key to the homeserver.

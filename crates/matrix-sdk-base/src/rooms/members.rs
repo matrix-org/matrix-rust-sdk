@@ -17,7 +17,10 @@ use std::sync::Arc;
 use ruma::{
     events::{
         presence::PresenceEvent,
-        room::{member::MembershipState, power_levels::SyncRoomPowerLevelsEvent},
+        room::{
+            member::MembershipState,
+            power_levels::{PowerLevelAction, SyncRoomPowerLevelsEvent},
+        },
     },
     MxcUri, UserId,
 };
@@ -99,6 +102,15 @@ impl RoomMember {
             .as_ref()
             .map(|e| e.power_levels().for_user(self.user_id()).into())
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
+    }
+
+    /// Whether the given user can do the given action based on the power
+    /// levels.
+    pub fn can_do(&self, action: PowerLevelAction) -> bool {
+        (*self.power_levels)
+            .as_ref()
+            .map(|e| e.power_levels().user_can_do(self.user_id(), action))
+            .unwrap_or_else(|| self.is_room_creator)
     }
 
     /// Is the name that the member uses ambiguous in the room.

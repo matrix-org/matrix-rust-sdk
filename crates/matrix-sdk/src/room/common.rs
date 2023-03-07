@@ -272,7 +272,7 @@ impl Common {
     /// independent events.
     #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(&self) -> Timeline {
-        Timeline::builder(self).track_fully_read().build().await
+        Timeline::builder(self).track_read_marker_and_receipts().build().await
     }
 
     /// Fetch the event with the given `EventId` in this room.
@@ -299,22 +299,21 @@ impl Common {
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
-        if let Some(mutex) =
-            self.client.inner.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
-        {
+        let mut map = self.client.inner.members_request_locks.lock().await;
+
+        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
             // If a member request is already going on, await the release of
             // the lock.
+            drop(map);
             _ = mutex.lock().await;
 
             Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .inner
-                .members_request_locks
-                .insert(self.inner.room_id().to_owned(), mutex.clone());
+            map.insert(self.inner.room_id().to_owned(), mutex.clone());
 
             let _guard = mutex.lock().await;
+            drop(map);
 
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
@@ -322,7 +321,7 @@ impl Common {
             let response =
                 self.client.base_client().receive_members(self.inner.room_id(), &response).await?;
 
-            self.client.inner.members_request_locks.remove(self.inner.room_id());
+            self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
 
             Ok(Some(response))
         }
@@ -392,16 +391,16 @@ impl Common {
         }
     }
 
-    pub(crate) async fn ensure_members(&self) -> Result<()> {
+    pub(crate) async fn ensure_members(&self) -> Result<Option<MembersResponse>> {
         if !self.are_events_visible() {
-            return Ok(());
+            return Ok(None);
         }
 
         if !self.are_members_synced() {
-            self.request_members().await?;
+            self.request_members().await
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     fn are_events_visible(&self) -> bool {
@@ -418,9 +417,10 @@ impl Common {
     /// Sync the member list with the server.
     ///
     /// This method will de-duplicate requests if it is called multiple times in
-    /// quick succession, in that case the return value will be `None`.
+    /// quick succession, in that case the return value will be `None`. This
+    /// method does nothing if the members are already synced.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
-        self.request_members().await
+        self.ensure_members().await
     }
 
     /// Get active members for this room, includes invited, joined members.

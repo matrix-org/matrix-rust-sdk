@@ -40,7 +40,7 @@ use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
-    store::{Result as StoreResult, StateStore, StateStoreExt},
+    store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent,
 };
@@ -52,7 +52,7 @@ pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
-    store: Arc<dyn StateStore>,
+    store: Arc<DynStateStore>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -83,7 +83,7 @@ pub enum RoomType {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: Arc<dyn StateStore>,
+        store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
@@ -93,7 +93,7 @@ impl Room {
 
     pub(crate) fn restore(
         own_user_id: &UserId,
-        store: Arc<dyn StateStore>,
+        store: Arc<DynStateStore>,
         room_info: RoomInfo,
     ) -> Self {
         Self {
@@ -515,21 +515,21 @@ pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: Arc<RoomId>,
     /// The type of the room.
-    pub(crate) room_type: RoomType,
+    room_type: RoomType,
     /// The unread notifications counts.
-    pub(crate) notification_counts: UnreadNotificationsCount,
+    notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
-    pub(crate) summary: RoomSummary,
+    summary: RoomSummary,
     /// Flag remembering if the room members are synced.
-    pub(crate) members_synced: bool,
+    members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
     /// How much we know about this room.
     #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
-    pub(crate) sync_info: SyncInfo,
+    sync_info: SyncInfo,
     /// Whether or not the encryption info was been synced.
     #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
-    pub(crate) encryption_state_synced: bool,
+    encryption_state_synced: bool,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
@@ -811,7 +811,7 @@ mod test {
 
     use super::*;
     use crate::{
-        store::{MemoryStore, StateChanges},
+        store::{MemoryStore, StateChanges, StateStore},
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
 

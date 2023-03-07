@@ -312,7 +312,7 @@ impl EventTimelineItem {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
-            Local(local_event) => Some((&local_event.send_state).into()),
+            Local(local_event) => Some(local_event.send_state().into()),
             Remote(_) => None,
         }
     }

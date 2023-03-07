@@ -46,7 +46,7 @@ impl Details {
     }
 
     pub fn refresh_data(&mut self) {
-        let Some(room_id) = self.sstate.selected_room.lock_ref().clone() else { return };
+        let Some(room_id) = self.sstate.selected_room.get() else { return };
         let Some(room_data) = self.sstate.get_room(&room_id) else {
             return;
         };
@@ -72,7 +72,8 @@ impl Details {
         let timeline: Vec<String> = self
             .sstate
             .current_timeline
-            .lock_ref()
+            .read()
+            .unwrap()
             .iter()
             .filter_map(|t| t.as_event()) // we ignore virtual events
             .map(|e| match e.content() {
