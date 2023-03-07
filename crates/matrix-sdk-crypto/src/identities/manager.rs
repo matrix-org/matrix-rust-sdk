@@ -136,7 +136,7 @@ pub(crate) struct IdentityManager {
 struct KeysQueryRequestDetails {
     /// The sequence number, to be passed to
     /// `Store.mark_tracked_users_as_up_to_date`.
-    seqno: i64,
+    sequence_number: i64,
 
     /// A single batch of queries returned by the Store is broken up into one or
     /// more actual KeysQueryRequests, each with their own request id. We
@@ -223,15 +223,15 @@ impl IdentityManager {
         // if this request is one of those we expected to be in flight, pass the
         // sequence number back to the store so that it can mark devices up to
         // date
-        let (seqno, removed) = {
-            let mut kqrd = self.keys_query_request_details.lock().await;
-            (kqrd.seqno, kqrd.request_ids.remove(request_id))
+        let (sequence_number, removed) = {
+            let mut request_details = self.keys_query_request_details.lock().await;
+            (request_details.sequence_number, request_details.request_ids.remove(request_id))
         };
         if removed {
             self.store
                 .mark_tracked_users_as_up_to_date(
                     response.device_keys.keys().map(Deref::deref),
-                    seqno,
+                    sequence_number,
                 )
                 .await?;
         }
@@ -699,19 +699,19 @@ impl IdentityManager {
         // forget about any previous key queries in flight
         *(self.keys_query_request_details.lock().await) = KeysQueryRequestDetails::default();
 
-        let (users, seqno) = self.store.users_for_key_query().await?;
+        let (users, sequence_number) = self.store.users_for_key_query().await?;
 
         // We always want to track our own user, but in case we aren't in an encrypted
         // room yet, we won't be tracking ourselves yet. This ensures we are always
         // tracking ourselves.
         //
         // The check for emptiness is done first for performance.
-        let (users, seqno) =
+        let (users, sequence_number) =
             if users.is_empty() && !self.store.tracked_users().await?.contains(self.user_id()) {
                 self.store.mark_user_as_changed(self.user_id()).await?;
                 self.store.users_for_key_query().await?
             } else {
-                (users, seqno)
+                (users, sequence_number)
             };
 
         if users.is_empty() {
@@ -719,7 +719,7 @@ impl IdentityManager {
         }
 
         let mut result: Vec<(OwnedTransactionId, KeysQueryRequest)> = Vec::new();
-        let mut kqrd = KeysQueryRequestDetails { seqno, request_ids: HashSet::new() };
+        let mut kqrd = KeysQueryRequestDetails { sequence_number, request_ids: HashSet::new() };
 
         let filtered_users: Vec<OwnedUserId> =
             users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();

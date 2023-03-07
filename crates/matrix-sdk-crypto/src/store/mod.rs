@@ -51,7 +51,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, trace, trace_span, warn};
+use tracing::{info, instrument, trace, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
@@ -113,7 +113,7 @@ pub(crate) struct Store {
 #[derive(Debug)]
 struct UsersForKeyQuery {
     /// the sequence number we will assign to the next addition to user_map
-    next_seqno: InvalidationSequenceNumber,
+    next_sequence_number: InvalidationSequenceNumber,
 
     /// the users pending a lookup, together with the sequence number at which
     /// they were added to the list
@@ -127,15 +127,15 @@ type InvalidationSequenceNumber = i64;
 impl UsersForKeyQuery {
     /// create a new, empty, `UsersForKeyQueryCache`
     fn new() -> Self {
-        UsersForKeyQuery { next_seqno: 0, user_map: HashMap::new() }
+        UsersForKeyQuery { next_sequence_number: 0, user_map: HashMap::new() }
     }
 
     /// record a new user that requires a key query
     fn insert_user(&mut self, user: &UserId) {
-        let seq = self.next_seqno;
+        let seq = self.next_sequence_number;
         trace!(?user, sequence_number = seq, "Flagging user for key query");
         self.user_map.insert(user.to_owned(), seq);
-        self.next_seqno += 1;
+        self.next_sequence_number += 1;
     }
 
     /// record that a user has received an update with the given sequence
@@ -145,34 +145,35 @@ impl UsersForKeyQuery {
     /// user, it is removed from the list of those needing an update.
     ///
     /// Returns true if the user is now up-to-date, else false
-    fn maybe_remove_user(&mut self, user: &UserId, seqno: InvalidationSequenceNumber) -> bool {
+    #[instrument(level = "trace", skip(self), fields(invalidation_sequence))]
+    fn maybe_remove_user(
+        &mut self,
+        user: &UserId,
+        query_sequence: InvalidationSequenceNumber,
+    ) -> bool {
         let last_invalidation = self.user_map.get(user);
-        let _span = trace_span!(
-            "UsersForKeyQuery::maybe_remove_user",
-            ?user,
-            query_sequence = seqno,
-            invalidation_sequence = last_invalidation,
-        )
-        .entered();
 
-        if let Some(inv_seqno) = last_invalidation {
-            if inv_seqno.wrapping_sub(seqno) > 0 {
+        if let Some(invalidation_sequence) = last_invalidation {
+            if invalidation_sequence.wrapping_sub(query_sequence) > 0 {
                 trace!("User invalidated since this query started: still not up-to-date");
-                return false;
+                false
+            } else {
+                trace!("User now up-to-date");
+                self.user_map.remove(user);
+                true
             }
-
-            trace!("User now up-to-date");
-            self.user_map.remove(user);
+        } else {
+            trace!("User already up-to-date, nothing to do");
+            true
         }
-        true
     }
 
     /// fetch the list of users waiting for a key query, and the current
     /// sequence number
     fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, InvalidationSequenceNumber) {
         // we return the sequence number of the last invalidation
-        let seqno = self.next_seqno.wrapping_sub(1);
-        (self.user_map.keys().cloned().collect(), seqno)
+        let sequence_number = self.next_sequence_number.wrapping_sub(1);
+        (self.user_map.keys().cloned().collect(), sequence_number)
     }
 }
 
@@ -704,10 +705,10 @@ impl Store {
     /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
         self.load_tracked_users().await?;
-        
+
         let mut store_updates = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
-        
+
         for user_id in users {
             if !self.tracked_users_cache.contains(user_id) {
                 self.tracked_users_cache.insert(user_id.to_owned());
@@ -715,7 +716,7 @@ impl Store {
                 store_updates.push((user_id, true))
             }
         }
-        
+
         self.inner.save_tracked_users(&store_updates).await
     }
 
@@ -751,13 +752,13 @@ impl Store {
     pub async fn mark_tracked_users_as_up_to_date(
         &self,
         users: impl Iterator<Item = &UserId>,
-        seqno: InvalidationSequenceNumber,
+        sequence_number: InvalidationSequenceNumber,
     ) -> Result<()> {
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
         for user_id in users {
             if self.tracked_users_cache.contains(user_id) {
-                let clean = key_query_lock.maybe_remove_user(user_id, seqno);
+                let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
                 store_updates.push((user_id, !clean));
             }
         }
@@ -807,9 +808,9 @@ impl Store {
     ///
     /// # Returns
     ///
-    /// A pair `(users, seqno)`, where `users` is the list of users to be
-    /// queried, and `seqno` is the current sequence number, which should be
-    /// returned in `mark_tracked_users_as_up_to_date`.
+    /// A pair `(users, sequence_number)`, where `users` is the list of users to
+    /// be queried, and `sequence_number` is the current sequence number,
+    /// which should be returned in `mark_tracked_users_as_up_to_date`.
     pub async fn users_for_key_query(
         &self,
     ) -> Result<(HashSet<OwnedUserId>, InvalidationSequenceNumber)> {
