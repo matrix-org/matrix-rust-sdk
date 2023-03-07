@@ -14,12 +14,11 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
-
 };
 
 [Error]
 interface MigrationError {
-  Generic(string error_message);
+    Generic(string error_message);
 };
 
 callback interface Logger {
@@ -168,12 +167,12 @@ interface Sas {
 
 [Enum]
 interface SasState {
-  Started();
-  Accepted();
-  KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
-  Confirmed();
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Started();
+    Accepted();
+    KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
+    Confirmed();
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface SasListener {
@@ -208,12 +207,12 @@ interface QrCode {
 
 [Enum]
 interface QrCodeState {
-  Started();
-  Scanned();
-  Confirmed();
-  Reciprocated();
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Started();
+    Scanned();
+    Confirmed();
+    Reciprocated();
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface QrCodeListener {
@@ -252,10 +251,10 @@ interface VerificationRequest {
 
 [Enum]
 interface VerificationRequestState {
-  Requested();
-  Ready(sequence<string> their_methods, sequence<string> our_methods);
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Requested();
+    Ready(sequence<string> their_methods, sequence<string> our_methods);
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface VerificationRequestListener {
