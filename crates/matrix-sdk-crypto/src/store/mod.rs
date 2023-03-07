@@ -51,7 +51,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, instrument, trace, warn};
+use tracing::{info, instrument, trace, warn, Span};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
@@ -160,6 +160,7 @@ impl UsersForKeyQuery {
         let last_invalidation = self.user_map.get(user);
 
         if let Some(invalidation_sequence) = last_invalidation {
+            Span::current().record("invalidation_sequence", invalidation_sequence);
             if invalidation_sequence.wrapping_sub(query_sequence) > 0 {
                 trace!("User invalidated since this query started: still not up-to-date");
                 false

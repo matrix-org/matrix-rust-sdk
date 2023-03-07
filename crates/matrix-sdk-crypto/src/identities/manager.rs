@@ -1203,7 +1203,6 @@ pub(crate) mod tests {
             .any(|(_, r)| r.device_keys.contains_key(alice)));
 
         // clearing the failure flag should make the user reappear in the query list.
-        // XXX: how is this meant to happen in the application?
         manager.failures.remove([alice.server_name().to_owned()].iter());
         assert!(manager
             .users_for_key_query()
