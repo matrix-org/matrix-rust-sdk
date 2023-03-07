@@ -261,6 +261,13 @@ pub trait StateStore: AsyncTraitDeps {
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, Self::Error>;
 
+    /// Remove arbitrary data from the custom store and return it if existed
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to remove data from
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
+
     /// Add a media file's content in the media store.
     ///
     /// # Arguments
@@ -468,6 +475,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.set_custom_value(key, value).await.map_err(Into::into)
     }
 
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.remove_custom_value(key).await.map_err(Into::into)
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequest,
@@ -634,23 +645,34 @@ pub enum StateStoreDataValue {
 
     /// A filter with the given ID.
     Filter(String),
+
+    /// The user avatar url
+    UserAvatarURL(String),
 }
 
 impl StateStoreDataValue {
     /// Get this value if it is a sync token.
     pub fn into_sync_token(self) -> Option<String> {
-        match self {
-            Self::SyncToken(token) => Some(token),
-            Self::Filter(_) => None,
-        }
+        let Self::SyncToken(token) = self else {
+            return None;
+        };
+        Some(token)
     }
 
     /// Get this value if it is a filter.
     pub fn into_filter(self) -> Option<String> {
-        match self {
-            Self::SyncToken(_) => None,
-            Self::Filter(id) => Some(id),
-        }
+        let Self::Filter(filter) = self else {
+            return None;
+        };
+        Some(filter)
+    }
+
+    /// Get this value if it is a user avatar url.
+    pub fn into_user_avatar_url(self) -> Option<String> {
+        let Self::UserAvatarURL(url) = self else {
+            return None;
+        };
+        Some(url)
     }
 }
 
@@ -662,6 +684,9 @@ pub enum StateStoreDataKey<'a> {
 
     /// A filter with the given name.
     Filter(&'a str),
+
+    /// Avatar URL
+    UserAvatarURL(&'a UserId),
 }
 
 impl<'a> StateStoreDataKey<'a> {
@@ -670,6 +695,7 @@ impl<'a> StateStoreDataKey<'a> {
         match self {
             Self::SyncToken => "sync_token",
             Self::Filter(_) => "filter",
+            Self::UserAvatarURL(_) => "user_avatar_url",
         }
     }
 }

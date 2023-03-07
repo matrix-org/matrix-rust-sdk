@@ -52,6 +52,7 @@ use tracing::{debug, info, warn};
 
 mod migrations;
 
+use self::keys::CUSTOM;
 pub use self::migrations::MigrationConflictStrategy;
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
@@ -415,6 +416,9 @@ impl SledStateStore {
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(keys::SESSION, (key.encoding_key(), filter_name))
             }
+            StateStoreDataKey::UserAvatarURL(user_id) => {
+                self.encode_key(keys::SESSION, (key.encoding_key(), user_id))
+            }
         }
     }
 
@@ -427,6 +431,7 @@ impl SledStateStore {
         let value = match key {
             StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
+            StateStoreDataKey::UserAvatarURL(_) => value.map(StateStoreDataValue::UserAvatarURL),
         };
 
         Ok(value)
@@ -444,6 +449,9 @@ impl SledStateStore {
                 value.into_sync_token().expect("Session data not a sync token")
             }
             StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
+            StateStoreDataKey::UserAvatarURL(_) => {
+                value.into_user_avatar_url().expect("Session data not an user avatar url")
+            }
         };
 
         self.kv.insert(encoded_key, self.serialize_value(&value)?)?;

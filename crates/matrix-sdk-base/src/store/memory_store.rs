@@ -48,6 +48,7 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
+    user_avatar_url: Arc<DashMap<String, String>>,
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
@@ -95,6 +96,7 @@ impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
+            user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
@@ -131,6 +133,10 @@ impl MemoryStore {
                 .filters
                 .get(filter_name)
                 .map(|f| StateStoreDataValue::Filter(f.value().clone()))),
+            StateStoreDataKey::UserAvatarURL(user_id) => Ok(self
+                .user_avatar_url
+                .get(user_id.as_str())
+                .map(|u| StateStoreDataValue::UserAvatarURL(u.value().clone()))),
         }
     }
 
@@ -150,6 +156,12 @@ impl MemoryStore {
                     value.into_filter().expect("Session data not a filter"),
                 );
             }
+            StateStoreDataKey::UserAvatarURL(user_id) => {
+                self.filters.insert(
+                    user_id.to_string(),
+                    value.into_filter().expect("Session data not a user avatar url"),
+                );
+            }
         }
 
         Ok(())
@@ -160,6 +172,9 @@ impl MemoryStore {
             StateStoreDataKey::SyncToken => *self.sync_token.write().unwrap() = None,
             StateStoreDataKey::Filter(filter_name) => {
                 self.filters.remove(filter_name);
+            }
+            StateStoreDataKey::UserAvatarURL(user_id) => {
+                self.filters.remove(user_id.as_str());
             }
         }
 
