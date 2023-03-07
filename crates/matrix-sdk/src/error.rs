@@ -260,14 +260,6 @@ pub enum Error {
     /// but not here and that raised.
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
-
-    /// An was raised while decoding data
-    #[error(transparent)]
-    SerdeDecodingError(#[from] rmp_serde::decode::Error),
-
-    /// An error was raised while encoding data
-    #[error(transparent)]
-    SerdeEncodingError(#[from] rmp_serde::encode::Error),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

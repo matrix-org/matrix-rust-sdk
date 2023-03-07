@@ -2631,7 +2631,6 @@ dependencies = [
  "pin-project-lite",
  "rand 0.8.5",
  "reqwest",
- "rmp-serde",
  "ruma",
  "serde",
  "serde_html_form",

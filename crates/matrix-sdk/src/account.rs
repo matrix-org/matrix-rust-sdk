@@ -17,6 +17,7 @@
 use matrix_sdk_base::{
     media::{MediaFormat, MediaRequest},
     store::StateStoreExt,
+    StateStoreDataKey, StateStoreDataValue,
 };
 use mime::Mime;
 use ruma::{
@@ -135,11 +136,18 @@ impl Account {
         let response = self.client.send(request, config).await?;
         if let Some(url) = response.avatar_url.clone() {
             // If an avatar is found cache it.
-            let url_data = rmp_serde::to_vec(&url.as_str())?;
-            self.client.store().set_custom_value(user_id.as_bytes(), url_data).await?;
+            let _ = self
+                .client
+                .store()
+                .set_kv_data(
+                    StateStoreDataKey::UserAvatarURL(user_id),
+                    StateStoreDataValue::UserAvatarURL(url.to_string()),
+                )
+                .await;
         } else {
             // If there is no avatar the user has removed it and we uncache it.
-            self.client.store().remove_custom_value(user_id.as_bytes()).await?;
+            let _ =
+                self.client.store().remove_kv_data(StateStoreDataKey::UserAvatarURL(user_id)).await;
         }
         Ok(response.avatar_url)
     }
@@ -147,14 +155,9 @@ impl Account {
     /// Get the URL of the account's avatar, if is stored in cache.
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let url_data = self.client.store().get_custom_value(user_id.as_bytes()).await?;
-        match url_data {
-            Some(url_data) => {
-                let url: String = rmp_serde::from_slice(&url_data)?;
-                Ok(Some(url))
-            }
-            None => Ok(None),
-        }
+        let data =
+            self.client.store().get_kv_data(StateStoreDataKey::UserAvatarURL(user_id)).await?;
+        Ok(data.map(|v| v.into_user_avatar_url().expect("Session data is not an user avatar url")))
     }
 
     /// Set the MXC URI of the account's avatar.
