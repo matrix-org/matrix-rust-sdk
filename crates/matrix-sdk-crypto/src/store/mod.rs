@@ -120,8 +120,9 @@ struct UsersForKeyQuery {
     user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
 }
 
-// We use a wrapping arithemetic for the sequence numbers, to make sure we never
-// run out of numbers.
+// We use wrapping arithmetic for the sequence numbers, to make sure we never
+// run out of numbers. (2**64 should be enough for anyone, but it's easy enough
+// just to make it wrap.)
 //
 // We use a *signed* counter so that we can compare values via a subtraction.
 // For example, suppose we've just overflowed from i64::MAX to i64::MIN.
