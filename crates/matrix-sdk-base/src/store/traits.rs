@@ -653,26 +653,26 @@ pub enum StateStoreDataValue {
 impl StateStoreDataValue {
     /// Get this value if it is a sync token.
     pub fn into_sync_token(self) -> Option<String> {
-        let Self::SyncToken(token) = self else {
-            return None;
-        };
-        Some(token)
+        match self {
+            Self::SyncToken(token) => Some(token),
+            _ => None,
+        }
     }
 
     /// Get this value if it is a filter.
     pub fn into_filter(self) -> Option<String> {
-        let Self::Filter(filter) = self else {
-            return None;
-        };
-        Some(filter)
+        match self {
+            Self::Filter(filter) => Some(filter),
+            _ => None,
+        }
     }
 
     /// Get this value if it is a user avatar url.
     pub fn into_user_avatar_url(self) -> Option<String> {
-        let Self::UserAvatarUrl(url) = self else {
-            return None;
-        };
-        Some(url)
+        match self {
+            Self::UserAvatarUrl(user_avatar_url) => Some(user_avatar_url),
+            _ => None,
+        }
     }
 }
 
