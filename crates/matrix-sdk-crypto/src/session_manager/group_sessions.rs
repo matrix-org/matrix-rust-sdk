@@ -158,7 +158,6 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        println!("group_session mark_request_as_sent {:?}", request_id);
         if let Some((_, s)) = self.sessions.sessions_being_shared.remove(request_id) {
             let no_olm = s.mark_request_as_sent(request_id);
 
@@ -634,8 +633,7 @@ impl GroupSessionManager {
                     code.to_owned(),
                     room_id.to_owned(),
                     outbound.session_id().to_owned(),
-                    // help: can't access it from the outbound, should I get it from Inbound?
-                    self.account.identity_keys.curve25519,
+                    outbound.sender_key(),
                     Some(self.account.device_id.deref().to_owned()),
                 );
                 let content = Raw::new(&content)
@@ -868,7 +866,6 @@ mod tests {
 
         let response = ToDeviceResponse::new();
         for request in requests {
-            println!("## MARKING as sent {:?}", request.event_type);
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 

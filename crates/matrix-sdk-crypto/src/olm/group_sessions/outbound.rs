@@ -429,6 +429,11 @@ impl OutboundGroupSession {
         session.session_key()
     }
 
+    /// Gets the Sender Key
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.account_identity_keys.as_ref().curve25519.to_owned()
+    }
+
     /// Get the room id of the room this session belongs to.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
