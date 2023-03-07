@@ -27,6 +27,7 @@ testing = ["dep:http"]
 [dependencies]
 aes = "0.8.1"
 atomic = "0.5.1"
+async-std = { version = "1.12.0", features = ["unstable"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bs58 = { version = "0.4.0", optional = true }

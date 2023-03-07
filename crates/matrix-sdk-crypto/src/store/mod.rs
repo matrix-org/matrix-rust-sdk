@@ -42,9 +42,11 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, Arc, Weak},
+    time::Duration,
 };
 
+use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
@@ -80,10 +82,12 @@ mod traits;
 pub mod integration_tests;
 
 pub use error::{CryptoStoreError, Result};
+use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
+use crate::identities::UserKeyQueryResult;
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -98,7 +102,17 @@ pub(crate) struct Store {
     inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query: Arc<Mutex<UsersForKeyQuery>>,
+
+    /// Record of the users that are waiting for a /keys/query.
+    //
+    // This uses an async_std::sync::Mutex rather than a
+    // matrix_sdk_common::locks::Mutex because it has to match the Condvar (and tokio lacks a
+    // working Condvar implementation)
+    users_for_key_query: Arc<AsyncStdMutex<UsersForKeyQuery>>,
+
+    // condition variable that is notified each time an update is received for a user.
+    users_for_key_query_condvar: Arc<Condvar>,
+
     tracked_user_loading_lock: Arc<Mutex<()>>,
     tracked_users_loaded: Arc<AtomicBool>,
 }
@@ -118,6 +132,12 @@ struct UsersForKeyQuery {
     /// The users pending a lookup, together with the sequence number at which
     /// they were added to the list
     user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
+
+    /// A list of tasks waiting for key queries to complete.
+    ///
+    /// We expect this list to remain fairly short, so don't bother partitioning
+    /// by user.
+    tasks_awaiting_key_query: Vec<Weak<KeysQueryWaiter>>,
 }
 
 // We use wrapping arithmetic for the sequence numbers, to make sure we never
@@ -133,7 +153,11 @@ type InvalidationSequenceNumber = i64;
 impl UsersForKeyQuery {
     /// Create a new, empty, `UsersForKeyQueryCache`
     fn new() -> Self {
-        UsersForKeyQuery { next_sequence_number: 0, user_map: HashMap::new() }
+        UsersForKeyQuery {
+            next_sequence_number: 0,
+            user_map: HashMap::new(),
+            tasks_awaiting_key_query: Vec::new(),
+        }
     }
 
     /// Record a new user that requires a key query
@@ -159,6 +183,24 @@ impl UsersForKeyQuery {
     ) -> bool {
         let last_invalidation = self.user_map.get(user);
 
+        // if there were any jobs waiting for this key query to complete, we can flag
+        // them as completed and remove them from our list.
+        // we also clear out any tasks that have been cancelled.
+        self.tasks_awaiting_key_query.retain(|waiter| {
+            let Some(waiter) = waiter.upgrade() else {
+                // the TaskAwaitingKeyQuery has been dropped, so it probably timed out and the
+                // caller went away. We can remove it from our list whether or not it's for this
+                // user.
+                return false;
+            };
+            if waiter.user == user && waiter.sequence_number.wrapping_sub(query_sequence) <= 0 {
+                waiter.completed.store(true, Ordering::Relaxed);
+                false
+            } else {
+                true
+            }
+        });
+
         if let Some(invalidation_sequence) = last_invalidation {
             Span::current().record("invalidation_sequence", invalidation_sequence);
             if invalidation_sequence.wrapping_sub(query_sequence) > 0 {
@@ -182,6 +224,44 @@ impl UsersForKeyQuery {
         let sequence_number = self.next_sequence_number.wrapping_sub(1);
         (self.user_map.keys().cloned().collect(), sequence_number)
     }
+
+    /// Check if a key query is pending for a user, and register for a wakeup if
+    /// so.
+    ///
+    /// If no key query is currently pending, returns `None`. Otherwise, returns
+    /// (an `Arc` to) a `KeysQueryWaiter`, whose `completed` flag will
+    /// be set once the lookup completes.
+    fn maybe_register_waiting_task(&mut self, user: &UserId) -> Option<Arc<KeysQueryWaiter>> {
+        match self.user_map.get(user) {
+            None => None,
+            Some(&sequence_number) => {
+                let waiter = Arc::new(KeysQueryWaiter {
+                    sequence_number,
+                    user: user.to_owned(),
+                    completed: AtomicBool::new(false),
+                });
+                self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
+                Some(waiter)
+            }
+        }
+    }
+}
+
+/// Information on a task which is waiting for a `/keys/query` to complete.
+#[derive(Debug)]
+struct KeysQueryWaiter {
+    /// The user that we are waiting for
+    user: OwnedUserId,
+
+    /// The sequence number of the last invalidation of the users's device list
+    /// when we started waiting (ie, any `/keys/query` result with the same or
+    /// greater sequence number will satisfy this waiter)
+    sequence_number: InvalidationSequenceNumber,
+
+    /// Whether the `/keys/query` has completed.
+    ///
+    /// This is only modified whilst holding the mutex on `users_for_key_query`.
+    completed: AtomicBool,
 }
 
 #[derive(Default, Debug)]
@@ -371,7 +451,8 @@ impl Store {
             inner: store,
             verification_machine,
             tracked_users_cache: DashSet::new().into(),
-            users_for_key_query: Mutex::new(UsersForKeyQuery::new()).into(),
+            users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()).into(),
+            users_for_key_query_condvar: Condvar::new().into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
         }
@@ -770,6 +851,8 @@ impl Store {
             }
         }
         self.inner.save_tracked_users(&store_updates).await?;
+        // wake up any tasks that may have been waiting for updates
+        self.users_for_key_query_condvar.notify_all();
 
         Ok(())
     }
@@ -824,6 +907,42 @@ impl Store {
         self.load_tracked_users().await?;
 
         Ok(self.users_for_key_query.lock().await.users_for_key_query())
+    }
+
+    /// Wait for a `/keys/query` response to be received if one is expected for
+    /// the given user.
+    ///
+    /// If the given timeout elapses, the method will stop waiting and return
+    /// `UserKeyQueryResult::TimeoutExpired`
+    pub async fn wait_if_user_key_query_pending(
+        &self,
+        timeout_duration: Duration,
+        user: &UserId,
+    ) -> UserKeyQueryResult {
+        let mut g = self.users_for_key_query.lock().await;
+
+        let Some(w) = g.maybe_register_waiting_task(user) else {
+            return UserKeyQueryResult::WasNotPending;
+        };
+
+        let f1 = async {
+            while !w.completed.load(Ordering::Relaxed) {
+                g = self.users_for_key_query_condvar.wait(g).await;
+            }
+        };
+
+        match timeout(Box::pin(f1), timeout_duration).await {
+            Err(_) => {
+                warn!(
+                    user_id = ?user,
+                    "The user has a pending `/key/query` request which did \
+                    not finish yet, some devices might be missing."
+                );
+
+                UserKeyQueryResult::TimeoutExpired
+            }
+            _ => UserKeyQueryResult::WasPending,
+        }
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].

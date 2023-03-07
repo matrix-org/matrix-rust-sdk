@@ -69,6 +69,9 @@ pub(crate) struct KeysQueryListener {
 pub(crate) enum UserKeyQueryResult {
     WasPending,
     WasNotPending,
+
+    /// A query was pending, but we gave up waiting
+    TimeoutExpired,
 }
 
 impl KeysQueryListener {

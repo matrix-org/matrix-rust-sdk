@@ -1259,9 +1259,7 @@ impl OlmMachine {
 
     async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
         if let Some(timeout) = timeout {
-            let listener = self.identity_manager.listen_for_received_queries();
-
-            let _ = listener.wait_if_user_pending(timeout, user_id).await;
+            self.store.wait_if_user_key_query_pending(timeout, user_id).await;
         }
     }
 
