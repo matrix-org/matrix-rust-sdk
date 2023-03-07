@@ -220,24 +220,16 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     };
 
     // We only want to log text messages.
-    let OriginalSyncRoomMessageEvent {
-            content:
-                RoomMessageEventContent {
-                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                    ..
-                },
-            sender,
-            ..
-        } = event else {
+    let MessageType::Text(msgtype) = &event.content.msgtype else {
             return;
         };
 
     let member = room
-        .get_member(&sender)
+        .get_member(&event.sender)
         .await
         .expect("Couldn't get the room member")
         .expect("The room member doesn't exist");
     let name = member.name();
 
-    println!("{name}: {msg_body}");
+    println!("{name}: {}", msgtype.body);
 }
