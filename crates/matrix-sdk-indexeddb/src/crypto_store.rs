@@ -36,7 +36,6 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -61,6 +60,7 @@ mod keys {
     pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
     pub const KEY_REQUEST: &str = "key_request";
+    pub const ROOM_SETTINGS: &str = "room_settings";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -167,6 +167,9 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(keys::SECRET_REQUESTS_BY_INFO)?;
 
                 db.create_object_store(keys::BACKUP_KEYS)?;
+
+                db.create_object_store(keys::ROOM_SETTINGS)?;
+
             } else if old_version < 1.1 {
                 // We changed how we store inbound group sessions, the key used to
                 // be a trippled of `(room_id, sender_key, session_id)` now it's a
@@ -365,9 +368,20 @@ impl_crypto_store! {
                 !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
                 keys::IDENTITIES,
             ),
+<<<<<<< HEAD
             (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
+||||||| parent of b0932a23c (Missing stores)
+            (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
+            (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
+            (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
+=======
+            (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
+            (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
+            (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
+            (!changes.room_settings.is_empty(), KEYS::ROOM_SETTINGS),
+>>>>>>> b0932a23c (Missing stores)
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -476,6 +490,7 @@ impl_crypto_store! {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
+        let room_settings_changes = changes.room_settings;
 
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(keys::DEVICES)?;
@@ -537,6 +552,16 @@ impl_crypto_store! {
                     unsent_secret_requests
                         .put_key_val(&key_request_id, &self.serialize_value(&key_request)?)?;
                 }
+            }
+        }
+
+        if !room_settings_changes.is_empty() {
+            let settings_store = tx.object_store(KEYS::ROOM_SETTINGS)?;
+
+            for (room_id, settings) in &room_settings_changes {
+                let key = self.encode_key(KEYS::ROOM_SETTINGS, room_id);
+                let value = self.serialize_value(&settings)?;
+                settings_store.put_key_val(&key, &value)?;
             }
         }
 
@@ -953,18 +978,35 @@ impl_crypto_store! {
         Ok(key)
     }
 
-    async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        warn!("Method not implemented");
-        Ok(None)
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let key = self.encode_key(KEYS::ROOM_SETTINGS, room_id);
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_SETTINGS)?
+            .get(&key)?
+            .await?
+            .map(|v| self.deserialize_value(v))
+            .transpose()?)
     }
 
-    async fn get_custom_value(&self, _key: &str) -> Result<Option<Vec<u8>>> {
-        warn!("Method not implemented");
-        Ok(None)
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::CORE)?
+            .get(&JsValue::from_str(key))?
+            .await?
+            .map(|v| self.deserialize_value(v))
+            .transpose()?)
     }
 
-    async fn set_custom_value(&self, _key: &str, _value: Vec<u8>) -> Result<()> {
-        warn!("Method not implemented");
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self
+            .inner
+            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readwrite)?
+            .object_store(KEYS::CORE)?
+            .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
         Ok(())
     }
 }

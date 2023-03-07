@@ -827,7 +827,7 @@ mod test {
     use tempfile::tempdir;
 
     use super::MigrationData;
-    use crate::{migrate, OlmMachine, RoomSettings, EventEncryptionAlgorithm};
+    use crate::{migrate, EventEncryptionAlgorithm, OlmMachine, RoomSettings};
 
     #[test]
     fn android_migration() -> Result<()> {
@@ -950,13 +950,25 @@ mod test {
         assert!(backup_keys.is_some());
 
         let settings1 = machine.get_room_settings("!AZkqtjvtwPAuyNOXEt:matrix.org")?;
-        assert_eq!(Some(RoomSettings { algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2, only_allow_trusted_devices: true }), settings1);
+        assert_eq!(
+            Some(RoomSettings {
+                algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                only_allow_trusted_devices: true
+            }),
+            settings1
+        );
 
         let settings2 = machine.get_room_settings("!CWLUCoEWXSFyTCOtfL:matrix.org")?;
-        assert_eq!(Some(RoomSettings { algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2, only_allow_trusted_devices: false }), settings2);
+        assert_eq!(
+            Some(RoomSettings {
+                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                only_allow_trusted_devices: false
+            }),
+            settings2
+        );
 
         let settings3 = machine.get_room_settings("!XYZ:matrix.org")?;
-        assert!(settings3.is_none());        
+        assert!(settings3.is_none());
 
         Ok(())
     }
