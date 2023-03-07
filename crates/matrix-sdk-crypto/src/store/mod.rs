@@ -120,8 +120,13 @@ struct UsersForKeyQuery {
     user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
 }
 
-// we use a signed int for this, so that we can do a `wrapping_sub` and get a
-// meaningful result (which is ok even if it wraps)
+// We use a wrapping arithemetic for the sequence numbers, to make sure we never
+// run out of numbers.
+//
+// We use a *signed* counter so that we can compare values via a subtraction.
+// For example, suppose we've just overflowed from i64::MAX to i64::MIN.
+// (i64::MAX.wrapping_sub(i64::MIN)) is -1, which tells us that i64::MAX comes
+// before i64::MIN in the sequence.
 type InvalidationSequenceNumber = i64;
 
 impl UsersForKeyQuery {
@@ -135,7 +140,7 @@ impl UsersForKeyQuery {
         let seq = self.next_sequence_number;
         trace!(?user, sequence_number = seq, "Flagging user for key query");
         self.user_map.insert(user.to_owned(), seq);
-        self.next_sequence_number += 1;
+        self.next_sequence_number = self.next_sequence_number.wrapping_add(1);
     }
 
     /// Record that a user has received an update with the given sequence
