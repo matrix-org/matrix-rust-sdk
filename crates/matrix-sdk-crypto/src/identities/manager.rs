@@ -127,7 +127,7 @@ pub(crate) struct IdentityManager {
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
-    /// details of the current "in-flight" key query request, if any
+    /// Details of the current "in-flight" key query request, if any
     keys_query_request_details: Arc<Mutex<KeysQueryRequestDetails>>,
 }
 
@@ -1142,7 +1142,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// if a user is invalidated while a /keys/query request is in flight, that
+    /// If a user is invalidated while a /keys/query request is in flight, that
     /// user is not removed from the list of outdated users when the
     /// response is received
     #[async_test]

@@ -112,10 +112,10 @@ pub(crate) struct Store {
 /// tell if any users have been invalidated more recently than that request.
 #[derive(Debug)]
 struct UsersForKeyQuery {
-    /// the sequence number we will assign to the next addition to user_map
+    /// The sequence number we will assign to the next addition to user_map
     next_sequence_number: InvalidationSequenceNumber,
 
-    /// the users pending a lookup, together with the sequence number at which
+    /// The users pending a lookup, together with the sequence number at which
     /// they were added to the list
     user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
 }
@@ -125,12 +125,12 @@ struct UsersForKeyQuery {
 type InvalidationSequenceNumber = i64;
 
 impl UsersForKeyQuery {
-    /// create a new, empty, `UsersForKeyQueryCache`
+    /// Create a new, empty, `UsersForKeyQueryCache`
     fn new() -> Self {
         UsersForKeyQuery { next_sequence_number: 0, user_map: HashMap::new() }
     }
 
-    /// record a new user that requires a key query
+    /// Record a new user that requires a key query
     fn insert_user(&mut self, user: &UserId) {
         let seq = self.next_sequence_number;
         trace!(?user, sequence_number = seq, "Flagging user for key query");
@@ -138,7 +138,7 @@ impl UsersForKeyQuery {
         self.next_sequence_number += 1;
     }
 
-    /// record that a user has received an update with the given sequence
+    /// Record that a user has received an update with the given sequence
     /// number.
     ///
     /// If the sequence number is newer than the oldest invalidation for this
@@ -168,7 +168,7 @@ impl UsersForKeyQuery {
         }
     }
 
-    /// fetch the list of users waiting for a key query, and the current
+    /// Fetch the list of users waiting for a key query, and the current
     /// sequence number
     fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, InvalidationSequenceNumber) {
         // we return the sequence number of the last invalidation
