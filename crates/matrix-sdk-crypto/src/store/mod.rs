@@ -692,10 +692,10 @@ impl Store {
     /// This means that the user will be considered for a `/keys/query` request
     /// next time [`Store::users_for_key_query()`] is called.
     pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
-        (self.users_for_key_query.lock().await).insert_user(user);
+        self.users_for_key_query.lock().await.insert_user(user);
         self.tracked_users_cache.insert(user.to_owned());
-        self.inner.save_tracked_users(&[(user, true)]).await?;
-        Ok(())
+
+        self.inner.save_tracked_users(&[(user, true)]).await
     }
 
     /// Add entries to the list of users being tracked for device changes
@@ -704,9 +704,10 @@ impl Store {
     /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
         self.load_tracked_users().await?;
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
-
+        
+        let mut store_updates = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
+        
         for user_id in users {
             if !self.tracked_users_cache.contains(user_id) {
                 self.tracked_users_cache.insert(user_id.to_owned());
@@ -714,8 +715,8 @@ impl Store {
                 store_updates.push((user_id, true))
             }
         }
-        self.inner.save_tracked_users(&store_updates).await?;
-        Ok(())
+        
+        self.inner.save_tracked_users(&store_updates).await
     }
 
     /// Process notifications that users have changed devices.
