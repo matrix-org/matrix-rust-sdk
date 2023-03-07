@@ -355,11 +355,6 @@ interface OlmMachine {
     );
 
     [Throws=CryptoStoreError]
-    string receive_sync_changes([ByRef] string events,
-                              DeviceLists device_changes,
-                              record<DOMString, i32> key_counts,
-                              sequence<string>? unused_fallback_keys);
-    [Throws=CryptoStoreError]
     sequence<Request> outgoing_requests();
     [Throws=CryptoStoreError]
     void mark_request_as_sent(
@@ -367,11 +362,6 @@ interface OlmMachine {
         RequestType request_type,
         [ByRef] string response
     );
-
-    [Throws=DecryptionError]
-    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id, boolean handle_verificaton_events);
-    [Throws=CryptoStoreError]
-    string encrypt([ByRef] string room_id, [ByRef] string event_type, [ByRef] string content);
 
     [Throws=CryptoStoreError]
     UserIdentity? get_identity([ByRef] string user_id, u32 timeout);
@@ -386,56 +376,6 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     sequence<Device> get_user_devices([ByRef] string user_id, u32 timeout);
 
-    [Throws=CryptoStoreError]
-    boolean is_user_tracked([ByRef] string user_id);
-    [Throws=CryptoStoreError]
-    void update_tracked_users(sequence<string> users);
-    [Throws=CryptoStoreError]
-    Request? get_missing_sessions(sequence<string> users);
-    [Throws=CryptoStoreError]
-    sequence<Request> share_room_key(
-        [ByRef] string room_id,
-        sequence<string> users,
-        EncryptionSettings settings
-    );
-
-    [Throws=CryptoStoreError]
-    void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
-    [Throws=CryptoStoreError]
-    void receive_verification_event([ByRef] string event, [ByRef] string room_id);
-    sequence<VerificationRequest> get_verification_requests([ByRef] string user_id);
-    VerificationRequest? get_verification_request([ByRef] string user_id, [ByRef] string flow_id);
-    Verification? get_verification([ByRef] string user_id, [ByRef] string flow_id);
-
-    [Throws=CryptoStoreError]
-    VerificationRequest? request_verification(
-        [ByRef] string user_id,
-        [ByRef] string room_id,
-        [ByRef] string event_id,
-        sequence<string> methods
-    );
-    [Throws=CryptoStoreError]
-    string? verification_request_content(
-        [ByRef] string user_id,
-        sequence<string> methods
-    );
-    [Throws=CryptoStoreError]
-    RequestVerificationResult? request_self_verification(sequence<string> methods);
-    [Throws=CryptoStoreError]
-    RequestVerificationResult? request_verification_with_device(
-        [ByRef] string user_id,
-        [ByRef] string device_id,
-        sequence<string> methods
-    );
-
-    [Throws=CryptoStoreError]
-    StartSasResult? start_sas_with_device([ByRef] string user_id, [ByRef] string device_id);
-
-    [Throws=DecryptionError]
-    KeyRequestPair request_room_key([ByRef] string event, [ByRef] string room_id);
-
-    [Throws=CryptoStoreError]
-    string export_room_keys([ByRef] string passphrase, i32 rounds);
     [Throws=KeyImportError]
     KeysImportResult import_room_keys(
         [ByRef] string keys,
@@ -447,14 +387,7 @@ interface OlmMachine {
         [ByRef] string keys,
         ProgressListener progress_listener
     );
-    [Throws=CryptoStoreError]
-    void discard_room_key([ByRef] string room_id);
 
-    [Throws=CryptoStoreError]
-    BootstrapCrossSigningResult bootstrap_cross_signing();
-    CrossSigningKeyExport? export_cross_signing_keys();
-    [Throws=SecretImportError]
-    void import_cross_signing_keys(CrossSigningKeyExport export);
     [Throws=CryptoStoreError]
     boolean is_identity_verified([ByRef] string user_id);
 

@@ -717,10 +717,14 @@ mod uniffi_types {
         backup_recovery_key::{
             BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
         },
-        error::CryptoStoreError,
-        machine::OlmMachine,
-        responses::Request,
-        BackupKeys, CrossSigningStatus, RoomKeyCounts,
+        error::{CryptoStoreError, DecryptionError, SecretImportError},
+        machine::{KeyRequestPair, OlmMachine},
+        responses::{BootstrapCrossSigningResult, DeviceLists, Request},
+        verification::{
+            RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
+        },
+        BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
+        RoomKeyCounts,
     };
 }
 
