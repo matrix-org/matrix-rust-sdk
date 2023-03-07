@@ -984,7 +984,7 @@ impl ReadOnlyAccount {
     ///   that the other account created and shared with us.
     pub async fn create_outbound_session(
         &self,
-        device: ReadOnlyDevice,
+        device: &ReadOnlyDevice,
         key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
@@ -1150,8 +1150,7 @@ impl ReadOnlyAccount {
 
         let device = ReadOnlyDevice::from_account(other).await;
 
-        let mut our_session =
-            self.create_outbound_session(device.clone(), &one_time).await.unwrap();
+        let mut our_session = self.create_outbound_session(&device, &one_time).await.unwrap();
 
         other.mark_keys_as_published().await;
 

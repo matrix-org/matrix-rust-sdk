@@ -63,7 +63,6 @@ mod KEYS {
     pub const KEY_REQUEST: &str = "key_request";
 
     pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
-    pub const NO_OLM_SENT: &str = "no_olm_sent";
 
     // KEYS
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -185,12 +184,16 @@ impl IndexeddbCryptoStore {
             }
 
             if old_version < 2.0 {
-                // Help? Migration of outbound session that store the outgoing withhelds
-
                 let db = evt.db();
+
+                // We changed the way we store outbound session.
+                // ShareInfo changed from a struct to an enum with struct variant.
+                // Let's just discard the existing outbounds
+                db.delete_object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
+                db.create_object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
+
                 // Support for MSC2399 withheld codes
                 db.create_object_store(KEYS::DIRECT_WITHHELD_INFO)?;
-                db.create_object_store(KEYS::NO_OLM_SENT)?;
             }
 
             Ok(())
@@ -382,7 +385,6 @@ impl_crypto_store! {
             (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
             (!changes.withheld_session_info.is_empty(), KEYS::DIRECT_WITHHELD_INFO),
-            (!changes.no_olm_sent.is_empty() || !changes.sessions.is_empty(), KEYS::NO_OLM_SENT),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -447,7 +449,6 @@ impl_crypto_store! {
                 .put_key_val(&JsValue::from_str(KEYS::BACKUP_KEY_V1), &self.serialize_value(&a)?)?;
         }
 
-        let mut no_olm_to_clear: Vec<JsValue> = Vec::new();
 
         if !changes.sessions.is_empty() {
             let sessions = tx.object_store(KEYS::SESSION)?;
@@ -461,14 +462,6 @@ impl_crypto_store! {
 
                 sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
 
-                // Clear no_olm_sent when a new session is added
-
-                let user_id = session.user_id.to_owned();
-                let device_id = session.device_id.as_str();
-                let no_olm_key = self.encode_key(KEYS::NO_OLM_SENT, (user_id.as_str(), device_id));
-                if !no_olm_to_clear.contains(&no_olm_key) {
-                    no_olm_to_clear.push(no_olm_key);
-                }
             }
         }
 
@@ -503,7 +496,6 @@ impl_crypto_store! {
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
         let withheld_session_info = changes.withheld_session_info;
-        let no_olm_sent = changes.no_olm_sent;
 
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(KEYS::DEVICES)?;
@@ -578,22 +570,6 @@ impl_crypto_store! {
                 withhelds.put_key_val(&key, &self.serialize_value(&info)?)?;
             }
         }
-
-        if !no_olm_sent.is_empty() || !no_olm_to_clear.is_empty() {
-            let no_olms = tx.object_store(KEYS::NO_OLM_SENT)?;
-
-            for key in no_olm_to_clear {
-                no_olms.delete(&key)?;
-            }
-
-            for (user_id, device_list) in no_olm_sent {
-                for device_id in device_list {
-                    let key = self.encode_key(KEYS::NO_OLM_SENT, (user_id.as_str(), device_id.as_str()));
-                    no_olms.put_key_val(&key, &JsValue::NULL)?;
-                }
-            }
-        }
-
 
         tx.await.into_result()?;
 
@@ -1029,23 +1005,6 @@ impl_crypto_store! {
         } else {
             Ok(None)
         }
-    }
-
-    async fn is_no_olm_sent(
-        &self,
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
-    ) -> Result<bool> {
-        let key = self.encode_key(KEYS::NO_OLM_SENT, (user_id.as_str(), device_id.as_str()));
-        let row = self.inner
-            .transaction_on_one_with_mode(
-                KEYS::NO_OLM_SENT,
-                IdbTransactionMode::Readonly,
-            )?
-            .object_store(KEYS::NO_OLM_SENT)?
-            .get(&key)?
-            .await?;
-        Ok(row.is_some())
     }
 
 }

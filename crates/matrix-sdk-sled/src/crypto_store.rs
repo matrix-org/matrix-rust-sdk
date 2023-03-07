@@ -35,7 +35,7 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -46,7 +46,7 @@ use tracing::debug;
 use super::OpenStoreError;
 use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 // Table names that are used to derive a separate key for each tree. This ensure
 // that user ids encoded for different trees won't end up as the same byte
@@ -338,6 +338,12 @@ impl SledCryptoStore {
             // tuple as the key.
             let changes = Changes { inbound_group_sessions, ..Default::default() };
             self.save_changes(changes).await?;
+        }
+
+        if version < 7 {
+            // we have changed the way outbound group session are stored
+            // just clear
+            self.outbound_group_sessions.clear().map_err(CryptoStoreError::backend)?;
         }
 
         self.inner
@@ -672,16 +678,6 @@ impl SledCryptoStore {
 
                     for key in &no_olm_to_clear {
                         no_olm_sent.remove(key.clone())?;
-                    }
-
-                    for (user_id, device_ids) in &changes.no_olm_sent {
-                        for device_id in device_ids {
-                            let key = self.encode_key(
-                                NO_OLM_SENT_TABLE,
-                                (user_id.to_owned(), device_id.as_str()),
-                            );
-                            no_olm_sent.insert(key, device_id.encode())?;
-                        }
                     }
 
                     Ok(())
@@ -1058,16 +1054,6 @@ impl CryptoStore for SledCryptoStore {
         };
 
         Ok(key)
-    }
-
-    async fn is_no_olm_sent(
-        &self,
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
-    ) -> Result<bool, Self::Error> {
-        let key = self.encode_key(NO_OLM_SENT_TABLE, (user_id, device_id.as_str()));
-        let entry = self.no_olm_sent.get(key).map_err(CryptoStoreError::backend)?;
-        Ok(entry.is_some())
     }
 
     async fn get_withheld_info(

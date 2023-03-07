@@ -891,7 +891,6 @@ impl OlmMachine {
         self.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
         self.group_session_manager.mark_request_as_sent(request_id).await?;
         self.session_manager.mark_outgoing_request_as_sent(request_id);
-        // TODO handle withheld sent?
         Ok(())
     }
 
@@ -1018,8 +1017,14 @@ impl OlmMachine {
                 // one as well.
                 match decrypted.session {
                     SessionType::New(s) => {
-                        changes.sessions.push(s);
                         changes.account = Some(self.account.inner.clone());
+                        // We have a new session with this device, clear the set_no_olm flag
+                        let device = self.store.get_device(&s.user_id, &s.device_id).await;
+                        if let Ok(Some(device)) = device {
+                            device.inner.set_no_olm_sent(false);
+                            changes.devices.changed.push(device.inner);
+                        }
+                        changes.sessions.push(s);
                     }
                     SessionType::Existing(s) => {
                         changes.sessions.push(s);

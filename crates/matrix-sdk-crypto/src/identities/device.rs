@@ -68,6 +68,9 @@ pub struct ReadOnlyDevice {
         deserialize_with = "local_trust_deserializer"
     )]
     trust_state: Arc<Atomic<LocalTrust>>,
+
+    #[serde(default)]
+    no_olm_sent: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for ReadOnlyDevice {
@@ -79,6 +82,7 @@ impl std::fmt::Debug for ReadOnlyDevice {
             .field("keys", self.keys())
             .field("deleted", &self.deleted.load(Ordering::SeqCst))
             .field("trust_state", &self.trust_state)
+            .field("no_olm_sent", &self.no_olm_sent)
             .finish()
     }
 }
@@ -491,6 +495,7 @@ impl ReadOnlyDevice {
             inner: device_keys.into(),
             trust_state: Arc::new(Atomic::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
+            no_olm_sent: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -557,6 +562,16 @@ impl ReadOnlyDevice {
     /// can be stored.
     pub(crate) fn set_trust_state(&self, state: LocalTrust) {
         self.trust_state.store(state, Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_no_olm_sent(&self, sent: bool) {
+        self.no_olm_sent.store(sent, Ordering::Relaxed)
+    }
+
+    /// Returns true if a withheld no_olm code was already sent to this device.
+    /// Resets to false when a new olm session is created.
+    pub fn is_no_olm_sent(&self) -> bool {
+        self.no_olm_sent.load(Ordering::Relaxed)
     }
 
     /// Get the list of algorithms this device supports.
@@ -786,6 +801,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             inner: device_keys.clone().into(),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
+            no_olm_sent: Arc::new(AtomicBool::new(false)),
         };
 
         device.verify_device_keys(device_keys)?;

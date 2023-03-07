@@ -686,68 +686,6 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(is_withheld, None);
             }
-
-            #[async_test]
-            async fn no_olm_sent() {
-                let (account, store) = get_loaded_store("no_olm_sent").await;
-
-                let mut no_olm_change: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
-
-                let alice_id = alice_id();
-                let alice_device_1 = alice_device_id();
-                let alice_device_2 = device_id!("ALICEDEVICE2");
-
-                let bob_id = user_id!("@bob:example.org");
-                let bob_device = device_id!("BOBDEVICE");
-
-                no_olm_change.insert(
-                    alice_id.to_owned(),
-                    vec![alice_device_1.to_owned(), alice_device_2.to_owned()],
-                );
-
-                no_olm_change.insert(bob_id.to_owned(), vec![bob_device.to_owned()]);
-
-                let changes = Changes { no_olm_sent: no_olm_change, ..Default::default() };
-
-                store.save_changes(changes).await.expect("No olm sent should have been saved");
-
-                let is_no_olm_sent = store
-                    .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
-                    .await
-                    .expect("Failed to get olm sent entry for alice device 1");
-                assert!(is_no_olm_sent);
-
-                let is_no_olm_sent = store
-                    .is_no_olm_sent(alice_id.to_owned(), alice_device_2.to_owned())
-                    .await
-                    .expect("Failed to get olm sent entry for alice device 2");
-                assert!(is_no_olm_sent);
-
-                let is_no_olm_sent = store
-                    .is_no_olm_sent(bob_id.to_owned(), bob_device.to_owned())
-                    .await
-                    .expect("Failed to get olm sent entry for bob device");
-                assert!(is_no_olm_sent);
-
-                let is_no_olm_sent = store
-                    .is_no_olm_sent(bob_id.to_owned(), alice_device_2.to_owned())
-                    .await
-                    .unwrap();
-                assert!(!is_no_olm_sent);
-
-                let (account, session) = get_account_and_session().await;
-                // simulate the fact that there is a new session with alice_device_1 and that it
-                // clears the no_olm_sent
-                let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
-
-                store.save_changes(changes).await.expect("Should have save new session");
-
-                let is_no_olm_sent_for_device_with_new_session = store
-                    .is_no_olm_sent(alice_id.to_owned(), alice_device_1.to_owned())
-                    .await
-                    .unwrap();
-                assert!(!is_no_olm_sent_for_device_with_new_session);
-            }
         }
     };
 }
