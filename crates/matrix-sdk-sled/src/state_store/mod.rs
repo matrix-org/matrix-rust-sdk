@@ -52,7 +52,6 @@ use tracing::{debug, info, warn};
 
 mod migrations;
 
-use self::keys::CUSTOM;
 pub use self::migrations::MigrationConflictStrategy;
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
@@ -1166,7 +1165,7 @@ impl SledStateStore {
     }
 
     async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let key = self.encode_key(CUSTOM, EncodeUnchecked::from(key));
+        let key = self.encode_key(keys::CUSTOM, EncodeUnchecked::from(key));
         let me = self.clone();
         let ret = self.custom.remove(key)?.map(|v| me.deserialize_value(&v)).transpose();
         self.inner.flush_async().await?;
