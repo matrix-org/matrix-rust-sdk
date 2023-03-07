@@ -719,7 +719,8 @@ impl IdentityManager {
         }
 
         let mut result: Vec<(OwnedTransactionId, KeysQueryRequest)> = Vec::new();
-        let mut kqrd = KeysQueryRequestDetails { sequence_number, request_ids: HashSet::new() };
+        let mut request_details =
+            KeysQueryRequestDetails { sequence_number, request_ids: HashSet::new() };
 
         let filtered_users: Vec<OwnedUserId> =
             users.into_iter().filter(|u| !self.failures.contains(u.server_name())).collect();
@@ -729,9 +730,9 @@ impl IdentityManager {
             let req = KeysQueryRequest::new(c.iter().map(|u| (u.clone(), Vec::new())).collect());
             debug!(?request_id, users = ?c, "Created keys query request");
             result.push((request_id.clone(), req));
-            kqrd.request_ids.insert(request_id);
+            request_details.request_ids.insert(request_id);
         }
-        *(self.keys_query_request_details.lock().await) = kqrd;
+        *(self.keys_query_request_details.lock().await) = request_details;
         Ok(result)
     }
 
