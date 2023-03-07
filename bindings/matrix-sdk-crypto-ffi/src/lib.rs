@@ -553,6 +553,7 @@ impl From<HistoryVisibility> for RustHistoryVisibility {
 /// These settings control which algorithm the room key should use, how long a
 /// room key should be used and some other important information that determines
 /// the lifetime of a room key.
+#[derive(uniffi::Record)]
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,

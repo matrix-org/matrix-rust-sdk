@@ -231,6 +231,7 @@ pub enum RequestType {
     RoomMessage,
 }
 
+#[derive(uniffi::Record)]
 pub struct DeviceLists {
     pub changed: Vec<String>,
     pub left: Vec<String>,

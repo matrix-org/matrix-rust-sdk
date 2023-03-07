@@ -71,11 +71,6 @@ enum DecryptionError {
     "Store",
 };
 
-dictionary DeviceLists {
-    sequence<string> changed;
-    sequence<string> left;
-};
-
 dictionary KeysImportResult {
     i64 imported;
     i64 total;
@@ -335,14 +330,6 @@ enum HistoryVisibility {
     "Joined",
     "Shared",
     "WorldReadable",
-};
-
-dictionary EncryptionSettings {
-    EventEncryptionAlgorithm algorithm;
-    u64 rotation_period;
-    u64 rotation_period_msgs;
-    HistoryVisibility history_visibility;
-    boolean only_allow_trusted_devices;
 };
 
 interface OlmMachine {
