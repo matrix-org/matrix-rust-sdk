@@ -144,7 +144,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.1)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 2.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let old_version = evt.old_version();
 
@@ -168,8 +168,6 @@ impl IndexeddbCryptoStore {
 
                 db.create_object_store(keys::BACKUP_KEYS)?;
 
-                db.create_object_store(keys::ROOM_SETTINGS)?;
-
             } else if old_version < 1.1 {
                 // We changed how we store inbound group sessions, the key used to
                 // be a trippled of `(room_id, sender_key, session_id)` now it's a
@@ -181,6 +179,11 @@ impl IndexeddbCryptoStore {
 
                 db.delete_object_store(keys::INBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
+            }
+
+            if old_version < 2.0 {
+                let db = evt.db();
+                db.create_object_store(keys::ROOM_SETTINGS)?;
             }
 
             Ok(())
@@ -368,20 +371,11 @@ impl_crypto_store! {
                 !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
                 keys::IDENTITIES,
             ),
-<<<<<<< HEAD
+
             (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
-||||||| parent of b0932a23c (Missing stores)
-            (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
-            (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
-            (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
-=======
-            (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
-            (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
-            (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
-            (!changes.room_settings.is_empty(), KEYS::ROOM_SETTINGS),
->>>>>>> b0932a23c (Missing stores)
+            (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })

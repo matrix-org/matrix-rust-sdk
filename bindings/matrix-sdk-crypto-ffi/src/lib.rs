@@ -32,8 +32,7 @@ use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
-    store::{Changes, CryptoStore},
-    store::RoomSettings as RustRoomSettings,
+    store::{Changes, CryptoStore, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
