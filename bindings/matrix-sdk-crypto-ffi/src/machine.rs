@@ -578,7 +578,8 @@ impl OlmMachine {
         let settings = self
             .runtime
             .block_on(self.inner.store().get_room_settings(&room_id))?
-            .map(|v| v.try_into().unwrap());
+            .map(|v| v.try_into())
+            .transpose()?;
         Ok(settings)
     }
 

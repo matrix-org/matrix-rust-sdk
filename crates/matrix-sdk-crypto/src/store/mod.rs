@@ -302,7 +302,7 @@ impl Default for RoomSettings {
 
 impl Store {
     /// Create a new Store
-    pub fn new(
+    pub(crate) fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<DynCryptoStore>,
@@ -321,33 +321,33 @@ impl Store {
     }
 
     /// UserId associated with this store
-    pub fn user_id(&self) -> &UserId {
+    pub(crate) fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
     /// DeviceId associated with this store
-    pub fn device_id(&self) -> &DeviceId {
+    pub(crate) fn device_id(&self) -> &DeviceId {
         self.verification_machine.own_device_id()
     }
 
     /// The Account associated with this store
-    pub fn account(&self) -> &ReadOnlyAccount {
+    pub(crate) fn account(&self) -> &ReadOnlyAccount {
         &self.verification_machine.store.account
     }
 
     #[cfg(test)]
     /// test helper to reset the cross signing identity
-    pub async fn reset_cross_signing_identity(&self) {
+    pub(crate) async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
     }
 
     ///  PrivateCrossSigningIdentity associated with this store
-    pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
+    pub(crate) fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
         self.identity.clone()
     }
 
     /// Save the given Sessions to the store
-    pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+    pub(crate) async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
@@ -359,7 +359,7 @@ impl Store {
     /// This method returns `SessionOrdering::Better` if the given session is
     /// better than the one we already have or if we don't have such a
     /// session in the store.
-    pub async fn compare_group_session(
+    pub(crate) async fn compare_group_session(
         &self,
         session: &InboundGroupSession,
     ) -> Result<SessionOrdering> {
@@ -375,7 +375,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allow to save only a set of devices
-    pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
+    pub(crate) async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
             ..Default::default()
@@ -386,7 +386,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allo to save only a set of InboundGroupSession
-    pub async fn save_inbound_group_sessions(
+    pub(crate) async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],
     ) -> Result<()> {
@@ -396,7 +396,7 @@ impl Store {
     }
 
     /// Get the display name of our own device.
-    pub async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
+    pub(crate) async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
         Ok(self
             .inner
             .get_device(self.user_id(), self.device_id())
@@ -405,7 +405,7 @@ impl Store {
     }
 
     /// Get the read-only device associated with `device_id` for `user_id`
-    pub async fn get_readonly_device(
+    pub(crate) async fn get_readonly_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -416,7 +416,7 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_devices_filtered(
+    pub(crate) async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
@@ -431,7 +431,7 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This does also return our own device.
-    pub async fn get_readonly_devices_unfiltered(
+    pub(crate) async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
@@ -441,7 +441,7 @@ impl Store {
     /// Get a device for the given user with the given curve25519 key.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_device_from_curve_key(
+    pub(crate) async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
         curve_key: Curve25519PublicKey,
@@ -454,7 +454,7 @@ impl Store {
     /// Get all devices associated with the given `user_id`
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
+    pub(crate) async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
         self.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.inner.remove(self.device_id());
@@ -466,7 +466,7 @@ impl Store {
     /// Get all devices associated with the given `user_id`
     ///
     /// *Note*: This does also return our own device.
-    pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
+    pub(crate) async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.get_readonly_devices_unfiltered(user_id).await?;
 
         let own_identity =
@@ -482,7 +482,7 @@ impl Store {
     }
 
     /// Get a Device copy associated with `device_id` for `user_id`
-    pub async fn get_device(
+    pub(crate) async fn get_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -500,7 +500,7 @@ impl Store {
     }
 
     ///  Get the Identity of `user_id`
-    pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         // let own_identity =
         // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
         Ok(if let Some(identity) = self.inner.get_user_identity(user_id).await? {
@@ -540,7 +540,7 @@ impl Store {
     /// # Arguments
     ///
     /// * `secret_name` - The name of the secret that should be exported.
-    pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
+    pub(crate) async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
         match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
@@ -567,7 +567,7 @@ impl Store {
     }
 
     /// Import the Cross Signing Keys
-    pub async fn import_cross_signing_keys(
+    pub(crate) async fn import_cross_signing_keys(
         &self,
         export: CrossSigningKeyExport,
     ) -> Result<CrossSigningStatus, SecretImportError> {
@@ -597,7 +597,7 @@ impl Store {
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
-    pub async fn import_secret(
+    pub(crate) async fn import_secret(
         &self,
         secret_name: &SecretName,
         secret: &str,
@@ -642,7 +642,7 @@ impl Store {
     ///
     /// This means that the user will be considered for a `/keys/query` request
     /// next time [`Store::users_for_key_query()`] is called.
-    pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
+    pub(crate) async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.users_for_key_query.lock().await.insert_user(user);
         self.tracked_users_cache.insert(user.to_owned());
 
@@ -653,7 +653,7 @@ impl Store {
     ///
     /// Any users not already on the list are flagged as awaiting a key query.
     /// Users that were already in the list are unaffected.
-    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+    pub(crate) async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
         self.load_tracked_users().await?;
 
         let mut store_updates = Vec::new();
@@ -762,14 +762,14 @@ impl Store {
     /// A pair `(users, sequence_number)`, where `users` is the list of users to
     /// be queried, and `sequence_number` is the current sequence number,
     /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub async fn users_for_key_query(&self) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
+    pub(crate) async fn users_for_key_query(&self) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
         self.load_tracked_users().await?;
 
         Ok(self.users_for_key_query.lock().await.users_for_key_query())
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
+    pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
         self.load_tracked_users().await?;
 
         Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())

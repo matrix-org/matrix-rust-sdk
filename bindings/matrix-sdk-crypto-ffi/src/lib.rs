@@ -225,9 +225,6 @@ pub fn migrate_room_settings(
     path: &str,
     passphrase: Option<String>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::store::{Changes as RustChanges, CryptoStore};
-    use tokio::runtime::Runtime;
-
     let runtime = Runtime::new()?;
     runtime.block_on(async move {
         let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
@@ -238,7 +235,7 @@ pub fn migrate_room_settings(
             rust_settings.insert(room_id, settings.into());
         }
 
-        let changes = RustChanges { room_settings: rust_settings, ..Default::default() };
+        let changes = Changes { room_settings: rust_settings, ..Default::default() };
         store.save_changes(changes).await?;
 
         Ok(())
@@ -560,7 +557,7 @@ impl From<EventEncryptionAlgorithm> for RustEventEncryptionAlgorithm {
 }
 
 impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
-    type Error = String;
+    type Error = serde_json::Error;
 
     fn try_from(value: RustEventEncryptionAlgorithm) -> Result<Self, Self::Error> {
         match value {
@@ -568,7 +565,7 @@ impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
                 Ok(Self::OlmV1Curve25519AesSha2)
             }
             RustEventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(Self::MegolmV1AesSha2),
-            _ => Err(format!("Unsupported algorithm {value}")),
+            _ => Err(serde::de::Error::custom(format!("Unsupported algorithm {value}"))),
         }
     }
 }
@@ -783,7 +780,7 @@ pub struct RoomSettings {
 }
 
 impl TryFrom<RustRoomSettings> for RoomSettings {
-    type Error = String;
+    type Error = serde_json::Error;
 
     fn try_from(value: RustRoomSettings) -> Result<Self, Self::Error> {
         let algorithm = value.algorithm.try_into()?;
