@@ -159,7 +159,7 @@ impl MemoryStore {
             StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.filters.insert(
                     user_id.to_string(),
-                    value.into_filter().expect("Session data not a user avatar url"),
+                    value.into_user_avatar_url().expect("Session data not a user avatar url"),
                 );
             }
         }
