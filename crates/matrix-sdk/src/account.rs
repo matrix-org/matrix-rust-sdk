@@ -140,14 +140,14 @@ impl Account {
                 .client
                 .store()
                 .set_kv_data(
-                    StateStoreDataKey::UserAvatarURL(user_id),
-                    StateStoreDataValue::UserAvatarURL(url.to_string()),
+                    StateStoreDataKey::UserAvatarUrl(user_id),
+                    StateStoreDataValue::UserAvatarUrl(url.to_string()),
                 )
                 .await;
         } else {
             // If there is no avatar the user has removed it and we uncache it.
             let _ =
-                self.client.store().remove_kv_data(StateStoreDataKey::UserAvatarURL(user_id)).await;
+                self.client.store().remove_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await;
         }
         Ok(response.avatar_url)
     }
@@ -156,7 +156,7 @@ impl Account {
     pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data =
-            self.client.store().get_kv_data(StateStoreDataKey::UserAvatarURL(user_id)).await?;
+            self.client.store().get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await?;
         Ok(data.map(|v| v.into_user_avatar_url().expect("Session data is not an user avatar url")))
     }
 

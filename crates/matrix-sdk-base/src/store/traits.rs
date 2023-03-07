@@ -647,7 +647,7 @@ pub enum StateStoreDataValue {
     Filter(String),
 
     /// The user avatar url
-    UserAvatarURL(String),
+    UserAvatarUrl(String),
 }
 
 impl StateStoreDataValue {
@@ -669,7 +669,7 @@ impl StateStoreDataValue {
 
     /// Get this value if it is a user avatar url.
     pub fn into_user_avatar_url(self) -> Option<String> {
-        let Self::UserAvatarURL(url) = self else {
+        let Self::UserAvatarUrl(url) = self else {
             return None;
         };
         Some(url)
@@ -686,7 +686,7 @@ pub enum StateStoreDataKey<'a> {
     Filter(&'a str),
 
     /// Avatar URL
-    UserAvatarURL(&'a UserId),
+    UserAvatarUrl(&'a UserId),
 }
 
 impl<'a> StateStoreDataKey<'a> {
@@ -695,7 +695,7 @@ impl<'a> StateStoreDataKey<'a> {
         match self {
             Self::SyncToken => "sync_token",
             Self::Filter(_) => "filter",
-            Self::UserAvatarURL(_) => "user_avatar_url",
+            Self::UserAvatarUrl(_) => "user_avatar_url",
         }
     }
 }

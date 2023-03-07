@@ -133,10 +133,10 @@ impl MemoryStore {
                 .filters
                 .get(filter_name)
                 .map(|f| StateStoreDataValue::Filter(f.value().clone()))),
-            StateStoreDataKey::UserAvatarURL(user_id) => Ok(self
+            StateStoreDataKey::UserAvatarUrl(user_id) => Ok(self
                 .user_avatar_url
                 .get(user_id.as_str())
-                .map(|u| StateStoreDataValue::UserAvatarURL(u.value().clone()))),
+                .map(|u| StateStoreDataValue::UserAvatarUrl(u.value().clone()))),
         }
     }
 
@@ -156,7 +156,7 @@ impl MemoryStore {
                     value.into_filter().expect("Session data not a filter"),
                 );
             }
-            StateStoreDataKey::UserAvatarURL(user_id) => {
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.filters.insert(
                     user_id.to_string(),
                     value.into_filter().expect("Session data not a user avatar url"),
@@ -173,7 +173,7 @@ impl MemoryStore {
             StateStoreDataKey::Filter(filter_name) => {
                 self.filters.remove(filter_name);
             }
-            StateStoreDataKey::UserAvatarURL(user_id) => {
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.filters.remove(user_id.as_str());
             }
         }

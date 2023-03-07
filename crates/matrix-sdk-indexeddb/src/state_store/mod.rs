@@ -418,7 +418,7 @@ impl IndexeddbStateStore {
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(key.encoding_key(), (key.encoding_key(), filter_name))
             }
-            StateStoreDataKey::UserAvatarURL(user_id) => {
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.encode_key(key.encoding_key(), (key.encoding_key(), user_id))
             }
         }
@@ -473,7 +473,7 @@ impl_state_store! {
         let value = match key {
             StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
-            StateStoreDataKey::UserAvatarURL(_) => value.map(StateStoreDataValue::UserAvatarURL),
+            StateStoreDataKey::UserAvatarUrl(_) => value.map(StateStoreDataValue::UserAvatarUrl),
         };
 
         Ok(value)
@@ -493,7 +493,7 @@ impl_state_store! {
             StateStoreDataKey::Filter(_) => {
                 value.into_filter().expect("Session data not a filter")
             }
-            StateStoreDataKey::UserAvatarURL(_) => {
+            StateStoreDataKey::UserAvatarUrl(_) => {
                 value.into_user_avatar_url().expect("Session data not an user avatar url")
             }
         };
