@@ -25,7 +25,7 @@ use ruma::{
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
@@ -83,7 +83,7 @@ impl RawMemberEvent {
 
 /// Wrapper around both MemberEvent-Types
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum MemberEvent {
     /// A member event from a room in joined or left state.
     Sync(SyncRoomMemberEvent),
