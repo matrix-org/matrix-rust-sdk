@@ -1386,8 +1386,7 @@ mod tests {
                 .unwrap();
 
             let expected_user_id = client.user_id().unwrap();
-            let found_receipt = receipts.iter().any(|(user_id, _)| user_id == expected_user_id);
-            
+            found_receipt = receipts.iter().any(|(user_id, _)| user_id == expected_user_id);
             if found_receipt {
                 break;
             }
