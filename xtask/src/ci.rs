@@ -191,7 +191,10 @@ fn check_docs() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
+        (
+            FeatureSet::NoEncryption,
+            "--no-default-features --features sled,native-tls,experimental-sliding-sync",
+        ),
         (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
         (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
         (

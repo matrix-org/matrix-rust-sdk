@@ -45,6 +45,7 @@ use super::{inner::RoomDataProvider, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
+#[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod invalid;
 mod read_receipts;
