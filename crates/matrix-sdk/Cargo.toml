@@ -74,7 +74,7 @@ eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
-futures-util = { version = "0.3.21", default-features = false }
+futures-util = { workspace = true }
 http = { workspace = true }
 im = { version = "15.1.0", features = ["serde"] }
 indexmap = "1.9.1"
