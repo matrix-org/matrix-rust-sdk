@@ -376,22 +376,15 @@ async fn migrate_to_v4(
 
     if let Some(sync_token) = sync_token {
         values.push((
-            encode_key(
-                store_cipher,
-                StateStoreDataKey::SyncToken.encoding_key(),
-                StateStoreDataKey::SyncToken.encoding_key(),
-            ),
+            encode_key(store_cipher, StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN),
             sync_token,
         ));
     }
 
     // Filters
     let session_store = tx.object_store(old_keys::SESSION)?;
-    let range = encode_to_range(
-        store_cipher,
-        StateStoreDataKey::Filter("").encoding_key(),
-        StateStoreDataKey::Filter("").encoding_key(),
-    )?;
+    let range =
+        encode_to_range(store_cipher, StateStoreDataKey::FILTER, StateStoreDataKey::FILTER)?;
     if let Some(cursor) = session_store.open_cursor_with_range(&range)?.await? {
         while let Some(key) = cursor.key() {
             let value = cursor.value();
@@ -711,19 +704,11 @@ mod tests {
 
             let session_store = tx.object_store(old_keys::SESSION)?;
             session_store.put_key_val(
-                &encode_key(
-                    None,
-                    StateStoreDataKey::Filter("").encoding_key(),
-                    (StateStoreDataKey::Filter("").encoding_key(), filter_1),
-                ),
+                &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_1)),
                 &serialize_event(None, &filter_1_id)?,
             )?;
             session_store.put_key_val(
-                &encode_key(
-                    None,
-                    StateStoreDataKey::Filter("").encoding_key(),
-                    (StateStoreDataKey::Filter("").encoding_key(), filter_2),
-                ),
+                &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_2)),
                 &serialize_event(None, &filter_2_id)?,
             )?;
 
