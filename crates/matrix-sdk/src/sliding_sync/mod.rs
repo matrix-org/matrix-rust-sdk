@@ -1059,6 +1059,8 @@ impl SlidingSync {
             assign!(v4::Request::new(), {
                 pos,
                 delta_token,
+                // We want to track whether the incoming response maps to this
+                // request. We use the (optional) `txn_id` field for that.
                 txn_id: Some(stream_id.to_owned()),
                 timeout: Some(timeout),
                 lists,
