@@ -185,6 +185,7 @@ pub(super) enum TimelineItemPosition {
 #[derive(Default)]
 pub(super) struct HandleEventResult {
     pub(super) item_added: bool,
+    #[cfg(feature = "e2e-encryption")]
     pub(super) item_removed: bool,
     pub(super) items_updated: u16,
 }
@@ -325,6 +326,8 @@ impl<'a> TimelineEventHandler<'a> {
 
         if !self.result.item_added {
             trace!("No new item added");
+
+            #[cfg(feature = "e2e-encryption")]
             if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.

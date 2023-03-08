@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeSet, HashMap},
-    sync::Arc,
-};
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
 use im::Vector;
 use indexmap::{IndexMap, IndexSet};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::OlmMachine;
 use matrix_sdk_base::{
-    crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::{Mutex, MutexGuard},
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::RoomId;
 use ruma::{
     events::{
         fully_read::FullyReadEvent,
@@ -34,16 +36,12 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
 };
-use tracing::{
-    debug, error,
-    field::{self, debug},
-    info, info_span, warn, Instrument as _,
-};
+use tracing::{debug, error, field::debug, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
-use tracing::{instrument, trace};
+use tracing::{field, info, info_span, Instrument as _};
 
 use super::{
     event_handler::{
