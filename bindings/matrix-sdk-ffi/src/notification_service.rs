@@ -29,11 +29,11 @@ impl NotificationService {
     /// Please note that this will be called on a new process than the
     /// application context.
     pub fn new(base_path: String, user_id: String) -> Self {
-        NotificationService { base_path, user_id }
+        Self { base_path, user_id }
     }
 
-    /// Get notification item for a given room_id and event_id.
-    /// Returns none if this notification should not be displayed to the user.
+    /// Get notification item for a given `room_id `and `event_id`.
+    /// Returns `None` if this notification should not be displayed to the user.
     pub fn get_notification_item(
         &self,
         _room_id: String,

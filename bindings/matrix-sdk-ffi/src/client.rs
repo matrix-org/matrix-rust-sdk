@@ -61,12 +61,12 @@ impl TryFrom<PusherKind> for RumaPusherKind {
                     let json: Value = serde_json::from_str(&payload)?;
                     ruma_data.default_payload = json;
                 }
-                ruma_data.format = data.format.map(|f| f.into());
-                Ok(RumaPusherKind::Http(ruma_data))
+                ruma_data.format = data.format.map(Into::into);
+                Ok(Self::Http(ruma_data))
             }
             PusherKind::Email => {
                 let ruma_data = EmailPusherData::new();
-                Ok(RumaPusherKind::Email(ruma_data))
+                Ok(Self::Email(ruma_data))
             }
         }
     }
@@ -80,7 +80,7 @@ pub enum PushFormat {
 impl From<PushFormat> for RumaPushFormat {
     fn from(value: PushFormat) -> Self {
         match value {
-            client::PushFormat::EventIdOnly => RumaPushFormat::EventIdOnly,
+            client::PushFormat::EventIdOnly => Self::EventIdOnly,
         }
     }
 }
