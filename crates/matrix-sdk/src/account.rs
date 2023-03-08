@@ -157,7 +157,7 @@ impl Account {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data =
             self.client.store().get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await?;
-        Ok(data.map(|v| v.into_user_avatar_url().expect("Session data is not an user avatar url")))
+        Ok(data.map(|v| v.into_user_avatar_url().expect("Session data is not a user avatar url")))
     }
 
     /// Set the MXC URI of the account's avatar.
