@@ -419,7 +419,7 @@ impl IndexeddbStateStore {
                 self.encode_key(key.encoding_key(), (key.encoding_key(), filter_name))
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.encode_key(key.encoding_key(), (key.encoding_key(), user_id))
+                self.encode_key(KEYS::KV, (key.encoding_key(), user_id))
             }
         }
     }
