@@ -87,7 +87,6 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
-use crate::identities::UserKeyQueryResult;
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -435,6 +434,17 @@ pub enum SecretImportError {
     /// The new version of the identity couldn't be stored.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+}
+
+/// Result type telling us if a `/keys/query` response was expected for a given
+/// user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UserKeyQueryResult {
+    WasPending,
+    WasNotPending,
+
+    /// A query was pending, but we gave up waiting
+    TimeoutExpired,
 }
 
 impl Store {

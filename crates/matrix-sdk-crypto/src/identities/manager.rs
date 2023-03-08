@@ -51,17 +51,6 @@ struct IdentityChange {
     private: Option<PrivateCrossSigningIdentity>,
 }
 
-/// Result type telling us if a `/keys/query` response was expected for a given
-/// user.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UserKeyQueryResult {
-    WasPending,
-    WasNotPending,
-
-    /// A query was pending, but we gave up waiting
-    TimeoutExpired,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,

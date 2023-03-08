@@ -34,10 +34,9 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    identities::UserKeyQueryResult,
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{Changes, Result as StoreResult, Store},
+    store::{Changes, Result as StoreResult, Store, UserKeyQueryResult},
     types::{events::EventType, EventEncryptionAlgorithm},
     utilities::FailuresCache,
     ReadOnlyDevice,
