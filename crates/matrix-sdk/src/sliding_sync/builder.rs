@@ -16,8 +16,8 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
-    SlidingSyncListBuilder, SlidingSyncRoom,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
+    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -286,24 +286,26 @@ impl SlidingSyncBuilder {
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
 
-        let rooms = Arc::new(StdRwLock::new(rooms_found));
-        let lists = Arc::new(StdRwLock::new(self.lists));
+        let rooms = StdRwLock::new(rooms_found);
+        let lists = StdRwLock::new(self.lists);
 
         Ok(SlidingSync {
-            homeserver: self.homeserver,
-            client,
-            storage_key: self.storage_key,
+            inner: Arc::new(SlidingSyncInner {
+                homeserver: self.homeserver,
+                client,
+                storage_key: self.storage_key,
 
-            lists,
-            rooms,
+                lists,
+                rooms,
 
-            extensions: Mutex::new(self.extensions).into(),
-            reset_counter: Default::default(),
+                extensions: Mutex::new(self.extensions).into(),
+                reset_counter: Default::default(),
 
-            pos: Arc::new(StdRwLock::new(Observable::new(None))),
-            delta_token: Arc::new(StdRwLock::new(Observable::new(delta_token_inner))),
-            subscriptions: Arc::new(StdRwLock::new(self.subscriptions)),
-            unsubscribe: Default::default(),
+                pos: StdRwLock::new(Observable::new(None)),
+                delta_token: StdRwLock::new(Observable::new(delta_token_inner)),
+                subscriptions: StdRwLock::new(self.subscriptions),
+                unsubscribe: Default::default(),
+            }),
         })
     }
 }
