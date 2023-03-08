@@ -26,25 +26,22 @@ use crate::{
     TimelineItem, TimelineListener,
 };
 
-type TaskHandleCallback = Box<dyn FnOnce() + Send + Sync>;
+type TaskHandleFinalizer = Box<dyn FnOnce() + Send + Sync>;
 
 pub struct TaskHandle {
-    handle: Option<JoinHandle<()>>,
-    callback: RwLock<Option<TaskHandleCallback>>,
+    handle: JoinHandle<()>,
+    finalizer: RwLock<Option<TaskHandleFinalizer>>,
 }
 
 impl TaskHandle {
-    fn with_handle(handle: JoinHandle<()>) -> Self {
-        Self { handle: Some(handle), callback: Default::default() }
+    // Create a new task handle.
+    fn new(handle: JoinHandle<()>) -> Self {
+        Self { handle, finalizer: RwLock::new(None) }
     }
 
-    #[allow(dead_code)]
-    fn with_callback(callback: TaskHandleCallback) -> Self {
-        Self { handle: Default::default(), callback: RwLock::new(Some(callback)) }
-    }
-
-    fn set_callback(&mut self, f: TaskHandleCallback) {
-        *self.callback.write().unwrap() = Some(f)
+    /// Define a function that will run after the handle has been aborted.
+    fn set_finalizer(&mut self, finalizer: TaskHandleFinalizer) {
+        *self.finalizer.write().unwrap() = Some(finalizer);
     }
 }
 
@@ -53,19 +50,16 @@ impl TaskHandle {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
 
-        if let Some(handle) = &self.handle {
-            handle.abort();
-        }
+        self.handle.abort();
 
-        if let Some(callback) = self.callback.write().unwrap().take() {
-            callback();
+        if let Some(finalizer) = self.finalizer.write().unwrap().take() {
+            finalizer();
         }
     }
 
-    /// Check whether a handle-based `TaskHandle` is finished; will return
-    /// `false` for callback-based `TaskHandle`.
+    /// Check whether the handle is finished.
     pub fn is_finished(&self) -> bool {
-        self.handle.as_ref().map(|handle| handle.is_finished()).unwrap_or_default()
+        self.handle.is_finished()
     }
 }
 
@@ -180,7 +174,7 @@ impl SlidingSyncRoom {
         self.runner.subscribe(room_id.clone(), settings.map(Into::into));
 
         let runner = self.runner.clone();
-        stoppable_spawn.set_callback(Box::new(move || runner.unsubscribe(room_id)));
+        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id)));
 
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
@@ -233,7 +227,7 @@ impl SlidingSyncRoom {
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
-        let task_handle = TaskHandle::with_handle(RUNTIME.spawn(async move {
+        let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         }));
 
@@ -519,7 +513,7 @@ impl SlidingSyncList {
     ) -> Arc<TaskHandle> {
         let mut state_stream = self.inner.state_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(new_state) = state_stream.next().await {
                     observer.did_receive_update(new_state);
@@ -534,7 +528,7 @@ impl SlidingSyncList {
     ) -> Arc<TaskHandle> {
         let mut rooms_list_stream = self.inner.rooms_list_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(diff) = rooms_list_stream.next().await {
                     observer.did_receive_update(diff.into());
@@ -549,7 +543,7 @@ impl SlidingSyncList {
     ) -> Arc<TaskHandle> {
         let mut rooms_updated =
             Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
                     observer.did_receive_update();
@@ -564,7 +558,7 @@ impl SlidingSyncList {
     ) -> Arc<TaskHandle> {
         let mut rooms_count_stream = self.inner.rooms_count_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(Some(new)) = rooms_count_stream.next().await {
                     observer.did_receive_update(new);
@@ -721,7 +715,7 @@ impl SlidingSync {
         let client = self.client.clone();
         let observer = self.observer.clone();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let stream = inner.stream();
             pin_mut!(stream);
 
