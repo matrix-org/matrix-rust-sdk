@@ -5,9 +5,11 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
-            account::whoami, error::ErrorKind, media::get_content_thumbnail::v3::Method,
+            account::whoami,
+            error::ErrorKind,
+            media::get_content_thumbnail::v3::Method,
+            room::{create_room::v3::Request, create_room::v3::RoomPreset, Visibility},
             session::get_login_types,
-            room::Visibility
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
@@ -246,18 +248,26 @@ impl Client {
         Ok(device_id.to_string())
     }
 
-    pub fn create_room(&self, visibility: Visibility, invite: Vec<OwnedUserId>) -> anyhow::Result<()> {
+    pub fn create_room(
+        &self,
+        name: String,
+        topic: Option<String>,
+        invite: Option<Vec<OwnedUserId>>,
+        visibility: Visibility,
+        preset: RoomPreset,
+    ) -> anyhow::Result<String> {
         let client = self.client.clone();
 
         RUNTIME.block_on(async move {
-            let mut request = ruma::api::client::room::create_room::v3::Request::new();
+            let mut request = Request::new();
+            request.name = Some(name);
+            request.topic = topic;
             request.visibility = visibility;
-            request.invite = invite;
+            request.invite = if let Some(invite) = invite { invite } else { vec![] };
+            request.preset = Some(preset);
 
             let response = client.create_room(request).await?;
-            let _id = response.room_id();
-
-            Ok(())
+            Ok(String::from(response.room_id()))
         })
     }
 
