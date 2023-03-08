@@ -7,7 +7,7 @@ use std::{
 use eyeball::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
     assign, OwnedRoomId,
@@ -154,8 +154,8 @@ impl SlidingSyncBuilder {
                     Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
 
-            if cfg.receipt.is_none() {
-                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.is_none() {
+                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.typing.is_none() {
@@ -214,14 +214,14 @@ impl SlidingSyncBuilder {
     }
 
     /// Set the Receipt extension configuration.
-    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = Some(receipt);
+    pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
+        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = None;
         self
     }
 

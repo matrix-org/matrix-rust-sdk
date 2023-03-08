@@ -9,7 +9,6 @@ use ruma::{
         v3::{self, Ephemeral},
         v4, DeviceLists,
     },
-    events::AnyEphemeralRoomEvent,
     DeviceKeyAlgorithm, UInt,
 };
 use tracing::{debug, info, instrument};
@@ -53,7 +52,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let v4::Extensions { to_device, e2ee, account_data, receipt, .. } = extensions;
+        let v4::Extensions { to_device, e2ee, account_data, receipts, .. } = extensions;
 
         let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
@@ -229,10 +228,10 @@ impl BaseClient {
         }
 
         // Process receipts now we have rooms
-        if let Some(receipts) = &receipt {
+        if let Some(receipts) = &receipts {
             for (room_id, receipt_edu) in &receipts.rooms {
-                if let Ok(AnyEphemeralRoomEvent::Receipt(event)) = receipt_edu.deserialize() {
-                    changes.add_receipts(room_id, event.content);
+                if let Ok(receipt_edu) = receipt_edu.deserialize() {
+                    changes.add_receipts(room_id, receipt_edu.content);
                 }
             }
         }

@@ -30,8 +30,8 @@ dashmap = "5.2.0"
 eyeball = "0.1.4"
 eyeball-im = "0.1.0"
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "2edfe5bc5f3ee88014e57230c50a5e005119344a", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "2edfe5bc5f3ee88014e57230c50a5e005119344a" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "543c03f8f2d0f5a357b6be41cc0e166aa58cce63", features = ["client-api-c"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "543c03f8f2d0f5a357b6be41cc0e166aa58cce63" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
