@@ -1375,7 +1375,7 @@ mod tests {
         // we expect to see it because we have enabled the receipt extension. We don't
         // know when we'll see it though
         let mut found_receipt = false;
-        'sync_loop: for _n in 0..3 {
+        for _n in 0..3 {
             stream.next().await.context("sync has closed unexpectedly")??;
 
             // try to find it
