@@ -224,11 +224,19 @@ impl Client {
         })
     }
 
-    pub fn avatar_url(&self) -> anyhow::Result<String> {
+    pub fn avatar_url(&self) -> anyhow::Result<Option<String>> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let avatar_url = l.account().get_avatar_url().await?.context("No User ID found")?;
-            Ok(avatar_url.to_string())
+            let avatar_url = l.account().get_avatar_url().await?;
+            Ok(avatar_url.map(|u| u.to_string()))
+        })
+    }
+
+    pub fn cached_avatar_url(&self) -> anyhow::Result<Option<String>> {
+        let l = self.client.clone();
+        RUNTIME.block_on(async move {
+            let url = l.account().get_cached_avatar_url().await?;
+            Ok(url)
         })
     }
 

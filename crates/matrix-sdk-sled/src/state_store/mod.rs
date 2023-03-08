@@ -415,6 +415,9 @@ impl SledStateStore {
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(keys::SESSION, (key.encoding_key(), filter_name))
             }
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
+                self.encode_key(keys::SESSION, (key.encoding_key(), user_id))
+            }
         }
     }
 
@@ -427,6 +430,7 @@ impl SledStateStore {
         let value = match key {
             StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
+            StateStoreDataKey::UserAvatarUrl(_) => value.map(StateStoreDataValue::UserAvatarUrl),
         };
 
         Ok(value)
@@ -444,6 +448,9 @@ impl SledStateStore {
                 value.into_sync_token().expect("Session data not a sync token")
             }
             StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
+            StateStoreDataKey::UserAvatarUrl(_) => {
+                value.into_user_avatar_url().expect("Session data not an user avatar url")
+            }
         };
 
         self.kv.insert(encoded_key, self.serialize_value(&value)?)?;
@@ -1157,6 +1164,15 @@ impl SledStateStore {
         ret
     }
 
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let key = self.encode_key(keys::CUSTOM, EncodeUnchecked::from(key));
+        let me = self.clone();
+        let ret = self.custom.remove(key)?.map(|v| me.deserialize_value(&v)).transpose();
+        self.inner.flush_async().await?;
+
+        ret
+    }
+
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         self.media.remove(
             self.encode_key(
@@ -1513,6 +1529,10 @@ impl StateStore for SledStateStore {
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> StoreResult<Option<Vec<u8>>> {
         self.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
+        self.remove_custom_value(key).await.map_err(Into::into)
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> StoreResult<()> {

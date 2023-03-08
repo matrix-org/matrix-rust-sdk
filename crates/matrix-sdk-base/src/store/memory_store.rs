@@ -48,6 +48,7 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
+    user_avatar_url: Arc<DashMap<String, String>>,
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
@@ -95,6 +96,7 @@ impl MemoryStore {
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
+            user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
@@ -131,6 +133,10 @@ impl MemoryStore {
                 .filters
                 .get(filter_name)
                 .map(|f| StateStoreDataValue::Filter(f.value().clone()))),
+            StateStoreDataKey::UserAvatarUrl(user_id) => Ok(self
+                .user_avatar_url
+                .get(user_id.as_str())
+                .map(|u| StateStoreDataValue::UserAvatarUrl(u.value().clone()))),
         }
     }
 
@@ -150,6 +156,12 @@ impl MemoryStore {
                     value.into_filter().expect("Session data not a filter"),
                 );
             }
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
+                self.filters.insert(
+                    user_id.to_string(),
+                    value.into_user_avatar_url().expect("Session data not a user avatar url"),
+                );
+            }
         }
 
         Ok(())
@@ -160,6 +172,9 @@ impl MemoryStore {
             StateStoreDataKey::SyncToken => *self.sync_token.write().unwrap() = None,
             StateStoreDataKey::Filter(filter_name) => {
                 self.filters.remove(filter_name);
+            }
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
+                self.filters.remove(user_id.as_str());
             }
         }
 
@@ -591,6 +606,10 @@ impl MemoryStore {
         Ok(self.custom.insert(key.to_vec(), value))
     }
 
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.remove(key).map(|entry| entry.1))
+    }
+
     // The in-memory store doesn't cache media
     async fn add_media_content(&self, _request: &MediaRequest, _data: Vec<u8>) -> Result<()> {
         Ok(())
@@ -767,6 +786,10 @@ impl StateStore for MemoryStore {
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         self.set_custom_value(key, value).await
+    }
+
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.remove_custom_value(key).await
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {

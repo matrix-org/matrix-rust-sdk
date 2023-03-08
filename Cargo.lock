@@ -1484,9 +1484,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7293923c1e4c768a56358441174001e3805a808fc453d3a93b20a5d3ebde347"
+checksum = "3609348664c9c1b07d9ff3933a466beaa4d197fb393b5d41ffda349458867626"
 dependencies = [
  "futures-core",
  "readlock",
@@ -4880,9 +4880,9 @@ checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
 name = "string_cache"
-version = "0.8.4"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213494b7a2b503146286049378ce02b482200519accc31872ee8be91fa820a08"
+checksum = "7d69e88b23f23030bf4d0e9ca7b07434f70e1c1f4d3ca7e93ce958b373654d9f"
 dependencies = [
  "new_debug_unreachable",
  "once_cell",

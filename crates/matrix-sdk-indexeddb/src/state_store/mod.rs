@@ -418,6 +418,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(key.encoding_key(), (key.encoding_key(), filter_name))
             }
+            StateStoreDataKey::UserAvatarUrl(user_id) => {
+                self.encode_key(KEYS::KV, (key.encoding_key(), user_id))
+            }
         }
     }
 }
@@ -470,6 +473,7 @@ impl_state_store! {
         let value = match key {
             StateStoreDataKey::SyncToken => value.map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::Filter(_) => value.map(StateStoreDataValue::Filter),
+            StateStoreDataKey::UserAvatarUrl(_) => value.map(StateStoreDataValue::UserAvatarUrl),
         };
 
         Ok(value)
@@ -488,6 +492,9 @@ impl_state_store! {
             }
             StateStoreDataKey::Filter(_) => {
                 value.into_filter().expect("Session data not a filter")
+            }
+            StateStoreDataKey::UserAvatarUrl(_) => {
+                value.into_user_avatar_url().expect("Session data not an user avatar url")
             }
         };
 
@@ -1145,6 +1152,20 @@ impl_state_store! {
             self.inner.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
+
+        tx.await.into_result().map_err(IndexeddbStateStoreError::from)?;
+        Ok(prev)
+    }
+
+    async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let jskey = JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
+
+        let prev = self.get_custom_value_for_js(&jskey).await?;
+
+        let tx =
+            self.inner.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+
+        tx.object_store(KEYS::CUSTOM)?.delete(&jskey)?;
 
         tx.await.into_result().map_err(IndexeddbStateStoreError::from)?;
         Ok(prev)

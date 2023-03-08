@@ -171,7 +171,10 @@ interface Client {
     void set_display_name(string name);
 
     [Throws=ClientError]
-    string avatar_url();
+    string? avatar_url();
+
+    [Throws=ClientError]
+    string? cached_avatar_url();
 
     [Throws=ClientError]
     string device_id();
