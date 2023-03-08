@@ -29,6 +29,7 @@ ctor = "0.1.26"
 dashmap = "5.2.0"
 eyeball = "0.1.4"
 eyeball-im = "0.1.0"
+futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 ruma = { git = "https://github.com/ruma/ruma", rev = "2edfe5bc5f3ee88014e57230c50a5e005119344a", features = ["client-api-c"] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "2edfe5bc5f3ee88014e57230c50a5e005119344a" }
