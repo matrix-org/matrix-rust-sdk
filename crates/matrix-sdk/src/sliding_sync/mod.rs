@@ -613,6 +613,7 @@ pub use error::*;
 use eyeball::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
+use matrix_sdk_base::sync::SyncResponse;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -912,38 +913,12 @@ impl SlidingSync {
 
     /// Handle the HTTP response.
     #[instrument(skip_all, fields(lists = list_generators.len()))]
-    async fn handle_response(
+    fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
-        stream_id: &str,
+        mut sync_response: SyncResponse,
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
-        match &sliding_sync_response.txn_id {
-            None => {
-                error!(stream_id, "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; it's missing");
-            }
-
-            Some(txn_id) if txn_id != stream_id => {
-                error!(
-                    stream_id,
-                    txn_id,
-                    "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; they differ"
-                );
-            }
-
-            _ => {}
-        }
-
-        // Handle and transform a Sliding Sync Response to a `SyncResponse`.
-        //
-        // We may not need the `sync_response` in the future (once `SyncResponse` will
-        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
-        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
-        // happens here.
-        let mut sync_response = self.client.process_sliding_sync(&sliding_sync_response).await?;
-
-        debug!("Sliding sync response has been processed");
-
         Observable::set(&mut self.pos.write().unwrap(), Some(sliding_sync_response.pos));
         Observable::set(&mut self.delta_token.write().unwrap(), sliding_sync_response.delta_token);
 
@@ -1008,8 +983,6 @@ impl SlidingSync {
 
             UpdateSummary { lists: updated_lists, rooms }
         };
-
-        self.cache_to_storage().await?;
 
         Ok(update_summary)
     }
@@ -1099,7 +1072,34 @@ impl SlidingSync {
 
         debug!("Sliding sync response received");
 
-        let updates = self.handle_response(response, stream_id, list_generators).await?;
+        match &response.txn_id {
+            None => {
+                error!(stream_id, "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; it's missing");
+            }
+
+            Some(txn_id) if txn_id != stream_id => {
+                error!(
+                    stream_id,
+                    txn_id,
+                    "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; they differ"
+                );
+            }
+
+            _ => {}
+        }
+
+        debug!("Sliding sync response has been processed");
+
+        // Handle and transform a Sliding Sync Response to a `SyncResponse`.
+        //
+        // We may not need the `sync_response` in the future (once `SyncResponse` will
+        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
+        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
+        // happens here.
+        let sync_response = self.client.process_sliding_sync(&response).await?;
+        let updates = self.handle_response(response, sync_response, list_generators)?;
+
+        self.cache_to_storage().await?;
 
         debug!("Sliding sync response has been handled");
 
