@@ -1385,11 +1385,11 @@ mod tests {
                 .await
                 .unwrap();
 
-            for (user_id, _receipt_data) in receipts {
-                if user_id == client.user_id().unwrap() {
-                    found_receipt = true;
-                    break 'sync_loop;
-                }
+            let expected_user_id = client.user_id().unwrap();
+            let found_receipt = receipts.iter().any(|(user_id, _)| user_id == expected_user_id);
+            
+            if found_receipt {
+                break;
             }
         }
         assert!(found_receipt);
