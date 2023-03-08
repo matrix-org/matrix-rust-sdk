@@ -28,7 +28,7 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
 use super::{
-    deserialize_event, encode_key, encode_to_range, serialize_event, Result, ALL_STORES, KEYS,
+    deserialize_event, encode_key, encode_to_range, keys, serialize_event, Result, ALL_STORES,
 };
 use crate::IndexeddbStateStoreError;
 
@@ -53,9 +53,7 @@ pub enum MigrationConflictStrategy {
 #[derive(Clone, Serialize, Deserialize)]
 struct StoreKeyWrapper(Vec<u8>);
 
-#[allow(non_snake_case)]
-mod OLD_KEYS {
-    // Old stores
+mod old_keys {
     pub const SESSION: &str = "session";
     pub const SYNC_TOKEN: &str = "sync_token";
 }
@@ -71,11 +69,11 @@ pub async fn upgrade_meta_db(
         let old_version = evt.old_version() as u32;
 
         if old_version < 1 {
-            db.create_object_store(KEYS::INTERNAL_STATE)?;
+            db.create_object_store(keys::INTERNAL_STATE)?;
         }
 
         if old_version < 2 {
-            db.create_object_store(KEYS::BACKUPS_META)?;
+            db.create_object_store(keys::BACKUPS_META)?;
         }
 
         Ok(())
@@ -85,11 +83,11 @@ pub async fn upgrade_meta_db(
 
     let store_cipher = if let Some(passphrase) = passphrase {
         let tx: IdbTransaction<'_> = meta_db
-            .transaction_on_one_with_mode(KEYS::INTERNAL_STATE, IdbTransactionMode::Readwrite)?;
-        let ob = tx.object_store(KEYS::INTERNAL_STATE)?;
+            .transaction_on_one_with_mode(keys::INTERNAL_STATE, IdbTransactionMode::Readwrite)?;
+        let ob = tx.object_store(keys::INTERNAL_STATE)?;
 
         let cipher = if let Some(StoreKeyWrapper(inner)) = ob
-            .get(&JsValue::from_str(KEYS::STORE_KEY))?
+            .get(&JsValue::from_str(keys::STORE_KEY))?
             .await?
             .map(|v| v.into_serde())
             .transpose()?
@@ -102,7 +100,7 @@ pub async fn upgrade_meta_db(
             #[cfg(test)]
             let export = cipher._insecure_export_fast_for_testing(passphrase)?;
             ob.put_key_val(
-                &JsValue::from_str(KEYS::STORE_KEY),
+                &JsValue::from_str(keys::STORE_KEY),
                 &JsValue::from_serde(&StoreKeyWrapper(export))?,
             )?;
             cipher
@@ -240,27 +238,27 @@ pub async fn upgrade_inner_db(
 }
 
 pub const V1_STORES: &[&str] = &[
-    OLD_KEYS::SESSION,
-    KEYS::ACCOUNT_DATA,
-    KEYS::MEMBERS,
-    KEYS::PROFILES,
-    KEYS::DISPLAY_NAMES,
-    KEYS::JOINED_USER_IDS,
-    KEYS::INVITED_USER_IDS,
-    KEYS::ROOM_STATE,
-    KEYS::ROOM_INFOS,
-    KEYS::PRESENCE,
-    KEYS::ROOM_ACCOUNT_DATA,
-    KEYS::STRIPPED_ROOM_INFOS,
-    KEYS::STRIPPED_MEMBERS,
-    KEYS::STRIPPED_ROOM_STATE,
-    KEYS::STRIPPED_JOINED_USER_IDS,
-    KEYS::STRIPPED_INVITED_USER_IDS,
-    KEYS::ROOM_USER_RECEIPTS,
-    KEYS::ROOM_EVENT_RECEIPTS,
-    KEYS::MEDIA,
-    KEYS::CUSTOM,
-    OLD_KEYS::SYNC_TOKEN,
+    old_keys::SESSION,
+    keys::ACCOUNT_DATA,
+    keys::MEMBERS,
+    keys::PROFILES,
+    keys::DISPLAY_NAMES,
+    keys::JOINED_USER_IDS,
+    keys::INVITED_USER_IDS,
+    keys::ROOM_STATE,
+    keys::ROOM_INFOS,
+    keys::PRESENCE,
+    keys::ROOM_ACCOUNT_DATA,
+    keys::STRIPPED_ROOM_INFOS,
+    keys::STRIPPED_MEMBERS,
+    keys::STRIPPED_ROOM_STATE,
+    keys::STRIPPED_JOINED_USER_IDS,
+    keys::STRIPPED_INVITED_USER_IDS,
+    keys::ROOM_USER_RECEIPTS,
+    keys::ROOM_EVENT_RECEIPTS,
+    keys::MEDIA,
+    keys::CUSTOM,
+    old_keys::SYNC_TOKEN,
 ];
 
 async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
@@ -300,8 +298,8 @@ async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     }
 
     let tx =
-        meta.transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readwrite)?;
-    let backup_store = tx.object_store(KEYS::BACKUPS_META)?;
+        meta.transaction_on_one_with_mode(keys::BACKUPS_META, IdbTransactionMode::Readwrite)?;
+    let backup_store = tx.object_store(keys::BACKUPS_META)?;
     backup_store.put_key_val(&JsValue::from_f64(now), &JsValue::from_str(&backup_name))?;
 
     tx.await;
@@ -351,12 +349,12 @@ async fn v3_fix_store(
 /// Fix serialized redacted state events.
 async fn migrate_to_v3(db: &IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<()> {
     let tx = db.transaction_on_multi_with_mode(
-        &[KEYS::ROOM_STATE, KEYS::ROOM_INFOS],
+        &[keys::ROOM_STATE, keys::ROOM_INFOS],
         IdbTransactionMode::Readwrite,
     )?;
 
-    v3_fix_store(&tx.object_store(KEYS::ROOM_STATE)?, store_cipher).await?;
-    v3_fix_store(&tx.object_store(KEYS::ROOM_INFOS)?, store_cipher).await?;
+    v3_fix_store(&tx.object_store(keys::ROOM_STATE)?, store_cipher).await?;
+    v3_fix_store(&tx.object_store(keys::ROOM_INFOS)?, store_cipher).await?;
 
     tx.await.into_result().map_err(|e| e.into())
 }
@@ -367,14 +365,14 @@ async fn migrate_to_v4(
     store_cipher: Option<&StoreCipher>,
 ) -> Result<OngoingMigration> {
     let tx = db.transaction_on_multi_with_mode(
-        &[OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION],
+        &[old_keys::SYNC_TOKEN, old_keys::SESSION],
         IdbTransactionMode::Readonly,
     )?;
     let mut values = Vec::new();
 
     // Sync token
-    let sync_token_store = tx.object_store(OLD_KEYS::SYNC_TOKEN)?;
-    let sync_token = sync_token_store.get(&JsValue::from_str(OLD_KEYS::SYNC_TOKEN))?.await?;
+    let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
+    let sync_token = sync_token_store.get(&JsValue::from_str(old_keys::SYNC_TOKEN))?.await?;
 
     if let Some(sync_token) = sync_token {
         values.push((
@@ -388,7 +386,7 @@ async fn migrate_to_v4(
     }
 
     // Filters
-    let session_store = tx.object_store(OLD_KEYS::SESSION)?;
+    let session_store = tx.object_store(old_keys::SESSION)?;
     let range = encode_to_range(
         store_cipher,
         StateStoreDataKey::Filter("").encoding_key(),
@@ -406,12 +404,12 @@ async fn migrate_to_v4(
 
     let mut data = HashMap::new();
     if !values.is_empty() {
-        data.insert(KEYS::KV, values);
+        data.insert(keys::KV, values);
     }
 
     Ok(OngoingMigration {
-        drop_stores: [OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION].into_iter().collect(),
-        create_stores: [KEYS::KV].into_iter().collect(),
+        drop_stores: [old_keys::SYNC_TOKEN, old_keys::SESSION].into_iter().collect(),
+        create_stores: [keys::KV].into_iter().collect(),
         data,
     })
 }
@@ -433,11 +431,11 @@ mod tests {
     use wasm_bindgen::JsValue;
 
     use super::{
-        MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, OLD_KEYS, V1_STORES,
+        old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, V1_STORES,
     };
     use crate::{
         safe_encode::SafeEncode,
-        state_store::{encode_key, serialize_event, Result, ALL_STORES, KEYS},
+        state_store::{encode_key, keys, serialize_event, Result, ALL_STORES},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };
 
@@ -493,8 +491,8 @@ mod tests {
         {
             let db = create_fake_db(&name, 1).await?;
             let tx =
-                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
-            let custom = tx.object_store(KEYS::CUSTOM)?;
+                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
@@ -531,8 +529,8 @@ mod tests {
         {
             let db = create_fake_db(&name, 1).await?;
             let tx =
-                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
-            let custom = tx.object_store(KEYS::CUSTOM)?;
+                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
@@ -569,8 +567,8 @@ mod tests {
         {
             let db = create_fake_db(&name, 1).await?;
             let tx =
-                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
-            let custom = tx.object_store(KEYS::CUSTOM)?;
+                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
@@ -610,8 +608,8 @@ mod tests {
         {
             let db = create_fake_db(&name, 1).await?;
             let tx =
-                db.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
-            let custom = tx.object_store(KEYS::CUSTOM)?;
+                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
@@ -666,8 +664,8 @@ mod tests {
         {
             let db = create_fake_db(&name, 2).await?;
             let tx =
-                db.transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readwrite)?;
-            let state = tx.object_store(KEYS::ROOM_STATE)?;
+                db.transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readwrite)?;
+            let state = tx.object_store(keys::ROOM_STATE)?;
             let key = (room_id, StateEventType::RoomTopic, "").encode();
             state.put_key_val(&key, &serialize_event(None, &wrong_redacted_state_event)?)?;
             tx.await.into_result()?;
@@ -701,17 +699,17 @@ mod tests {
         {
             let db = create_fake_db(&name, 3).await?;
             let tx = db.transaction_on_multi_with_mode(
-                &[OLD_KEYS::SYNC_TOKEN, OLD_KEYS::SESSION],
+                &[old_keys::SYNC_TOKEN, old_keys::SESSION],
                 IdbTransactionMode::Readwrite,
             )?;
 
-            let sync_token_store = tx.object_store(OLD_KEYS::SYNC_TOKEN)?;
+            let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
             sync_token_store.put_key_val(
-                &JsValue::from_str(OLD_KEYS::SYNC_TOKEN),
+                &JsValue::from_str(old_keys::SYNC_TOKEN),
                 &serialize_event(None, &sync_token)?,
             )?;
 
-            let session_store = tx.object_store(OLD_KEYS::SESSION)?;
+            let session_store = tx.object_store(old_keys::SESSION)?;
             session_store.put_key_val(
                 &encode_key(
                     None,
