@@ -8,12 +8,12 @@ use matrix_sdk::{
             account::whoami,
             error::ErrorKind,
             media::get_content_thumbnail::v3::Method,
-            room::{create_room::v3::Request, create_room::v3::RoomPreset, Visibility},
+            room::{create_room, Visibility},
             session::get_login_types,
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
-        OwnedUserId, TransactionId, UInt,
+        UserId, OwnedUserId, TransactionId, UInt,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
@@ -250,23 +250,12 @@ impl Client {
 
     pub fn create_room(
         &self,
-        name: String,
-        topic: Option<String>,
-        invite: Option<Vec<OwnedUserId>>,
-        visibility: Visibility,
-        preset: RoomPreset,
+        request: CreateRoomParameters
     ) -> anyhow::Result<String> {
         let client = self.client.clone();
 
         RUNTIME.block_on(async move {
-            let mut request = Request::new();
-            request.name = Some(name);
-            request.topic = topic;
-            request.visibility = visibility;
-            request.invite = if let Some(invite) = invite { invite } else { vec![] };
-            request.preset = Some(preset);
-
-            let response = client.create_room(request).await?;
+            let response = client.create_room(request.into()).await?;
             Ok(String::from(response.room_id()))
         })
     }
@@ -408,6 +397,37 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+}
+
+pub struct CreateRoomParameters {
+    pub name: String,
+    pub topic: Option<String>,
+    pub is_direct: bool,
+    pub visibility: Visibility,
+    pub preset: create_room::v3::RoomPreset,
+    pub invite: Option<Vec<String>>
+}
+
+impl From<CreateRoomParameters> for create_room::v3::Request  {
+    fn from(value: CreateRoomParameters) -> create_room::v3::Request {
+        let mut request = create_room::v3::Request::new();
+        request.name = Some(value.name);
+        request.topic = value.topic;
+        request.is_direct = value.is_direct;
+        request.visibility = value.visibility;
+        request.preset = Some(value.preset);
+        request.invite = match value.invite {
+            Some(invite) => {
+                let mapped = invite.iter()
+                    .map(UserId::parse)
+                    .collect::<Result<Vec<OwnedUserId>,_>>();
+
+                if let Ok(invite) = mapped { invite } else { vec![] }
+            },
+            None => vec![]
+        };
+        request
     }
 }
 
