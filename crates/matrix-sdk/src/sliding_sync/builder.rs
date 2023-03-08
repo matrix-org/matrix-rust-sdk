@@ -298,7 +298,6 @@ impl SlidingSyncBuilder {
             rooms,
 
             extensions: Mutex::new(self.extensions).into(),
-            sent_extensions: Mutex::new(None).into(),
             reset_counter: Default::default(),
 
             pos: Arc::new(StdRwLock::new(Observable::new(None))),

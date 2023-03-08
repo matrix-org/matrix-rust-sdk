@@ -49,6 +49,7 @@ experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "experimental-timeline",
     "reqwest/gzip",
+    "dep:uuid",
 ]
 
 docsrs = [
@@ -86,7 +87,7 @@ mime = "0.3.16"
 pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
-ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
@@ -94,6 +95,7 @@ thiserror = { workspace = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
+uuid = { version = "1.3.0", optional = true }
 zeroize = { workspace = true }
 
 [dependencies.image]

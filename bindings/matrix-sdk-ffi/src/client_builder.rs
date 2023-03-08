@@ -11,7 +11,7 @@ use matrix_sdk::{
 use sanitize_filename_reader_friendly::sanitize;
 use zeroize::Zeroizing;
 
-use super::{client::Client, ClientState, RUNTIME};
+use super::{client::Client, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
 
 #[derive(Clone)]
@@ -135,7 +135,7 @@ impl ClientBuilder {
 
         RUNTIME.block_on(async move {
             let client = inner_builder.build().await?;
-            let c = Client::new(client, ClientState::default());
+            let c = Client::new(client);
             c.set_sliding_sync_proxy(builder.sliding_sync_proxy);
             Ok(Arc::new(c))
         })

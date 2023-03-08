@@ -12,6 +12,10 @@ on:
       - synchronize
       - ready_for_review
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -40,13 +44,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.name }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -145,7 +157,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -153,15 +165,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Can't use `${{ matrix.* }}` inside uses
-      - name: Install Rust
+      - name: Install Rust stable
         if: matrix.rust == 'stable'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust
+      - name: Install Rust beta
         if: matrix.rust == 'beta'
         uses: dtolnay/rust-toolchain@beta
 
-      - name: Install Rust
+      - name: Install Rust nightly
         if: matrix.rust == 'nightly'
         uses: dtolnay/rust-toolchain@nightly
 
@@ -235,6 +247,14 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.cmd }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -274,7 +294,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

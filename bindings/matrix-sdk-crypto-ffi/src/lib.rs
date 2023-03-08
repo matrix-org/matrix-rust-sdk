@@ -31,6 +31,8 @@ pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::VerificationState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
+    olm::{IdentityKeys, InboundGroupSession, Session},
+    store::{Changes, CryptoStore},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
@@ -41,15 +43,17 @@ pub use responses::{
 };
 use ruma::{
     events::room::history_visibility::HistoryVisibility as RustHistoryVisibility, DeviceId,
-    DeviceKeyAlgorithm, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tokio::runtime::Runtime;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
     RequestVerificationResult, Sas, SasListener, SasState, ScanResult, StartSasResult,
     Verification, VerificationRequest, VerificationRequestListener, VerificationRequestState,
 };
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Struct collecting data that is important to migrate to the rust-sdk
 #[derive(Deserialize, Serialize)]
@@ -70,6 +74,24 @@ pub struct MigrationData {
     cross_signing: CrossSigningKeyExport,
     /// The list of users that the Rust SDK should track.
     tracked_users: Vec<String>,
+}
+
+/// Struct collecting data that is important to migrate sessions to the rust-sdk
+pub struct SessionMigrationData {
+    /// The user id that the data belongs to.
+    user_id: String,
+    /// The device id that the data belongs to.
+    device_id: String,
+    /// The Curve25519 public key of the Account that owns this data.
+    curve25519_key: String,
+    /// The Ed25519 public key of the Account that owns this data.
+    ed25519_key: String,
+    /// The list of pickleds Olm Sessions.
+    sessions: Vec<PickledSession>,
+    /// The list of pickled Megolm inbound group sessions.
+    inbound_group_sessions: Vec<PickledInboundGroupSession>,
+    /// The Olm pickle key that was used to pickle all the Olm objects.
+    pickle_key: Vec<u8>,
 }
 
 /// A pickled version of an `Account`.
@@ -149,17 +171,17 @@ impl From<anyhow::Error> for MigrationError {
     }
 }
 
-/// Migrate a libolm based setup to a vodozemac based setup stored in a Sled
+/// Migrate a libolm based setup to a vodozemac based setup stored in a SQLite
 /// store.
 ///
 /// # Arguments
 ///
-/// * `data` - The data that should be migrated over to the Sled store.
+/// * `data` - The data that should be migrated over to the SQLite store.
 ///
-/// * `path` - The path where the Sled store should be created.
+/// * `path` - The path where the SQLite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the Sled store. **Warning**, if no passphrase is given, the store
+/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
 /// and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
@@ -170,7 +192,6 @@ pub fn migrate(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use tokio::runtime::Runtime;
     let runtime = Runtime::new()?;
     runtime.block_on(async move {
         migrate_data(data, path, passphrase, progress_listener).await?;
@@ -184,15 +205,8 @@ async fn migrate_data(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::{
-        olm::PrivateCrossSigningIdentity,
-        store::{Changes as RustChanges, CryptoStore, RecoveryKey},
-    };
-    use vodozemac::{
-        megolm::InboundGroupSession,
-        olm::{Account, Session},
-        Curve25519PublicKey,
-    };
+    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::RecoveryKey};
+    use vodozemac::olm::Account;
     use zeroize::Zeroize;
 
     // The total steps here include all the sessions/inbound group sessions and
@@ -238,69 +252,17 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let mut sessions = Vec::new();
-
-    for session_pickle in data.sessions {
-        let pickle =
-            Session::from_libolm_pickle(&session_pickle.pickle, &data.pickle_key)?.pickle();
-
-        let creation_time = SecondsSinceUnixEpoch(UInt::from_str(&session_pickle.creation_time)?);
-        let last_use_time = SecondsSinceUnixEpoch(UInt::from_str(&session_pickle.last_use_time)?);
-
-        let pickle = matrix_sdk_crypto::olm::PickledSession {
-            pickle,
-            sender_key: Curve25519PublicKey::from_base64(&session_pickle.sender_key)?,
-            created_using_fallback_key: session_pickle.created_using_fallback_key,
-            creation_time,
-            last_use_time,
-        };
-
-        let session = matrix_sdk_crypto::olm::Session::from_pickle(
-            user_id.clone(),
-            device_id.clone(),
-            identity_keys.clone(),
-            pickle,
-        );
-
-        sessions.push(session);
-        processed_steps += 1;
-        listener(processed_steps, total_steps);
-    }
-
-    let mut inbound_group_sessions = Vec::new();
-
-    for session in data.inbound_group_sessions {
-        let pickle =
-            InboundGroupSession::from_libolm_pickle(&session.pickle, &data.pickle_key)?.pickle();
-
-        let sender_key = Curve25519PublicKey::from_base64(&session.sender_key)?;
-
-        let pickle = matrix_sdk_crypto::olm::PickledInboundGroupSession {
-            pickle,
-            sender_key,
-            signing_key: session
-                .signing_key
-                .into_iter()
-                .map(|(k, v)| {
-                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
-                    let key = SigningKey::from_parts(&algorithm, v)?;
-
-                    Ok((algorithm, key))
-                })
-                .collect::<anyhow::Result<_>>()?,
-            room_id: RoomId::parse(session.room_id)?,
-            imported: session.imported,
-            backed_up: session.backed_up,
-            history_visibility: None,
-            algorithm: RustEventEncryptionAlgorithm::MegolmV1AesSha2,
-        };
-
-        let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;
-
-        inbound_group_sessions.push(session);
-        processed_steps += 1;
-        listener(processed_steps, total_steps);
-    }
+    let (sessions, inbound_group_sessions) = collect_sessions(
+        processed_steps,
+        total_steps,
+        &listener,
+        &data.pickle_key,
+        user_id.clone(),
+        device_id,
+        identity_keys,
+        data.sessions,
+        data.inbound_group_sessions,
+    )?;
 
     let recovery_key =
         data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
@@ -333,7 +295,7 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let changes = RustChanges {
+    let changes = Changes {
         account: Some(account),
         private_identity: Some(cross_signing),
         sessions,
@@ -342,12 +304,170 @@ async fn migrate_data(
         backup_version: data.backup_version,
         ..Default::default()
     };
+
+    save_changes(processed_steps, total_steps, &listener, changes, &store).await
+}
+
+async fn save_changes(
+    mut processed_steps: usize,
+    total_steps: usize,
+    listener: &dyn Fn(usize, usize),
+    changes: Changes,
+    store: &SqliteCryptoStore,
+) -> anyhow::Result<()> {
     store.save_changes(changes).await?;
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
     Ok(())
+}
+
+/// Migrate sessions and group sessions of a libolm based setup to a vodozemac
+/// based setup stored in a SQLite store.
+///
+/// This method allows you to migrate a subset of the data, it should only be
+/// used after the [`migrate()`] method has been already used.
+///
+/// # Arguments
+///
+/// * `data` - The data that should be migrated over to the SQLite store.
+///
+/// * `path` - The path where the SQLite store should be created.
+///
+/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
+/// and all its data will remain unencrypted.
+///
+/// * `progress_listener` - A callback that can be used to introspect the
+/// progress of the migration.
+pub fn migrate_sessions(
+    data: SessionMigrationData,
+    path: &str,
+    passphrase: Option<String>,
+    progress_listener: Box<dyn ProgressListener>,
+) -> anyhow::Result<()> {
+    let runtime = Runtime::new()?;
+    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))
+}
+
+async fn migrate_session_data(
+    data: SessionMigrationData,
+    path: &str,
+    passphrase: Option<String>,
+    progress_listener: Box<dyn ProgressListener>,
+) -> anyhow::Result<()> {
+    let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+
+    let listener = |progress: usize, total: usize| {
+        progress_listener.on_progress(progress as i32, total as i32)
+    };
+
+    let total_steps = 1 + data.sessions.len() + data.inbound_group_sessions.len();
+    let processed_steps = 0;
+
+    let user_id = UserId::parse(data.user_id)?.into();
+    let device_id: OwnedDeviceId = data.device_id.into();
+
+    let identity_keys = IdentityKeys {
+        ed25519: Ed25519PublicKey::from_base64(&data.ed25519_key)?,
+        curve25519: Curve25519PublicKey::from_base64(&data.curve25519_key)?,
+    }
+    .into();
+
+    let (sessions, inbound_group_sessions) = collect_sessions(
+        processed_steps,
+        total_steps,
+        &listener,
+        &data.pickle_key,
+        user_id,
+        device_id.into(),
+        identity_keys,
+        data.sessions,
+        data.inbound_group_sessions,
+    )?;
+
+    let changes = Changes { sessions, inbound_group_sessions, ..Default::default() };
+    save_changes(processed_steps, total_steps, &listener, changes, &store).await
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_sessions(
+    mut processed_steps: usize,
+    total_steps: usize,
+    listener: &dyn Fn(usize, usize),
+    pickle_key: &[u8],
+    user_id: Arc<UserId>,
+    device_id: Arc<DeviceId>,
+    identity_keys: Arc<IdentityKeys>,
+    session_pickles: Vec<PickledSession>,
+    group_session_pickles: Vec<PickledInboundGroupSession>,
+) -> anyhow::Result<(Vec<Session>, Vec<InboundGroupSession>)> {
+    let mut sessions = Vec::new();
+
+    for session_pickle in session_pickles {
+        let pickle =
+            vodozemac::olm::Session::from_libolm_pickle(&session_pickle.pickle, pickle_key)?
+                .pickle();
+
+        let creation_time = SecondsSinceUnixEpoch(UInt::from_str(&session_pickle.creation_time)?);
+        let last_use_time = SecondsSinceUnixEpoch(UInt::from_str(&session_pickle.last_use_time)?);
+
+        let pickle = matrix_sdk_crypto::olm::PickledSession {
+            pickle,
+            sender_key: Curve25519PublicKey::from_base64(&session_pickle.sender_key)?,
+            created_using_fallback_key: session_pickle.created_using_fallback_key,
+            creation_time,
+            last_use_time,
+        };
+
+        let session =
+            Session::from_pickle(user_id.clone(), device_id.clone(), identity_keys.clone(), pickle);
+
+        sessions.push(session);
+        processed_steps += 1;
+        listener(processed_steps, total_steps);
+    }
+
+    let mut inbound_group_sessions = Vec::new();
+
+    for session in group_session_pickles {
+        let pickle = vodozemac::megolm::InboundGroupSession::from_libolm_pickle(
+            &session.pickle,
+            pickle_key,
+        )?
+        .pickle();
+
+        let sender_key = Curve25519PublicKey::from_base64(&session.sender_key)?;
+
+        let pickle = matrix_sdk_crypto::olm::PickledInboundGroupSession {
+            pickle,
+            sender_key,
+            signing_key: session
+                .signing_key
+                .into_iter()
+                .map(|(k, v)| {
+                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
+                    let key = SigningKey::from_parts(&algorithm, v)?;
+
+                    Ok((algorithm, key))
+                })
+                .collect::<anyhow::Result<_>>()?,
+            room_id: RoomId::parse(session.room_id)?,
+            imported: session.imported,
+            backed_up: session.backed_up,
+            history_visibility: None,
+            algorithm: RustEventEncryptionAlgorithm::MegolmV1AesSha2,
+        };
+
+        let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;
+
+        inbound_group_sessions.push(session);
+        processed_steps += 1;
+        listener(processed_steps, total_steps);
+    }
+
+    Ok((sessions, inbound_group_sessions))
 }
 
 /// Callback that will be passed over the FFI to report progress

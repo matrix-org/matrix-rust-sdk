@@ -7,6 +7,14 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
+    [Throws=MigrationError]
+    void migrate_sessions(
+        SessionMigrationData data,
+        [ByRef] string path,
+        string? passphrase,
+        ProgressListener progress_listener
+    );
+
 };
 
 [Error]
@@ -502,6 +510,16 @@ dictionary MigrationData {
     sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
+};
+
+dictionary SessionMigrationData {
+    string user_id;
+    string device_id;
+    string curve25519_key;
+    string ed25519_key;
+    sequence<PickledSession> sessions;
+    sequence<PickledInboundGroupSession> inbound_group_sessions;
+    sequence<u8> pickle_key;
 };
 
 dictionary PickledAccount {
