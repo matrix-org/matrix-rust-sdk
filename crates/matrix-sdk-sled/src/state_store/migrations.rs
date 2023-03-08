@@ -170,13 +170,13 @@ impl SledStateStore {
             let mut batch = sled::Batch::default();
 
             // Sync token
-            let sync_token = session.get(StateStoreDataKey::SyncToken.encoding_key().encode())?;
+            let sync_token = session.get(StateStoreDataKey::SYNC_TOKEN.encode())?;
             if let Some(sync_token) = sync_token {
-                batch.insert(StateStoreDataKey::SyncToken.encoding_key().encode(), sync_token);
+                batch.insert(StateStoreDataKey::SYNC_TOKEN.encode(), sync_token);
             }
 
             // Filters
-            let key = self.encode_key(keys::SESSION, StateStoreDataKey::Filter("").encoding_key());
+            let key = self.encode_key(keys::SESSION, StateStoreDataKey::FILTER);
             for res in session.scan_prefix(key) {
                 let (key, value) = res?;
                 batch.insert(key, value);
@@ -396,21 +396,15 @@ mod test {
         let session = store.inner.open_tree(old_keys::SESSION).unwrap();
         let mut batch = sled::Batch::default();
         batch.insert(
-            StateStoreDataKey::SyncToken.encoding_key().encode(),
+            StateStoreDataKey::SYNC_TOKEN.encode(),
             store.serialize_value(&sync_token).unwrap(),
         );
         batch.insert(
-            store.encode_key(
-                keys::SESSION,
-                (StateStoreDataKey::Filter("").encoding_key(), filter_1),
-            ),
+            store.encode_key(keys::SESSION, (StateStoreDataKey::FILTER, filter_1)),
             store.serialize_value(&filter_1_id).unwrap(),
         );
         batch.insert(
-            store.encode_key(
-                keys::SESSION,
-                (StateStoreDataKey::Filter("").encoding_key(), filter_2),
-            ),
+            store.encode_key(keys::SESSION, (StateStoreDataKey::FILTER, filter_2)),
             store.serialize_value(&filter_2_id).unwrap(),
         );
         session.apply_batch(batch).unwrap();

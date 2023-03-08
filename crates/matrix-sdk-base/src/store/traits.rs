@@ -689,13 +689,12 @@ pub enum StateStoreDataKey<'a> {
     UserAvatarUrl(&'a UserId),
 }
 
-impl<'a> StateStoreDataKey<'a> {
-    /// The string to use to encode this key.
-    pub const fn encoding_key(&self) -> &str {
-        match self {
-            Self::SyncToken => "sync_token",
-            Self::Filter(_) => "filter",
-            Self::UserAvatarUrl(_) => "user_avatar_url",
-        }
-    }
+impl StateStoreDataKey<'_> {
+    /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
+    pub const SYNC_TOKEN: &str = "sync_token";
+    /// Key prefix to use for the [`Filter`][Self::Filter] variant.
+    pub const FILTER: &str = "filter";
+    /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
+    /// variant.
+    pub const USER_AVATAR_URL: &str = "user_avatar_url";
 }

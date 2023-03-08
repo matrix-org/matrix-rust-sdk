@@ -410,13 +410,18 @@ impl IndexeddbStateStore {
     }
 
     fn encode_kv_data_key(&self, key: StateStoreDataKey<'_>) -> JsValue {
+        // Use the key (prefix) for the table name as well, to keep encoded
+        // keys compatible for the sync token and filters, which were in
+        // separate tables initially.
         match key {
-            StateStoreDataKey::SyncToken => self.encode_key(key.encoding_key(), key.encoding_key()),
+            StateStoreDataKey::SyncToken => {
+                self.encode_key(StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN)
+            }
             StateStoreDataKey::Filter(filter_name) => {
-                self.encode_key(key.encoding_key(), (key.encoding_key(), filter_name))
+                self.encode_key(StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_name))
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.encode_key(keys::KV, (key.encoding_key(), user_id))
+                self.encode_key(keys::KV, (StateStoreDataKey::USER_AVATAR_URL, user_id))
             }
         }
     }

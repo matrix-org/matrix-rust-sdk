@@ -411,12 +411,12 @@ impl SledStateStore {
 
     fn encode_kv_data_key(&self, key: StateStoreDataKey<'_>) -> Vec<u8> {
         match key {
-            StateStoreDataKey::SyncToken => key.encoding_key().encode(),
+            StateStoreDataKey::SyncToken => StateStoreDataKey::SYNC_TOKEN.encode(),
             StateStoreDataKey::Filter(filter_name) => {
-                self.encode_key(keys::SESSION, (key.encoding_key(), filter_name))
+                self.encode_key(keys::SESSION, (StateStoreDataKey::FILTER, filter_name))
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.encode_key(keys::SESSION, (key.encoding_key(), user_id))
+                self.encode_key(keys::SESSION, (StateStoreDataKey::USER_AVATAR_URL, user_id))
             }
         }
     }
