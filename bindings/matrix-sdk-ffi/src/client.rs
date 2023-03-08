@@ -445,10 +445,8 @@ impl Client {
                 profile_tag,
                 lang,
             };
-            match self.client.set_pusher(pusher_init.into()).await {
-                Ok(_) => Ok(()),
-                Err(error) => Err(anyhow!(error.to_string())),
-            }
+            self.client.set_pusher(pusher_init.into()).await?;
+            Ok(())
         })
     }
 

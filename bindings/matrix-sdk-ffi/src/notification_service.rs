@@ -25,6 +25,7 @@ pub struct NotificationItem {
 
 impl NotificationService {
     /// Creates a new notification service.
+    ///
     /// Will be used to fetch an event after receiving a notification.
     /// Please note that this will be called on a new process than the
     /// application context.
@@ -33,6 +34,7 @@ impl NotificationService {
     }
 
     /// Get notification item for a given `room_id `and `event_id`.
+    ///
     /// Returns `None` if this notification should not be displayed to the user.
     pub fn get_notification_item(
         &self,

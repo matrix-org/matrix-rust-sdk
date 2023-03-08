@@ -156,7 +156,7 @@ dictionary PusherIdentifiers {
 
 [Enum]
 interface PushFormat {
-  EventIdOnly();
+    EventIdOnly();
 };
 
 dictionary HttpPusherData {
@@ -167,8 +167,8 @@ dictionary HttpPusherData {
 
 [Enum]
 interface PusherKind {
-  Http(HttpPusherData data);
-  Email();
+    Http(HttpPusherData data);
+    Email();
 };
 
 interface Client {
