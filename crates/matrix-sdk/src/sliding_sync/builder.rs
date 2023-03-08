@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, Mutex, RwLock as StdRwLock},
+    sync::{Mutex, RwLock as StdRwLock},
 };
 
 use eyeball::Observable;
@@ -289,23 +289,21 @@ impl SlidingSyncBuilder {
         let rooms = StdRwLock::new(rooms_found);
         let lists = StdRwLock::new(self.lists);
 
-        Ok(SlidingSync {
-            inner: Arc::new(SlidingSyncInner {
-                homeserver: self.homeserver,
-                client,
-                storage_key: self.storage_key,
+        Ok(SlidingSync::new(SlidingSyncInner {
+            homeserver: self.homeserver,
+            client,
+            storage_key: self.storage_key,
 
-                lists,
-                rooms,
+            lists,
+            rooms,
 
-                extensions: Mutex::new(self.extensions).into(),
-                reset_counter: Default::default(),
+            extensions: Mutex::new(self.extensions),
+            reset_counter: Default::default(),
 
-                pos: StdRwLock::new(Observable::new(None)),
-                delta_token: StdRwLock::new(Observable::new(delta_token_inner)),
-                subscriptions: StdRwLock::new(self.subscriptions),
-                unsubscribe: Default::default(),
-            }),
-        })
+            pos: StdRwLock::new(Observable::new(None)),
+            delta_token: StdRwLock::new(Observable::new(delta_token_inner)),
+            subscriptions: StdRwLock::new(self.subscriptions),
+            unsubscribe: Default::default(),
+        }))
     }
 }
