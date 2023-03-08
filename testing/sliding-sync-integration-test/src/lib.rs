@@ -1392,7 +1392,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(found_receipt, true);
+        assert!(found_receipt);
         Ok(())
     }
 }
