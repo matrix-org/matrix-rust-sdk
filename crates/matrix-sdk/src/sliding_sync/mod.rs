@@ -1070,6 +1070,15 @@ impl SlidingSync {
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
 
+        // At this point, the request has been sent, and a response has been received.
+        //
+        // We must ensure the handling of the response cannot be stopped/
+        // cancelled. It must be done entirely, otherwise we can have
+        // corrupted/incomplete states for Sliding Sync and other parts of
+        // the code.
+        //
+        // That's why we are running the handling of the response in a blocking
+        // mode since it cannot be cancelled abruptly.
         debug!("Sliding sync response received");
 
         match &response.txn_id {
@@ -1088,8 +1097,6 @@ impl SlidingSync {
             _ => {}
         }
 
-        debug!("Sliding sync response has been processed");
-
         // Handle and transform a Sliding Sync Response to a `SyncResponse`.
         //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
@@ -1097,6 +1104,9 @@ impl SlidingSync {
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
         let sync_response = self.client.process_sliding_sync(&response).await?;
+
+        debug!("Sliding sync response has been processed");
+
         let updates = self.handle_response(response, sync_response, list_generators)?;
 
         self.cache_to_storage().await?;
