@@ -652,6 +652,8 @@ pub struct SlidingSync {
     inner: Arc<SlidingSyncInner>,
 
     /// A lock to ensure that responses are handled one at a time.
+    /// [The lock][AsyncMutex] is fair, and this fairness property is important
+    /// to ensure responses are handled in the correct order.
     response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
