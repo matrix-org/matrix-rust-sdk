@@ -7,6 +7,7 @@ use matrix_sdk::{
         api::client::{
             account::whoami, error::ErrorKind, media::get_content_thumbnail::v3::Method,
             session::get_login_types,
+            room::Visibility
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
@@ -245,11 +246,12 @@ impl Client {
         Ok(device_id.to_string())
     }
 
-    pub fn create_room(&self, invite: Vec<OwnedUserId>) -> anyhow::Result<()> {
+    pub fn create_room(&self, visibility: Visibility, invite: Vec<OwnedUserId>) -> anyhow::Result<()> {
         let client = self.client.clone();
 
         RUNTIME.block_on(async move {
             let mut request = ruma::api::client::room::create_room::v3::Request::new();
+            request.visibility = visibility;
             request.invite = invite;
 
             let response = client.create_room(request).await?;
