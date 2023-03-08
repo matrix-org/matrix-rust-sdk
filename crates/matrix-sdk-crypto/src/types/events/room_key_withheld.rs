@@ -411,7 +411,7 @@ pub(super) mod test {
         EventEncryptionAlgorithm,
     };
 
-    pub fn json() -> Value {
+    pub fn json(code: &WithheldCode) -> Value {
         json!({
             "sender": "@alice:example.org",
             "content": {
@@ -419,8 +419,8 @@ pub(super) mod test {
                 "session_id": "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs",
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "sender_key": "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
-                "code": "m.unverified",
-                "reason": "The sender has disabled encrypting to unverified devices.",
+                "code": code.to_owned(),
+                "reason": code.to_human_readable(),
                 "org.matrix.msgid": "8836f2f0-635d-4f0e-9228-446c63ba3ea3"
             },
             "type": "m.room_key.withheld",
@@ -436,6 +436,21 @@ pub(super) mod test {
                 "sender_key": "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
                 "code": "m.no_olm",
                 "reason": "Unable to establish a secure channel.",
+                "org.matrix.msgid": "8836f2f0-635d-4f0e-9228-446c63ba3ea3"
+            },
+            "type": "m.room_key.withheld",
+            "m.custom.top": "something custom in the top",
+        })
+    }
+
+    pub fn unknown_alg_json() -> Value {
+        json!({
+            "sender": "@alice:example.org",
+            "content": {
+                "algorithm": "caesar.cipher",
+                "sender_key": "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                "code": "m.brutus",
+                "reason": "Tu quoque fili",
                 "org.matrix.msgid": "8836f2f0-635d-4f0e-9228-446c63ba3ea3"
             },
             "type": "m.room_key.withheld",
@@ -462,15 +477,44 @@ pub(super) mod test {
 
     #[test]
     fn deserialization() -> Result<(), serde_json::Error> {
-        let json = json();
-        let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
-        assert_matches!(
-            event.content,
-            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::AnyContent(_))
-        );
-        let serialized = serde_json::to_value(event)?;
-        assert_eq!(json, serialized);
+        let codes = [
+            WithheldCode::Unverified,
+            WithheldCode::Blacklisted,
+            WithheldCode::Unauthorised,
+            WithheldCode::Unavailable,
+        ];
+        for code in codes {
+            let json = json(&code);
+            let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
+            assert_matches!(
+                event.content,
+                RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::AnyContent(_)
+                )
+            );
 
+            if let RoomKeyWithheldContent::MegolmV1AesSha2(content) = &event.content {
+                assert_eq!(content.withheld_code().to_owned(), code)
+            } else {
+                panic!()
+            }
+
+            if let RoomKeyWithheldContent::MegolmV1AesSha2(
+                MegolmV1AesSha2WithheldContent::AnyContent((_, content)),
+            ) = &event.content
+            {
+                assert_eq!(content.reason, ruma::JsOption::Some(code.to_human_readable()))
+            } else {
+                panic!()
+            }
+
+            assert_eq!(
+                event.content.algorithm().to_owned(),
+                EventEncryptionAlgorithm::MegolmV1AesSha2
+            );
+            let serialized = serde_json::to_value(event)?;
+            assert_eq!(json, serialized);
+        }
         Ok(())
     }
 
@@ -504,6 +548,23 @@ pub(super) mod test {
 
         if let RoomKeyWithheldContent::MegolmV1AesSha2(content) = &event.content {
             assert_matches!(content.withheld_code(), WithheldCode::_Custom(_));
+        } else {
+            panic!()
+        }
+        let serialized = serde_json::to_value(event)?;
+        assert_eq!(json, serialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialization_unknown_alg() -> Result<(), serde_json::Error> {
+        let json = unknown_alg_json();
+        let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
+        assert_matches!(event.content, RoomKeyWithheldContent::Unknown(_));
+
+        if let RoomKeyWithheldContent::Unknown(content) = &event.content {
+            assert_matches!(content.code, WithheldCode::_Custom(_));
         } else {
             panic!()
         }

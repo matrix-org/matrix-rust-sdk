@@ -505,7 +505,6 @@ impl GroupSessionManager {
         let encryption_settings = encryption_settings.into();
         let algorithm = encryption_settings.algorithm.to_owned();
         let mut changes = Changes::default();
-        // let mut no_olm: BTreeMap<OwnedUserId, Vec<Device>> = BTreeMap::new();
 
         // Try to get an existing session or create a new one.
         let (outbound, inbound) =
@@ -722,7 +721,7 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, ops::Deref};
+    use std::{collections::HashSet, ops::Deref, sync::Arc};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -749,7 +748,7 @@ mod tests {
             },
             EventEncryptionAlgorithm,
         },
-        Device, EncryptionSettings, LocalTrust, OlmMachine,
+        Device, EncryptionSettings, LocalTrust, OlmMachine, ToDeviceRequest,
     };
 
     fn alice_id() -> &'static UserId {
@@ -905,6 +904,30 @@ mod tests {
         assert_eq!(withheld_count, 2);
     }
 
+    fn count_withheld_from(requests: &[Arc<ToDeviceRequest>], code: WithheldCode) -> usize {
+        requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| {
+                let mut count = 0;
+                // count targets
+                for message in r.messages.values() {
+                    message.iter().for_each(|(_, content)| {
+                        let withheld: RoomKeyWithheldContent =
+                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+
+                        if let MegolmV1AesSha2(content) = withheld {
+                            if content.withheld_code() == code {
+                                count += 1;
+                            }
+                        }
+                    })
+                }
+                count
+            })
+            .sum()
+    }
+
     #[async_test]
     async fn test_no_olm_sent_once() {
         let machine = machine().await;
@@ -913,33 +936,24 @@ mod tests {
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
 
         let first_room_id = room_id!("!test:localhost");
+
         let requests = machine
-            .share_room_key(first_room_id, users, EncryptionSettings::default())
+            .share_room_key(first_room_id, users.to_owned(), EncryptionSettings::default())
             .await
             .unwrap();
 
         // there will be two no_olm
-        let withheld_count: usize = requests
-            .iter()
-            .filter(|r| r.event_type == "m.room_key.withheld".into())
-            .map(|r| {
-                let mut count = 0;
-                // count targets
-                for message in r.messages.values() {
-                    message.iter().for_each(|(_, content)| {
-                        let withheld: RoomKeyWithheldContent =
-                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+        let withheld_count: usize = count_withheld_from(&requests, WithheldCode::NoOlm);
+        assert_eq!(withheld_count, 2);
 
-                        if let MegolmV1AesSha2(content) = withheld {
-                            if content.withheld_code() == WithheldCode::NoOlm {
-                                count += 1;
-                            }
-                        }
-                    })
-                }
-                count
-            })
-            .sum();
+        // Re-sharing same session while request has not been sent should not produces
+        // withheld
+        let new_requests = machine
+            .share_room_key(first_room_id, users, EncryptionSettings::default())
+            .await
+            .unwrap();
+        let withheld_count: usize = count_withheld_from(&new_requests, WithheldCode::NoOlm);
+        // No additional request was added, still the 2 already pending
         assert_eq!(withheld_count, 2);
 
         let response = ToDeviceResponse::new();
@@ -947,6 +961,8 @@ mod tests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 
+        // The fact that an olm was sent should be remembered even if sharing another
+        // session in an other room.
         let second_room_id = room_id!("!other:localhost");
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let requests = machine
@@ -954,28 +970,7 @@ mod tests {
             .await
             .unwrap();
 
-        // there will be two no_olm
-        let withheld_count: usize = requests
-            .iter()
-            .filter(|r| r.event_type == "m.room_key.withheld".into())
-            .map(|r| {
-                let mut count = 0;
-                // count targets
-                for message in r.messages.values() {
-                    message.iter().for_each(|(_, content)| {
-                        let withheld: RoomKeyWithheldContent =
-                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
-
-                        if let MegolmV1AesSha2(content) = withheld {
-                            if content.withheld_code() == WithheldCode::NoOlm {
-                                count += 1;
-                            }
-                        }
-                    })
-                }
-                count
-            })
-            .sum();
+        let withheld_count: usize = count_withheld_from(&requests, WithheldCode::NoOlm);
         assert_eq!(withheld_count, 0);
 
         // Help how do I simulate the creation of a new session for the device
