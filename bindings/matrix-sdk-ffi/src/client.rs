@@ -33,7 +33,7 @@ pub struct PusherIdentifiers {
 
 impl From<PusherIdentifiers> for PusherIds {
     fn from(value: PusherIdentifiers) -> Self {
-        PusherIds::new(value.pushkey, value.app_id)
+        Self::new(value.pushkey, value.app_id)
     }
 }
 
