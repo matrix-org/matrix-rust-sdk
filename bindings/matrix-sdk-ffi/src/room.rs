@@ -502,6 +502,9 @@ impl Room {
         })
     }
 
+    /// Leaves the joined room.
+    ///
+    /// Will throw an error if used on an room that isn't in a joined state
     pub fn leave(&self) -> Result<()> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
@@ -514,6 +517,9 @@ impl Room {
         })
     }
 
+    /// Rejects invitation for the invited room.
+    ///
+    /// Will throw an error if used on an room that isn't in an invited state
     pub fn reject_invitation(&self) -> Result<()> {
         let room = match &self.room {
             SdkRoom::Invited(i) => i.clone(),
