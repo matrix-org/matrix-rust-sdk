@@ -149,6 +149,16 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+dictionary CreateRoomParameters {
+    string name;
+    string? topic;
+    boolean is_direct;
+    Visibility visibility;
+    Preset preset;
+    sequence<string>? invite;
+    string? avatar;
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 

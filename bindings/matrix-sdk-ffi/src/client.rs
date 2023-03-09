@@ -406,7 +406,8 @@ pub struct CreateRoomParameters {
     pub is_direct: bool,
     pub visibility: Visibility,
     pub preset: create_room::v3::RoomPreset,
-    pub invite: Option<Vec<String>>
+    pub invite: Option<Vec<String>>,
+    pub avatar: Option<String>
 }
 
 impl From<CreateRoomParameters> for create_room::v3::Request  {
@@ -427,6 +428,11 @@ impl From<CreateRoomParameters> for create_room::v3::Request  {
             },
             None => vec![]
         };
+        
+        // need a way to inject the avatar url in the request
+        // let avatar = AnyInitialStateEvent::RoomAvatar(...);
+        // request.initial_state.push(avatar);
+
         request
     }
 }
