@@ -16,8 +16,8 @@
 //! High-level media API.
 
 #[cfg(feature = "e2e-encryption")]
-use std::io::Read;
-use std::time::Duration;
+use std::io::{Read, Write};
+use std::{path::Path, time::Duration};
 
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
@@ -27,6 +27,7 @@ use ruma::{
     events::room::MediaSource,
     MxcUri,
 };
+use tempfile::{Builder as TempFileBuilder, NamedTempFile};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -43,6 +44,21 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 pub struct Media {
     /// The underlying HTTP client.
     client: Client,
+}
+
+/// A file handle that takes ownership of a media file on disk. When the handle
+/// is dropped, the file will be removed from the disk.
+#[derive(Debug)]
+pub struct MediaFileHandle {
+    /// The temporary file that contains the media.
+    file: NamedTempFile,
+}
+
+impl MediaFileHandle {
+    /// Get the media file's path.
+    pub fn path(&self) -> &Path {
+        self.file.path()
+    }
 }
 
 impl Media {
@@ -94,6 +110,37 @@ impl Media {
 
         let request_config = self.client.request_config().timeout(timeout);
         Ok(self.client.send(request, Some(request_config)).await?)
+    }
+
+    /// Gets a media file by copying it to a temporary location on disk.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns a `MediaFileHandle` which takes ownership of the file. When the
+    /// handle is dropped, the file will be deleted from the temporary location.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    ///
+    /// * `file_extension` - The extension that will be given to the file such
+    ///   as `png`.
+    ///
+    /// * `use_cache` - If we should use the media cache for this request.
+    pub async fn get_media_file(
+        &self,
+        request: &MediaRequest,
+        file_extension: &str,
+        use_cache: bool,
+    ) -> Result<MediaFileHandle> {
+        let data = self.get_media_content(request, use_cache).await?;
+
+        let suffix = ".".to_owned() + file_extension;
+        let mut file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
+        file.write_all(&data)?;
+
+        Ok(MediaFileHandle { file })
     }
 
     /// Get a media file's content.

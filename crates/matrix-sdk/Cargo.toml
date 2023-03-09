@@ -94,6 +94,7 @@ ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
+tempfile = "3.3.0"
 thiserror = { workspace = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
@@ -137,7 +138,6 @@ dirs = "4.0.0"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
-tempfile = "3.3.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

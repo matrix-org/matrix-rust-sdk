@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
-    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+    media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
             account::whoami,
@@ -179,6 +179,28 @@ impl Client {
             }
             builder.send().await?;
             Ok(())
+        })
+    }
+
+    pub fn get_media_file(
+        &self,
+        media_source: Arc<MediaSource>,
+        file_extension: String,
+    ) -> anyhow::Result<Arc<MediaFileHandle>> {
+        let client = self.client.clone();
+        let source = (*media_source).clone();
+
+        RUNTIME.block_on(async move {
+            let handle = client
+                .media()
+                .get_media_file(
+                    &MediaRequest { source, format: MediaFormat::File },
+                    &file_extension,
+                    true,
+                )
+                .await?;
+
+            Ok(Arc::new(MediaFileHandle { inner: handle }))
         })
     }
 }
@@ -616,4 +638,17 @@ pub struct Session {
 #[uniffi::export]
 fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
+}
+
+/// A file handle that takes ownership of a media file on disk. When the handle
+/// is dropped, the file will be removed from the disk.
+pub struct MediaFileHandle {
+    inner: SdkMediaFileHandle,
+}
+
+impl MediaFileHandle {
+    /// Get the media file's path.
+    pub fn path(&self) -> String {
+        self.inner.path().to_str().unwrap().to_string()
+    }
 }
