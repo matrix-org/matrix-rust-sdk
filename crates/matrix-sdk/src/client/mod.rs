@@ -15,6 +15,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
@@ -24,11 +25,12 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use futures_core::stream::Stream;
-use futures_signals::signal::Signal;
+use eyeball::Observable;
+use futures_core::Stream;
+use futures_util::StreamExt;
 use matrix_sdk_base::{
-    BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
-    SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta,
+    SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -41,7 +43,7 @@ use ruma::{
         client::{
             account::{register, whoami},
             alias::get_alias,
-            device::{delete_devices, get_devices},
+            device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 get_capabilities::{self, Capabilities},
@@ -61,10 +63,13 @@ use ruma::{
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
-    assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    assign,
+    serde::JsonObject,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
@@ -122,6 +127,13 @@ pub enum LoopCtrl {
     Break,
 }
 
+/// Wrapper struct for ErrorKind::UnknownToken
+#[derive(Debug, Clone)]
+pub struct UnknownToken {
+    /// Whether or not the session was soft logged out
+    pub soft_logout: bool,
+}
+
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
@@ -148,11 +160,11 @@ pub(crate) struct ClientInner {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Locks for requests on the encryption state of rooms.
     pub(crate) encryption_state_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
@@ -178,6 +190,9 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+    /// Client API UnknownToken error publisher. Allows the subscriber logout
+    /// the user when any request fails because of an invalid access token
+    pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -351,7 +366,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens(&self) -> Option<SessionTokens> {
-        self.base_client().session_tokens().get_cloned()
+        self.base_client().session_tokens().clone()
     }
 
     /// Get the current access token for this session.
@@ -379,7 +394,7 @@ impl Client {
         self.session_tokens().and_then(|tokens| tokens.refresh_token)
     }
 
-    /// [`Signal`] to get notified when the current access token and optional
+    /// [`Stream`] to get notified when the current access token and optional
     /// refresh token for this session change.
     ///
     /// This can be used with [`Client::session()`] to persist the [`Session`]
@@ -391,7 +406,7 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// use futures_signals::signal::SignalExt;
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::Session;
     /// # use futures::executor::block_on;
@@ -415,7 +430,7 @@ impl Client {
     /// persist_session(client.session());
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let future = client.session_tokens_changed_signal().for_each(move |_| {
+    /// let future = client.session_tokens_changed_stream().for_each(move |_| {
     ///     let client = client.clone();
     ///     async move {
     ///         persist_session(client.session());
@@ -428,15 +443,12 @@ impl Client {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_changed_signal(&self) -> impl Signal<Item = ()> {
-        self.base_client().session_tokens().signal_ref(|_| ())
+    pub fn session_tokens_changed_stream(&self) -> impl Stream<Item = ()> {
+        self.session_tokens_stream().map(|_| ())
     }
 
-    /// Get the current access token and optional refresh token for this
-    /// session as a [`Signal`].
-    ///
-    /// This can be used to watch changes of the tokens by calling methods like
-    /// `for_each()` or `to_stream()`.
+    /// Get changes to the access token and optional refresh token for this
+    /// session as a [`Stream`].
     ///
     /// The value will be `None` if the client has not been logged in.
     ///
@@ -447,7 +459,6 @@ impl Client {
     ///
     /// ```no_run
     /// use futures::StreamExt;
-    /// use futures_signals::signal::SignalExt;
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::Session;
     /// # use futures::executor::block_on;
@@ -472,7 +483,7 @@ impl Client {
     /// persist_session(&session);
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let mut tokens_stream = client.session_tokens_signal().to_stream();
+    /// let mut tokens_stream = client.session_tokens_stream();
     /// loop {
     ///     if let Some(tokens) = tokens_stream.next().await.flatten() {
     ///         session.access_token = tokens.access_token;
@@ -489,8 +500,8 @@ impl Client {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_signal(&self) -> impl Signal<Item = Option<SessionTokens>> {
-        self.base_client().session_tokens().signal_cloned()
+    pub fn session_tokens_stream(&self) -> impl Stream<Item = Option<SessionTokens>> {
+        Observable::subscribe(&self.base_client().session_tokens())
     }
 
     /// Get the whole session info of this client.
@@ -504,7 +515,7 @@ impl Client {
     }
 
     /// Get a reference to the state store.
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         self.base_client().store()
     }
 
@@ -1015,6 +1026,50 @@ impl Client {
     /// its localpart.
     pub fn login_identifier(&self, id: UserIdentifier, password: &str) -> LoginBuilder {
         LoginBuilder::new_password(self.clone(), id, password.to_owned())
+    }
+
+    /// Login to the server with a custom login type
+    ///
+    /// # Arguments
+    ///
+    /// * `login_type` - Identifier of the custom login type, e.g.
+    ///   `org.matrix.login.jwt`
+    ///
+    /// * `data` - The additional data which should be attached to the login
+    ///   request.
+    ///
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// use matrix_sdk::Client;
+    ///
+    /// let client = Client::new(homeserver).await?;
+    /// let user = "example";
+    ///
+    /// let response = client
+    ///     .login_custom(
+    ///         "org.matrix.login.jwt",
+    ///         [("token".to_owned(), "jwt_token_content".into())]
+    ///             .into_iter()
+    ///             .collect(),
+    ///     )?
+    ///     .initial_device_display_name("My bot")
+    ///     .await?;
+    ///
+    /// println!(
+    ///     "Logged in as {user}, got device_id {} and access_token {}",
+    ///     response.device_id, response.access_token,
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn login_custom(
+        &self,
+        login_type: &str,
+        data: JsonObject,
+    ) -> serde_json::Result<LoginBuilder> {
+        LoginBuilder::new_custom(self.clone(), login_type, data)
     }
 
     /// Login to the server with a token.
@@ -1800,7 +1855,8 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
-        self.inner
+        let response = self
+            .inner
             .http_client
             .send(
                 request,
@@ -1810,7 +1866,20 @@ impl Client {
                 self.user_id(),
                 self.server_versions().await?,
             )
-            .await
+            .await;
+
+        if let Err(http_error) = &response {
+            if let Some(ErrorKind::UnknownToken { soft_logout }) =
+                http_error.client_api_error_kind()
+            {
+                _ = self
+                    .inner
+                    .unknown_token_error_sender
+                    .send(UnknownToken { soft_logout: *soft_logout });
+            }
+        }
+
+        response
     }
 
     async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
@@ -1924,6 +1993,26 @@ impl Client {
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
         request.auth = auth_data;
+
+        self.send(request, None).await
+    }
+
+    /// Change the display name of a device owned by the current user.
+    ///
+    /// Returns a `update_device::Response` which specifies the result
+    /// of the operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The ID of the device to change the display name of.
+    /// * `display_name` - The new display name to set.
+    pub async fn rename_device(
+        &self,
+        device_id: &DeviceId,
+        display_name: &str,
+    ) -> HttpResult<update_device::v3::Response> {
+        let mut request = update_device::v3::Request::new(device_id.to_owned());
+        request.display_name = Some(display_name.to_owned());
 
         self.send(request, None).await
     }
@@ -2377,6 +2466,12 @@ impl Client {
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
         self.send(request, None).await
+    }
+
+    /// Subscribes a new receiver to client UnknownToken errors
+    pub fn subscribe_to_unknown_token_errors(&self) -> broadcast::Receiver<UnknownToken> {
+        let broadcast = &self.inner.unknown_token_error_sender;
+        broadcast.subscribe()
     }
 }
 

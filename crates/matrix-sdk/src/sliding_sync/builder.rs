@@ -1,13 +1,13 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, Mutex, RwLock as StdRwLock},
+    sync::{Mutex, RwLock as StdRwLock},
 };
 
-use futures_signals::signal::Mutable;
+use eyeball::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
     assign, OwnedRoomId,
@@ -16,18 +16,21 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncView, SlidingSync, SlidingSyncRoom, SlidingSyncView,
-    SlidingSyncViewBuilder,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
+    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
-/// Configuration for a Sliding Sync Instance
+/// Configuration for a Sliding Sync instance.
+///
+/// Get a new builder with methods like [`crate::Client::sliding_sync`], or
+/// [`crate::SlidingSync::builder`].
 #[derive(Clone, Debug)]
 pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Option<Client>,
-    views: BTreeMap<String, SlidingSyncView>,
+    lists: BTreeMap<String, SlidingSyncList>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
 }
@@ -38,7 +41,7 @@ impl SlidingSyncBuilder {
             storage_key: None,
             homeserver: None,
             client: None,
-            views: BTreeMap::new(),
+            lists: BTreeMap::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
         }
@@ -70,12 +73,12 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(self) -> Self {
-        self.add_view(
-            SlidingSyncViewBuilder::default_with_fullsync()
+    /// Convenience function to add a full-sync list to the builder
+    pub fn add_fullsync_list(self) -> Self {
+        self.add_list(
+            SlidingSyncListBuilder::default_with_fullsync()
                 .build()
-                .expect("Building default full sync view doesn't fail"),
+                .expect("Building default full sync list doesn't fail"),
         )
     }
 
@@ -91,17 +94,18 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Reset the views to `None`
-    pub fn no_views(mut self) -> Self {
-        self.views.clear();
+    /// Reset the lists to `None`
+    pub fn no_lists(mut self) -> Self {
+        self.lists.clear();
         self
     }
 
-    /// Add the given view to the views.
+    /// Add the given list to the lists.
     ///
-    /// Replace any view with the name.
-    pub fn add_view(mut self, v: SlidingSyncView) -> Self {
-        self.views.insert(v.name.clone(), v);
+    /// Replace any list with the name.
+    pub fn add_list(mut self, list: SlidingSyncList) -> Self {
+        self.lists.insert(list.name.clone(), list);
+
         self
     }
 
@@ -150,8 +154,8 @@ impl SlidingSyncBuilder {
                     Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
 
-            if cfg.receipt.is_none() {
-                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.is_none() {
+                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.typing.is_none() {
@@ -210,20 +214,21 @@ impl SlidingSyncBuilder {
     }
 
     /// Set the Receipt extension configuration.
-    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = Some(receipt);
+    pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
+        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = None;
         self
     }
 
     /// Build the Sliding Sync.
     ///
-    /// If configured, load the cached data from cold storage.
+    /// If `self.storage_key` is `Some(_)`, load the cached data from cold
+    /// storage.
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
@@ -233,25 +238,26 @@ impl SlidingSyncBuilder {
         if let Some(storage_key) = &self.storage_key {
             trace!(storage_key, "trying to load from cold");
 
-            for (name, view) in &mut self.views {
-                if let Some(frozen_view) = client
+            for (name, list) in &mut self.lists {
+                if let Some(frozen_list) = client
                     .store()
                     .get_custom_value(format!("{storage_key}::{name}").as_bytes())
                     .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
                     .transpose()?
                 {
-                    trace!(name, "frozen for view found");
+                    trace!(name, "frozen for list found");
 
-                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
-                    view.set_from_cold(rooms_count, rooms_list);
+                    let FrozenSlidingSyncList { rooms_count, rooms_list, rooms } = frozen_list;
+                    list.set_from_cold(rooms_count, rooms_list);
+
                     for (key, frozen_room) in rooms.into_iter() {
                         rooms_found.entry(key).or_insert_with(|| {
                             SlidingSyncRoom::from_frozen(frozen_room, client.clone())
                         });
                     }
                 } else {
-                    trace!(name, "no frozen state for view found");
+                    trace!(name, "no frozen state for list found");
                 }
             }
 
@@ -263,6 +269,7 @@ impl SlidingSyncBuilder {
                 .transpose()?
             {
                 trace!("frozen for generic found");
+
                 if let Some(since) = to_device_since {
                     if let Some(to_device_ext) =
                         self.extensions.get_or_insert_with(Default::default).to_device.as_mut()
@@ -270,31 +277,33 @@ impl SlidingSyncBuilder {
                         to_device_ext.since = Some(since);
                     }
                 }
+
                 delta_token_inner = delta_token;
             }
+
             trace!("sync unfrozen done");
         };
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
-        let rooms = Arc::new(StdRwLock::new(rooms_found));
-        let views = Arc::new(StdRwLock::new(self.views));
 
-        Ok(SlidingSync {
+        let rooms = StdRwLock::new(rooms_found);
+        let lists = StdRwLock::new(self.lists);
+
+        Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,
 
-            views,
+            lists,
             rooms,
 
-            extensions: Mutex::new(self.extensions).into(),
-            sent_extensions: Mutex::new(None).into(),
-            failure_count: Default::default(),
+            extensions: Mutex::new(self.extensions),
+            reset_counter: Default::default(),
 
-            pos: Mutable::new(None),
-            delta_token: Mutable::new(delta_token_inner),
-            subscriptions: Arc::new(StdRwLock::new(self.subscriptions)),
+            pos: StdRwLock::new(Observable::new(None)),
+            delta_token: StdRwLock::new(Observable::new(delta_token_inner)),
+            subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
-        })
+        }))
     }
 }

@@ -41,6 +41,7 @@ mod event_handler;
 mod event_item;
 mod inner;
 mod pagination;
+mod read_receipts;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
@@ -52,9 +53,9 @@ use self::inner::{TimelineInner, TimelineInnerState};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
-        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineDetails, TimelineItemContent,
+        EventTimelineItem, InReplyToDetails, LocalEventTimelineItem, MemberProfileChange,
+        MembershipChange, Message, OtherState, Profile, ReactionGroup, RemoteEventTimelineItem,
+        RepliedToEvent, RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
@@ -432,6 +433,18 @@ impl TimelineItem {
 
     fn is_timeline_start(&self) -> bool {
         matches!(self, Self::Virtual(VirtualTimelineItem::TimelineStart))
+    }
+}
+
+impl From<EventTimelineItem> for TimelineItem {
+    fn from(item: EventTimelineItem) -> Self {
+        Self::Event(item)
+    }
+}
+
+impl From<VirtualTimelineItem> for TimelineItem {
+    fn from(item: VirtualTimelineItem) -> Self {
+        Self::Virtual(item)
     }
 }
 

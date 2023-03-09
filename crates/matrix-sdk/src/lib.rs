@@ -49,16 +49,17 @@ mod events;
 pub use account::Account;
 #[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use media::Media;
+pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
-    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
-    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
+    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, UpdateSummary,
 };
 
 #[cfg(any(test, feature = "testing"))]
@@ -72,4 +73,10 @@ fn init_logging() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer().with_test_writer())
         .init();
+}
+
+/// Creates a server name from a user supplied string. The string is first
+/// sanitized by removing the http(s) scheme before being parsed.
+pub fn sanitize_server_name(s: &str) -> Result<OwnedServerName, IdParseError> {
+    ServerName::parse(s.trim_start_matches("http://").trim_start_matches("https://"))
 }

@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::{io::Cursor, iter};
+use std::{collections::BTreeSet, io::Cursor, iter};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -98,8 +98,8 @@ async fn retry_message_decryption() {
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
     let event = item.as_event().unwrap().as_remote().unwrap();
-    assert_matches!(&event.encryption_info, Some(_));
-    let text = assert_matches!(&event.content, TimelineItemContent::Message(msg) => msg.body());
+    assert_matches!(event.encryption_info(), Some(_));
+    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
 }
 
@@ -119,7 +119,6 @@ async fn retry_edit_decryption() {
         W8aUFGxYXuU\n\
         -----END MEGOLM SESSION DATA-----";
 
-    const SESSION2_ID: &str = "HSRlM67FgLYl0J0l1luflfGwpnFcLKHnNoRqUuIhQ5Q";
     const SESSION2_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
         AbMgil4w2zS9PcZ25f+vdcBdv0/YVaOg52K49DwCmMUkAAAAChEzP9tvnK3jd0NA+BjFfm0zzHYOiu5EyRK/\
@@ -201,8 +200,113 @@ async fn retry_edit_decryption() {
 
     let item = items[1].as_event().unwrap().as_remote().unwrap();
 
-    assert_matches!(&item.encryption_info, Some(_));
-    let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
+    assert_matches!(item.encryption_info(), Some(_));
+    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
+}
+
+#[async_test]
+async fn retry_edit_and_more() {
+    const DEVICE_ID: &str = "MTEGRRVPEN";
+    const SENDER_KEY: &str = "NFPM2+ucU3n3sEdbDdwwv48Bsj4AiQ185lGuRFjy+gs";
+    const SESSION_ID: &str = "SMNh04luorH5E8J3b4XYuOBFp8dldO5njacq0OFO70o";
+    const SESSION_KEY: &[u8] = b"\
+        -----BEGIN MEGOLM SESSION DATA-----\n\
+        AXT1CtOfPgmZRXEk4st3ZwIGShWtZ6iDW0+fwku7AIonAAAACr31UJxAbryf6bH3eF5y+WrOipWmZ6G/59A3\
+        kuCwntIOrdIC5ShTRWo0qmcWHav2TaFBCx7kWFUs1ryFZjzksCB7sRnVhfXsDUgGGKgj0MOESlPH9Px+IOcV\
+        B6Dr9rjj2STtapCknlit9FMrOcfQhsV5q+ymZwm1C32Zc3UTEtyxfpXiIVyru4Xsrzti61fDIiWFj7Mie4Wn\
+        7YQ8SQ1Q9CZUnOCzflP4Yw+5cXHwMRDcz7/kIPzczCYILLp89G//Uh8QN25tN+oCPhBmTxMxoHhabEwkZ/rK\
+        D1T+jXDK/dClfXqDXxjjAhQpcUI0soWeAGEq8nMEE5J2D/42AOpKVYqfq2GPiGoPQk3suy4GtDJQlXZaFuz/\
+        l4fmHwB1CJCxMUlgpRJ4PhRHAfJn9zfiskM19/dj/G9foGt8KQBRnnbxDVM4eYuoMJZn7SaQfXFmybBTY+Z/\
+        bYGg9FUKn/LyjYc8jqbyXCnddzCHB+YENwEOP3WQQrZccyvjuTv5oB/TqK4yS90phIvkLlqEyJXKxxPnzAvV\
+        CArjU7naYXMeVieMqcntbeaXutLftLUIF7KUUCPu357sTKjaAp8z98YfPZBctrHRrx7Oo2t6Wtph0A5N/NwA\
+        dSN2ceRzRzkoupc4FCxvH6o6PmmtD9DfxtZsk+HA+8NQhgFpvm/VYalikckW+wGFxB4nn1nVViS4GN5n8fc/\
+        Ug\n\
+        -----END MEGOLM SESSION DATA-----";
+
+    fn encrypted_message(ciphertext: &str) -> RoomEncryptedEventContent {
+        RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: ciphertext.into(),
+                    sender_key: SENDER_KEY.into(),
+                    device_id: DEVICE_ID.into(),
+                    session_id: SESSION_ID.into(),
+                }
+                .into(),
+            ),
+            None,
+        )
+    }
+
+    let timeline = TestTimeline::new();
+
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            encrypted_message(
+                "AwgDEoABQsTrPTYDh22PTmfODR9EucX3qLl3buDcahHPjKJA8QIM+wW0s+e08Zi7/JbLdnZL1VL\
+                 jO47HcRhxDTyHZPXPg8wd1l0Qb3irjnCnS7LFAc98+ko18CFJUGNeRZZwzGiorKK5VLMv0WQZI8\
+                 mBZdKIaqDTUBFvcvbn2gQaWtUipQdJQRKyv2h0AWveVkv75lp5hRb7jolCi08oMX8cM+V3Zzyi7\
+                 mlPAzZjDz0PaRbQwfbMTTHkcL7TZybBi4vLX4f5ZR2Iiysc7gw",
+            ),
+        )
+        .await;
+
+    let event_id =
+        timeline.inner.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
+
+    let msg2 = encrypted_message(
+        "AwgEErABt7svMEHDYJTjCQEHypR21l34f9IZLNyFaAbI+EiCIN7C8X5iKmkzuYSmGUodyGKbFRYrW9l5dLj\
+         35xIRli3SZ6duZpmBI7D4pBGPj2T2Jkc/I9kd/I4EhpvV2emDTioB7jwUfFoATfdA0z/6ciTmU73PStKHZM\
+         +WYNxCWZERsCQBtiINzC80FymwLjh4nBhnyW0nlMihGGasakn+3wKQUY0HkVoFM8TXQlCXl1RM2oxL9nn0C\
+         dRu2LPArXc5K/1GBSyfluSrdQuA9DciLwVHJB9NwvbZ/7flIkaOC7ahahmk2ws+QeSz8MmHt+9QityK3ZUB\
+         4uEzsQ0",
+    );
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) }),
+        )
+        .await;
+
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            encrypted_message(
+                "AwgFEoABUAwzBLYStHEa1RaZtojePQ6sue9terXNMFufeLKci/UcpOpZC9o3lDxp9rxlNjk4Ii+\
+                 fkOeSClib/qxt+wLszeQZVa04bRr6byK1dOhlptvAPjUCcEsaHyMMR1AnjT2vmFlJRGviwN6cvQ\
+                 2r/fEvAW/9QB+N6fX4g9729bt5ftXRqa5QI7NA351RNUveRHxVvx+2x0WJArQjYGRk7tMS2rUto\
+                 IYt2ZY17nE1UJjN7M87STnCF9c9qy4aGNqIpeVIht6XbtgD7gQ",
+            ),
+        )
+        .await;
+
+    assert_eq!(timeline.inner.items().await.len(), 4);
+
+    let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
+    let keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "testing").unwrap();
+    olm_machine.import_room_keys(keys, false, |_, _| {}).await.unwrap();
+
+    timeline
+        .inner
+        .retry_event_decryption(
+            room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
+            &olm_machine,
+            Some(BTreeSet::from_iter([SESSION_ID])),
+        )
+        .await;
+
+    let timeline_items = timeline.inner.items().await;
+    assert_eq!(timeline_items.len(), 3);
+    assert!(timeline_items[0].is_day_divider());
+    assert_eq!(
+        timeline_items[1].as_event().unwrap().content().as_message().unwrap().body(),
+        "edited"
+    );
+    assert_eq!(
+        timeline_items[2].as_event().unwrap().content().as_message().unwrap().body(),
+        "Another message"
+    );
 }

@@ -17,11 +17,12 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::RwLockReadGuard as StdRwLockReadGuard,
 };
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
-use futures_signals::signal::ReadOnlyMutable;
+use eyeball::Observable;
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -62,11 +63,11 @@ use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
-        StoreConfig,
+        ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
+        StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    Session, SessionMeta, SessionTokens, StateStore,
+    Session, SessionMeta, SessionTokens,
 };
 
 /// A no IO Client implementation.
@@ -136,7 +137,7 @@ impl BaseClient {
     /// If the client is currently logged in, this will return a
     /// [`SessionTokens`] object which contains the access token and optional
     /// refresh token. Otherwise it returns `None`.
-    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
         self.store.session_tokens()
     }
 
@@ -174,7 +175,7 @@ impl BaseClient {
 
     /// Get a reference to the store.
     #[allow(unknown_lints, clippy::explicit_auto_deref)]
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         &*self.store
     }
 
@@ -1024,7 +1025,13 @@ impl BaseClient {
         filter_name: &str,
         response: &api::filter::create_filter::v3::Response,
     ) -> Result<()> {
-        Ok(self.store.save_filter(filter_name, &response.filter_id).await?)
+        Ok(self
+            .store
+            .set_kv_data(
+                StateStoreDataKey::Filter(filter_name),
+                StateStoreDataValue::Filter(response.filter_id.clone()),
+            )
+            .await?)
     }
 
     /// Get the filter id of a previously uploaded filter.
@@ -1039,7 +1046,13 @@ impl BaseClient {
     ///
     /// [`receive_filter_upload`]: #method.receive_filter_upload
     pub async fn get_filter(&self, filter_name: &str) -> StoreResult<Option<String>> {
-        self.store.get_filter(filter_name).await
+        let filter = self
+            .store
+            .get_kv_data(StateStoreDataKey::Filter(filter_name))
+            .await?
+            .map(|d| d.into_filter().expect("State store data not a filter"));
+
+        Ok(filter)
     }
 
     /// Get a to-device request that will share a room key with users in a room.

@@ -1,9 +1,6 @@
 // TODO: target-os conditional would be good.
 
 #![allow(unused_qualifications, clippy::new_without_default)]
-// Triggers false positives.
-// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
-#![allow(clippy::extra_unused_type_parameters)]
 
 macro_rules! unwrap_or_clone_arc_into_variant {
     (
@@ -54,14 +51,6 @@ pub use self::{
     timeline::*,
 };
 
-#[derive(Default, Debug)]
-pub struct ClientState {
-    has_first_synced: bool,
-    is_syncing: bool,
-    should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error("client error: {msg}")]
@@ -88,9 +77,9 @@ mod uniffi_types {
         room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder,
-            SlidingSyncRequestListFilters, SlidingSyncRoom, SlidingSyncView,
-            SlidingSyncViewBuilder, StoppableSpawn, UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
+            SlidingSyncListBuilder, SlidingSyncRequestListFilters, SlidingSyncRoom, TaskHandle,
+            UnreadNotificationsCount,
         },
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,

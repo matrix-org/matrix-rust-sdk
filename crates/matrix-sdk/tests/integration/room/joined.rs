@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures::future::join_all;
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
@@ -21,7 +22,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::{logged_in_client, mock_encryption_state, mock_sync, synced_client};
 
 #[async_test]
 async fn invite_user_by_id() {
@@ -496,7 +497,7 @@ async fn room_attachment_send_info_thumbnail() {
 
 #[async_test]
 async fn room_redact() {
-    let (client, server) = logged_in_client().await;
+    let (client, server) = synced_client().await;
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
@@ -504,12 +505,6 @@ async fn room_redact() {
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
         .mount(&server)
         .await;
-
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
@@ -520,4 +515,47 @@ async fn room_redact() {
     let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fetch_members_deduplication() {
+    let (client, server) = synced_client().await;
+
+    // We don't need any members, we're just checking if we're correctly
+    // deduplicating calls to the method.
+    let response_body = json!({
+        "chunk": [],
+    });
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+        // Expect that we're only going to send the request out once.
+        .expect(1..=1)
+        .mount(&server)
+        .await;
+
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+
+    let mut tasks = Vec::new();
+
+    // Create N tasks that try to fetch the members.
+    for _ in 0..5 {
+        let task = tokio::spawn({
+            let room = room.clone();
+            async move { room.sync_members().await }
+        });
+
+        tasks.push(task);
+    }
+
+    // Wait on all of them at once.
+    let results = join_all(tasks).await;
+
+    // See how many of them sent a request and thus have a response.
+    let response_count =
+        results.iter().filter(|r| r.as_ref().unwrap().as_ref().unwrap().is_some()).count();
+    assert_eq!(response_count, 1);
 }

@@ -12,38 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeSet, HashMap},
-    sync::Arc,
-};
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
 use im::Vector;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::OlmMachine;
 use matrix_sdk_base::{
-    crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
     locks::{Mutex, MutexGuard},
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::RoomId;
 use ruma::{
     events::{
-        fully_read::FullyReadEvent, relation::Annotation, AnyMessageLikeEventContent,
-        AnySyncTimelineEvent,
+        fully_read::FullyReadEvent,
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        relation::Annotation,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
 };
-use tracing::{debug, error, field::debug, info, warn};
+use tracing::{debug, error, field::debug, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
-use tracing::{instrument, trace};
+use tracing::{field, info, info_span, Instrument as _};
 
 use super::{
     event_handler::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
+    read_receipts::{handle_explicit_read_receipts, load_read_receipts_for_event},
     rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
     Message, Profile, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
@@ -54,9 +59,10 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(super) struct TimelineInner<P: ProfileProvider = room::Common> {
+pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
     state: Mutex<TimelineInnerState>,
-    profile_provider: P,
+    room_data_provider: P,
+    track_read_receipts: bool,
 }
 
 #[derive(Debug, Default)]
@@ -72,10 +78,13 @@ pub(super) struct TimelineInnerState {
     /// Whether the event that the fully-ready event _refers to_ is part of the
     /// timeline.
     pub(super) fully_read_event_in_timeline: bool,
+    /// User ID => Receipt type => Read receipt of the user of the given type.
+    pub(super) users_read_receipts:
+        HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 }
 
-impl<P: ProfileProvider> TimelineInner<P> {
-    pub(super) fn new(profile_provider: P) -> Self {
+impl<P: RoomDataProvider> TimelineInner<P> {
+    pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState {
             // Upstream default capacity is currently 16, which is making
             // sliding-sync tests with 20 events lag. This should still be
@@ -83,7 +92,12 @@ impl<P: ProfileProvider> TimelineInner<P> {
             items: ObservableVector::with_capacity(32),
             ..Default::default()
         };
-        Self { state: Mutex::new(state), profile_provider }
+        Self { state: Mutex::new(state), room_data_provider, track_read_receipts: false }
+    }
+
+    pub(super) fn with_read_receipt_tracking(mut self, track_read_receipts: bool) -> Self {
+        self.track_read_receipts = track_read_receipts;
+        self
     }
 
     /// Get a copy of the current items in the list.
@@ -104,7 +118,21 @@ impl<P: ProfileProvider> TimelineInner<P> {
         (items, stream)
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vec<SyncTimelineEvent>) {
+    pub(super) fn set_initial_user_receipt(
+        &mut self,
+        receipt_type: ReceiptType,
+        receipt: (OwnedEventId, Receipt),
+    ) {
+        let own_user_id = self.room_data_provider.own_user_id().to_owned();
+        self.state
+            .get_mut()
+            .users_read_receipts
+            .entry(own_user_id)
+            .or_default()
+            .insert(receipt_type, receipt);
+    }
+
+    pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
         }
@@ -119,7 +147,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 event.encryption_info,
                 TimelineItemPosition::End,
                 state,
-                &self.profile_provider,
+                &self.room_data_provider,
+                self.track_read_receipts,
             )
             .await;
         }
@@ -148,7 +177,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
             encryption_info,
             TimelineItemPosition::End,
             &mut state,
-            &self.profile_provider,
+            &self.room_data_provider,
+            self.track_read_receipts,
         )
         .await;
     }
@@ -160,8 +190,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
     ) {
-        let sender = self.profile_provider.own_user_id().to_owned();
-        let sender_profile = self.profile_provider.profile(&sender).await;
+        let sender = self.room_data_provider.own_user_id().to_owned();
+        let sender_profile = self.room_data_provider.profile(&sender).await;
         let event_meta = TimelineEventMetadata {
             sender,
             sender_profile,
@@ -169,13 +199,15 @@ impl<P: ProfileProvider> TimelineInner<P> {
             relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
+            read_receipts: Default::default(),
         };
 
         let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
         let kind = TimelineEventKind::Message { content };
 
         let mut state = self.state.lock().await;
-        TimelineEventHandler::new(event_meta, flow, &mut state).handle_event(kind);
+        TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
+            .handle_event(kind);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -214,7 +246,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
 
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
-        if let EventSendState::Sent { event_id: existing_event_id } = &item.send_state {
+        if let EventSendState::Sent { event_id: existing_event_id } = item.send_state() {
             let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
@@ -237,7 +269,8 @@ impl<P: ProfileProvider> TimelineInner<P> {
             event.encryption_info,
             TimelineItemPosition::Start,
             &mut state,
-            &self.profile_provider,
+            &self.room_data_provider,
+            self.track_read_receipts,
         )
         .await
     }
@@ -312,6 +345,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
     ) {
         use super::EncryptedMessage;
 
+        trace!("Retrying decryption");
         let should_retry = |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -320,70 +354,76 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         };
 
-        let mut state = self.state.lock().await;
+        let retry_one = |item: Arc<TimelineItem>| {
+            async move {
+                let event_item = item.as_event()?;
 
-        trace!("Collecting UTD timeline items");
-        let utds_for_session: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| {
-                let event_item = &item.as_event()?;
-                let utd = event_item.content().as_unable_to_decrypt()?;
-
-                match utd {
+                let session_id = match event_item.content().as_unable_to_decrypt()? {
                     EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
                         if should_retry(session_id) =>
                     {
-                        let EventTimelineItem::Remote(
-                            RemoteEventTimelineItem { event_id, raw, .. },
-                        ) = event_item else {
-                            error!("Key for unable-to-decrypt timeline item is not an event ID");
-                            return None;
-                        };
-
-                        Some((idx, event_id.to_owned(), session_id.to_owned(), raw.clone()))
+                        session_id
                     }
                     EncryptedMessage::MegolmV1AesSha2 { .. }
                     | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                    | EncryptedMessage::Unknown => None,
-                }
-            })
-            .collect();
+                    | EncryptedMessage::Unknown => return None,
+                };
 
-        if utds_for_session.is_empty() {
-            trace!("Found no events to retry decryption for");
-            return;
-        }
+                tracing::Span::current().record("session_id", session_id);
 
-        debug!("Retrying decryption for {} items", utds_for_session.len());
-        for (idx, event_id, session_id, utd) in utds_for_session {
-            let event = match olm_machine.decrypt_room_event(utd.cast_ref(), room_id).await {
-                Ok(ev) => ev,
-                Err(e) => {
-                    info!(
-                        ?event_id,
-                        ?session_id,
-                        "Failed to decrypt event after receiving room key: {e}"
-                    );
-                    continue;
+                let EventTimelineItem::Remote(remote_event) = event_item else {
+                    error!("Key for unable-to-decrypt timeline item is not an event ID");
+                    return None;
+                };
+
+                tracing::Span::current().record("event_id", debug(remote_event.event_id()));
+
+                let raw = remote_event.raw().cast_ref();
+                match olm_machine.decrypt_room_event(raw, room_id).await {
+                    Ok(event) => {
+                        trace!("Successfully decrypted event that previously failed to decrypt");
+                        Some(event)
+                    }
+                    Err(e) => {
+                        info!("Failed to decrypt event after receiving room key: {e}");
+                        None
+                    }
                 }
+            }
+            .instrument(info_span!(
+                "retry_one",
+                session_id = field::Empty,
+                event_id = field::Empty
+            ))
+        };
+
+        let mut state = self.state.lock().await;
+
+        // We loop through all the items in the timeline, if we successfully
+        // decrypt a UTD item we either replace it or remove it and update
+        // another one.
+        let mut idx = 0;
+        while let Some(item) = state.items.get(idx) {
+            let Some(event) = retry_one(item.clone()).await else {
+                idx += 1;
+                continue;
             };
 
-            trace!(
-                ?event_id,
-                ?session_id,
-                "Successfully decrypted event that previously failed to decrypt"
-            );
-
-            handle_remote_event(
+            let result = handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
                 TimelineItemPosition::Update(idx),
                 &mut state,
-                &self.profile_provider,
+                &self.room_data_provider,
+                self.track_read_receipts,
             )
             .await;
+
+            // If the UTD was removed rather than updated, run the loop again
+            // with the same index.
+            if !result.item_removed {
+                idx += 1;
+            }
         }
     }
 
@@ -419,7 +459,7 @@ impl<P: ProfileProvider> TimelineInner<P> {
                 Some(event_item) => event_item.sender().to_owned(),
                 None => continue,
             };
-            let maybe_profile = self.profile_provider.profile(&sender).await;
+            let maybe_profile = self.room_data_provider.profile(&sender).await;
 
             assert_eq!(state.items.len(), num_items);
 
@@ -442,11 +482,18 @@ impl<P: ProfileProvider> TimelineInner<P> {
             }
         }
     }
+
+    pub(super) async fn handle_read_receipts(&self, receipt_event_content: ReceiptEventContent) {
+        let mut state = self.state.lock().await;
+        let own_user_id = self.room_data_provider.own_user_id();
+
+        handle_explicit_read_receipts(receipt_event_content, own_user_id, &mut state)
+    }
 }
 
 impl TimelineInner {
     pub(super) fn room(&self) -> &room::Common {
-        &self.profile_provider
+        &self.room_data_provider
     }
 
     pub(super) async fn fetch_in_reply_to_details(
@@ -458,7 +505,7 @@ impl TimelineInner {
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
-        let TimelineItemContent::Message(message) = item.content.clone() else {
+        let TimelineItemContent::Message(message) = item.content().clone() else {
             return Ok(item);
         };
         let Some(in_reply_to) = message.in_reply_to() else {
@@ -478,23 +525,22 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, mut item) = rfind_event_by_id(&state.items, &item.event_id)
+        let (index, mut item) = rfind_event_by_id(&state.items, item.event_id())
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Message(message) = item.content.clone() else {
+        let TimelineItemContent::Message(message) = item.content().clone() else {
             return Ok(item);
         };
         let Some(in_reply_to) = message.in_reply_to() else {
             return Ok(item);
         };
 
-        item.content = TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
-            event_id: in_reply_to.event_id.clone(),
-            details,
-        }));
+        item.set_content(TimelineItemContent::Message(message.with_in_reply_to(
+            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
+        )));
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
         Ok(item)
@@ -547,13 +593,14 @@ async fn fetch_replied_to_event(
 }
 
 #[async_trait]
-pub(super) trait ProfileProvider {
+pub(super) trait RoomDataProvider {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
 }
 
 #[async_trait]
-impl ProfileProvider for room::Common {
+impl RoomDataProvider for room::Common {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }
@@ -577,17 +624,28 @@ impl ProfileProvider for room::Common {
             }
         }
     }
+
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await {
+            Ok(receipts) => receipts.into_iter().collect(),
+            Err(e) => {
+                error!(?event_id, "Failed to get read receipts for event: {e}");
+                IndexMap::new()
+            }
+        }
+    }
 }
 
 /// Handle a remote event.
 ///
 /// Returns the number of timeline updates that were made.
-async fn handle_remote_event<P: ProfileProvider>(
+async fn handle_remote_event<P: RoomDataProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
     position: TimelineItemPosition,
     timeline_state: &mut TimelineInnerState,
-    profile_provider: &P,
+    room_data_provider: &P,
+    track_read_receipts: bool,
 ) -> HandleEventResult {
     let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
         match raw.deserialize() {
@@ -617,11 +675,23 @@ async fn handle_remote_event<P: ProfileProvider>(
             },
         };
 
-    let is_own_event = sender == profile_provider.own_user_id();
-    let sender_profile = profile_provider.profile(&sender).await;
-    let event_meta =
-        TimelineEventMetadata { sender, sender_profile, is_own_event, relations, encryption_info };
+    let is_own_event = sender == room_data_provider.own_user_id();
+    let sender_profile = room_data_provider.profile(&sender).await;
+    let read_receipts = if track_read_receipts {
+        load_read_receipts_for_event(&event_id, timeline_state, room_data_provider).await
+    } else {
+        Default::default()
+    };
+    let event_meta = TimelineEventMetadata {
+        sender,
+        sender_profile,
+        is_own_event,
+        relations,
+        encryption_info,
+        read_receipts,
+    };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 
-    TimelineEventHandler::new(event_meta, flow, timeline_state).handle_event(event_kind)
+    TimelineEventHandler::new(event_meta, flow, timeline_state, track_read_receipts)
+        .handle_event(event_kind)
 }

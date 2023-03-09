@@ -33,7 +33,7 @@ pub use matrix_sdk_base::crypto::{
     },
     vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
     MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError,
+    SessionCreationError, SignatureError, VERSION,
 };
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
@@ -108,53 +108,46 @@ impl Client {
         Ok(response)
     }
 
-    /// Encrypt and upload the file to be read from `reader` and construct an
-    /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
+    /// Construct a [`EncryptedFile`][ruma::events::room::EncryptedFile] by
+    /// encrypting and uploading a provided reader.
+    ///
+    /// # Arguments
+    /// * `content_type` - The content type of the file.
+    /// * `reader` - The reader that should be encrypted and uploaded.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
+    /// use serde::{Deserialize, Serialize};
+    /// use matrix_sdk::ruma::events::macros::EventContent;
+    ///
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "com.example.custom", kind = MessageLike)]
+    /// struct CustomEventContent {
+    ///     encrypted_file: matrix_sdk::ruma::events::room::EncryptedFile,
+    /// }
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// # let room = client.get_joined_room(&room_id!("!test:example.com")).unwrap();
+    ///
+    /// let mut reader = std::io::Cursor::new(b"Hello, world!");
+    /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
+    ///
+    /// room.send(CustomEventContent { encrypted_file }, None).await?;
+    /// # anyhow::Ok(()) });
+    /// ```
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn prepare_encrypted_attachment_message(
+    pub async fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &self,
-        body: &str,
         content_type: &mime::Mime,
-        data: Vec<u8>,
-        info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail>,
-    ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let mut cursor = Cursor::new(thumbnail.data);
-            let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
+        reader: &'a mut R,
+    ) -> Result<ruma::events::room::EncryptedFile> {
+        let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
 
-            let mut buf = Vec::new();
-            encryptor.read_to_end(&mut buf)?;
-
-            let response = self.media().upload(&thumbnail.content_type, buf).await?;
-
-            let file: ruma::events::room::EncryptedFile = {
-                let keys = encryptor.finish();
-                ruma::events::room::EncryptedFileInit {
-                    url: response.content_uri,
-                    key: keys.key,
-                    iv: keys.iv,
-                    hashes: keys.hashes,
-                    v: keys.version,
-                }
-                .into()
-            };
-
-            use ruma::events::room::ThumbnailInfo;
-
-            #[rustfmt::skip]
-            let thumbnail_info =
-                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                });
-
-            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
-        } else {
-            (None, None)
-        };
-
-        let mut cursor = Cursor::new(data);
-        let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(&mut cursor);
         let mut buf = Vec::new();
         encryptor.read_to_end(&mut buf)?;
 
@@ -171,6 +164,40 @@ impl Client {
             }
             .into()
         };
+
+        Ok(file)
+    }
+
+    /// Encrypt and upload the file to be read from `reader` and construct an
+    /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn prepare_encrypted_attachment_message(
+        &self,
+        body: &str,
+        content_type: &mime::Mime,
+        data: Vec<u8>,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail>,
+    ) -> Result<ruma::events::room::message::MessageType> {
+        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+            let mut cursor = Cursor::new(thumbnail.data);
+
+            let file = self.prepare_encrypted_file(content_type, &mut cursor).await?;
+            use ruma::events::room::ThumbnailInfo;
+
+            #[rustfmt::skip]
+            let thumbnail_info =
+                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
+                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
+                });
+
+            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
+        } else {
+            (None, None)
+        };
+
+        let mut cursor = Cursor::new(data);
+        let file = self.prepare_encrypted_file(content_type, &mut cursor).await?;
 
         use std::io::Cursor;
 

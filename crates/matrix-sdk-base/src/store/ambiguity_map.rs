@@ -23,15 +23,12 @@ use ruma::{
 };
 use tracing::trace;
 
-use super::{Result, StateChanges};
-use crate::{
-    deserialized_responses::{AmbiguityChange, RawMemberEvent},
-    StateStore,
-};
+use super::{DynStateStore, Result, StateChanges};
+use crate::deserialized_responses::{AmbiguityChange, RawMemberEvent};
 
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {
-    pub store: Arc<dyn StateStore>,
+    pub store: Arc<DynStateStore>,
     pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
@@ -72,7 +69,7 @@ impl AmbiguityMap {
 }
 
 impl AmbiguityCache {
-    pub fn new(store: Arc<dyn StateStore>) -> Self {
+    pub fn new(store: Arc<DynStateStore>) -> Self {
         Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 

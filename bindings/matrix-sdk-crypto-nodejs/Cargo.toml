@@ -26,6 +26,7 @@ tracing = ["dep:tracing-subscriber"]
 matrix-sdk-crypto = { version = "0.6.0", path = "../../crates/matrix-sdk-crypto", features = ["js"] }
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
 matrix-sdk-sled = { version = "0.2.0", path = "../../crates/matrix-sdk-sled", default-features = false, features = ["crypto-store"] }
+matrix-sdk-sqlite = { version = "0.1.0", path = "../../crates/matrix-sdk-sqlite", features = ["crypto-store"] }
 ruma = { workspace = true, features = ["rand", "unstable-msc2677"] }
 napi = { version = "2.9.1", default-features = false, features = ["napi6", "tokio_rt"] }
 napi-derive = "2.9.1"

@@ -38,7 +38,7 @@ markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["dep:hyper", "dep:rand", "dep:tokio-stream", "dep:tower"]
+sso-login = ["dep:hyper", "dep:rand", "dep:tower"]
 appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
@@ -49,6 +49,7 @@ experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "experimental-timeline",
     "reqwest/gzip",
+    "dep:uuid",
 ]
 
 docsrs = [
@@ -69,13 +70,13 @@ bytesize = "1.1"
 chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 event-listener = "2.5.2"
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
-futures-signals = { version = "0.3.30", default-features = false }
-futures-util = { version = "0.3.21", default-features = false }
+futures-util = { workspace = true }
 http = { workspace = true }
-im = "15.1.0"
+im = { version = "15.1.0", features = ["serde"] }
 indexmap = "1.9.1"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
@@ -86,15 +87,15 @@ mime = "0.3.16"
 pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
-ruma = { workspace = true, features = ["compat", "rand", "unstable-msc2448", "unstable-msc2965"] }
+ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio-stream = { version = "0.1.8", features = ["net"], optional = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
+uuid = { version = "1.3.0", optional = true }
 zeroize = { workspace = true }
 
 [dependencies.image]
@@ -120,6 +121,7 @@ optional = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-once-cell = "0.4.2"
 gloo-timers = { version = "0.2.6", features = ["futures"] }
+tokio = { version = "1.24.2", default-features = false, features = ["sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }

@@ -203,7 +203,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     ///
     /// # Arguments
     ///
-    /// * `reader` - The `Reader` that should be wrapped and enrypted.
+    /// * `reader` - The `Reader` that should be wrapped and encrypted.
     ///
     /// # Panics
     ///

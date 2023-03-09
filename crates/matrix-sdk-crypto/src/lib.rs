@@ -103,6 +103,20 @@ pub mod vodozemac {
         olm::{
             DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
         },
-        DecodeError, KeyError, PickleError, SignatureError,
+        DecodeError, KeyError, PickleError, SignatureError, VERSION,
     };
+}
+
+/// The version of the matrix-sdk-cypto crate being used
+pub static VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Enable tracing for tests in this crate
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[ctor::ctor]
+fn init_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .init();
 }

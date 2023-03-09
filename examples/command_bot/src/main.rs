@@ -35,29 +35,16 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> anyhow::Result<()> {
-    #[allow(unused_mut)]
-    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
-
-    #[cfg(feature = "sled")]
-    {
-        // The location to save files to
-        let home = dirs::home_dir().expect("no home directory found").join("party_bot");
-        client_builder = client_builder.sled_store(home, None)?;
-    }
-
-    #[cfg(feature = "indexeddb")]
-    {
-        client_builder = client_builder.indexeddb_store("party_bot", None).await?;
-    }
-
-    let client = client_builder.build().await.unwrap();
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
+    let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
     client.login_username(&username, &password).initial_device_display_name("command bot").await?;
 
     println!("logged in as {username}");
 
     // An initial sync to set up state and so our bot doesn't respond to old
-    // messages. If the `StateStore` finds saved state in the location given the
-    // initial sync will be skipped in favor of loading state from the store
+    // messages.
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.

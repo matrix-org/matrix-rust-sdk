@@ -7,11 +7,18 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
+    [Throws=MigrationError]
+    void migrate_sessions(
+        SessionMigrationData data,
+        [ByRef] string path,
+        string? passphrase,
+        ProgressListener progress_listener
+    );
 };
 
 [Error]
 interface MigrationError {
-  Generic(string error_message);
+    Generic(string error_message);
 };
 
 callback interface Logger {
@@ -64,11 +71,6 @@ interface DecryptionError {
     Store(string error);
 };
 
-dictionary DeviceLists {
-    sequence<string> changed;
-    sequence<string> left;
-};
-
 dictionary KeysImportResult {
     i64 imported;
     i64 total;
@@ -108,12 +110,6 @@ interface UserIdentity {
         string master_key,
         string self_signing_key
     );
-};
-
-dictionary CrossSigningStatus {
-    boolean has_master;
-    boolean has_self_signing;
-    boolean has_user_signing;
 };
 
 dictionary CrossSigningKeyExport {
@@ -166,12 +162,12 @@ interface Sas {
 
 [Enum]
 interface SasState {
-  Started();
-  Accepted();
-  KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
-  Confirmed();
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Started();
+    Accepted();
+    KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
+    Confirmed();
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface SasListener {
@@ -206,12 +202,12 @@ interface QrCode {
 
 [Enum]
 interface QrCodeState {
-  Started();
-  Scanned();
-  Confirmed();
-  Reciprocated();
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Started();
+    Scanned();
+    Confirmed();
+    Reciprocated();
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface QrCodeListener {
@@ -250,10 +246,10 @@ interface VerificationRequest {
 
 [Enum]
 interface VerificationRequestState {
-  Requested();
-  Ready(sequence<string> their_methods, sequence<string> our_methods);
-  Done();
-  Cancelled(CancelInfo cancel_info);
+    Requested();
+    Ready(sequence<string> their_methods, sequence<string> our_methods);
+    Done();
+    Cancelled(CancelInfo cancel_info);
 };
 
 callback interface VerificationRequestListener {
@@ -336,14 +332,6 @@ enum HistoryVisibility {
     "WorldReadable",
 };
 
-dictionary EncryptionSettings {
-    EventEncryptionAlgorithm algorithm;
-    u64 rotation_period;
-    u64 rotation_period_msgs;
-    HistoryVisibility history_visibility;
-    boolean only_allow_trusted_devices;
-};
-
 interface OlmMachine {
     [Throws=CryptoStoreError]
     constructor(
@@ -354,11 +342,6 @@ interface OlmMachine {
     );
 
     [Throws=CryptoStoreError]
-    string receive_sync_changes([ByRef] string events,
-                              DeviceLists device_changes,
-                              record<DOMString, i32> key_counts,
-                              sequence<string>? unused_fallback_keys);
-    [Throws=CryptoStoreError]
     sequence<Request> outgoing_requests();
     [Throws=CryptoStoreError]
     void mark_request_as_sent(
@@ -366,11 +349,6 @@ interface OlmMachine {
         RequestType request_type,
         [ByRef] string response
     );
-
-    [Throws=DecryptionError]
-    DecryptedEvent decrypt_room_event([ByRef] string event, [ByRef] string room_id, boolean handle_verificaton_events);
-    [Throws=CryptoStoreError]
-    string encrypt([ByRef] string room_id, [ByRef] string event_type, [ByRef] string content);
 
     [Throws=CryptoStoreError]
     UserIdentity? get_identity([ByRef] string user_id, u32 timeout);
@@ -385,56 +363,6 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     sequence<Device> get_user_devices([ByRef] string user_id, u32 timeout);
 
-    [Throws=CryptoStoreError]
-    boolean is_user_tracked([ByRef] string user_id);
-    [Throws=CryptoStoreError]
-    void update_tracked_users(sequence<string> users);
-    [Throws=CryptoStoreError]
-    Request? get_missing_sessions(sequence<string> users);
-    [Throws=CryptoStoreError]
-    sequence<Request> share_room_key(
-        [ByRef] string room_id,
-        sequence<string> users,
-        EncryptionSettings settings
-    );
-
-    [Throws=CryptoStoreError]
-    void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
-    [Throws=CryptoStoreError]
-    void receive_verification_event([ByRef] string event, [ByRef] string room_id);
-    sequence<VerificationRequest> get_verification_requests([ByRef] string user_id);
-    VerificationRequest? get_verification_request([ByRef] string user_id, [ByRef] string flow_id);
-    Verification? get_verification([ByRef] string user_id, [ByRef] string flow_id);
-
-    [Throws=CryptoStoreError]
-    VerificationRequest? request_verification(
-        [ByRef] string user_id,
-        [ByRef] string room_id,
-        [ByRef] string event_id,
-        sequence<string> methods
-    );
-    [Throws=CryptoStoreError]
-    string? verification_request_content(
-        [ByRef] string user_id,
-        sequence<string> methods
-    );
-    [Throws=CryptoStoreError]
-    RequestVerificationResult? request_self_verification(sequence<string> methods);
-    [Throws=CryptoStoreError]
-    RequestVerificationResult? request_verification_with_device(
-        [ByRef] string user_id,
-        [ByRef] string device_id,
-        sequence<string> methods
-    );
-
-    [Throws=CryptoStoreError]
-    StartSasResult? start_sas_with_device([ByRef] string user_id, [ByRef] string device_id);
-
-    [Throws=DecryptionError]
-    KeyRequestPair request_room_key([ByRef] string event, [ByRef] string room_id);
-
-    [Throws=CryptoStoreError]
-    string export_room_keys([ByRef] string passphrase, i32 rounds);
     [Throws=KeyImportError]
     KeysImportResult import_room_keys(
         [ByRef] string keys,
@@ -446,15 +374,7 @@ interface OlmMachine {
         [ByRef] string keys,
         ProgressListener progress_listener
     );
-    [Throws=CryptoStoreError]
-    void discard_room_key([ByRef] string room_id);
 
-    CrossSigningStatus cross_signing_status();
-    [Throws=CryptoStoreError]
-    BootstrapCrossSigningResult bootstrap_cross_signing();
-    CrossSigningKeyExport? export_cross_signing_keys();
-    [Throws=SecretImportError]
-    void import_cross_signing_keys(CrossSigningKeyExport export);
     [Throws=CryptoStoreError]
     boolean is_identity_verified([ByRef] string user_id);
 
@@ -509,6 +429,16 @@ dictionary MigrationData {
     sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
+};
+
+dictionary SessionMigrationData {
+    string user_id;
+    string device_id;
+    string curve25519_key;
+    string ed25519_key;
+    sequence<PickledSession> sessions;
+    sequence<PickledInboundGroupSession> inbound_group_sessions;
+    sequence<u8> pickle_key;
 };
 
 dictionary PickledAccount {

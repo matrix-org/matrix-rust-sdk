@@ -1,0 +1,76 @@
+# A reusable github actions workflow that will build xtask, if it is not
+# already cached.
+#
+# It will create a pair of GHA cache entries, if they do not already exist.
+# The cache keys take the form `xtask-{os}-{hash}`, where "{os}" is "linux"
+# or "macos", and "{hash}" is the hash of the xtask# directory.
+#
+# The cache keys are written to output variables named "cachekey-{os}".
+#
+
+name: Build xtask if necessary
+
+on:
+  workflow_call:
+    outputs:
+      cachekey-linux:
+        description: "The cache key for the linux build artifact"
+        value: "${{ jobs.xtask.outputs.cachekey-linux }}"
+      cachekey-macos:
+        description: "The cache key for the macos build artifact"
+        value: "${{ jobs.xtask.outputs.cachekey-macos }}"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  xtask:
+    name: "xtask-${{ matrix.os-name }}"
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-name: 🐧
+            cachekey-id: linux
+
+          - os: macos-12
+            os-name: 🍏
+            cachekey-id: macos
+
+    runs-on: "${{ matrix.os }}"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Calculate cache key
+        id: cachekey
+        # set a step output variable "cachekey-{os}" that can be referenced in
+        # the job outputs below.
+        run: |
+          echo "cachekey-${{ matrix.cachekey-id }}=xtask-${{ matrix.cachekey-id }}-${{ hashFiles('Cargo.toml', 'xtask/**') }}" >> $GITHUB_OUTPUT
+
+      - name: Check xtask cache
+        uses: actions/cache@v3
+        id: xtask-cache
+        with:
+          path: target/debug/xtask
+          # use the cache key calculated in the step above. Bit of an awkard
+          # syntax
+          key: |
+            ${{ steps.cachekey.outputs[format('cachekey-{0}', matrix.cachekey-id)] }}
+
+      - name: Install rust stable toolchain
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build -p xtask
+
+    outputs:
+      "cachekey-linux": "${{ steps.cachekey.outputs.cachekey-linux }}"
+      "cachekey-macos": "${{ steps.cachekey.outputs.cachekey-macos }}"

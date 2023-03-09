@@ -27,7 +27,7 @@ serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-lock = "2.5.0"
-futures-util = { version = "0.3.21", default-features = false, features = ["channel"] }
+futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { version = "0.2.6", features = ["futures"] }
 

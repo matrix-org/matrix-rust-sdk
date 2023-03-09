@@ -59,15 +59,12 @@ async fn login_and_sync(
 ) -> anyhow::Result<()> {
     // First, we set up the client.
 
-    let home = dirs::data_dir().expect("no home directory found").join("getting_started");
-
+    // Note that when encryption is enabled, you should use a persistent store to be
+    // able to restore the session with a working encryption setup.
+    // See the `persist_session` example.
     let client = Client::builder()
         // We use the convenient client builder to set our custom homeserver URL on it.
         .homeserver_url(homeserver_url)
-        // Matrix-SDK has support for pluggable, configurable state and crypto-store
-        // support we use the default sled-store (enabled by default on native
-        // architectures), to configure a local cache and store for our crypto keys
-        .sled_store(home, None)
         .build()
         .await?;
 

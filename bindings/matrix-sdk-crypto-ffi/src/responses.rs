@@ -112,7 +112,7 @@ impl From<ToDeviceRequest> for OutgoingVerificationRequest {
     }
 }
 
-#[derive(Debug, uniffi::Enum)]
+#[derive(Debug)]
 pub enum Request {
     ToDevice { request_id: String, event_type: String, body: String },
     KeysUpload { request_id: String, body: String },
@@ -231,6 +231,7 @@ pub enum RequestType {
     RoomMessage,
 }
 
+#[derive(uniffi::Record)]
 pub struct DeviceLists {
     pub changed: Vec<String>,
     pub left: Vec<String>,

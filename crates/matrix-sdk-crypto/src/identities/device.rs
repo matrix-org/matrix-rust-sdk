@@ -31,7 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -690,6 +690,13 @@ impl ReadOnlyDevice {
         };
 
         let message = session.encrypt(self, event_type, content).await?;
+
+        trace!(
+            user_id = ?self.user_id(),
+            device_id = ?self.device_id(),
+            session_id = session.session_id(),
+            "Successfully encrypted a Megolm session",
+        );
 
         Ok((session, message))
     }

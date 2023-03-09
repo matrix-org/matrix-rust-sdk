@@ -17,9 +17,6 @@
 #![warn(missing_docs, missing_debug_implementations)]
 // triggered by wasm_bindgen code
 #![allow(clippy::drop_non_drop)]
-// Triggers false positives.
-// See <https://github.com/rust-lang/rust-clippy/issues/10319>.
-#![allow(clippy::extra_unused_type_parameters)]
 
 pub mod attachment;
 pub mod device;
