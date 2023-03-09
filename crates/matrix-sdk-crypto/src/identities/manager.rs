@@ -128,7 +128,7 @@ pub(crate) struct IdentityManager {
     store: Store,
 
     /// Details of the current "in-flight" key query request, if any
-    keys_query_request_details: Arc<Mutex<KeysQueryRequestDetails>>,
+    keys_query_request_details: Arc<Mutex<Option<KeysQueryRequestDetails>>>,
 }
 
 /// Details of an in-flight key query request
@@ -149,7 +149,7 @@ impl IdentityManager {
 
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
         let keys_query_listener = KeysQueryListener::new(store.clone());
-        let keys_query_request_details = Mutex::new(KeysQueryRequestDetails::default());
+        let keys_query_request_details = Mutex::new(None);
 
         IdentityManager {
             user_id,
@@ -223,11 +223,19 @@ impl IdentityManager {
         // if this request is one of those we expected to be in flight, pass the
         // sequence number back to the store so that it can mark devices up to
         // date
-        let (sequence_number, removed) = {
+        let sequence_number = {
             let mut request_details = self.keys_query_request_details.lock().await;
-            (request_details.sequence_number, request_details.request_ids.remove(request_id))
+
+            request_details.as_mut().and_then(|details| {
+                if details.request_ids.remove(request_id) {
+                    Some(details.sequence_number)
+                } else {
+                    None
+                }
+            })
         };
-        if removed {
+
+        if let Some(sequence_number) = sequence_number {
             self.store
                 .mark_tracked_users_as_up_to_date(
                     response.device_keys.keys().map(Deref::deref),
@@ -696,8 +704,8 @@ impl IdentityManager {
     pub async fn users_for_key_query(
         &self,
     ) -> StoreResult<Vec<(OwnedTransactionId, KeysQueryRequest)>> {
-        // forget about any previous key queries in flight
-        *(self.keys_query_request_details.lock().await) = KeysQueryRequestDetails::default();
+        // Forget about any previous key queries in flight.
+        *self.keys_query_request_details.lock().await = None;
 
         let (users, sequence_number) = self.store.users_for_key_query().await?;
 
@@ -732,7 +740,7 @@ impl IdentityManager {
             result.push((request_id.clone(), req));
             request_details.request_ids.insert(request_id);
         }
-        *(self.keys_query_request_details.lock().await) = request_details;
+        *(self.keys_query_request_details.lock().await) = Some(request_details);
         Ok(result)
     }
 
