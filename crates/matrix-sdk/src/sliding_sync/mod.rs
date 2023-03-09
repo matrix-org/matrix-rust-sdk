@@ -666,10 +666,8 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
 
-    /// The `pos` marker.
-    pos: StdRwLock<Observable<Option<String>>>,
-
-    delta_token: StdRwLock<Observable<Option<String>>>,
+    /// The `pos`  and `delta_token` markers.
+    position: StdRwLock<SlidingSyncPositionMarkers>,
 
     /// The lists of this Sliding Sync instance.
     lists: StdRwLock<BTreeMap<String, SlidingSyncList>>,
@@ -918,11 +916,11 @@ impl SlidingSync {
         mut sync_response: SyncResponse,
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
-        Observable::set(&mut self.inner.pos.write().unwrap(), Some(sliding_sync_response.pos));
-        Observable::set(
-            &mut self.inner.delta_token.write().unwrap(),
-            sliding_sync_response.delta_token,
-        );
+        {
+            let mut position_lock = self.inner.position.write().unwrap();
+            Observable::set(&mut position_lock.pos, Some(sliding_sync_response.pos));
+            Observable::set(&mut position_lock.delta_token, sliding_sync_response.delta_token);
+        }
 
         let update_summary = {
             let mut rooms = Vec::new();
@@ -1018,8 +1016,12 @@ impl SlidingSync {
             }
         }
 
-        let pos = self.inner.pos.read().unwrap().clone();
-        let delta_token = self.inner.delta_token.read().unwrap().clone();
+        let (pos, delta_token) = {
+            let position_lock = self.inner.position.read().unwrap();
+
+            (position_lock.pos.clone(), position_lock.delta_token.clone())
+        };
+
         let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
         let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
         let timeout = Duration::from_secs(30);
@@ -1198,7 +1200,11 @@ impl SlidingSync {
                                 warn!("Session expired. Restarting Sliding Sync.");
 
                                 // To “restart” a Sliding Sync session, we set `pos` to its initial value.
-                                Observable::set(&mut self.inner.pos.write().unwrap(), None);
+                                {
+                                    let mut position_lock = self.inner.position.write().unwrap();
+
+                                    Observable::set(&mut position_lock.pos, None);
+                                }
 
                                 debug!(?self.inner.extensions, "Sliding Sync has been reset");
                             });
@@ -1218,13 +1224,23 @@ impl SlidingSync {
 impl SlidingSync {
     /// Get a copy of the `pos` value.
     pub fn pos(&self) -> Option<String> {
-        self.inner.pos.read().unwrap().clone()
+        let position_lock = self.inner.position.read().unwrap();
+
+        position_lock.pos.clone()
     }
 
     /// Set a new value for `pos`.
     pub fn set_pos(&self, new_pos: String) {
-        Observable::set(&mut self.inner.pos.write().unwrap(), Some(new_pos));
+        let mut position_lock = self.inner.position.write().unwrap();
+
+        Observable::set(&mut position_lock.pos, Some(new_pos));
     }
+}
+
+#[derive(Debug)]
+pub(super) struct SlidingSyncPositionMarkers {
+    pos: Observable<Option<String>>,
+    delta_token: Observable<Option<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1238,7 +1254,7 @@ struct FrozenSlidingSync {
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(sliding_sync: &SlidingSync) -> Self {
         FrozenSlidingSync {
-            delta_token: sliding_sync.inner.delta_token.read().unwrap().clone(),
+            delta_token: sliding_sync.inner.position.read().unwrap().delta_token.clone(),
             to_device_since: sliding_sync
                 .inner
                 .extensions
