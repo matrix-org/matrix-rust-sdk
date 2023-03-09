@@ -51,7 +51,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{info, instrument, trace, warn, Span};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
@@ -98,9 +98,90 @@ pub(crate) struct Store {
     inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query: Arc<Mutex<UsersForKeyQuery>>,
     tracked_user_loading_lock: Arc<Mutex<()>>,
     tracked_users_loaded: Arc<AtomicBool>,
+}
+
+/// Record of the users that are waiting for a /keys/query.
+///
+/// To avoid races, we maintain a sequence number which is updated each time we
+/// receive an invalidation notification. We also record the sequence number at
+/// which each user was last invalidated. Then, we attach the current sequence
+/// number to each `/keys/query` request, and when we get the response we can
+/// tell if any users have been invalidated more recently than that request.
+#[derive(Debug)]
+struct UsersForKeyQuery {
+    /// The sequence number we will assign to the next addition to user_map
+    next_sequence_number: InvalidationSequenceNumber,
+
+    /// The users pending a lookup, together with the sequence number at which
+    /// they were added to the list
+    user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
+}
+
+// We use wrapping arithmetic for the sequence numbers, to make sure we never
+// run out of numbers. (2**64 should be enough for anyone, but it's easy enough
+// just to make it wrap.)
+//
+// We use a *signed* counter so that we can compare values via a subtraction.
+// For example, suppose we've just overflowed from i64::MAX to i64::MIN.
+// (i64::MAX.wrapping_sub(i64::MIN)) is -1, which tells us that i64::MAX comes
+// before i64::MIN in the sequence.
+type InvalidationSequenceNumber = i64;
+
+impl UsersForKeyQuery {
+    /// Create a new, empty, `UsersForKeyQueryCache`
+    fn new() -> Self {
+        UsersForKeyQuery { next_sequence_number: 0, user_map: HashMap::new() }
+    }
+
+    /// Record a new user that requires a key query
+    fn insert_user(&mut self, user: &UserId) {
+        let seq = self.next_sequence_number;
+        trace!(?user, sequence_number = seq, "Flagging user for key query");
+        self.user_map.insert(user.to_owned(), seq);
+        self.next_sequence_number = self.next_sequence_number.wrapping_add(1);
+    }
+
+    /// Record that a user has received an update with the given sequence
+    /// number.
+    ///
+    /// If the sequence number is newer than the oldest invalidation for this
+    /// user, it is removed from the list of those needing an update.
+    ///
+    /// Returns true if the user is now up-to-date, else false
+    #[instrument(level = "trace", skip(self), fields(invalidation_sequence))]
+    fn maybe_remove_user(
+        &mut self,
+        user: &UserId,
+        query_sequence: InvalidationSequenceNumber,
+    ) -> bool {
+        let last_invalidation = self.user_map.get(user);
+
+        if let Some(invalidation_sequence) = last_invalidation {
+            Span::current().record("invalidation_sequence", invalidation_sequence);
+            if invalidation_sequence.wrapping_sub(query_sequence) > 0 {
+                trace!("User invalidated since this query started: still not up-to-date");
+                false
+            } else {
+                trace!("User now up-to-date");
+                self.user_map.remove(user);
+                true
+            }
+        } else {
+            trace!("User already up-to-date, nothing to do");
+            true
+        }
+    }
+
+    /// Fetch the list of users waiting for a key query, and the current
+    /// sequence number
+    fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, InvalidationSequenceNumber) {
+        // we return the sequence number of the last invalidation
+        let sequence_number = self.next_sequence_number.wrapping_sub(1);
+        (self.user_map.keys().cloned().collect(), sequence_number)
+    }
 }
 
 #[derive(Default, Debug)]
@@ -290,7 +371,7 @@ impl Store {
             inner: store,
             verification_machine,
             tracked_users_cache: DashSet::new().into(),
-            users_for_key_query_cache: DashSet::new().into(),
+            users_for_key_query: Mutex::new(UsersForKeyQuery::new()).into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
         }
@@ -613,30 +694,82 @@ impl Store {
         Ok(())
     }
 
-    /// Mark that the given user has an outdated device list.
+    /// Mark the given user as being tracked for device lists, and mark that it
+    /// has an outdated device list.
     ///
     /// This means that the user will be considered for a `/keys/query` request
     /// next time [`Store::users_for_key_query()`] is called.
     pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
-        self.save_tracked_users(&[(user, true)]).await
+        self.users_for_key_query.lock().await.insert_user(user);
+        self.tracked_users_cache.insert(user.to_owned());
+
+        self.inner.save_tracked_users(&[(user, true)]).await
     }
 
-    /// Save the list of users and their outdated/dirty flags to the store.
+    /// Add entries to the list of users being tracked for device changes
     ///
-    /// This method will fill up the store-internal caches, unlike the method on
-    /// the various [`CryptoStore`] implementations.
-    pub async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
-        for &(user, dirty) in users {
-            if dirty {
-                self.users_for_key_query_cache.insert(user.to_owned());
-            } else {
-                self.users_for_key_query_cache.remove(user);
-            }
+    /// Any users not already on the list are flagged as awaiting a key query.
+    /// Users that were already in the list are unaffected.
+    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+        self.load_tracked_users().await?;
 
-            self.tracked_users_cache.insert(user.to_owned());
+        let mut store_updates = Vec::new();
+        let mut key_query_lock = self.users_for_key_query.lock().await;
+
+        for user_id in users {
+            if !self.tracked_users_cache.contains(user_id) {
+                self.tracked_users_cache.insert(user_id.to_owned());
+                key_query_lock.insert_user(user_id);
+                store_updates.push((user_id, true))
+            }
         }
 
-        self.inner.save_tracked_users(users).await?;
+        self.inner.save_tracked_users(&store_updates).await
+    }
+
+    /// Process notifications that users have changed devices.
+    ///
+    /// This is used to handle the list of device-list updates that is received
+    /// from the `/sync` response. Any users *whose device lists we are
+    /// tracking* are flagged as needing a key query. Users whose devices we
+    /// are not tracking are ignored.
+    pub async fn mark_tracked_users_as_changed(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
+        self.load_tracked_users().await?;
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+
+        let mut key_query_lock = self.users_for_key_query.lock().await;
+        for user_id in users {
+            if self.tracked_users_cache.contains(user_id) {
+                key_query_lock.insert_user(user_id);
+                store_updates.push((user_id, true));
+            }
+        }
+        self.inner.save_tracked_users(&store_updates).await?;
+        Ok(())
+    }
+
+    /// Flag that the given users devices are now up-to-date.
+    ///
+    /// This is called after processing the response to a /keys/query request.
+    /// Any users whose device lists we are tracking are removed from the
+    /// list of those pending a /keys/query.
+    pub async fn mark_tracked_users_as_up_to_date(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+        sequence_number: InvalidationSequenceNumber,
+    ) -> Result<()> {
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
+        let mut key_query_lock = self.users_for_key_query.lock().await;
+        for user_id in users {
+            if self.tracked_users_cache.contains(user_id) {
+                let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
+                store_updates.push((user_id, !clean));
+            }
+        }
+        self.inner.save_tracked_users(&store_updates).await?;
 
         Ok(())
     }
@@ -658,11 +791,12 @@ impl Store {
             if !self.tracked_users_loaded.load(Ordering::SeqCst) {
                 let tracked_users = self.inner.load_tracked_users().await?;
 
+                let mut query_users_lock = self.users_for_key_query.lock().await;
                 for user in tracked_users {
                     self.tracked_users_cache.insert(user.user_id.to_owned());
 
                     if user.dirty {
-                        self.users_for_key_query_cache.insert(user.user_id);
+                        query_users_lock.insert_user(&user.user_id);
                     }
                 }
 
@@ -673,22 +807,23 @@ impl Store {
         Ok(())
     }
 
-    /// Are we tracking the list of devices this user has?
-    pub async fn is_user_tracked(&self, user_id: &UserId) -> Result<bool> {
-        self.load_tracked_users().await?;
-
-        Ok(self.tracked_users_cache.contains(user_id))
-    }
-
     /// Get the set of users that has the outdate/dirty flag set for their list
     /// of devices.
     ///
     /// This set should be included in a `/keys/query` request which will update
     /// the device list.
-    pub async fn users_for_key_query(&self) -> Result<HashSet<OwnedUserId>> {
+    ///
+    /// # Returns
+    ///
+    /// A pair `(users, sequence_number)`, where `users` is the list of users to
+    /// be queried, and `sequence_number` is the current sequence number,
+    /// which should be returned in `mark_tracked_users_as_up_to_date`.
+    pub async fn users_for_key_query(
+        &self,
+    ) -> Result<(HashSet<OwnedUserId>, InvalidationSequenceNumber)> {
         self.load_tracked_users().await?;
 
-        Ok(self.users_for_key_query_cache.iter().map(|u| u.clone()).collect())
+        Ok(self.users_for_key_query.lock().await.users_for_key_query())
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
