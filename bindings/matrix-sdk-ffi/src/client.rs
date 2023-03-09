@@ -13,12 +13,12 @@ use matrix_sdk::{
         },
         events::{room::MediaSource, AnyToDeviceEvent},
         serde::Raw,
-        UserId, OwnedUserId, TransactionId, UInt,
+        TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{debug, warn};
+use tracing::{debug, warn, error};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 
@@ -248,10 +248,7 @@ impl Client {
         Ok(device_id.to_string())
     }
 
-    pub fn create_room(
-        &self,
-        request: CreateRoomParameters
-    ) -> anyhow::Result<String> {
+    pub fn create_room(&self, request: CreateRoomParameters) -> anyhow::Result<String> {
         let client = self.client.clone();
 
         RUNTIME.block_on(async move {
@@ -407,10 +404,10 @@ pub struct CreateRoomParameters {
     pub visibility: Visibility,
     pub preset: create_room::v3::RoomPreset,
     pub invite: Option<Vec<String>>,
-    pub avatar: Option<String>
+    pub avatar: Option<String>,
 }
 
-impl From<CreateRoomParameters> for create_room::v3::Request  {
+impl From<CreateRoomParameters> for create_room::v3::Request {
     fn from(value: CreateRoomParameters) -> create_room::v3::Request {
         let mut request = create_room::v3::Request::new();
         request.name = Some(value.name);
@@ -419,16 +416,18 @@ impl From<CreateRoomParameters> for create_room::v3::Request  {
         request.visibility = value.visibility;
         request.preset = Some(value.preset);
         request.invite = match value.invite {
-            Some(invite) => {
-                let mapped = invite.iter()
-                    .map(UserId::parse)
-                    .collect::<Result<Vec<OwnedUserId>,_>>();
-
-                if let Ok(invite) = mapped { invite } else { vec![] }
-            },
-            None => vec![]
+            Some(invite) => invite.iter().filter_map(|user_id| 
+                match UserId::parse(user_id) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        error!(user_id, "Skipping invalid user ID, error: {e}");
+                        None
+                    }
+                })
+                .collect(),
+            None => vec![],
         };
-        
+
         // need a way to inject the avatar url in the request
         // let avatar = AnyInitialStateEvent::RoomAvatar(...);
         // request.initial_state.push(avatar);
