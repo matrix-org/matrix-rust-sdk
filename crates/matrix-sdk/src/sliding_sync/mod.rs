@@ -1139,7 +1139,7 @@ impl SlidingSync {
     ///
     /// This stream will send requests and will handle responses automatically,
     /// hence updating the lists.
-    #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.root_span)]
+    #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.inner.root_span)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         // Collect all the lists that need to be updated.
         let list_generators = {

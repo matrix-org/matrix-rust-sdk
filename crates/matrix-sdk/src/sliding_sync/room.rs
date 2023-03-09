@@ -100,7 +100,7 @@ impl SlidingSyncRoom {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.timeline_builder()?.build().await.latest_event().await
     }

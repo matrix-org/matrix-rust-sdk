@@ -445,6 +445,7 @@ impl ClientBuilder {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             unknown_token_error_sender,
+            root_span: self.root_span,
         });
 
         debug!("Done building the Client");
@@ -453,9 +454,9 @@ impl ClientBuilder {
         // only uploaded to a OpenTelemetry collector if the span gets dropped.
         // We still want it around so other methods that get called by this
         // client instance are connected to it, so we clone.
-        drop(self.root_span.clone());
+        // drop(self.root_span.clone());
 
-        Ok(Client { inner, root_span: self.root_span })
+        Ok(Client { inner })
     }
 }
 
