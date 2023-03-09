@@ -2745,6 +2745,7 @@ dependencies = [
  "hmac",
  "http",
  "indoc",
+ "itertools",
  "matrix-sdk-common",
  "matrix-sdk-qrcode",
  "matrix-sdk-test",
