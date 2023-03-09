@@ -401,8 +401,8 @@ pub struct CreateRoomParameters {
     pub name: String,
     pub topic: Option<String>,
     pub is_direct: bool,
-    pub visibility: Visibility,
-    pub preset: create_room::v3::RoomPreset,
+    pub visibility: RoomVisibility,
+    pub preset: RoomPreset,
     pub invite: Option<Vec<String>>,
     pub avatar: Option<String>,
 }
@@ -413,8 +413,8 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
         request.name = Some(value.name);
         request.topic = value.topic;
         request.is_direct = value.is_direct;
-        request.visibility = value.visibility;
-        request.preset = Some(value.preset);
+        request.visibility = value.visibility.into();
+        request.preset = Some(value.preset.into());
         request.invite = match value.invite {
             Some(invite) => invite.iter().filter_map(|user_id| 
                 match UserId::parse(user_id) {
@@ -433,6 +433,40 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
         // request.initial_state.push(avatar);
 
         request
+    }
+}
+
+pub enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    Public,
+
+    /// Indicates that the room will not be shown in the published room list.
+    Private,
+}
+
+impl From<RoomVisibility> for Visibility {
+    fn from(value: RoomVisibility) -> Self {
+        match value {
+            RoomVisibility::Public => Self::Public,
+            RoomVisibility::Private => Self::Private,
+        }
+    }
+}
+
+pub enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to `shared`.
+    PrivateChat,
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to `shared`.
+    PublicChat,
+}
+
+impl From<RoomPreset> for create_room::v3::RoomPreset {
+    fn from(value: RoomPreset) -> Self {
+        match value {
+            RoomPreset::PrivateChat => Self::PrivateChat,
+            RoomPreset::PublicChat => Self::PublicChat,
+        }
     }
 }
 

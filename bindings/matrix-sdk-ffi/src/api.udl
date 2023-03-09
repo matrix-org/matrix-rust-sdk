@@ -153,10 +153,26 @@ dictionary CreateRoomParameters {
     string name;
     string? topic;
     boolean is_direct;
-    Visibility visibility;
-    Preset preset;
+    RoomVisibility visibility;
+    RoomPreset preset;
     sequence<string>? invite;
     string? avatar;
+};
+
+enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    "Public",
+
+    /// Indicates that the room will not be shown in the published room list.
+    "Private",
+};
+
+enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to `shared`.
+    "PrivateChat",
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to `shared`.
+    "PublicChat",
 };
 
 interface Client {
