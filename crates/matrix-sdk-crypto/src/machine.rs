@@ -1226,11 +1226,36 @@ impl OlmMachine {
         {
             tracing::Span::current().record("sender_key", session.sender_key().to_base64());
 
-            // TODO: check the message index.
-            let (decrypted_event, _) = session.decrypt(event).await?;
-            let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+            let result = session.decrypt(event).await;
+            match result {
+                Ok((decrypted_event, _)) => {
+                    let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+                    Ok(TimelineEvent {
+                        encryption_info: Some(encryption_info),
+                        event: decrypted_event,
+                    })
+                }
+                Err(error) => Err(
+                    if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
+                        error
+                    {
+                        let withheld_info = self
+                            .store
+                            .get_withheld_info(room_id, content.session_id())
+                            .await?
+                            .map(|i| i.withheld_code);
 
-            Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+                        if withheld_info.is_some() {
+                            // Partially withheld, report with a withheld code if we have one.
+                            MegolmError::MissingRoomKey(withheld_info)
+                        } else {
+                            error
+                        }
+                    } else {
+                        error
+                    },
+                ),
+            }
         } else {
             let withheld_info = self
                 .store
