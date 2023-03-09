@@ -188,11 +188,11 @@ impl IndexeddbCryptoStore {
                 // We changed the way we store outbound session.
                 // ShareInfo changed from a struct to an enum with struct variant.
                 // Let's just discard the existing outbounds
-                db.delete_object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
-                db.create_object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
+                db.delete_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
+                db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
 
                 // Support for MSC2399 withheld codes
-                db.create_object_store(KEYS::DIRECT_WITHHELD_INFO)?;
+                db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
             }
 
             Ok(())
@@ -560,12 +560,12 @@ impl_crypto_store! {
         }
 
         if !withheld_session_info.is_empty() {
-            let withhelds = tx.object_store(KEYS::DIRECT_WITHHELD_INFO)?;
+            let withhelds = tx.object_store(keys::DIRECT_WITHHELD_INFO)?;
 
             for info in withheld_session_info {
                 let room_id = info.room_id.to_owned();
                 let session_id = info.session_id.to_owned();
-                let key = self.encode_key(KEYS::DIRECT_WITHHELD_INFO, (session_id, room_id));
+                let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
                 withhelds.put_key_val(&key, &self.serialize_value(&info)?)?;
             }
         }
@@ -988,14 +988,14 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<DirectWithheldInfo>> {
-        let key = self.encode_key(KEYS::DIRECT_WITHHELD_INFO, (session_id, room_id));
+        let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
-                KEYS::DIRECT_WITHHELD_INFO,
+                keys::DIRECT_WITHHELD_INFO,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(KEYS::DIRECT_WITHHELD_INFO)?
+            .object_store(keys::DIRECT_WITHHELD_INFO)?
             .get(&key)?
             .await?
         {
