@@ -738,17 +738,18 @@ impl Store {
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
         self.load_tracked_users().await?;
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
 
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
+
         for user_id in users {
             if self.tracked_users_cache.contains(user_id) {
                 key_query_lock.insert_user(user_id);
                 store_updates.push((user_id, true));
             }
         }
-        self.inner.save_tracked_users(&store_updates).await?;
-        Ok(())
+
+        self.inner.save_tracked_users(&store_updates).await
     }
 
     /// Flag that the given users devices are now up-to-date.
@@ -763,15 +764,15 @@ impl Store {
     ) -> Result<()> {
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
+
         for user_id in users {
             if self.tracked_users_cache.contains(user_id) {
                 let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
                 store_updates.push((user_id, !clean));
             }
         }
-        self.inner.save_tracked_users(&store_updates).await?;
 
-        Ok(())
+        self.inner.save_tracked_users(&store_updates).await
     }
 
     /// Load the list of users for whom we are tracking their device lists and
