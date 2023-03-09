@@ -501,6 +501,30 @@ impl Room {
             Ok(())
         })
     }
+
+    pub fn leave(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't leave a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.leave().await?;
+            Ok(())
+        })
+    }
+
+    pub fn reject_invitation(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Invited(i) => i.clone(),
+            _ => bail!("Can't reject an invite for a room that isn't in invited state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.reject_invitation().await?;
+            Ok(())
+        })
+    }
 }
 
 impl std::ops::Deref for Room {
