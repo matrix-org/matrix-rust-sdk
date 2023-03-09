@@ -450,12 +450,6 @@ impl ClientBuilder {
 
         debug!("Done building the Client");
 
-        // We drop the root span here so it gets pushed to the subscribers, i.e. it gets
-        // only uploaded to a OpenTelemetry collector if the span gets dropped.
-        // We still want it around so other methods that get called by this
-        // client instance are connected to it, so we clone.
-        // drop(self.root_span.clone());
-
         Ok(Client { inner })
     }
 }
