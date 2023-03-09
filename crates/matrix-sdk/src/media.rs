@@ -21,6 +21,7 @@ use std::{path::Path, time::Duration};
 
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
+use mime_guess;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
@@ -124,19 +125,25 @@ impl Media {
     ///
     /// * `request` - The `MediaRequest` of the content.
     ///
-    /// * `file_extension` - The extension that will be given to the file such
-    ///   as `png`.
+    /// * `content_type` - The type of the media, this will be used to set the
+    ///   temporary file's extension.
     ///
     /// * `use_cache` - If we should use the media cache for this request.
     pub async fn get_media_file(
         &self,
         request: &MediaRequest,
-        file_extension: &str,
+        content_type: &Mime,
         use_cache: bool,
     ) -> Result<MediaFileHandle> {
         let data = self.get_media_content(request, use_cache).await?;
 
-        let suffix = ".".to_owned() + file_extension;
+        let mut suffix = String::from("");
+        if let Some(extension) =
+            mime_guess::get_mime_extensions(content_type).and_then(|a| a.first())
+        {
+            suffix = String::from(".") + extension;
+        }
+
         let mut file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
         file.write_all(&data)?;
 

@@ -185,17 +185,18 @@ impl Client {
     pub fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
-        file_extension: String,
+        mime_type: String,
     ) -> anyhow::Result<Arc<MediaFileHandle>> {
         let client = self.client.clone();
         let source = (*media_source).clone();
+        let mime_type: mime::Mime = mime_type.parse()?;
 
         RUNTIME.block_on(async move {
             let handle = client
                 .media()
                 .get_media_file(
                     &MediaRequest { source, format: MediaFormat::File },
-                    &file_extension,
+                    &mime_type,
                     true,
                 )
                 .await?;
