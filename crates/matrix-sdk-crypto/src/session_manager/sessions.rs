@@ -394,7 +394,7 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, sync::Arc};
+    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
@@ -547,7 +547,13 @@ mod tests {
 
         // ... and start off an attempt to get the missing sessions. This should block
         // for now.
-        let missing_sessions_future = manager.get_missing_sessions(iter::once(bob.user_id()));
+        let missing_sessions_task = {
+            let manager = manager.clone();
+            let bob_user_id = bob.user_id.clone();
+            tokio::spawn(async move {
+                manager.get_missing_sessions(iter::once(bob_user_id.deref())).await
+            })
+        };
 
         // the initial keys query completes, and we start another
         let response_json = json!({ "device_keys": { manager.account.user_id(): {}}});
@@ -567,10 +573,10 @@ mod tests {
             KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
-        // the missing_sessions_future should now finally complete, with a claim
+        // the missing_sessions_task should now finally complete, with a claim
         // including bob's device
-        let (_, keys_claim_request) = missing_sessions_future.await.unwrap().unwrap();
-        //info!("Key claim: {:?}", keys_claim_request);
+        let (_, keys_claim_request) = missing_sessions_task.await.unwrap().unwrap().unwrap();
+        info!("Key claim request: {:?}", keys_claim_request.one_time_keys);
         let bob_key_claims = keys_claim_request.one_time_keys.get(bob.user_id()).unwrap();
         assert!(bob_key_claims.contains_key(bob_device.device_id()));
     }

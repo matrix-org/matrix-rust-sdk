@@ -190,12 +190,15 @@ impl UsersForKeyQuery {
                 // the TaskAwaitingKeyQuery has been dropped, so it probably timed out and the
                 // caller went away. We can remove it from our list whether or not it's for this
                 // user.
+                trace!("removing expired waiting task");
                 return false;
             };
             if waiter.user == user && waiter.sequence_number.wrapping_sub(query_sequence) <= 0 {
+                trace!(?user, query_sequence, waiter_sequence=waiter.sequence_number, "removing completed waiting task");
                 waiter.completed.store(true, Ordering::Relaxed);
                 false
             } else {
+                trace!(?user, query_sequence, waiter_user=?waiter.user, waiter_sequence=waiter.sequence_number, "retaining still-waiting task");
                 true
             }
         });
@@ -234,6 +237,7 @@ impl UsersForKeyQuery {
         match self.user_map.get(user) {
             None => None,
             Some(&sequence_number) => {
+                trace!(?user, sequence_number, "registering new waiting task");
                 let waiter = Arc::new(KeysQueryWaiter {
                     sequence_number,
                     user: user.to_owned(),
