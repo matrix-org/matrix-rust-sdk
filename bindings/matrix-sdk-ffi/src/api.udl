@@ -173,6 +173,10 @@ enum RoomPreset {
 
     /// `join_rules` is set to `public` and `history_visibility` is set to `shared`.
     "PublicChat",
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level as the
+    /// creator.
+    "TrustedPrivateChat",
 };
 
 interface Client {

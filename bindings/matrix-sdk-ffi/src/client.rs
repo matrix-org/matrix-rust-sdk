@@ -11,14 +11,17 @@ use matrix_sdk::{
             room::{create_room, Visibility},
             session::get_login_types,
         },
-        events::{room::MediaSource, AnyToDeviceEvent, AnyInitialStateEvent, room::avatar::RoomAvatarEventContent, InitialStateEvent},
+        events::{
+            room::avatar::RoomAvatarEventContent, room::MediaSource, AnyInitialStateEvent,
+            AnyToDeviceEvent, InitialStateEvent,
+        },
         serde::Raw,
         TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{debug, warn, error};
+use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 
@@ -416,8 +419,9 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
         request.visibility = value.visibility.into();
         request.preset = Some(value.preset.into());
         request.invite = match value.invite {
-            Some(invite) => invite.iter().filter_map(|user_id| 
-                match UserId::parse(user_id) {
+            Some(invite) => invite
+                .iter()
+                .filter_map(|user_id| match UserId::parse(user_id) {
                     Ok(id) => Some(id),
                     Err(e) => {
                         error!(user_id, "Skipping invalid user ID, error: {e}");
@@ -427,7 +431,6 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
                 .collect(),
             None => vec![],
         };
-
 
         let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
 
@@ -465,6 +468,10 @@ pub enum RoomPreset {
 
     /// `join_rules` is set to `public` and `history_visibility` is set to `shared`.
     PublicChat,
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level as the
+    /// creator.
+    TrustedPrivateChat,
 }
 
 impl From<RoomPreset> for create_room::v3::RoomPreset {
@@ -472,6 +479,7 @@ impl From<RoomPreset> for create_room::v3::RoomPreset {
         match value {
             RoomPreset::PrivateChat => Self::PrivateChat,
             RoomPreset::PublicChat => Self::PublicChat,
+            RoomPreset::TrustedPrivateChat => Self::TrustedPrivateChat,
         }
     }
 }
