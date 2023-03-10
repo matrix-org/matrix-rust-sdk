@@ -1,7 +1,5 @@
 #![allow(missing_docs)]
 
-use std::fmt::Display;
-
 use matrix_sdk_crypto::{
     store::CryptoStoreError as InnerStoreError, KeyExportError, MegolmError, OlmError,
     SecretImportError as RustSecretImportError, SignatureError as InnerSignatureError,
