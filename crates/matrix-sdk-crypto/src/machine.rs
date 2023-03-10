@@ -342,9 +342,13 @@ impl OlmMachine {
             requests.push(r);
         }
 
-        for request in self.identity_manager.users_for_key_query().await?.into_iter().map(|r| {
-            OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
-        }) {
+        for request in self
+            .identity_manager
+            .users_for_key_query()
+            .await?
+            .into_iter()
+            .map(|(request_id, r)| OutgoingRequest { request_id, request: Arc::new(r.into()) })
+        {
             requests.push(request);
         }
 
@@ -373,7 +377,7 @@ impl OlmMachine {
                 self.receive_keys_upload_response(response).await?;
             }
             IncomingResponse::KeysQuery(response) => {
-                self.receive_keys_query_response(response).await?;
+                self.receive_keys_query_response(request_id, response).await?;
             }
             IncomingResponse::KeysClaim(response) => {
                 self.receive_keys_claim_response(response).await?;
@@ -527,9 +531,10 @@ impl OlmMachine {
     /// performed.
     async fn receive_keys_query_response(
         &self,
+        request_id: &TransactionId,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        self.identity_manager.receive_keys_query_response(response).await
+        self.identity_manager.receive_keys_query_response(request_id, response).await
     }
 
     /// Get a request to upload E2EE keys to the server.
@@ -1633,7 +1638,7 @@ pub(crate) mod tests {
         room_id,
         serde::Raw,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, UserId,
+        OwnedDeviceKeyId, TransactionId, UserId,
     };
     use serde_json::json;
     use vodozemac::{
@@ -1715,8 +1720,9 @@ pub(crate) mod tests {
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
         let (machine, otk) = get_prepared_machine().await;
         let response = keys_query_response();
+        let req_id = TransactionId::new();
 
-        machine.receive_keys_query_response(&response).await.unwrap();
+        machine.receive_keys_query_response(&req_id, &response).await.unwrap();
 
         (machine, otk)
     }
@@ -1936,7 +1942,8 @@ pub(crate) mod tests {
         let alice_devices = machine.store.get_user_devices(alice_id).await.unwrap();
         assert!(alice_devices.devices().peekable().peek().is_none());
 
-        machine.receive_keys_query_response(&response).await.unwrap();
+        let req_id = TransactionId::new();
+        machine.receive_keys_query_response(&req_id, &response).await.unwrap();
 
         let device = machine.store.get_device(alice_id, alice_device_id).await.unwrap().unwrap();
         assert_eq!(device.user_id(), alice_id);

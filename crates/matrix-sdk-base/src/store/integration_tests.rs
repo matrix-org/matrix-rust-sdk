@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use assert_matches::assert_matches;
 use async_trait::async_trait;
 use matrix_sdk_test::test_json;
 use ruma::{
@@ -34,7 +35,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     store::{Result, StateStoreExt},
-    RoomInfo, RoomType, StateChanges,
+    RoomInfo, RoomType, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// `StateStore` integration tests.
@@ -265,7 +266,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let room_id = room_id();
         self.populate().await?;
 
-        assert!(self.get_sync_token().await?.is_some());
+        assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
         assert_eq!(
             self.get_state_event_static::<RoomTopicEventContent>(room_id)
                 .await?
@@ -312,7 +313,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let user_id = user_id();
         self.populate().await?;
 
-        assert!(self.get_sync_token().await?.is_some());
+        assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
         assert!(self.get_presence_event(user_id).await?.is_some());
         assert_eq!(self.get_room_infos().await?.len(), 1, "Expected to find 1 room info");
         assert_eq!(
@@ -401,21 +402,54 @@ impl StateStoreIntegrationTests for DynStateStore {
     }
 
     async fn test_filter_saving(&self) {
-        let test_name = "filter_name";
+        let filter_name = "filter_name";
         let filter_id = "filter_id_1234";
-        assert_eq!(self.get_filter(test_name).await.unwrap(), None);
-        self.save_filter(test_name, filter_id).await.unwrap();
-        assert_eq!(self.get_filter(test_name).await.unwrap(), Some(filter_id.to_owned()));
+
+        self.set_kv_data(
+            StateStoreDataKey::Filter(filter_name),
+            StateStoreDataValue::Filter(filter_id.to_owned()),
+        )
+        .await
+        .unwrap();
+        let stored_filter_id = assert_matches!(
+            self.get_kv_data(StateStoreDataKey::Filter(filter_name)).await,
+            Ok(Some(StateStoreDataValue::Filter(s))) => s
+        );
+        assert_eq!(stored_filter_id, filter_id);
+
+        self.remove_kv_data(StateStoreDataKey::Filter(filter_name)).await.unwrap();
+        assert_matches!(self.get_kv_data(StateStoreDataKey::Filter(filter_name)).await, Ok(None));
     }
 
     async fn test_sync_token_saving(&self) {
-        let mut changes = StateChanges::default();
-        let sync_token = "t392-516_47314_0_7_1".to_owned();
+        let sync_token_1 = "t392-516_47314_0_7_1";
+        let sync_token_2 = "t392-516_47314_0_7_2";
 
-        changes.sync_token = Some(sync_token.clone());
-        assert_eq!(self.get_sync_token().await.unwrap(), None);
+        assert_matches!(self.get_kv_data(StateStoreDataKey::SyncToken).await, Ok(None));
+
+        let changes =
+            StateChanges { sync_token: Some(sync_token_1.to_owned()), ..Default::default() };
         self.save_changes(&changes).await.unwrap();
-        assert_eq!(self.get_sync_token().await.unwrap(), Some(sync_token));
+        let stored_sync_token = assert_matches!(
+            self.get_kv_data(StateStoreDataKey::SyncToken).await,
+            Ok(Some(StateStoreDataValue::SyncToken(s))) => s
+        );
+        assert_eq!(stored_sync_token, sync_token_1);
+
+        self.set_kv_data(
+            StateStoreDataKey::SyncToken,
+            StateStoreDataValue::SyncToken(sync_token_2.to_owned()),
+        )
+        .await
+        .unwrap();
+        let stored_sync_token = assert_matches!(
+            self.get_kv_data(StateStoreDataKey::SyncToken).await,
+            Ok(Some(StateStoreDataValue::SyncToken(s))) => s
+        );
+        assert_eq!(stored_sync_token, sync_token_2);
+
+        self.remove_kv_data(StateStoreDataKey::SyncToken).await.unwrap();
+        assert_matches!(self.get_kv_data(StateStoreDataKey::SyncToken).await, Ok(None));
     }
 
     async fn test_stripped_member_saving(&self) {

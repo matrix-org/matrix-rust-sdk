@@ -25,11 +25,9 @@ use ruma::events::{
 };
 use tracing::error;
 
-use super::{
-    inner::TimelineInner,
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-    Timeline, TimelineEventHandlerHandles,
-};
+#[cfg(feature = "e2e-encryption")]
+use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
+use super::{inner::TimelineInner, Timeline, TimelineEventHandlerHandles};
 use crate::room;
 
 /// Builder that allows creating and configuring various parts of a

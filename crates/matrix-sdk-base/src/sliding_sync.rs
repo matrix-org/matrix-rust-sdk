@@ -52,7 +52,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
+        let v4::Extensions { to_device, e2ee, account_data, receipts, .. } = extensions;
 
         let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
@@ -160,17 +160,6 @@ impl BaseClient {
                     Default::default()
                 };
 
-                // FIXME not yet supported by sliding sync. see
-                // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-                // if let Some(event) =
-                //     room_data.ephemeral.events.iter().find_map(|e| match e.deserialize() {
-                //         Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
-                //         _ => None,
-                //     })
-                // {
-                //     changes.add_receipts(&room_id, event);
-                // }
-
                 let room_account_data = if let Some(inner_account_data) = &account_data {
                     if let Some(events) = inner_account_data.rooms.get(room_id) {
                         self.handle_room_account_data(room_id, events, &mut changes).await;
@@ -235,6 +224,15 @@ impl BaseClient {
                 );
 
                 changes.add_room(room_info);
+            }
+        }
+
+        // Process receipts now we have rooms
+        if let Some(receipts) = &receipts {
+            for (room_id, receipt_edu) in &receipts.rooms {
+                if let Ok(receipt_edu) = receipt_edu.deserialize() {
+                    changes.add_receipts(room_id, receipt_edu.content);
+                }
             }
         }
 

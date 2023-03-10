@@ -79,8 +79,16 @@ mod tests {
     use matrix_sdk::{
         room::timeline::EventTimelineItem,
         ruma::{
-            api::client::error::ErrorKind as RumaError,
-            events::room::message::RoomMessageEventContent, uint,
+            api::client::{
+                error::ErrorKind as RumaError,
+                receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
+                sync::sync_events::v4::ReceiptsConfig,
+            },
+            events::{
+                receipt::{ReceiptThread, ReceiptType},
+                room::message::RoomMessageEventContent,
+            },
+            uint,
         },
         SlidingSyncList, SlidingSyncMode, SlidingSyncState,
     };
@@ -1321,6 +1329,69 @@ mod tests {
             "Latest event is different than what we've sent"
         );
 
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn receipts_extension_works() -> anyhow::Result<()> {
+        let (client, sync_proxy_builder) = random_setup_with_rooms(1).await?;
+        let list = SlidingSyncList::builder()
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(vec![(0u32, 1u32)])
+            .sort(vec!["by_recency".to_owned()])
+            .name("a")
+            .build()?;
+
+        let mut config = ReceiptsConfig::default();
+        config.enabled = Some(true);
+
+        let sync_proxy = sync_proxy_builder
+            .clone()
+            .add_list(list)
+            .with_receipt_extension(config)
+            .build()
+            .await?;
+        let list = sync_proxy.list("a").context("but we just added that list!")?;
+
+        let stream = sync_proxy.stream();
+        pin_mut!(stream);
+
+        stream.next().await.context("sync has closed unexpectedly")??;
+
+        // find the room and send an event which we will send a receipt for
+        let room_id = list.get_room_id(0).unwrap();
+        let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
+        let event_id =
+            room.send(RoomMessageEventContent::text_plain("Hello world"), None).await?.event_id;
+
+        // now send a receipt
+        room.send_single_receipt(
+            CreateReceiptType::Read,
+            ReceiptThread::Unthreaded,
+            event_id.clone(),
+        )
+        .await?;
+
+        // we expect to see it because we have enabled the receipt extension. We don't
+        // know when we'll see it though
+        let mut found_receipt = false;
+        for _n in 0..3 {
+            stream.next().await.context("sync has closed unexpectedly")??;
+
+            // try to find it
+            let room = client.get_room(&room_id).context("No joined room {room_id}")?;
+            let receipts = room
+                .event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, &event_id)
+                .await
+                .unwrap();
+
+            let expected_user_id = client.user_id().unwrap();
+            found_receipt = receipts.iter().any(|(user_id, _)| user_id == expected_user_id);
+            if found_receipt {
+                break;
+            }
+        }
+        assert!(found_receipt);
         Ok(())
     }
 }

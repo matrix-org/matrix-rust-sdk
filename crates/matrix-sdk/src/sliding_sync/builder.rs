@@ -1,13 +1,13 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, Mutex, RwLock as StdRwLock},
+    sync::{Mutex, RwLock as StdRwLock},
 };
 
 use eyeball::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
     assign, OwnedRoomId,
@@ -16,8 +16,8 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
-    SlidingSyncListBuilder, SlidingSyncRoom,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
+    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -154,8 +154,8 @@ impl SlidingSyncBuilder {
                     Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
 
-            if cfg.receipt.is_none() {
-                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.is_none() {
+                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.typing.is_none() {
@@ -214,14 +214,14 @@ impl SlidingSyncBuilder {
     }
 
     /// Set the Receipt extension configuration.
-    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = Some(receipt);
+    pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
+        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = None;
         self
     }
 
@@ -232,7 +232,7 @@ impl SlidingSyncBuilder {
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
-        let mut delta_token_inner = None;
+        let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = &self.storage_key {
@@ -261,12 +261,13 @@ impl SlidingSyncBuilder {
                 }
             }
 
-            if let Some(FrozenSlidingSync { to_device_since, delta_token }) = client
-                .store()
-                .get_custom_value(storage_key.as_bytes())
-                .await?
-                .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
-                .transpose()?
+            if let Some(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token }) =
+                client
+                    .store()
+                    .get_custom_value(storage_key.as_bytes())
+                    .await?
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
+                    .transpose()?
             {
                 trace!("frozen for generic found");
 
@@ -278,7 +279,7 @@ impl SlidingSyncBuilder {
                     }
                 }
 
-                delta_token_inner = delta_token;
+                delta_token = frozen_delta_token;
             }
 
             trace!("sync unfrozen done");
@@ -286,10 +287,10 @@ impl SlidingSyncBuilder {
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
 
-        let rooms = Arc::new(StdRwLock::new(rooms_found));
-        let lists = Arc::new(StdRwLock::new(self.lists));
+        let rooms = StdRwLock::new(rooms_found);
+        let lists = StdRwLock::new(self.lists);
 
-        Ok(SlidingSync {
+        Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,
@@ -297,14 +298,16 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            extensions: Mutex::new(self.extensions).into(),
-            sent_extensions: Mutex::new(None).into(),
+            extensions: Mutex::new(self.extensions),
             reset_counter: Default::default(),
 
-            pos: Arc::new(StdRwLock::new(Observable::new(None))),
-            delta_token: Arc::new(StdRwLock::new(Observable::new(delta_token_inner))),
-            subscriptions: Arc::new(StdRwLock::new(self.subscriptions)),
+            position: StdRwLock::new(SlidingSyncPositionMarkers {
+                pos: Observable::new(None),
+                delta_token: Observable::new(delta_token),
+            }),
+
+            subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
-        })
+        }))
     }
 }
