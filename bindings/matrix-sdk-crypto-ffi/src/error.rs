@@ -66,27 +66,6 @@ pub enum DecryptionError {
     Store { error: String },
 }
 
-impl Display for DecryptionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DecryptionError::Serialization { error } => write!(f, "Serialization error: {}", error),
-            DecryptionError::Identifier { error } => {
-                write!(f, "Identifier parsing error: {}", error)
-            }
-            DecryptionError::Megolm { error } => write!(f, "Decryption error: {}", error),
-            DecryptionError::MissingRoomKey { withheld_code, .. } => match withheld_code {
-                Some(code) => {
-                    write!(f, "Missing inbound session id, was withheld reason: {:?}", code)
-                }
-                None => write!(f, "Unknown inbound session id."),
-            },
-            DecryptionError::Store { error } => write!(f, "Store error: {}", error),
-        }
-    }
-}
-
-impl std::error::Error for DecryptionError {}
-
 impl From<MegolmError> for DecryptionError {
     fn from(value: MegolmError) -> Self {
         match value {
