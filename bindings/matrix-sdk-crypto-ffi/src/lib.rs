@@ -812,7 +812,7 @@ mod uniffi_types {
             RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
         },
         BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
-        RoomKeyCounts,
+        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings,
     };
 }
 
@@ -945,7 +945,7 @@ mod test {
         let backup_keys = machine.get_backup_keys()?;
         assert!(backup_keys.is_some());
 
-        let settings1 = machine.get_room_settings("!AZkqtjvtwPAuyNOXEt:matrix.org")?;
+        let settings1 = machine.get_room_settings("!AZkqtjvtwPAuyNOXEt:matrix.org".into())?;
         assert_eq!(
             Some(RoomSettings {
                 algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
@@ -954,7 +954,7 @@ mod test {
             settings1
         );
 
-        let settings2 = machine.get_room_settings("!CWLUCoEWXSFyTCOtfL:matrix.org")?;
+        let settings2 = machine.get_room_settings("!CWLUCoEWXSFyTCOtfL:matrix.org".into())?;
         assert_eq!(
             Some(RoomSettings {
                 algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
@@ -963,7 +963,7 @@ mod test {
             settings2
         );
 
-        let settings3 = machine.get_room_settings("!XYZ:matrix.org")?;
+        let settings3 = machine.get_room_settings("!XYZ:matrix.org".into())?;
         assert!(settings3.is_none());
 
         Ok(())

@@ -572,7 +572,7 @@ impl OlmMachine {
     /// set_room_only_allow_trusted_devices) methods.
     pub fn get_room_settings(
         &self,
-        room_id: &str,
+        room_id: String,
     ) -> Result<Option<RoomSettings>, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
         let settings = self
@@ -587,7 +587,7 @@ impl OlmMachine {
     /// available variants
     pub fn set_room_algorithm(
         &self,
-        room_id: &str,
+        room_id: String,
         algorithm: EventEncryptionAlgorithm,
     ) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
@@ -614,7 +614,7 @@ impl OlmMachine {
     /// set_only_allow_trusted_devices) method.
     pub fn set_room_only_allow_trusted_devices(
         &self,
-        room_id: &str,
+        room_id: String,
         only_allow_trusted_devices: bool,
     ) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;

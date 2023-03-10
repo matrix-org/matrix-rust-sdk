@@ -467,3 +467,8 @@ dictionary PickledInboundGroupSession {
     boolean imported;
     boolean backed_up;
 };
+
+dictionary RoomSettings {
+    EventEncryptionAlgorithm algorithm;
+    boolean only_allow_trusted_devices;
+};

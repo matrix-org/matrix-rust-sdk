@@ -653,7 +653,10 @@ impl Store {
     ///
     /// Any users not already on the list are flagged as awaiting a key query.
     /// Users that were already in the list are unaffected.
-    pub(crate) async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+    pub(crate) async fn update_tracked_users(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
         self.load_tracked_users().await?;
 
         let mut store_updates = Vec::new();

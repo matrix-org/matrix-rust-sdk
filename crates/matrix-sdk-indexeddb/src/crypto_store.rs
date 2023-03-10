@@ -167,7 +167,6 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(keys::SECRET_REQUESTS_BY_INFO)?;
 
                 db.create_object_store(keys::BACKUP_KEYS)?;
-
             } else if old_version < 1.1 {
                 // We changed how we store inbound group sessions, the key used to
                 // be a trippled of `(room_id, sender_key, session_id)` now it's a
@@ -550,10 +549,10 @@ impl_crypto_store! {
         }
 
         if !room_settings_changes.is_empty() {
-            let settings_store = tx.object_store(KEYS::ROOM_SETTINGS)?;
+            let settings_store = tx.object_store(keys::ROOM_SETTINGS)?;
 
             for (room_id, settings) in &room_settings_changes {
-                let key = self.encode_key(KEYS::ROOM_SETTINGS, room_id);
+                let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serialize_value(&settings)?;
                 settings_store.put_key_val(&key, &value)?;
             }
@@ -973,11 +972,11 @@ impl_crypto_store! {
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        let key = self.encode_key(KEYS::ROOM_SETTINGS, room_id);
+        let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
         Ok(self
             .inner
-            .transaction_on_one_with_mode(KEYS::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::ROOM_SETTINGS)?
+            .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
+            .object_store(keys::ROOM_SETTINGS)?
             .get(&key)?
             .await?
             .map(|v| self.deserialize_value(v))
@@ -987,8 +986,8 @@ impl_crypto_store! {
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         Ok(self
             .inner
-            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::CORE)?
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .object_store(keys::CORE)?
             .get(&JsValue::from_str(key))?
             .await?
             .map(|v| self.deserialize_value(v))
@@ -998,8 +997,8 @@ impl_crypto_store! {
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
         self
             .inner
-            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readwrite)?
-            .object_store(KEYS::CORE)?
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
+            .object_store(keys::CORE)?
             .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
         Ok(())
     }
