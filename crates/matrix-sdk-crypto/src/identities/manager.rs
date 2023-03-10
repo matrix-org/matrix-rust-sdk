@@ -40,7 +40,10 @@ use crate::{
     },
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
-    store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
+    store::{
+        caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, Result as StoreResult,
+        Store,
+    },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::FailuresCache,
     LocalTrust, SignatureError,
@@ -137,7 +140,7 @@ pub(crate) struct IdentityManager {
 struct KeysQueryRequestDetails {
     /// The sequence number, to be passed to
     /// `Store.mark_tracked_users_as_up_to_date`.
-    sequence_number: i64,
+    sequence_number: SequenceNumber,
 
     /// A single batch of queries returned by the Store is broken up into one or
     /// more actual KeysQueryRequests, each with their own request id. We
