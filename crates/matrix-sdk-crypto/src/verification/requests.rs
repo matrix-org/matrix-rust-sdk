@@ -14,7 +14,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::instant::Instant;
@@ -159,7 +159,7 @@ impl RequestHandle {
     pub fn cancel_with_code(&self, cancel_code: &CancelCode) {
         let mut guard = self.inner.write();
         if let Some(updated) = guard.cancel(true, cancel_code) {
-            Observable::set(&mut guard, updated);
+            ObservableWriteGuard::set(&mut guard, updated);
         }
     }
 }
@@ -207,7 +207,7 @@ impl VerificationRequest {
     pub(crate) fn request_to_device(&self) -> ToDeviceRequest {
         let inner = self.inner.read();
 
-        let methods = if let InnerRequest::Created(c) = &**inner {
+        let methods = if let InnerRequest::Created(c) = &*inner {
             c.state.our_methods.clone()
         } else {
             SUPPORTED_METHODS.to_vec()
@@ -263,7 +263,7 @@ impl VerificationRequest {
 
     /// The id of the other device that is participating in this verification.
     pub fn other_device_id(&self) -> Option<OwnedDeviceId> {
-        match &**self.inner.read() {
+        match &*self.inner.read() {
             InnerRequest::Requested(r) => Some(r.state.other_device_id.clone()),
             InnerRequest::Ready(r) => Some(r.state.other_device_id.clone()),
             InnerRequest::Created(_)
@@ -284,7 +284,7 @@ impl VerificationRequest {
     /// Get info about the cancellation if the verification request has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerRequest::Cancelled(c) = &**self.inner.read() {
+        if let InnerRequest::Cancelled(c) = &*self.inner.read() {
             Some(c.state.clone().into())
         } else {
             None
@@ -293,12 +293,12 @@ impl VerificationRequest {
 
     /// Has the verification request been answered by another device.
     pub fn is_passive(&self) -> bool {
-        matches!(**self.inner.read(), InnerRequest::Passive(_))
+        matches!(*self.inner.read(), InnerRequest::Passive(_))
     }
 
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
-        matches!(**self.inner.read(), InnerRequest::Ready(_))
+        matches!(*self.inner.read(), InnerRequest::Ready(_))
     }
 
     /// Has the verification flow timed out.
@@ -311,7 +311,7 @@ impl VerificationRequest {
     /// Will be present only if the other side requested the verification or if
     /// we're in the ready state.
     pub fn their_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
-        match &**self.inner.read() {
+        match &*self.inner.read() {
             InnerRequest::Requested(r) => Some(r.state.their_methods.clone()),
             InnerRequest::Ready(r) => Some(r.state.their_methods.clone()),
             InnerRequest::Created(_)
@@ -326,7 +326,7 @@ impl VerificationRequest {
     /// Will be present only we requested the verification or if we're in the
     /// ready state.
     pub fn our_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
-        match &**self.inner.read() {
+        match &*self.inner.read() {
             InnerRequest::Created(r) => Some(r.state.our_methods.clone()),
             InnerRequest::Ready(r) => Some(r.state.our_methods.clone()),
             InnerRequest::Requested(_)
@@ -353,20 +353,20 @@ impl VerificationRequest {
 
     /// Has the verification flow that was started with this request finished.
     pub fn is_done(&self) -> bool {
-        matches!(**self.inner.read(), InnerRequest::Done(_))
+        matches!(*self.inner.read(), InnerRequest::Done(_))
     }
 
     /// Has the verification flow that was started with this request been
     /// cancelled.
     pub fn is_cancelled(&self) -> bool {
-        matches!(**self.inner.read(), InnerRequest::Cancelled(_))
+        matches!(*self.inner.read(), InnerRequest::Cancelled(_))
     }
 
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     #[cfg(feature = "qrcode")]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        let inner = self.inner.get();
+        let inner = self.inner.read();
 
         inner.generate_qr_code(self.we_started, self.inner.clone().into()).await
     }
@@ -383,7 +383,7 @@ impl VerificationRequest {
         &self,
         data: QrVerificationData,
     ) -> Result<Option<QrVerification>, ScanError> {
-        let future = if let InnerRequest::Ready(r) = &**self.inner.read() {
+        let future = if let InnerRequest::Ready(r) = &*self.inner.read() {
             QrVerification::from_scan(
                 r.store.clone(),
                 r.other_user_id.clone(),
@@ -465,7 +465,7 @@ impl VerificationRequest {
             return None;
         };
 
-        Observable::set(&mut guard, updated);
+        ObservableWriteGuard::set(&mut guard, updated);
 
         let request = match content {
             OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
@@ -507,14 +507,14 @@ impl VerificationRequest {
     fn cancel_with_code(&self, cancel_code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.write();
 
-        let send_to_everyone = self.we_started() && matches!(**guard, InnerRequest::Created(_));
+        let send_to_everyone = self.we_started() && matches!(*guard, InnerRequest::Created(_));
         let other_device = guard.other_device_id();
 
         if let Some(updated) = guard.cancel(true, &cancel_code) {
-            Observable::set(&mut guard, updated);
+            ObservableWriteGuard::set(&mut guard, updated);
         }
 
-        let content = if let InnerRequest::Cancelled(c) = &**guard {
+        let content = if let InnerRequest::Cancelled(c) = &*guard {
             Some(c.state.as_content(self.flow_id()))
         } else {
             None
@@ -632,10 +632,10 @@ impl VerificationRequest {
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
         let mut guard = self.inner.write();
 
-        match &**guard {
+        match &*guard {
             InnerRequest::Created(s) => {
                 let new_value = InnerRequest::Ready(s.clone().into_ready(sender, content));
-                Observable::set(&mut guard, new_value);
+                ObservableWriteGuard::set(&mut guard, new_value);
 
                 if let Some(request) =
                     self.cancel_for_other_devices(CancelCode::Accepted, Some(content.from_device()))
@@ -647,7 +647,7 @@ impl VerificationRequest {
                 if sender == self.own_user_id() && content.from_device() != self.account.device_id()
                 {
                     let new_value = InnerRequest::Passive(s.clone().into_passive(content));
-                    Observable::set(&mut guard, new_value);
+                    ObservableWriteGuard::set(&mut guard, new_value);
                 }
             }
             InnerRequest::Ready(_)
@@ -686,7 +686,7 @@ impl VerificationRequest {
 
             let mut guard = self.inner.write();
             if let Some(updated) = guard.receive_done(content) {
-                Observable::set(&mut guard, updated);
+                ObservableWriteGuard::set(&mut guard, updated);
             }
         }
     }
@@ -703,7 +703,7 @@ impl VerificationRequest {
         );
         let mut guard = self.inner.write();
         if let Some(updated) = guard.cancel(false, content.cancel_code()) {
-            Observable::set(&mut guard, updated);
+            ObservableWriteGuard::set(&mut guard, updated);
         }
 
         if self.we_started() {
@@ -781,7 +781,7 @@ impl VerificationRequest {
     /// To listen to changes to the [`VerificationRequestState`] use the
     /// [`VerificationRequest::changes`] method.
     pub fn state(&self) -> VerificationRequestState {
-        (&**self.inner.read()).into()
+        (&*self.inner.read()).into()
     }
 }
 

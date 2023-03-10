@@ -4,7 +4,7 @@ use std::{
     sync::{Mutex, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,

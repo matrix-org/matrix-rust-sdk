@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use im::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;

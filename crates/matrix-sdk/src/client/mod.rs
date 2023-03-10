@@ -25,7 +25,6 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use eyeball::Observable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
@@ -367,7 +366,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens(&self) -> Option<SessionTokens> {
-        self.base_client().session_tokens().clone()
+        self.base_client().session_tokens().get()
     }
 
     /// Get the current access token for this session.
@@ -502,7 +501,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens_stream(&self) -> impl Stream<Item = Option<SessionTokens>> {
-        Observable::subscribe(&self.base_client().session_tokens())
+        self.base_client().session_tokens()
     }
 
     /// Get the whole session info of this client.
@@ -2431,6 +2430,7 @@ impl Client {
     ///
     /// # anyhow::Ok(()) });
     /// ```
+    #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(skip(self), parent = &self.inner.root_span)]
     pub async fn sync_stream(
         &self,

@@ -18,7 +18,7 @@ mod sas_state;
 
 use std::sync::Arc;
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use inner_sas::InnerSas;
@@ -294,7 +294,7 @@ impl Sas {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &**self.inner.read() {
+        if let InnerSas::Cancelled(c) = &*self.inner.read() {
             Some(c.state.as_ref().clone().into())
         } else {
             None
@@ -452,7 +452,7 @@ impl Sas {
             let methods = settings.allowed_methods;
 
             if let Some((sas, content)) = sas.accept(methods) {
-                Observable::set(&mut guard, sas);
+                ObservableWriteGuard::set(&mut guard, sas);
 
                 Some(match content {
                     OwnedAcceptContent::ToDevice(c) => {
@@ -500,7 +500,7 @@ impl Sas {
             let sas: InnerSas = (*guard).clone();
             let (sas, contents) = sas.confirm();
 
-            Observable::set(&mut guard, sas);
+            ObservableWriteGuard::set(&mut guard, sas);
             (contents, guard.is_done())
         };
 
@@ -575,7 +575,7 @@ impl Sas {
 
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(true, code);
-            Observable::set(&mut guard, sas);
+            ObservableWriteGuard::set(&mut guard, sas);
 
             content.map(|c| match c {
                 OutgoingContent::Room(room_id, content) => {
@@ -739,11 +739,11 @@ impl Sas {
 
     /// Get the current state of the verification process.
     pub fn state(&self) -> SasState {
-        (&**self.inner.read()).into()
+        (&*self.inner.read()).into()
     }
 
     fn state_debug(&self) -> State {
-        (&**self.inner.read()).into()
+        (&*self.inner.read()).into()
     }
 
     pub(crate) fn receive_any_event(
@@ -758,7 +758,7 @@ impl Sas {
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.receive_any_event(sender, content);
 
-            Observable::set(&mut guard, sas);
+            ObservableWriteGuard::set(&mut guard, sas);
 
             content
         };
@@ -783,7 +783,7 @@ impl Sas {
             let sas: InnerSas = (*guard).clone();
 
             if let Some(sas) = sas.mark_request_as_sent(request_id) {
-                Observable::set(&mut guard, sas);
+                ObservableWriteGuard::set(&mut guard, sas);
             } else {
                 error!(
                     flow_id = self.flow_id().as_str(),
