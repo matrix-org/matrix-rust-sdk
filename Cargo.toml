@@ -27,7 +27,7 @@ base64 = "0.21.0"
 byteorder = "1.4.3"
 ctor = "0.1.26"
 dashmap = "5.2.0"
-eyeball = "0.1.4"
+eyeball = "0.4.0"
 eyeball-im = "0.1.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"

@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{

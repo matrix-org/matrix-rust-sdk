@@ -611,7 +611,7 @@ use std::{
 pub use builder::*;
 pub use client::*;
 pub use error::*;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
 use matrix_sdk_base::sync::SyncResponse;
