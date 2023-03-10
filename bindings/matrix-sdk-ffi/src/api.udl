@@ -213,6 +213,9 @@ interface Client {
     string device_id();
 
     [Throws=ClientError]
+    string create_room(CreateRoomParameters request);
+
+    [Throws=ClientError]
     string? account_data(string event_type);
 
     [Throws=ClientError]
