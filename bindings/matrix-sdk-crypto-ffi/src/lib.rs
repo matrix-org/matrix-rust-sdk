@@ -202,45 +202,6 @@ pub fn migrate(
     })
 }
 
-/// Migrate room settings, including room algorithm and whether to block
-/// untrusted devices from legacy store to Sqlite store.
-///
-/// Note that this method should only be used if a client has already migrated
-/// account data via [migrate](#method.migrate) method, which did not include
-/// room settings. For a brand new migration, the [migrate](#method.migrate)
-/// method will take care of room settings automatically, if provided.
-///
-/// # Arguments
-///
-/// * `room_settings` - Map of room settings
-///
-/// * `path` - The path where the Sqlite store should be created.
-///
-/// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
-pub fn migrate_room_settings(
-    room_settings: HashMap<String, RoomSettings>,
-    path: &str,
-    passphrase: Option<String>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
-    runtime.block_on(async move {
-        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
-
-        let mut rust_settings = HashMap::new();
-        for (room_id, settings) in room_settings {
-            let room_id = RoomId::parse(room_id)?;
-            rust_settings.insert(room_id, settings.into());
-        }
-
-        let changes = Changes { room_settings: rust_settings, ..Default::default() };
-        store.save_changes(changes).await?;
-
-        Ok(())
-    })
-}
-
 async fn migrate_data(
     mut data: MigrationData,
     path: &str,
@@ -517,6 +478,45 @@ fn collect_sessions(
     }
 
     Ok((sessions, inbound_group_sessions))
+}
+
+/// Migrate room settings, including room algorithm and whether to block
+/// untrusted devices from legacy store to Sqlite store.
+///
+/// Note that this method should only be used if a client has already migrated
+/// account data via [migrate](#method.migrate) method, which did not include
+/// room settings. For a brand new migration, the [migrate](#method.migrate)
+/// method will take care of room settings automatically, if provided.
+///
+/// # Arguments
+///
+/// * `room_settings` - Map of room settings
+///
+/// * `path` - The path where the Sqlite store should be created.
+///
+/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
+/// and all its data will remain unencrypted.
+pub fn migrate_room_settings(
+    room_settings: HashMap<String, RoomSettings>,
+    path: &str,
+    passphrase: Option<String>,
+) -> anyhow::Result<()> {
+    let runtime = Runtime::new()?;
+    runtime.block_on(async move {
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+
+        let mut rust_settings = HashMap::new();
+        for (room_id, settings) in room_settings {
+            let room_id = RoomId::parse(room_id)?;
+            rust_settings.insert(room_id, settings.into());
+        }
+
+        let changes = Changes { room_settings: rust_settings, ..Default::default() };
+        store.save_changes(changes).await?;
+
+        Ok(())
+    })
 }
 
 /// Callback that will be passed over the FFI to report progress

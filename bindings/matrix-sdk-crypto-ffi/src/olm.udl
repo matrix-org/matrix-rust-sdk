@@ -14,6 +14,12 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
+    [Throws=MigrationError]
+    void migrate_room_settings(
+        record<string, RoomSettings> room_settings,
+        [ByRef] string path,
+        string? passphrase
+    );
 };
 
 [Error]
