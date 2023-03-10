@@ -473,14 +473,16 @@ impl From<RoomVisibility> for Visibility {
 }
 
 pub enum RoomPreset {
-    /// `join_rules` is set to `invite` and `history_visibility` is set to `shared`.
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
     PrivateChat,
 
-    /// `join_rules` is set to `public` and `history_visibility` is set to `shared`.
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
     PublicChat,
 
-    /// Same as `PrivateChat`, but all initial invitees get the same power level as the
-    /// creator.
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
     TrustedPrivateChat,
 }
 
