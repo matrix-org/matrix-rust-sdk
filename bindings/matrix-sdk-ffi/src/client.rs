@@ -11,7 +11,7 @@ use matrix_sdk::{
             room::{create_room, Visibility},
             session::get_login_types,
         },
-        events::{room::MediaSource, AnyToDeviceEvent},
+        events::{room::MediaSource, AnyToDeviceEvent, AnyInitialStateEvent, room::avatar::RoomAvatarEventContent, InitialStateEvent},
         serde::Raw,
         TransactionId, UInt, UserId,
     },
@@ -428,9 +428,15 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
             None => vec![],
         };
 
-        // need a way to inject the avatar url in the request
-        // let avatar = AnyInitialStateEvent::RoomAvatar(...);
-        // request.initial_state.push(avatar);
+
+        let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
+
+        if let Some(url) = value.avatar {
+            let mut content = RoomAvatarEventContent::new();
+            let mut avatar = InitialStateEvent::new(content);
+        }
+
+        request.initial_state = initial_state;
 
         request
     }
