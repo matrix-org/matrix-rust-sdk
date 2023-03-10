@@ -12,11 +12,13 @@ use matrix_sdk::{
             session::get_login_types,
         },
         events::{
-            room::avatar::RoomAvatarEventContent, room::MediaSource, AnyInitialStateEvent,
-            AnyToDeviceEvent, InitialStateEvent,
+            room::{
+                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent, MediaSource,
+            },
+            AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
         },
         serde::Raw,
-        TransactionId, UInt, UserId,
+        EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
@@ -403,6 +405,7 @@ impl Client {
 pub struct CreateRoomParameters {
     pub name: String,
     pub topic: Option<String>,
+    pub is_encrypted: bool,
     pub is_direct: bool,
     pub visibility: RoomVisibility,
     pub preset: RoomPreset,
@@ -434,9 +437,16 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
 
         let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
 
+        if value.is_encrypted {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
         if let Some(url) = value.avatar {
             let mut content = RoomAvatarEventContent::new();
-            let mut avatar = InitialStateEvent::new(content);
+            content.url = Some(url.into());
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
 
         request.initial_state = initial_state;
