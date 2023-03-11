@@ -147,7 +147,7 @@ impl AuthenticationService {
             })
             .map_err(AuthenticationError::from)?;
 
-        let details = RUNTIME.block_on(async { self.details_from_client(&client).await })?;
+        let details = RUNTIME.block_on(self.details_from_client(&client))?;
 
         // Now we've verified that it's a valid homeserver, make sure
         // there's a sliding sync proxy available one way or another.

@@ -250,7 +250,8 @@ impl Room {
             .unwrap()
             .get_or_insert_with(|| {
                 let room = self.room.clone();
-                let timeline = RUNTIME.block_on(async move { room.timeline().await });
+                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+                let timeline = RUNTIME.block_on(room.timeline());
                 Arc::new(timeline)
             })
             .clone();
