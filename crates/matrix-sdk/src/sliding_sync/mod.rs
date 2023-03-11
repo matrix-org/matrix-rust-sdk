@@ -1141,8 +1141,9 @@ impl SlidingSync {
     ///
     /// This stream will send requests and will handle responses automatically,
     /// hence updating the lists.
+    #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.inner.root_span)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+    pub fn stream<'a>(&'a self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + 'a {
         // Collect all the lists that need to be updated.
         let list_generators = {
             let mut list_generators = BTreeMap::new();
