@@ -134,7 +134,7 @@ impl BaseClient {
     /// Get the session tokens.
     ///
     /// This returns a subscriber object that you can use both to
-    /// [`get`](SharedSubscriber::get) the current value as well as to react to
+    /// [`get`](Subscriber::get) the current value as well as to react to
     /// changes to the tokens.
     ///
     /// If the client is currently logged in, the inner value is a
