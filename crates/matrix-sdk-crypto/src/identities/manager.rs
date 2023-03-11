@@ -1066,6 +1066,7 @@ pub(crate) mod tests {
 
         let listener = manager.listen_for_received_queries();
 
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
         let task = tokio::task::spawn(async move { listener.wait(Duration::from_secs(10)).await });
 
         manager
