@@ -1179,9 +1179,9 @@ impl OlmMachine {
             let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
             Ok(TimelineEvent {
-                encryption_info: Some(encryption_info),
                 event: decrypted_event,
-                push_actions: Vec::default(),
+                encryption_info: Some(encryption_info),
+                push_actions: vec![],
             })
         } else {
             Err(MegolmError::MissingRoomKey)
