@@ -161,11 +161,7 @@ impl TestTimeline {
     }
 
     async fn handle_back_paginated_custom_event(&self, event: JsonValue) {
-        let timeline_event = TimelineEvent {
-            event: Raw::new(&event).unwrap().cast(),
-            encryption_info: None,
-            push_actions: Vec::default(),
-        };
+        let timeline_event = TimelineEvent::new(Raw::new(&event).unwrap().cast());
         self.inner.handle_back_paginated_event(timeline_event).await;
     }
 

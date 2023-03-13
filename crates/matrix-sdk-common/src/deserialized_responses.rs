@@ -86,8 +86,8 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         // this way, we simply cause the `room_id` field in the json to be
         // ignored by a subsequent deserialization.
         Self {
-            encryption_info: o.encryption_info,
             event: o.event.cast(),
+            encryption_info: o.encryption_info,
             push_actions: o.push_actions,
         }
     }
@@ -102,6 +102,16 @@ pub struct TimelineEvent {
     pub encryption_info: Option<EncryptionInfo>,
     /// The push actions associated with this event.
     pub push_actions: Vec<Action>,
+}
+
+impl TimelineEvent {
+    /// Create a new `TimelineEvent` from the given raw event.
+    ///
+    /// This is a convenience constructor for when you don't need to set
+    /// `encryption_info` or `push_action`, for example inside a test.
+    pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
+        Self { event, encryption_info: None, push_actions: vec![] }
+    }
 }
 
 #[cfg(test)]
@@ -125,12 +135,7 @@ mod tests {
             "sender": "@carl:example.com",
         });
 
-        let room_event = TimelineEvent {
-            event: Raw::new(&event).unwrap().cast(),
-            encryption_info: None,
-            push_actions: Vec::default(),
-        };
-
+        let room_event = TimelineEvent::new(Raw::new(&event).unwrap().cast());
         let converted_room_event: SyncTimelineEvent = room_event.into();
 
         let converted_event: AnySyncTimelineEvent =

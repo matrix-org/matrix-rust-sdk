@@ -208,15 +208,7 @@ impl Common {
             start: http_response.start,
             end: http_response.end,
             #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response
-                .chunk
-                .into_iter()
-                .map(|event| TimelineEvent {
-                    event,
-                    encryption_info: None,
-                    push_actions: Vec::default(),
-                })
-                .collect(),
+            chunk: http_response.chunk.into_iter().map(TimelineEvent::new).collect(),
             #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
             state: http_response.state,
@@ -232,20 +224,16 @@ impl Common {
                     if let Ok(event) = machine.decrypt_room_event(event.cast_ref(), room_id).await {
                         event
                     } else {
-                        TimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
+                        TimelineEvent::new(event)
                     }
                 } else {
-                    TimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
+                    TimelineEvent::new(event)
                 };
 
                 response.chunk.push(decrypted_event);
             }
         } else {
-            response.chunk.extend(http_response.chunk.into_iter().map(|event| TimelineEvent {
-                event,
-                encryption_info: None,
-                push_actions: Vec::default(),
-            }));
+            response.chunk.extend(http_response.chunk.into_iter().map(TimelineEvent::new));
         }
 
         Ok(response)
@@ -294,11 +282,11 @@ impl Common {
                     return Ok(event);
                 }
             }
-            Ok(TimelineEvent { event, encryption_info: None, push_actions: Vec::default() })
+            Ok(TimelineEvent::new(event))
         }
 
         #[cfg(not(feature = "e2e-encryption"))]
-        Ok(TimelineEvent { event, encryption_info: None, push_actions: Vec::default() })
+        Ok(TimelineEvent::new(event))
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
