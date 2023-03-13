@@ -26,8 +26,10 @@ use ruma::{
     events::{
         receipt::ReceiptThread,
         room::{
-            avatar::RoomAvatarEventContent, message::RoomMessageEventContent,
-            power_levels::RoomPowerLevelsEventContent, topic::RoomTopicEventContent,
+            avatar::{ImageInfo, RoomAvatarEventContent},
+            message::RoomMessageEventContent,
+            power_levels::RoomPowerLevelsEventContent,
+            topic::RoomTopicEventContent,
         },
         EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
@@ -874,14 +876,23 @@ impl Joined {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned matrix uri that represents the avatar, the
-    ///   avatar is removed if None
+    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar(
         &self,
-        avatar_url: Option<&MxcUri>,
+        url: &MxcUri,
+        info: Option<ImageInfo>,
     ) -> Result<send_state_event::v3::Response> {
         let mut room_avatar_event = RoomAvatarEventContent::new();
-        room_avatar_event.url = avatar_url.map(|u| u.to_owned());
+        room_avatar_event.url = Some(url.to_owned());
+        room_avatar_event.info = info.map(Box::new);
+
+        self.send_state_event(room_avatar_event).await
+    }
+
+    /// Removes the avatar from the room
+    pub async fn remove_avatar(&self) -> Result<send_state_event::v3::Response> {
+        let room_avatar_event = RoomAvatarEventContent::new();
 
         self.send_state_event(room_avatar_event).await
     }
@@ -891,14 +902,20 @@ impl Joined {
     /// # Arguments
     /// * `mime` - The mime type describing the data
     /// * `data` - The data representation of the avatar
+    /// * `info` - The optional image info provided for the avatar,
+    /// the blurhash and the mimetype will always be updated
     pub async fn upload_avatar(
         &self,
         mime: &Mime,
         data: Vec<u8>,
+        info: Option<ImageInfo>,
     ) -> Result<send_state_event::v3::Response> {
         let upload_response = self.client.media().upload(mime, data).await?;
+        let mut info = info.unwrap_or_else(ImageInfo::new);
+        info.blurhash = upload_response.blurhash;
+        info.mimetype = Some(mime.to_string());
 
-        self.set_avatar(Some(&upload_response.content_uri)).await
+        self.set_avatar(&upload_response.content_uri, Some(info)).await
     }
 
     /// Send a state event with an empty state key to the homeserver.

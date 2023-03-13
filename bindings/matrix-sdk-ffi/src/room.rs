@@ -20,10 +20,13 @@ use matrix_sdk::{
         EventId, UserId,
     },
 };
+use mime::Mime;
 use tracing::error;
 
 use super::RUNTIME;
 use crate::{TimelineDiff, TimelineItem, TimelineListener};
+
+pub struct ImageInfo {}
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -546,6 +549,44 @@ impl Room {
 
         RUNTIME.block_on(async move {
             room.set_room_topic(&topic).await?;
+            Ok(())
+        })
+    }
+
+    /// Upload and set the room's avatar.
+    ///
+    /// This will upload the data produced by the reader to the homeserver's
+    /// content repository, and set the room's avatar to the MXC URI for the
+    /// uploaded file.
+    ///
+    /// # Arguments
+    ///
+    /// * `mime_type` - The mime description of the avatar, for example
+    ///   image/jpeg
+    /// * `data` - The raw data that will be uploaded to the homeserver's
+    ///   content repository
+    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't set a avatar in a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            let mime: Mime = mime_type.parse()?;
+            room.upload_avatar(&mime, data, None).await?;
+            Ok(())
+        })
+    }
+
+    /// Removes the current room avatar
+    pub fn remove_avatar(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't remove a avatar in a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.remove_avatar().await?;
             Ok(())
         })
     }
