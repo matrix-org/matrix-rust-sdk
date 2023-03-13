@@ -346,8 +346,8 @@
 //! To support this, in practice, one can spawn a `Future` that runs
 //! [`SlidingStream::stream`]. The spawned `Future` can be cancelled safely. If
 //! the client was waiting on a response, it's cancelled without any issue. If
-//! the client was receiving a response, or a response was just received, the
-//! response will be fully handled by `SlidingSync`. This _response is always
+//! a response was just received, it
+//! will be fully handled by `SlidingSync`. This _response is always
 //! handled_ process isn't blocking. The cancellation of the spawned `Future`
 //! will be as immediate as possible, and the response handling (if necessary)
 //! will be done in a “detached mode”. However, any further responses handling
