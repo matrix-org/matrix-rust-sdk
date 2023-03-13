@@ -31,7 +31,7 @@ use once_cell::sync::Lazy;
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        AnyMessageLikeEventContent, EmptyStateKey, MessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, EmptyStateKey, MessageLikeEventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticStateEventContent,
     },
@@ -80,8 +80,7 @@ impl TestTimeline {
         C: MessageLikeEventContent,
     {
         let ev = self.make_message_event(sender, content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
@@ -89,8 +88,7 @@ impl TestTimeline {
         C: RedactedMessageLikeEventContent,
     {
         let ev = self.make_redacted_message_event(sender, content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_state_event<C>(&self, sender: &UserId, content: C, prev_content: Option<C>)
@@ -98,8 +96,7 @@ impl TestTimeline {
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = self.make_state_event(sender, "", content, prev_content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_state_event_with_state_key<C>(
@@ -112,8 +109,7 @@ impl TestTimeline {
         C: StaticStateEventContent,
     {
         let ev = self.make_state_event(sender, state_key.as_ref(), content, prev_content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_redacted_state_event<C>(&self, sender: &UserId, content: C)
@@ -121,8 +117,7 @@ impl TestTimeline {
         C: RedactedStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = self.make_redacted_state_event(sender, "", content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_redacted_state_event_with_state_key<C>(
@@ -134,13 +129,12 @@ impl TestTimeline {
         C: RedactedStateEventContent,
     {
         let ev = self.make_redacted_state_event(sender, state_key.as_ref(), content);
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
     async fn handle_live_custom_event(&self, event: JsonValue) {
         let raw = Raw::new(&event).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(raw).await;
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
@@ -153,7 +147,11 @@ impl TestTimeline {
             "origin_server_ts": self.next_server_ts(),
         });
         let raw = Raw::new(&ev).unwrap().cast();
-        self.inner.handle_live_event(raw, None, Vec::default()).await;
+        self.handle_live_event(raw).await;
+    }
+
+    async fn handle_live_event(&self, raw: Raw<AnySyncTimelineEvent>) {
+        self.inner.handle_live_event(raw, None, vec![]).await
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
