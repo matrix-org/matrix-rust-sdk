@@ -39,7 +39,7 @@ use crate::{
     attachment::AttachmentConfig,
     error::{Error, HttpResult},
     room::Common,
-    BaseRoom, Client, Result, RoomType,
+    BaseRoom, Client, Result, RoomState,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -52,9 +52,9 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A room in the joined state.
 ///
-/// The `JoinedRoom` contains all methods specific to a `Room` with type
-/// `RoomType::Joined`. Operations may fail once the underlying `Room` changes
-/// `RoomType`.
+/// The `JoinedRoom` contains all methods specific to a `Room` with
+/// `RoomState::Joined`. Operations may fail once the underlying `Room` changes
+/// `RoomState`.
 #[derive(Debug, Clone)]
 pub struct Joined {
     pub(crate) inner: Common,
@@ -69,15 +69,15 @@ impl Deref for Joined {
 }
 
 impl Joined {
-    /// Create a new `room::Joined` if the underlying `BaseRoom` has type
-    /// `RoomType::Joined`.
+    /// Create a new `room::Joined` if the underlying `BaseRoom` has
+    /// `RoomState::Joined`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
     pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
-        if room.room_type() == RoomType::Joined {
+        if room.state() == RoomState::Joined {
             Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None
@@ -85,7 +85,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
@@ -97,7 +97,7 @@ impl Joined {
     /// * `user_id` - The user to ban with `UserId`.
     ///
     /// * `reason` - The reason for banning this user.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             ban_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
@@ -115,7 +115,7 @@ impl Joined {
     ///   room.
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             kick_user::v3::Request::new(self.inner.room_id().to_owned(), user_id.to_owned()),
@@ -130,7 +130,7 @@ impl Joined {
     /// # Arguments
     ///
     /// * `user_id` - The `UserId` of the user to invite to the room.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
 
@@ -145,7 +145,7 @@ impl Joined {
     /// # Arguments
     ///
     /// * `invite_id` - A third party id of a user to invite to the room.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.inner.room_id().to_owned(), recipient);
@@ -219,7 +219,7 @@ impl Joined {
         Ok(())
     }
 
-    #[instrument(name = "typing_notice", skip(self), parent = &self.client.root_span)]
+    #[instrument(name = "typing_notice", skip(self), parent = &self.client.inner.root_span)]
     async fn send_typing_notice(&self, typing: bool) -> Result<()> {
         let typing = if typing {
             self.client
@@ -256,7 +256,7 @@ impl Joined {
     ///   [`ReceiptType::FullyRead`].
     ///
     /// * `event_id` - The `EventId` of the event to set the receipt on.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -281,7 +281,7 @@ impl Joined {
     /// * `receipts` - The `Receipts` to send.
     ///
     /// If `receipts` is empty, this is a no-op.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_multiple_receipts(&self, receipts: Receipts) -> Result<()> {
         if receipts.is_empty() {
             return Ok(());
@@ -329,7 +329,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
             events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
@@ -430,9 +430,9 @@ impl Joined {
     /// Warning: This waits until a sync happens and does not return if no sync
     /// is happening! It can also return early when the room is not a joined
     /// room anymore!
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn sync_up(&self) {
-        while !self.is_synced() && self.room_type() == RoomType::Joined {
+        while !self.is_synced() && self.state() == RoomState::Joined {
             self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
         }
     }
@@ -701,7 +701,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_attachment(
         &self,
         body: &str,
@@ -901,7 +901,7 @@ impl Joined {
     /// joined_room.send_state_event(content).await?;
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_state_event(
         &self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
@@ -1001,7 +1001,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_state_event_raw(
         &self,
         content: Value,
@@ -1052,7 +1052,7 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn redact(
         &self,
         event_id: &EventId,

@@ -30,7 +30,7 @@ use crate::room::timeline::{
 
 fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
     let event = serde_json::from_value(event).unwrap();
-    SyncTimelineEvent { event, encryption_info: None }
+    SyncTimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
 }
 
 #[async_test]

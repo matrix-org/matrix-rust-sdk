@@ -19,9 +19,12 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,
 };
-use ruma::events::{
-    fully_read::FullyReadEventContent,
-    receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
+use ruma::{
+    events::{
+        fully_read::FullyReadEventContent,
+        receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
+    },
+    push::Action,
 };
 use tracing::error;
 
@@ -124,10 +127,10 @@ impl TimelineBuilder {
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>| {
+            move |event, encryption_info: Option<EncryptionInfo>, push_actions: Vec<Action>| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_live_event(event, encryption_info).await;
+                    inner.handle_live_event(event, encryption_info, push_actions).await;
                 }
             }
         });

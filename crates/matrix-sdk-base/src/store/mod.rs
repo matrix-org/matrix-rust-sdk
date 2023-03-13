@@ -27,10 +27,10 @@ use std::{
     pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
-    sync::{Arc, RwLockReadGuard as StdRwLockReadGuard},
+    sync::Arc,
 };
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -63,7 +63,7 @@ use ruma::{
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    rooms::{RoomInfo, RoomType},
+    rooms::{RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
 };
 
@@ -210,8 +210,8 @@ impl Store {
 
     /// The [`SessionTokens`] containing our access token and optional refresh
     /// token.
-    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
-        self.session_tokens.read()
+    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
+        self.session_tokens.subscribe()
     }
 
     /// Set the current [`SessionTokens`].
@@ -223,7 +223,7 @@ impl Store {
     /// token and optional refresh token.
     pub fn session(&self) -> Option<Session> {
         let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens().clone()?;
+        let tokens = self.session_tokens().get()?;
         Some(Session::from_parts(meta.to_owned(), tokens))
     }
 
@@ -236,10 +236,10 @@ impl Store {
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms
             .get(room_id)
-            .and_then(|r| match r.room_type() {
-                RoomType::Joined => Some(r.clone()),
-                RoomType::Left => Some(r.clone()),
-                RoomType::Invited => self.get_stripped_room(room_id),
+            .and_then(|r| match r.state() {
+                RoomState::Joined => Some(r.clone()),
+                RoomState::Left => Some(r.clone()),
+                RoomState::Invited => self.get_stripped_room(room_id),
             })
             .or_else(|| self.get_stripped_room(room_id))
     }
@@ -265,14 +265,14 @@ impl Store {
 
         self.stripped_rooms
             .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomType::Invited))
+            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomState::Invited))
             .clone()
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
-    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
-        if room_type == RoomType::Invited {
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
+        if room_type == RoomState::Invited {
             return self.get_or_create_stripped_room(room_id).await;
         }
 

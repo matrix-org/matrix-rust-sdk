@@ -1238,6 +1238,7 @@ impl OlmMachine {
                     Ok(TimelineEvent {
                         encryption_info: Some(encryption_info),
                         event: decrypted_event,
+                        push_actions: Vec::default(),
                     })
                 }
                 Err(error) => Err(

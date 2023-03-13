@@ -9,7 +9,7 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, RoomType,
+    Client, RoomState,
 };
 use tokio::sync::Notify;
 
@@ -136,7 +136,7 @@ async fn signal_on_invite(
         return;
     }
 
-    if room.room_type() != RoomType::Invited {
+    if room.state() != RoomState::Invited {
         return;
     }
 

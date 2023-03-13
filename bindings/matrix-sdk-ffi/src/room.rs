@@ -250,7 +250,8 @@ impl Room {
             .unwrap()
             .get_or_insert_with(|| {
                 let room = self.room.clone();
-                let timeline = RUNTIME.block_on(async move { room.timeline().await });
+                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+                let timeline = RUNTIME.block_on(room.timeline());
                 Arc::new(timeline)
             })
             .clone();
@@ -498,6 +499,36 @@ impl Room {
                     None,
                 )
                 .await?;
+            Ok(())
+        })
+    }
+
+    /// Leaves the joined room.
+    ///
+    /// Will throw an error if used on an room that isn't in a joined state
+    pub fn leave(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't leave a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.leave().await?;
+            Ok(())
+        })
+    }
+
+    /// Rejects invitation for the invited room.
+    ///
+    /// Will throw an error if used on an room that isn't in an invited state
+    pub fn reject_invitation(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Invited(i) => i.clone(),
+            _ => bail!("Can't reject an invite for a room that isn't in invited state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.reject_invitation().await?;
             Ok(())
         })
     }

@@ -5,7 +5,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use im::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};

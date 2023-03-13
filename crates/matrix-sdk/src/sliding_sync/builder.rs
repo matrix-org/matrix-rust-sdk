@@ -4,7 +4,7 @@ use std::{
     sync::{Mutex, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
@@ -17,7 +17,7 @@ use url::Url;
 
 use super::{
     Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
-    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncRoom,
+    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -232,7 +232,7 @@ impl SlidingSyncBuilder {
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
-        let mut delta_token_inner = None;
+        let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = &self.storage_key {
@@ -261,12 +261,13 @@ impl SlidingSyncBuilder {
                 }
             }
 
-            if let Some(FrozenSlidingSync { to_device_since, delta_token }) = client
-                .store()
-                .get_custom_value(storage_key.as_bytes())
-                .await?
-                .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
-                .transpose()?
+            if let Some(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token }) =
+                client
+                    .store()
+                    .get_custom_value(storage_key.as_bytes())
+                    .await?
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
+                    .transpose()?
             {
                 trace!("frozen for generic found");
 
@@ -278,7 +279,7 @@ impl SlidingSyncBuilder {
                     }
                 }
 
-                delta_token_inner = delta_token;
+                delta_token = frozen_delta_token;
             }
 
             trace!("sync unfrozen done");
@@ -300,8 +301,11 @@ impl SlidingSyncBuilder {
             extensions: Mutex::new(self.extensions),
             reset_counter: Default::default(),
 
-            pos: StdRwLock::new(Observable::new(None)),
-            delta_token: StdRwLock::new(Observable::new(delta_token_inner)),
+            position: StdRwLock::new(SlidingSyncPositionMarkers {
+                pos: Observable::new(None),
+                delta_token: Observable::new(delta_token),
+            }),
+
             subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
         }))

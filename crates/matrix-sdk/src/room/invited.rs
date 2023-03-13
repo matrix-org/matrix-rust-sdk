@@ -5,14 +5,14 @@ use thiserror::Error;
 use super::{Joined, Left};
 use crate::{
     room::{Common, RoomMember},
-    BaseRoom, Client, Error, Result, RoomType,
+    BaseRoom, Client, Error, Result, RoomState,
 };
 
 /// A room in the invited state.
 ///
-/// This struct contains all methods specific to a `Room` with type
-/// `RoomType::Invited`. Operations may fail once the underlying `Room` changes
-/// `RoomType`.
+/// This struct contains all methods specific to a `Room` with
+/// `RoomState::Invited`. Operations may fail once the underlying `Room` changes
+/// `RoomState`.
 #[derive(Debug, Clone)]
 pub struct Invited {
     pub(crate) inner: Common,
@@ -37,15 +37,15 @@ pub enum InvitationError {
 }
 
 impl Invited {
-    /// Create a new `room::Invited` if the underlying `Room` has type
-    /// `RoomType::Invited`.
+    /// Create a new `room::Invited` if the underlying `Room` has
+    /// `RoomState::Invited`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
     pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
-        if room.room_type() == RoomType::Invited {
+        if room.state() == RoomState::Invited {
             Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None

@@ -73,7 +73,7 @@ mod tests {
 
     use anyhow::{bail, Context};
     use assert_matches::assert_matches;
-    use eyeball::Observable;
+    use eyeball::unique::Observable;
     use eyeball_im::VectorDiff;
     use futures::{pin_mut, stream::StreamExt};
     use matrix_sdk::{

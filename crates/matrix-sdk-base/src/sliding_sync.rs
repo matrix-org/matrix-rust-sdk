@@ -17,7 +17,7 @@ use super::BaseClient;
 use crate::{
     deserialized_responses::AmbiguityChanges,
     error::Result,
-    rooms::RoomType,
+    rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges},
     sync::{JoinedRoom, Rooms, SyncResponse},
 };
@@ -138,7 +138,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(room_id, RoomState::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();

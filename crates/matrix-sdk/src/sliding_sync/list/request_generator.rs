@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, UInt};
 use tracing::{error, instrument, trace};
 

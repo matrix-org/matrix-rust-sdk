@@ -76,6 +76,7 @@ pub(super) struct TimelineEventMetadata {
     pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
+    pub(super) is_highlighted: bool,
 }
 
 #[derive(Clone)]
@@ -575,6 +576,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.meta.is_own_event,
                     self.meta.encryption_info.clone(),
                     raw_event.clone(),
+                    self.meta.is_highlighted,
                 ))
             }
         };
