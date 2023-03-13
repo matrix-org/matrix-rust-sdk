@@ -366,8 +366,7 @@ impl VerificationRequest {
     /// based verification.
     #[cfg(feature = "qrcode")]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        let inner = self.inner.read();
-
+        let inner = self.inner.get();
         inner.generate_qr_code(self.we_started, self.inner.clone().into()).await
     }
 

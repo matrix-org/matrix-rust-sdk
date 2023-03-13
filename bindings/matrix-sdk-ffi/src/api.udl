@@ -149,6 +149,39 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+dictionary CreateRoomParameters {
+    string name;
+    string? topic = null;
+    boolean is_encrypted;
+    boolean is_direct = false;
+    RoomVisibility visibility;
+    RoomPreset preset;
+    sequence<string>? invite = null;
+    string? avatar = null;
+};
+
+enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    "Public",
+
+    /// Indicates that the room will not be shown in the published room list.
+    "Private",
+};
+
+enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    "PrivateChat",
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    "PublicChat",
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    "TrustedPrivateChat",
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -178,6 +211,9 @@ interface Client {
 
     [Throws=ClientError]
     string device_id();
+
+    [Throws=ClientError]
+    string create_room(CreateRoomParameters request);
 
     [Throws=ClientError]
     string? account_data(string event_type);
