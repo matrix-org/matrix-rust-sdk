@@ -38,6 +38,8 @@ pub struct RemoteEventTimelineItem {
     encryption_info: Option<EncryptionInfo>,
     // FIXME: Expose the raw JSON of aggregated events somehow
     raw: Raw<AnySyncTimelineEvent>,
+    /// Whether the item should be highlighted in the timeline.
+    is_highlighted: bool,
 }
 
 impl RemoteEventTimelineItem {
@@ -53,6 +55,7 @@ impl RemoteEventTimelineItem {
         is_own: bool,
         encryption_info: Option<EncryptionInfo>,
         raw: Raw<AnySyncTimelineEvent>,
+        is_highlighted: bool,
     ) -> Self {
         Self {
             event_id,
@@ -65,6 +68,7 @@ impl RemoteEventTimelineItem {
             is_own,
             encryption_info,
             raw,
+            is_highlighted,
         }
     }
 
@@ -123,6 +127,11 @@ impl RemoteEventTimelineItem {
     /// Get the raw JSON representation of the primary event.
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
         &self.raw
+    }
+
+    /// Whether the event should be highlighted in the timeline.
+    pub fn is_highlighted(&self) -> bool {
+        self.is_highlighted
     }
 
     pub(in crate::room::timeline) fn set_content(&mut self, content: TimelineItemContent) {

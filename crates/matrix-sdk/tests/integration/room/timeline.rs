@@ -883,3 +883,76 @@ async fn read_receipts_updates() {
     let third_event = third_item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(third_event.read_receipts().len(), 2);
 }
+
+#[async_test]
+async fn sync_highlighted() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "hello",
+                "msgtype": "m.text",
+            },
+            "event_id": "$msda7m0df9E9op3",
+            "origin_server_ts": 152037280,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    // Own events don't trigger push rules.
+    assert!(!remote_event.is_highlighted());
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "This room has been replaced",
+                "replacement_room": "!newroom:localhost",
+            },
+            "event_id": "$foun39djjod0f",
+            "origin_server_ts": 152039280,
+            "sender": "@bob:localhost",
+            "state_key": "",
+            "type": "m.room.tombstone",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let second = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    // `m.room.tombstone` should be highlighted by default.
+    assert!(!remote_event.is_highlighted());
+}
