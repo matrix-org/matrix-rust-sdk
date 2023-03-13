@@ -25,7 +25,10 @@ use ruma::{
     assign,
     events::{
         receipt::ReceiptThread,
-        room::{message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent},
+        room::{
+            message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent,
+            topic::RoomTopicEventContent,
+        },
         EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
@@ -856,6 +859,16 @@ impl Joined {
         }
 
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
+    }
+
+    /// Sets the new topic for this room.
+    ///
+    /// # Arguments
+    /// * `topic` - The new topic for the room
+    pub async fn set_room_topic(&self, topic: &str) -> Result<send_state_event::v3::Response> {
+        let topic_event = RoomTopicEventContent::new(topic.into());
+
+        self.send_state_event(topic_event).await
     }
 
     /// Send a state event with an empty state key to the homeserver.

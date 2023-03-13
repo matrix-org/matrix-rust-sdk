@@ -288,6 +288,9 @@ interface Room {
 
     [Throws=ClientError]
     void reject_invitation();
+
+    [Throws=ClientError]
+    void set_topic(string topic);
 };
 
 callback interface TimelineListener {

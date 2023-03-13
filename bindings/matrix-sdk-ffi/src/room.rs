@@ -532,6 +532,18 @@ impl Room {
             Ok(())
         })
     }
+
+    pub fn set_topic(&self, topic: String) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't set a topic in a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.set_room_topic(&topic).await?;
+            Ok(())
+        })
+    }
 }
 
 impl std::ops::Deref for Room {
