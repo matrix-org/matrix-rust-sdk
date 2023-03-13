@@ -65,17 +65,13 @@ impl SlidingSyncListRequestGenerator {
         batch_size: u32,
         limit: Option<u32>,
     ) -> v4::SyncRequestList {
-        let calculated_end = start + batch_size;
+        let maximum_end = start + batch_size;
 
-        let mut end = match limit {
-            Some(limit) => min(limit, calculated_end),
-            _ => calculated_end,
-        };
+        let mut end = limit.map(|limit| min(limit, maximum_end)).unwrap_or(maximum_end);
 
-        end = match self.list.rooms_count() {
-            Some(total_room_count) => min(end, total_room_count - 1),
-            _ => end,
-        };
+        if let Some(rooms_count) = self.list.rooms_count() {
+            end = min(end, rooms_count - 1);
+        }
 
         self.make_request_for_ranges(vec![(start.into(), end.into())])
     }
