@@ -380,14 +380,16 @@ impl SlidingSyncList {
     pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
         match &self.sync_mode {
             SlidingSyncMode::PagingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_paging_syncup(self.clone())
+                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
             }
 
             SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_growing_syncup(self.clone())
+                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
             }
 
-            SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_live(self.clone()),
+            SlidingSyncMode::Selective => {
+                SlidingSyncListRequestGenerator::new_selective(self.clone())
+            }
         }
     }
 }

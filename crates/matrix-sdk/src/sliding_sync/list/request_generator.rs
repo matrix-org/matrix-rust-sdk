@@ -9,7 +9,7 @@ use super::{Error, SlidingSyncList, SlidingSyncState};
 enum GeneratorKind {
     GrowingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
     PagingFullSync { position: u32, batch_size: u32, limit: Option<u32>, live: bool },
-    Live,
+    Selective,
 }
 
 pub(in super::super) struct SlidingSyncListRequestGenerator {
@@ -19,7 +19,7 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 }
 
 impl SlidingSyncListRequestGenerator {
-    pub(super) fn new_with_paging_syncup(list: SlidingSyncList) -> Self {
+    pub(super) fn new_with_paging_full_sync(list: SlidingSyncList) -> Self {
         let batch_size = list.batch_size;
         let limit = list.limit;
         let position = list
@@ -37,7 +37,7 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    pub(super) fn new_with_growing_syncup(list: SlidingSyncList) -> Self {
+    pub(super) fn new_with_growing_full_sync(list: SlidingSyncList) -> Self {
         let batch_size = list.batch_size;
         let limit = list.limit;
         let position = list
@@ -55,8 +55,8 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    pub(super) fn new_live(list: SlidingSyncList) -> Self {
-        Self { list, ranges: Default::default(), kind: GeneratorKind::Live }
+    pub(super) fn new_selective(list: SlidingSyncList) -> Self {
+        Self { list, ranges: Default::default(), kind: GeneratorKind::Selective }
     }
 
     fn prefetch_request(
@@ -158,7 +158,7 @@ impl SlidingSyncListRequestGenerator {
                 }
             }
 
-            GeneratorKind::Live => {
+            GeneratorKind::Selective => {
                 Observable::update_eq(&mut self.list.state.write().unwrap(), |state| {
                     *state = SlidingSyncState::Live;
                 });
@@ -174,7 +174,7 @@ impl Iterator for SlidingSyncListRequestGenerator {
         match self.kind {
             GeneratorKind::PagingFullSync { live: true, .. }
             | GeneratorKind::GrowingFullSync { live: true, .. }
-            | GeneratorKind::Live => {
+            | GeneratorKind::Selective => {
                 let ranges = self.list.ranges.read().unwrap().clone();
 
                 Some(self.make_request_for_ranges(ranges))
