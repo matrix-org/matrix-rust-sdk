@@ -4,7 +4,7 @@ mod normal;
 use std::{collections::HashSet, fmt};
 
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomType};
+pub use normal::{Room, RoomInfo, RoomState};
 use ruma::{
     assign,
     events::{
