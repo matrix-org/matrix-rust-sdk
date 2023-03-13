@@ -60,7 +60,7 @@ use crate::error::Error;
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
-    rooms::{Room, RoomInfo, RoomType},
+    rooms::{Room, RoomInfo, RoomState},
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
@@ -167,8 +167,8 @@ impl BaseClient {
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
-    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
-        self.store.get_or_create_room(room_id, room_type).await
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
+        self.store.get_or_create_room(room_id, room_state).await
     }
 
     /// Get all the rooms this client knows about.
@@ -623,8 +623,8 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
-        let room = self.store.get_or_create_room(room_id, RoomType::Joined).await;
-        if room.room_type() != RoomType::Joined {
+        let room = self.store.get_or_create_room(room_id, RoomState::Joined).await;
+        if room.state() != RoomState::Joined {
             let _sync_lock = self.sync_lock().read().await;
 
             let mut room_info = room.clone_info();
@@ -644,8 +644,8 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
-        let room = self.store.get_or_create_room(room_id, RoomType::Left).await;
-        if room.room_type() != RoomType::Left {
+        let room = self.store.get_or_create_room(room_id, RoomState::Left).await;
+        if room.state() != RoomState::Left {
             let _sync_lock = self.sync_lock().read().await;
 
             let mut room_info = room.clone_info();
@@ -718,7 +718,7 @@ impl BaseClient {
         let mut new_rooms = Rooms::default();
 
         for (room_id, new_info) in rooms.join {
-            let room = self.store.get_or_create_room(&room_id, RoomType::Joined).await;
+            let room = self.store.get_or_create_room(&room_id, RoomState::Joined).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_joined();
 
@@ -802,7 +802,7 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in rooms.leave {
-            let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
+            let room = self.store.get_or_create_room(&room_id, RoomState::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
@@ -1254,7 +1254,7 @@ mod tests {
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{DisplayName, RoomType, SessionMeta};
+    use crate::{DisplayName, RoomState, SessionMeta};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1288,7 +1288,7 @@ mod tests {
             ))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
-        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Left);
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
         let response = ev_builder
             .add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
@@ -1306,7 +1306,7 @@ mod tests {
             ))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
-        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
     }
 
     #[async_test]
@@ -1397,7 +1397,7 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(room_id).expect("Room not found");
-        assert_eq!(room.room_type(), RoomType::Invited);
+        assert_eq!(room.state(), RoomState::Invited);
         assert_eq!(
             room.display_name().await.expect("fetching display name failed"),
             DisplayName::Calculated("Kyra".to_owned())

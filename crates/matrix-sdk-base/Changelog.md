@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to this crate will be documented in this file.
+## unreleased
+
+- Rename `RoomType` to `RoomState`
 
 ## 0.5.1
 

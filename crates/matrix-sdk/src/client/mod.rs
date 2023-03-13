@@ -28,7 +28,7 @@ use dashmap::DashMap;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta,
+    store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
@@ -1684,7 +1684,7 @@ impl Client {
         let response = self.send(request, None).await?;
 
         let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+            self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 

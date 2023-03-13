@@ -2,7 +2,7 @@
 
 use std::ops::Deref;
 
-use crate::RoomType;
+use crate::RoomState;
 
 mod common;
 mod invited;
@@ -45,10 +45,10 @@ impl Deref for Room {
 
 impl From<Common> for Room {
     fn from(room: Common) -> Self {
-        match room.room_type() {
-            RoomType::Joined => Self::Joined(Joined { inner: room }),
-            RoomType::Left => Self::Left(Left { inner: room }),
-            RoomType::Invited => Self::Invited(Invited { inner: room }),
+        match room.state() {
+            RoomState::Joined => Self::Joined(Joined { inner: room }),
+            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Invited => Self::Invited(Invited { inner: room }),
         }
     }
 }
@@ -56,10 +56,10 @@ impl From<Common> for Room {
 impl From<Joined> for Room {
     fn from(room: Joined) -> Self {
         let room = (*room).clone();
-        match room.room_type() {
-            RoomType::Joined => Self::Joined(Joined { inner: room }),
-            RoomType::Left => Self::Left(Left { inner: room }),
-            RoomType::Invited => Self::Invited(Invited { inner: room }),
+        match room.state() {
+            RoomState::Joined => Self::Joined(Joined { inner: room }),
+            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Invited => Self::Invited(Invited { inner: room }),
         }
     }
 }
@@ -67,10 +67,10 @@ impl From<Joined> for Room {
 impl From<Left> for Room {
     fn from(room: Left) -> Self {
         let room = (*room).clone();
-        match room.room_type() {
-            RoomType::Joined => Self::Joined(Joined { inner: room }),
-            RoomType::Left => Self::Left(Left { inner: room }),
-            RoomType::Invited => Self::Invited(Invited { inner: room }),
+        match room.state() {
+            RoomState::Joined => Self::Joined(Joined { inner: room }),
+            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Invited => Self::Invited(Invited { inner: room }),
         }
     }
 }
@@ -78,10 +78,10 @@ impl From<Left> for Room {
 impl From<Invited> for Room {
     fn from(room: Invited) -> Self {
         let room = (*room).clone();
-        match room.room_type() {
-            RoomType::Joined => Self::Joined(Joined { inner: room }),
-            RoomType::Left => Self::Left(Left { inner: room }),
-            RoomType::Invited => Self::Invited(Invited { inner: room }),
+        match room.state() {
+            RoomState::Joined => Self::Joined(Joined { inner: room }),
+            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Invited => Self::Invited(Invited { inner: room }),
         }
     }
 }

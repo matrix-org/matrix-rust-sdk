@@ -51,7 +51,7 @@ use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Left, RoomMember, RoomType},
+    room::{Left, RoomMember, RoomState},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -404,7 +404,7 @@ impl Common {
     }
 
     fn are_events_visible(&self) -> bool {
-        if let RoomType::Invited = self.inner.room_type() {
+        if let RoomState::Invited = self.inner.state() {
             return matches!(
                 self.inner.history_visibility(),
                 HistoryVisibility::WorldReadable | HistoryVisibility::Invited

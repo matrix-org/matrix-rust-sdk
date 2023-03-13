@@ -35,7 +35,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     store::{Result, StateStoreExt},
-    RoomInfo, RoomType, StateChanges, StateStoreDataKey, StateStoreDataValue,
+    RoomInfo, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// `StateStore` integration tests.
@@ -101,7 +101,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let pushrules_event = pushrules_raw.deserialize().unwrap();
         changes.add_account_data(pushrules_event, pushrules_raw);
 
-        let mut room = RoomInfo::new(room_id, RoomType::Joined);
+        let mut room = RoomInfo::new(room_id, RoomState::Joined);
         room.mark_as_left();
 
         let tag_json: &JsonValue = &test_json::TAG;
@@ -168,7 +168,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         changes.members.insert(room_id.to_owned(), room_members);
         changes.add_room(room);
 
-        let mut stripped_room = RoomInfo::new(stripped_room_id, RoomType::Invited);
+        let mut stripped_room = RoomInfo::new(stripped_room_id, RoomState::Invited);
 
         let stripped_name_json: &JsonValue = &test_json::NAME_STRIPPED;
         let stripped_name_raw =
@@ -764,7 +764,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .entry(room_id.to_owned())
             .or_default()
             .insert(user_id.to_owned(), membership_event());
-        changes.add_room(RoomInfo::new(room_id, RoomType::Left));
+        changes.add_room(RoomInfo::new(room_id, RoomState::Left));
         self.save_changes(&changes).await.unwrap();
 
         let member_event =
@@ -778,7 +778,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut changes = StateChanges::default();
         changes.add_stripped_member(room_id, user_id, custom_stripped_membership_event(user_id));
-        changes.add_stripped_room(RoomInfo::new(room_id, RoomType::Invited));
+        changes.add_stripped_room(RoomInfo::new(room_id, RoomState::Invited));
         self.save_changes(&changes).await.unwrap();
 
         let member_event =

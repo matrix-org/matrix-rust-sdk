@@ -31,7 +31,7 @@ use ruma::{
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
-    room::RoomType as CreateRoomType,
+    room::RoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
     RoomVersionId, UserId,
 };
@@ -71,7 +71,7 @@ pub struct RoomSummary {
 /// Enum keeping track in which state the room is, e.g. if our own user is
 /// joined, invited, or has left the room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum RoomType {
+pub enum RoomState {
     /// The room is in a joined state.
     Joined,
     /// The room is in a left state.
@@ -85,9 +85,9 @@ impl Room {
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_id: &RoomId,
-        room_type: RoomType,
+        room_state: RoomState,
     ) -> Self {
-        let room_info = RoomInfo::new(room_id, room_type);
+        let room_info = RoomInfo::new(room_id, room_state);
         Self::restore(own_user_id, store, room_info)
     }
 
@@ -114,14 +114,14 @@ impl Room {
         &self.own_user_id
     }
 
-    /// Get the type of the room.
-    pub fn room_type(&self) -> RoomType {
-        self.inner.read().unwrap().room_type
+    /// Get the state of the room.
+    pub fn state(&self) -> RoomState {
+        self.inner.read().unwrap().room_state
     }
 
-    /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
+    /// Whether this room's [`RoomType`] is `m.space`.
     pub fn is_space(&self) -> bool {
-        self.inner.read().unwrap().room_type().map_or(false, |t| *t == CreateRoomType::Space)
+        self.inner.read().unwrap().room_type().map_or(false, |t| *t == RoomType::Space)
     }
 
     /// Get the unread notification counts.
@@ -381,13 +381,13 @@ impl Room {
             members?
         };
 
-        let (joined, invited) = match self.room_type() {
-            RoomType::Invited => {
+        let (joined, invited) = match self.state() {
+            RoomState::Invited => {
                 // when we were invited we don't have a proper summary, we have to do best
                 // guessing
                 (members.len() as u64, 1u64)
             }
-            RoomType::Joined if summary.joined_member_count == 0 => {
+            RoomState::Joined if summary.joined_member_count == 0 => {
                 // joined but the summary is not completed yet
                 (
                     (members.len() as u64) + 1, // we've taken ourselves out of the count
@@ -514,8 +514,8 @@ impl Room {
 pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: Arc<RoomId>,
-    /// The type of the room.
-    room_type: RoomType,
+    /// The state of the room.
+    room_state: RoomState,
     /// The unread notifications counts.
     notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
@@ -572,10 +572,10 @@ fn encryption_state_default() -> bool {
 
 impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
-    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+    pub fn new(room_id: &RoomId, room_state: RoomState) -> Self {
         Self {
             room_id: room_id.into(),
-            room_type,
+            room_state,
             notification_counts: Default::default(),
             summary: Default::default(),
             members_synced: false,
@@ -588,17 +588,17 @@ impl RoomInfo {
 
     /// Mark this Room as joined.
     pub fn mark_as_joined(&mut self) {
-        self.room_type = RoomType::Joined;
+        self.room_state = RoomState::Joined;
     }
 
     /// Mark this Room as left.
     pub fn mark_as_left(&mut self) {
-        self.room_type = RoomType::Left;
+        self.room_state = RoomState::Left;
     }
 
     /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
-        self.room_type = RoomType::Invited;
+        self.room_state = RoomState::Invited;
     }
 
     /// Mark this Room as having all the members synced.
@@ -743,7 +743,7 @@ impl RoomInfo {
     }
 
     /// Get the room type of this room.
-    pub fn room_type(&self) -> Option<&CreateRoomType> {
+    pub fn room_type(&self) -> Option<&RoomType> {
         self.base_info.create.as_ref()?.as_original()?.content.room_type.as_ref()
     }
 
@@ -815,7 +815,7 @@ mod test {
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
-    fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
+    fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
         let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
@@ -853,7 +853,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_default() {
-        let (_, room) = make_room(RoomType::Joined);
+        let (_, room) = make_room(RoomState::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
         let canonical_alias_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
@@ -876,7 +876,7 @@ mod test {
         room.inner.write().unwrap().base_info.name = Some(name_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
 
-        let (_, room) = make_room(RoomType::Invited);
+        let (_, room) = make_room(RoomState::Invited);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
         // has precedence
@@ -890,7 +890,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_dm_invited() {
-        let (store, room) = make_room(RoomType::Invited);
+        let (store, room) = make_room(RoomState::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -916,7 +916,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_dm_invited_no_heroes() {
-        let (store, room) = make_room(RoomType::Invited);
+        let (store, room) = make_room(RoomState::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -938,7 +938,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_dm_joined() {
-        let (store, room) = make_room(RoomType::Joined);
+        let (store, room) = make_room(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -969,7 +969,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_dm_joined_no_heroes() {
-        let (store, room) = make_room(RoomType::Joined);
+        let (store, room) = make_room(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
@@ -995,7 +995,7 @@ mod test {
 
     #[async_test]
     async fn test_display_name_dm_alone() {
-        let (store, room) = make_room(RoomType::Joined);
+        let (store, room) = make_room(RoomState::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
