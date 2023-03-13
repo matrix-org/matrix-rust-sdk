@@ -35,7 +35,7 @@ use ruma::{
         relation::Annotation,
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    push::{Action, Tweak},
+    push::Action,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
@@ -691,8 +691,7 @@ async fn handle_remote_event<P: RoomDataProvider>(
     } else {
         Default::default()
     };
-    let is_highlighted =
-        push_actions.iter().any(|a| matches!(a, Action::SetTweak(Tweak::Highlight(true))));
+    let is_highlighted = push_actions.iter().any(Action::is_highlight);
     let event_meta = TimelineEventMetadata {
         sender,
         sender_profile,

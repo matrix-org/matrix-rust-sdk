@@ -411,7 +411,7 @@ impl BaseClient {
                     if let Some(context) = &push_context {
                         let actions = push_rules.get_actions(&event.event, context);
 
-                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                        if actions.iter().any(Action::should_notify) {
                             changes.add_notification(
                                 room_id,
                                 Notification::new(
