@@ -648,7 +648,12 @@ impl RoomInfo {
         }
     }
 
-    /// Returns whether this is an encrypted Room.
+    /// Returns the state this room is in.
+    pub fn state(&self) -> RoomState {
+        self.room_state
+    }
+
+    /// Returns whether this is an encrypted room.
     pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }

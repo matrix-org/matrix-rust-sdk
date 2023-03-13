@@ -3,6 +3,7 @@
 ## unreleased
 
 - Rename `RoomType` to `RoomState`
+- Add `RoomInfo::state` accessor
 
 ## 0.5.1
 
