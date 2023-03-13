@@ -380,6 +380,7 @@ mod tests {
                 .unwrap()
                 .cast(),
                 encryption_info: None,
+                push_actions: Vec::default(),
             }
             .into()],
         };

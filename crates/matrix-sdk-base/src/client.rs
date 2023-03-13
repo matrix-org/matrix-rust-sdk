@@ -423,14 +423,7 @@ impl BaseClient {
                                 ),
                             );
                         }
-                        // TODO if there is an
-                        // Action::SetTweak(Tweak::Highlight) we need to store
-                        // its value with the event so a client can show if the
-                        // event is highlighted
-                        // in the UI.
-                        // Requires the possibility to associate custom data
-                        // with events and to
-                        // store them.
+                        event.push_actions = actions.to_owned();
                     }
                 }
                 Err(e) => {
