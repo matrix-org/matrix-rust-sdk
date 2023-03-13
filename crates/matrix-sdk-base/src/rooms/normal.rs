@@ -515,6 +515,7 @@ pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: Arc<RoomId>,
     /// The state of the room.
+    #[serde(rename = "room_type")] // for backwards compatibility
     room_state: RoomState,
     /// The unread notifications counts.
     notification_counts: UnreadNotificationsCount,
@@ -819,6 +820,65 @@ mod test {
         store::{MemoryStore, StateChanges, StateStore},
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
+
+    #[test]
+    fn room_info_serialization() {
+        // This test exists to make sure we don't accidentally change the
+        // serialized format for `RoomInfo`.
+
+        let info = RoomInfo {
+            room_id: room_id!("!gda78o:server.tld").into(),
+            room_state: RoomState::Invited,
+            notification_counts: UnreadNotificationsCount {
+                highlight_count: 1,
+                notification_count: 2,
+            },
+            summary: RoomSummary {
+                heroes: vec!["Somebody".to_owned()],
+                joined_member_count: 5,
+                invited_member_count: 0,
+            },
+            members_synced: true,
+            last_prev_batch: Some("pb".to_owned()),
+            sync_info: SyncInfo::FullySynced,
+            encryption_state_synced: true,
+            base_info: BaseRoomInfo::new(),
+        };
+
+        let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
+    }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
