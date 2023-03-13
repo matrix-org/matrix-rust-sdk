@@ -878,7 +878,7 @@ impl Joined {
     /// # Arguments
     /// * `avatar_url` - The owned matrix uri that represents the avatar
     /// * `info` - The optional image info that can be provided for the avatar
-    pub async fn set_avatar(
+    pub async fn set_avatar_url(
         &self,
         url: &MxcUri,
         info: Option<ImageInfo>,
@@ -915,7 +915,7 @@ impl Joined {
         info.blurhash = upload_response.blurhash;
         info.mimetype = Some(mime.to_string());
 
-        self.set_avatar(&upload_response.content_uri, Some(info)).await
+        self.set_avatar_url(&upload_response.content_uri, Some(info)).await
     }
 
     /// Send a state event with an empty state key to the homeserver.
