@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use im::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -368,8 +368,8 @@ mod tests {
             room_id: <&RoomId>::try_from("!29fhd83h92h0:example.com").unwrap().to_owned(),
             inner: v4::SlidingSyncRoom::default(),
             prev_batch: Some("let it go!".to_owned()),
-            timeline_queue: vector![TimelineEvent {
-                event: Raw::new(&json! ({
+            timeline_queue: vector![TimelineEvent::new(
+                Raw::new(&json! ({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
                     "type": "m.room.message",
                     "event_id": "$xxxxx:example.org",
@@ -378,9 +378,8 @@ mod tests {
                     "sender": "@bob:example.com",
                 }))
                 .unwrap()
-                .cast(),
-                encryption_info: None,
-            }
+                .cast()
+            )
             .into()],
         };
 

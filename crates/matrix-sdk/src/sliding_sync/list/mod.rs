@@ -12,7 +12,7 @@ use std::{
 };
 
 pub use builder::*;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
 use im::Vector;

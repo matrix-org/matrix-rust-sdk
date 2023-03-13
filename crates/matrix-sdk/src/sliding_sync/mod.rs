@@ -611,7 +611,7 @@ use std::{
 pub use builder::*;
 pub use client::*;
 pub use error::*;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
 use matrix_sdk_base::sync::SyncResponse;
@@ -1056,10 +1056,6 @@ impl SlidingSync {
         // Sending the `/sync` request out when end-to-end encryption is enabled means
         // that we need to also send out any outgoing e2ee related request out
         // coming from the `OlmMachine::outgoing_requests()` method.
-        //
-        // FIXME: Processing outgiong requests at the same time while a `/sync` is in
-        // flight is currently not supported.
-        // More info: [#1386](https://github.com/matrix-org/matrix-rust-sdk/issues/1386).
         #[cfg(feature = "e2e-encryption")]
         let response = {
             let (e2ee_uploads, response) =
@@ -1141,8 +1137,9 @@ impl SlidingSync {
     ///
     /// This stream will send requests and will handle responses automatically,
     /// hence updating the lists.
+    #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.inner.root_span)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+    pub fn stream<'a>(&'a self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + 'a {
         // Collect all the lists that need to be updated.
         let list_generators = {
             let mut list_generators = BTreeMap::new();

@@ -51,7 +51,7 @@ use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Left, RoomMember, RoomType},
+    room::{Left, RoomMember, RoomState},
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -208,11 +208,7 @@ impl Common {
             start: http_response.start,
             end: http_response.end,
             #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response
-                .chunk
-                .into_iter()
-                .map(|event| TimelineEvent { event, encryption_info: None })
-                .collect(),
+            chunk: http_response.chunk.into_iter().map(TimelineEvent::new).collect(),
             #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
             state: http_response.state,
@@ -228,21 +224,16 @@ impl Common {
                     if let Ok(event) = machine.decrypt_room_event(event.cast_ref(), room_id).await {
                         event
                     } else {
-                        TimelineEvent { event, encryption_info: None }
+                        TimelineEvent::new(event)
                     }
                 } else {
-                    TimelineEvent { event, encryption_info: None }
+                    TimelineEvent::new(event)
                 };
 
                 response.chunk.push(decrypted_event);
             }
         } else {
-            response.chunk.extend(
-                http_response
-                    .chunk
-                    .into_iter()
-                    .map(|event| TimelineEvent { event, encryption_info: None }),
-            );
+            response.chunk.extend(http_response.chunk.into_iter().map(TimelineEvent::new));
         }
 
         Ok(response)
@@ -291,11 +282,11 @@ impl Common {
                     return Ok(event);
                 }
             }
-            Ok(TimelineEvent { event, encryption_info: None })
+            Ok(TimelineEvent::new(event))
         }
 
         #[cfg(not(feature = "e2e-encryption"))]
-        Ok(TimelineEvent { event, encryption_info: None })
+        Ok(TimelineEvent::new(event))
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -404,7 +395,7 @@ impl Common {
     }
 
     fn are_events_visible(&self) -> bool {
-        if let RoomType::Invited = self.inner.room_type() {
+        if let RoomState::Invited = self.inner.state() {
             return matches!(
                 self.inner.history_visibility(),
                 HistoryVisibility::WorldReadable | HistoryVisibility::Invited

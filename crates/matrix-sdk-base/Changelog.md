@@ -1,6 +1,9 @@
 # Changelog
 
-All notable changes to this crate will be documented in this file.
+## unreleased
+
+- Rename `RoomType` to `RoomState`
+- Add `RoomInfo::state` accessor
 
 ## 0.5.1
 

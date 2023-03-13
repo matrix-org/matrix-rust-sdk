@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use eyeball::SharedObservable;
+use eyeball::shared::Observable as SharedObservable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use futures::{pin_mut, StreamExt};
 use matrix_sdk::{

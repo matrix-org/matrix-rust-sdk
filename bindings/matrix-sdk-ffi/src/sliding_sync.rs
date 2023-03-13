@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
@@ -194,8 +194,8 @@ impl SlidingSyncRoom {
             }
         };
 
-        let (timeline_items, timeline_stream) =
-            RUNTIME.block_on(async { timeline.subscribe().await });
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+        let (timeline_items, timeline_stream) = RUNTIME.block_on(timeline.subscribe());
 
         let handle_events = async move {
             let listener: Arc<dyn TimelineListener> = listener.into();
