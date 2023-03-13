@@ -533,6 +533,11 @@ impl Room {
         })
     }
 
+    /// Sets a new topic in the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The new topic text that will be set for the room
     pub fn set_topic(&self, topic: String) -> Result<()> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),

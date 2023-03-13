@@ -26,13 +26,13 @@ use ruma::{
     events::{
         receipt::ReceiptThread,
         room::{
-            message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent,
-            topic::RoomTopicEventContent,
+            avatar::RoomAvatarEventContent, message::RoomMessageEventContent,
+            power_levels::RoomPowerLevelsEventContent, topic::RoomTopicEventContent,
         },
         EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, Int, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, instrument};
@@ -869,6 +869,36 @@ impl Joined {
         let topic_event = RoomTopicEventContent::new(topic.into());
 
         self.send_state_event(topic_event).await
+    }
+
+    /// Sets the new avatar url for this room.
+    ///
+    /// # Arguments
+    /// * `avatar_url` - The owned matrix uri that represents the avatar, the
+    ///   avatar is removed if None
+    pub async fn set_avatar(
+        &self,
+        avatar_url: Option<&MxcUri>,
+    ) -> Result<send_state_event::v3::Response> {
+        let mut room_avatar_event = RoomAvatarEventContent::new();
+        room_avatar_event.url = avatar_url.map(|u| u.to_owned());
+
+        self.send_state_event(room_avatar_event).await
+    }
+
+    /// Uploads a new avatar for this room.
+    ///
+    /// # Arguments
+    /// * `mime` - The mime type describing the data
+    /// * `data` - The data representation of the avatar
+    pub async fn upload_avatar(
+        &self,
+        mime: &Mime,
+        data: Vec<u8>,
+    ) -> Result<send_state_event::v3::Response> {
+        let upload_response = self.client.media().upload(mime, data).await?;
+
+        self.set_avatar(Some(&upload_response.content_uri)).await
     }
 
     /// Send a state event with an empty state key to the homeserver.
