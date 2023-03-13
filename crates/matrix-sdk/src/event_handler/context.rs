@@ -16,6 +16,7 @@
 use std::ops::Deref;
 
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use ruma::push::Action;
 use serde_json::value::RawValue as RawJsonValue;
 
 use super::{EventHandlerData, EventHandlerHandle};
@@ -78,6 +79,12 @@ impl EventHandlerContext for RawEvent {
 impl EventHandlerContext for Option<EncryptionInfo> {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
         Some(data.encryption_info.cloned())
+    }
+}
+
+impl EventHandlerContext for Vec<Action> {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.push_actions.to_owned())
     }
 }
 
