@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use ruma::{
     events::{AnySyncTimelineEvent, AnyTimelineEvent},
+    push::Action,
     serde::Raw,
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
@@ -59,6 +60,9 @@ pub struct SyncTimelineEvent {
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
+    /// The push actions associated with this event.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub push_actions: Vec<Action>,
 }
 
 impl SyncTimelineEvent {
@@ -71,7 +75,7 @@ impl SyncTimelineEvent {
 
 impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
     fn from(inner: Raw<AnySyncTimelineEvent>) -> Self {
-        Self { encryption_info: None, event: inner }
+        Self { encryption_info: None, event: inner, push_actions: Vec::default() }
     }
 }
 
@@ -81,7 +85,11 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         // `TimelineEvent` without the `room_id`. By converting the raw value in
         // this way, we simply cause the `room_id` field in the json to be
         // ignored by a subsequent deserialization.
-        Self { encryption_info: o.encryption_info, event: o.event.cast() }
+        Self {
+            encryption_info: o.encryption_info,
+            event: o.event.cast(),
+            push_actions: o.push_actions,
+        }
     }
 }
 
@@ -92,6 +100,8 @@ pub struct TimelineEvent {
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
+    /// The push actions associated with this event.
+    pub push_actions: Vec<Action>,
 }
 
 #[cfg(test)]
@@ -115,8 +125,11 @@ mod tests {
             "sender": "@carl:example.com",
         });
 
-        let room_event =
-            TimelineEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
+        let room_event = TimelineEvent {
+            event: Raw::new(&event).unwrap().cast(),
+            encryption_info: None,
+            push_actions: Vec::default(),
+        };
 
         let converted_room_event: SyncTimelineEvent = room_event.into();
 
