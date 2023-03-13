@@ -180,6 +180,7 @@ async fn echo() {
 
     // Don't move the original timeline, it must live until the end of the test
     let timeline = timeline.clone();
+    #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
     let send_hdl = spawn(async move {
         timeline
             .send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id))

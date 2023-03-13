@@ -282,6 +282,12 @@ interface Room {
 
     [Throws=ClientError]
     void send_reaction(string event_id, string key);
+
+    [Throws=ClientError]
+    void leave();
+
+    [Throws=ClientError]
+    void reject_invitation();
 };
 
 callback interface TimelineListener {

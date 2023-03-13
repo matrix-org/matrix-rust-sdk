@@ -377,7 +377,8 @@ impl Client {
 impl Client {
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(async move { self.async_homeserver().await })
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+        RUNTIME.block_on(self.async_homeserver())
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {

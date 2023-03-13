@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_qrcode::{
@@ -157,12 +157,12 @@ impl QrVerification {
     /// When the verification object is in this state it's required that the
     /// user confirms that the other side has scanned the QR code.
     pub fn has_been_scanned(&self) -> bool {
-        matches!(**self.state.read(), InnerState::Scanned(_))
+        matches!(*self.state.read(), InnerState::Scanned(_))
     }
 
     /// Has the scanning of the QR code been confirmed by us.
     pub fn has_been_confirmed(&self) -> bool {
-        matches!(**self.state.read(), InnerState::Confirmed(_))
+        matches!(*self.state.read(), InnerState::Confirmed(_))
     }
 
     /// Get our own user id.
@@ -189,7 +189,7 @@ impl QrVerification {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerState::Cancelled(c) = &**self.state.read() {
+        if let InnerState::Cancelled(c) = &*self.state.read() {
             Some(c.state.clone().into())
         } else {
             None
@@ -198,12 +198,12 @@ impl QrVerification {
 
     /// Has the verification flow completed.
     pub fn is_done(&self) -> bool {
-        matches!(**self.state.read(), InnerState::Done(_))
+        matches!(*self.state.read(), InnerState::Done(_))
     }
 
     /// Has the verification flow been cancelled.
     pub fn is_cancelled(&self) -> bool {
-        matches!(**self.state.read(), InnerState::Cancelled(_))
+        matches!(*self.state.read(), InnerState::Cancelled(_))
     }
 
     /// Is this a verification that is veryfying one of our own devices
@@ -214,7 +214,7 @@ impl QrVerification {
     /// Have we successfully scanned the QR code and are able to send a
     /// reciprocation event.
     pub fn reciprocated(&self) -> bool {
-        matches!(**self.state.read(), InnerState::Reciprocated(_))
+        matches!(*self.state.read(), InnerState::Reciprocated(_))
     }
 
     /// Get the unique ID that identifies this QR code verification flow.
@@ -277,13 +277,13 @@ impl QrVerification {
         let new_state = QrState::<Cancelled>::new(true, code);
         let content = new_state.as_content(self.flow_id());
 
-        match &**state {
+        match &*state {
             InnerState::Confirmed(_)
             | InnerState::Created(_)
             | InnerState::Scanned(_)
             | InnerState::Reciprocated(_)
             | InnerState::Done(_) => {
-                Observable::set(&mut state, InnerState::Cancelled(new_state));
+                ObservableWriteGuard::set(&mut state, InnerState::Cancelled(new_state));
                 Some(self.content_to_request(content))
             }
             InnerState::Cancelled(_) => None,
@@ -296,7 +296,7 @@ impl QrVerification {
     /// This will return some `OutgoingContent` if the object is in the correct
     /// state to start the verification flow, otherwise `None`.
     pub fn reciprocate(&self) -> Option<OutgoingVerificationRequest> {
-        match &**self.state.read() {
+        match &*self.state.read() {
             InnerState::Reciprocated(s) => {
                 Some(self.content_to_request(s.as_content(self.flow_id())))
             }
@@ -312,11 +312,11 @@ impl QrVerification {
     pub fn confirm_scanning(&self) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.write();
 
-        match &**state {
+        match &*state {
             InnerState::Scanned(s) => {
                 let new_state = s.clone().confirm_scanning();
                 let content = new_state.as_content(&self.flow_id);
-                Observable::set(&mut state, InnerState::Confirmed(new_state));
+                ObservableWriteGuard::set(&mut state, InnerState::Confirmed(new_state));
 
                 Some(self.content_to_request(content))
             }
@@ -432,15 +432,15 @@ impl QrVerification {
     ) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.write();
 
-        match &**state {
+        match &*state {
             InnerState::Created(s) => match s.clone().receive_reciprocate(content) {
                 Ok(s) => {
-                    Observable::set(&mut state, InnerState::Scanned(s));
+                    ObservableWriteGuard::set(&mut state, InnerState::Scanned(s));
                     None
                 }
                 Err(s) => {
                     let content = s.as_content(self.flow_id());
-                    Observable::set(&mut state, InnerState::Cancelled(s));
+                    ObservableWriteGuard::set(&mut state, InnerState::Cancelled(s));
                     Some(self.content_to_request(content))
                 }
             },
@@ -456,7 +456,7 @@ impl QrVerification {
         if sender == self.other_user_id() {
             let mut state = self.state.write();
 
-            let new_state = match &**state {
+            let new_state = match &*state {
                 InnerState::Created(s) => s.clone().into_cancelled(content),
                 InnerState::Scanned(s) => s.clone().into_cancelled(content),
                 InnerState::Confirmed(s) => s.clone().into_cancelled(content),
@@ -470,7 +470,7 @@ impl QrVerification {
                 "Cancelling a QR verification, other user has cancelled"
             );
 
-            Observable::set(&mut state, InnerState::Cancelled(new_state));
+            ObservableWriteGuard::set(&mut state, InnerState::Cancelled(new_state));
         }
     }
 
@@ -670,7 +670,7 @@ impl QrVerification {
     /// To listen to changes to the [`QrVerificationState`] use the
     /// [`QrVerification::changes`] method.
     pub fn state(&self) -> QrVerificationState {
-        (&**self.state.read()).into()
+        (&*self.state.read()).into()
     }
 }
 

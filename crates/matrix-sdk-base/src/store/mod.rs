@@ -27,10 +27,10 @@ use std::{
     pin::Pin,
     result::Result as StdResult,
     str::Utf8Error,
-    sync::{Arc, RwLockReadGuard as StdRwLockReadGuard},
+    sync::Arc,
 };
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -210,8 +210,8 @@ impl Store {
 
     /// The [`SessionTokens`] containing our access token and optional refresh
     /// token.
-    pub fn session_tokens(&self) -> StdRwLockReadGuard<'_, Observable<Option<SessionTokens>>> {
-        self.session_tokens.read()
+    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
+        self.session_tokens.subscribe()
     }
 
     /// Set the current [`SessionTokens`].
@@ -223,7 +223,7 @@ impl Store {
     /// token and optional refresh token.
     pub fn session(&self) -> Option<Session> {
         let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens().clone()?;
+        let tokens = self.session_tokens().get()?;
         Some(Session::from_parts(meta.to_owned(), tokens))
     }
 

@@ -543,6 +543,7 @@ async fn fetch_members_deduplication() {
 
     // Create N tasks that try to fetch the members.
     for _ in 0..5 {
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
         let task = tokio::spawn({
             let room = room.clone();
             async move { room.sync_members().await }
