@@ -35,6 +35,7 @@ mod uniffi_api;
 
 use client::Client;
 use client_builder::ClientBuilder;
+use matrix_sdk::{encryption::CryptoStoreError, HttpError, IdParseError};
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 pub use uniffi_api::*;
@@ -64,6 +65,36 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
+impl From<matrix_sdk::Error> for ClientError {
+    fn from(e: matrix_sdk::Error) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<CryptoStoreError> for ClientError {
+    fn from(e: CryptoStoreError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<HttpError> for ClientError {
+    fn from(e: HttpError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<IdParseError> for ClientError {
+    fn from(e: IdParseError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<serde_json::Error> for ClientError {
+    fn from(e: serde_json::Error) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
 pub use platform::*;
 
 mod uniffi_types {
@@ -73,7 +104,7 @@ mod uniffi_types {
         authentication_service::{
             AuthenticationError, AuthenticationService, HomeserverLoginDetails,
         },
-        client::Client,
+        client::{Client, CreateRoomParameters, PusherIdentifiers, PusherKind, Session},
         client_builder::ClientBuilder,
         room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
@@ -91,5 +122,6 @@ mod uniffi_types {
             TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
             VirtualTimelineItem,
         },
+        ClientError,
     };
 }
