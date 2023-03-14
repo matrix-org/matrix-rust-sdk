@@ -863,7 +863,7 @@ impl Joined {
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
-    /// Sets the new topic for this room.
+    /// Sets a new topic for this room.
     ///
     /// # Arguments
     /// * `topic` - The new topic for the room
