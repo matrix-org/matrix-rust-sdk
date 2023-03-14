@@ -354,6 +354,15 @@ interface Room {
 
     [Throws=ClientError]
     void reject_invitation();
+
+    [Throws=ClientError]
+    void set_topic(string topic);
+
+    [Throws=ClientError]
+    void upload_avatar(string mime_type, sequence<u8> data);
+
+    [Throws=ClientError]
+    void remove_avatar();
 };
 
 callback interface TimelineListener {
