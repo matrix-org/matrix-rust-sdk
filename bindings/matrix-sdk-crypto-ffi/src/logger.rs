@@ -44,9 +44,13 @@ pub struct LoggerWrapper {
 pub fn set_logger(logger: Box<dyn Logger>) {
     let logger = LoggerWrapper { inner: Arc::new(Mutex::new(logger)) };
 
-    let filter = EnvFilter::from_default_env().add_directive(
-        "matrix_sdk_crypto=trace".parse().expect("Can't parse logging filter directive"),
-    );
+    let filter = EnvFilter::from_default_env()
+        .add_directive(
+            "matrix_sdk_crypto=trace".parse().expect("Can't parse logging filter directive"),
+        )
+        .add_directive(
+            "matrix_sdk_sqlite=debug".parse().expect("Can't parse logging filter directive"),
+        );
 
     let _ = tracing_subscriber::fmt()
         .with_writer(logger)

@@ -47,6 +47,7 @@ pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
 serde = { workspace = true, features = ["derive", "rc"] }
+rmp-serde = "1.1.1"
 serde_json = { workspace = true }
 sha2 = "0.10.2"
 thiserror = { workspace = true }
