@@ -47,10 +47,7 @@ use tracing::{
     field::{debug, display},
     info, instrument, warn, Span,
 };
-use vodozemac::{
-    megolm::{DecryptionError, SessionOrdering},
-    Curve25519PublicKey, Ed25519Signature,
-};
+use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -324,6 +321,21 @@ impl OlmMachine {
     /// information.
     pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
         self.store.tracked_users().await
+    }
+
+    /// Enable or disable room key forwarding.
+    ///
+    /// Room key forwarding allows the device to request room keys that it might
+    /// have missend in the original share using `m.room_key_request`
+    /// events.
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn toggle_room_key_forwarding(&self, enable: bool) {
+        self.key_request_machine.toggle_room_key_forwarding(enable)
+    }
+
+    /// Is room key forwarding enabled?
+    pub fn is_room_key_forwarding_enabled(&self) -> bool {
+        self.key_request_machine.is_room_key_forwarding_enabled()
     }
 
     /// Get the outgoing requests that need to be sent out.
@@ -1227,9 +1239,12 @@ impl OlmMachine {
         let result = self.decrypt_megolm_events(room_id, &event, &content).await;
 
         if let Err(e) = &result {
+            #[cfg(feature = "automatic-room-key-forwarding")]
             match e {
                 MegolmError::MissingRoomKey
-                | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+                | MegolmError::Decryption(
+                    vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _),
+                ) => {
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
                 _ => {}
@@ -2131,6 +2146,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn test_query_ratcheted_key() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
         let room_id = room_id!("!test:example.org");
@@ -2185,7 +2201,7 @@ pub(crate) mod tests {
 
         let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
 
-        if let MegolmError::Decryption(vodo_error) = decrypt_error {
+        if let crate::MegolmError::Decryption(vodo_error) = decrypt_error {
             if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
                 // check that key has been requested
                 let outgoing_to_devices =
