@@ -104,7 +104,10 @@ mod uniffi_types {
         authentication_service::{
             AuthenticationError, AuthenticationService, HomeserverLoginDetails,
         },
-        client::{Client, CreateRoomParameters, PusherIdentifiers, PusherKind, Session},
+        client::{
+            Client, CreateRoomParameters, HttpPusherData, PushFormat, PusherIdentifiers,
+            PusherKind, Session,
+        },
         client_builder::ClientBuilder,
         room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
