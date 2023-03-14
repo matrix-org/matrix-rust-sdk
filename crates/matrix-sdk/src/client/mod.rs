@@ -51,7 +51,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            push::get_notifications::v3::Notification,
+            push::{get_notifications::v3::Notification, set_pusher, Pusher},
             room::create_room,
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
@@ -2486,6 +2486,12 @@ impl Client {
     pub fn subscribe_to_unknown_token_errors(&self) -> broadcast::Receiver<UnknownToken> {
         let broadcast = &self.inner.unknown_token_error_sender;
         broadcast.subscribe()
+    }
+
+    /// Sets a given pusher
+    pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
+        let request = set_pusher::v3::Request::post(pusher);
+        self.send(request, None).await
     }
 }
 

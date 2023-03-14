@@ -182,6 +182,28 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
+dictionary PusherIdentifiers {
+    string pushkey;
+    string app_id;
+};
+
+[Enum]
+interface PushFormat {
+    EventIdOnly();
+};
+
+dictionary HttpPusherData {
+    string url;
+    PushFormat? format;
+    string? default_payload;
+};
+
+[Enum]
+interface PusherKind {
+    Http(HttpPusherData data);
+    Email();
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -238,6 +260,14 @@ interface Client {
 
     [Throws=ClientError]
     void logout();
+
+    [Throws=ClientError]
+    void set_pusher(PusherIdentifiers identifiers,
+                    PusherKind kind,
+                    string app_display_name,
+                    string device_display_name,
+                    string? profile_tag,
+                    string lang);
 };
 
 dictionary Session {
@@ -353,6 +383,21 @@ interface MediaSource {
 
 interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
+};
+
+dictionary NotificationItem {
+    TimelineItem item;
+    string title;
+    string? subtitle;
+    boolean is_noisy;
+    string? avatar_url;
+};
+
+interface NotificationService {
+    constructor(string base_path, string user_id);
+
+    [Throws=ClientError]
+    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};

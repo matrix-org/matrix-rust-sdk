@@ -26,6 +26,7 @@ pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
 mod helpers;
+pub mod notification_service;
 pub mod room;
 pub mod session_verification;
 pub mod sliding_sync;
@@ -47,8 +48,8 @@ pub use matrix_sdk::{
 };
 
 pub use self::{
-    authentication_service::*, client::*, room::*, session_verification::*, sliding_sync::*,
-    timeline::*,
+    authentication_service::*, client::*, notification_service::*, room::*,
+    session_verification::*, sliding_sync::*, timeline::*,
 };
 
 #[derive(thiserror::Error, Debug)]

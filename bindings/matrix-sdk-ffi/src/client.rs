@@ -8,6 +8,7 @@ use matrix_sdk::{
             account::whoami,
             error::ErrorKind,
             media::get_content_thumbnail::v3::Method,
+            push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
         },
@@ -22,10 +23,73 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
+use serde_json::Value;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
+use crate::client;
+
+#[derive(Clone)]
+pub struct PusherIdentifiers {
+    pub pushkey: String,
+    pub app_id: String,
+}
+
+impl From<PusherIdentifiers> for PusherIds {
+    fn from(value: PusherIdentifiers) -> Self {
+        Self::new(value.pushkey, value.app_id)
+    }
+}
+
+#[derive(Clone)]
+pub struct HttpPusherData {
+    pub url: String,
+    pub format: Option<PushFormat>,
+    pub default_payload: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum PusherKind {
+    Http { data: HttpPusherData },
+    Email,
+}
+
+impl TryFrom<PusherKind> for RumaPusherKind {
+    type Error = anyhow::Error;
+
+    fn try_from(value: PusherKind) -> anyhow::Result<Self> {
+        match value {
+            PusherKind::Http { data } => {
+                let mut ruma_data = RumaHttpPusherData::new(data.url);
+                if let Some(payload) = data.default_payload {
+                    let json: Value = serde_json::from_str(&payload)?;
+                    ruma_data.default_payload = json;
+                }
+                ruma_data.format = data.format.map(Into::into);
+                Ok(Self::Http(ruma_data))
+            }
+            PusherKind::Email => {
+                let ruma_data = EmailPusherData::new();
+                Ok(Self::Email(ruma_data))
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum PushFormat {
+    EventIdOnly,
+}
+
+impl From<PushFormat> for RumaPushFormat {
+    fn from(value: PushFormat) -> Self {
+        match value {
+            client::PushFormat::EventIdOnly => Self::EventIdOnly,
+        }
+    }
+}
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -381,6 +445,32 @@ impl Client {
                 LoopCtrl::Continue
             }
         }
+    }
+
+    /// Registers a pusher with given parameters
+    pub fn set_pusher(
+        &self,
+        identifiers: PusherIdentifiers,
+        kind: PusherKind,
+        app_display_name: String,
+        device_display_name: String,
+        profile_tag: Option<String>,
+        lang: String,
+    ) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            let ids = identifiers.into();
+
+            let pusher_init = PusherInit {
+                ids,
+                kind: kind.try_into()?,
+                app_display_name,
+                device_display_name,
+                profile_tag,
+                lang,
+            };
+            self.client.set_pusher(pusher_init.into()).await?;
+            Ok(())
+        })
     }
 
     fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {

@@ -4301,6 +4301,7 @@ dependencies = [
  "ruma-client-api",
  "ruma-common",
  "ruma-federation-api",
+ "ruma-push-gateway-api",
 ]
 
 [[package]]
@@ -4397,6 +4398,17 @@ dependencies = [
  "serde",
  "syn",
  "toml 0.7.2",
+]
+
+[[package]]
+name = "ruma-push-gateway-api"
+version = "0.7.1"
+source = "git+https://github.com/ruma/ruma?rev=a399a4017a9f0b249ce848a652f2e4fe65435eaf#a399a4017a9f0b249ce848a652f2e4fe65435eaf"
+dependencies = [
+ "js_int",
+ "ruma-common",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
