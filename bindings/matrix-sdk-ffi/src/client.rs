@@ -31,7 +31,7 @@ use tracing::{debug, error, warn};
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{client, ClientError};
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
     pub pushkey: String,
     pub app_id: String,
@@ -43,14 +43,14 @@ impl From<PusherIdentifiers> for PusherIds {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Record)]
 pub struct HttpPusherData {
     pub url: String,
     pub format: Option<PushFormat>,
     pub default_payload: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum PusherKind {
     Http { data: HttpPusherData },
     Email,
@@ -78,7 +78,7 @@ impl TryFrom<PusherKind> for RumaPusherKind {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum PushFormat {
     EventIdOnly,
 }
@@ -500,6 +500,7 @@ impl Client {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct CreateRoomParameters {
     pub name: String,
     pub topic: Option<String>,
@@ -594,6 +595,7 @@ impl From<RoomPreset> for create_room::v3::RoomPreset {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct Session {
     // Same fields as the Session type in matrix-sdk, just simpler types
     /// The access token used for this session.
