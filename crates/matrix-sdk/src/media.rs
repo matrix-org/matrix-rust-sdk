@@ -17,10 +17,13 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-use std::{path::Path, time::Duration};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::time::Duration;
 
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
+#[cfg(not(target_arch = "wasm32"))]
 use mime_guess;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
@@ -28,7 +31,9 @@ use ruma::{
     events::room::MediaSource,
     MxcUri,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
@@ -51,11 +56,13 @@ pub struct Media {
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
 #[derive(Debug)]
+#[cfg(not(target_arch = "wasm32"))]
 pub struct MediaFileHandle {
     /// The temporary file that contains the media.
     file: NamedTempFile,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> &Path {
@@ -129,6 +136,7 @@ impl Media {
     ///   temporary file's extension.
     ///
     /// * `use_cache` - If we should use the media cache for this request.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_media_file(
         &self,
         request: &MediaRequest,
