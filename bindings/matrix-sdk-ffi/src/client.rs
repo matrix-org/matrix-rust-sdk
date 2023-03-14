@@ -436,7 +436,7 @@ impl Client {
 
     /// Log out the current user
     pub fn logout(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(async move { self.client.logout().await })?;
+        RUNTIME.block_on(self.client.logout())?;
         Ok(())
     }
 
@@ -468,7 +468,6 @@ impl Client {
 
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
         RUNTIME.block_on(self.async_homeserver())
     }
 
