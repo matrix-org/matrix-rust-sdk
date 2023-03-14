@@ -26,8 +26,6 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{TimelineDiff, TimelineItem, TimelineListener};
 
-pub struct ImageInfo {}
-
 #[derive(uniffi::Enum)]
 pub enum Membership {
     Invited,
@@ -573,6 +571,7 @@ impl Room {
 
         RUNTIME.block_on(async move {
             let mime: Mime = mime_type.parse()?;
+            // TODO: We could add an FFI ImageInfo struct in the future
             room.upload_avatar(&mime, data, None).await?;
             Ok(())
         })
