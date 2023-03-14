@@ -537,7 +537,7 @@ mod tests {
         // start a keys query request. At this point, we are only interested in our own
         // devices.
         let (key_query_txn_id, key_query_request) =
-            identity_manager.users_for_key_query().await.unwrap().pop().unwrap();
+            identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         info!("Initial key query: {:?}", key_query_request);
 
         // now bob turns up, and we start tracking his devices...
@@ -562,7 +562,7 @@ mod tests {
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
         let (key_query_txn_id, key_query_request) =
-            identity_manager.users_for_key_query().await.unwrap().pop().unwrap();
+            identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         info!("Second key query: {:?}", key_query_request);
 
         // that second request completes with info on bob's device

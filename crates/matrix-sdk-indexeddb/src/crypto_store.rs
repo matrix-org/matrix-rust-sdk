@@ -28,6 +28,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
+        RoomSettings,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
@@ -59,6 +60,7 @@ mod keys {
     pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
     pub const KEY_REQUEST: &str = "key_request";
+    pub const ROOM_SETTINGS: &str = "room_settings";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -142,7 +144,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.1)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 2.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let old_version = evt.old_version();
 
@@ -176,6 +178,11 @@ impl IndexeddbCryptoStore {
 
                 db.delete_object_store(keys::INBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
+            }
+
+            if old_version < 2.0 {
+                let db = evt.db();
+                db.create_object_store(keys::ROOM_SETTINGS)?;
             }
 
             Ok(())
@@ -363,9 +370,11 @@ impl_crypto_store! {
                 !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
                 keys::IDENTITIES,
             ),
+
             (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
+            (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -474,6 +483,7 @@ impl_crypto_store! {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
+        let room_settings_changes = changes.room_settings;
 
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(keys::DEVICES)?;
@@ -535,6 +545,16 @@ impl_crypto_store! {
                     unsent_secret_requests
                         .put_key_val(&key_request_id, &self.serialize_value(&key_request)?)?;
                 }
+            }
+        }
+
+        if !room_settings_changes.is_empty() {
+            let settings_store = tx.object_store(keys::ROOM_SETTINGS)?;
+
+            for (room_id, settings) in &room_settings_changes {
+                let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
+                let value = self.serialize_value(&settings)?;
+                settings_store.put_key_val(&key, &value)?;
             }
         }
 
@@ -949,6 +969,38 @@ impl_crypto_store! {
         };
 
         Ok(key)
+    }
+
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
+            .object_store(keys::ROOM_SETTINGS)?
+            .get(&key)?
+            .await?
+            .map(|v| self.deserialize_value(v))
+            .transpose()?)
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .object_store(keys::CORE)?
+            .get(&JsValue::from_str(key))?
+            .await?
+            .map(|v| self.deserialize_value(v))
+            .transpose()?)
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
+            .object_store(keys::CORE)?
+            .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
+        Ok(())
     }
 }
 

@@ -28,7 +28,7 @@ use dashmap::DashMap;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta,
+    store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
@@ -579,6 +579,7 @@ impl Client {
     ///             push_rules::PushRulesEvent,
     ///             room::{message::SyncRoomMessageEvent, topic::SyncRoomTopicEvent},
     ///         },
+    ///         push::Action,
     ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
     ///     Client,
@@ -603,6 +604,16 @@ impl Client {
     ///         async move {
     ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         }
+    ///     },
+    /// );
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, push_actions: Vec<Action>| {
+    ///         async move {
+    ///             // A `Vec<Action>` parameter allows you to know which push actions
+    ///             // are applicable for an event. For example, an event with
+    ///             // `Action::SetTweak(Tweak::Highlight(true))` should be highlighted
+    ///             // in the timeline.
     ///         }
     ///     },
     /// );
@@ -1684,7 +1695,7 @@ impl Client {
         let response = self.send(request, None).await?;
 
         let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+            self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 

@@ -293,6 +293,11 @@ impl OlmMachine {
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
+    /// Get the crypto store associated with this `OlmMachine` instance.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// The unique user id that owns this `OlmMachine` instance.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -747,6 +752,9 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the room key.
+    ///
+    /// `settings` - Encryption settings that affect when are room keys rotated
+    /// and who are they shared with
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -1175,7 +1183,11 @@ impl OlmMachine {
             let (decrypted_event, _) = session.decrypt(event).await?;
             let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
-            Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+            Ok(TimelineEvent {
+                event: decrypted_event,
+                encryption_info: Some(encryption_info),
+                push_actions: vec![],
+            })
         } else {
             Err(MegolmError::MissingRoomKey)
         }

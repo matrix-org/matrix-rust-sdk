@@ -42,7 +42,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
-    sync::{atomic::AtomicBool, Arc, Weak},
+    sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
 
@@ -50,10 +50,12 @@ use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
-use ruma::{events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use serde::{Deserialize, Serialize};
+use ruma::{
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, instrument, trace, warn, Span};
+use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
@@ -66,6 +68,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
+    types::EventEncryptionAlgorithm,
     utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
@@ -81,6 +84,7 @@ mod traits;
 #[allow(missing_docs)]
 pub mod integration_tests;
 
+use caches::{SequenceNumber, UsersForKeyQuery};
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
@@ -95,7 +99,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub(crate) struct Store {
+pub struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<DynCryptoStore>,
@@ -116,157 +120,6 @@ pub(crate) struct Store {
     tracked_users_loaded: Arc<AtomicBool>,
 }
 
-/// Record of the users that are waiting for a /keys/query.
-///
-/// To avoid races, we maintain a sequence number which is updated each time we
-/// receive an invalidation notification. We also record the sequence number at
-/// which each user was last invalidated. Then, we attach the current sequence
-/// number to each `/keys/query` request, and when we get the response we can
-/// tell if any users have been invalidated more recently than that request.
-#[derive(Debug)]
-struct UsersForKeyQuery {
-    /// The sequence number we will assign to the next addition to user_map
-    next_sequence_number: InvalidationSequenceNumber,
-
-    /// The users pending a lookup, together with the sequence number at which
-    /// they were added to the list
-    user_map: HashMap<OwnedUserId, InvalidationSequenceNumber>,
-
-    /// A list of tasks waiting for key queries to complete.
-    ///
-    /// We expect this list to remain fairly short, so don't bother partitioning
-    /// by user.
-    tasks_awaiting_key_query: Vec<Weak<KeysQueryWaiter>>,
-}
-
-// We use wrapping arithmetic for the sequence numbers, to make sure we never
-// run out of numbers. (2**64 should be enough for anyone, but it's easy enough
-// just to make it wrap.)
-//
-// We use a *signed* counter so that we can compare values via a subtraction.
-// For example, suppose we've just overflowed from i64::MAX to i64::MIN.
-// (i64::MAX.wrapping_sub(i64::MIN)) is -1, which tells us that i64::MAX comes
-// before i64::MIN in the sequence.
-type InvalidationSequenceNumber = i64;
-
-impl UsersForKeyQuery {
-    /// Create a new, empty, `UsersForKeyQueryCache`
-    fn new() -> Self {
-        UsersForKeyQuery {
-            next_sequence_number: 0,
-            user_map: HashMap::new(),
-            tasks_awaiting_key_query: Vec::new(),
-        }
-    }
-
-    /// Record a new user that requires a key query
-    fn insert_user(&mut self, user: &UserId) {
-        let seq = self.next_sequence_number;
-        trace!(?user, sequence_number = seq, "Flagging user for key query");
-        self.user_map.insert(user.to_owned(), seq);
-        self.next_sequence_number = self.next_sequence_number.wrapping_add(1);
-    }
-
-    /// Record that a user has received an update with the given sequence
-    /// number.
-    ///
-    /// If the sequence number is newer than the oldest invalidation for this
-    /// user, it is removed from the list of those needing an update.
-    ///
-    /// Returns true if the user is now up-to-date, else false
-    #[instrument(level = "trace", skip(self), fields(invalidation_sequence))]
-    fn maybe_remove_user(
-        &mut self,
-        user: &UserId,
-        query_sequence: InvalidationSequenceNumber,
-    ) -> bool {
-        let last_invalidation = self.user_map.get(user);
-
-        // if there were any jobs waiting for this key query to complete, we can flag
-        // them as completed and remove them from our list.
-        // we also clear out any tasks that have been cancelled.
-        self.tasks_awaiting_key_query.retain(|waiter| {
-            let Some(waiter) = waiter.upgrade() else {
-                // the TaskAwaitingKeyQuery has been dropped, so it probably timed out and the
-                // caller went away. We can remove it from our list whether or not it's for this
-                // user.
-                trace!("removing expired waiting task");
-                return false;
-            };
-            if waiter.user == user && waiter.sequence_number.wrapping_sub(query_sequence) <= 0 {
-                trace!(?user, query_sequence, waiter_sequence=waiter.sequence_number, "removing completed waiting task");
-                waiter.completed.store(true, Ordering::Relaxed);
-                false
-            } else {
-                trace!(?user, query_sequence, waiter_user=?waiter.user, waiter_sequence=waiter.sequence_number, "retaining still-waiting task");
-                true
-            }
-        });
-
-        if let Some(invalidation_sequence) = last_invalidation {
-            Span::current().record("invalidation_sequence", invalidation_sequence);
-            if invalidation_sequence.wrapping_sub(query_sequence) > 0 {
-                trace!("User invalidated since this query started: still not up-to-date");
-                false
-            } else {
-                trace!("User now up-to-date");
-                self.user_map.remove(user);
-                true
-            }
-        } else {
-            trace!("User already up-to-date, nothing to do");
-            true
-        }
-    }
-
-    /// Fetch the list of users waiting for a key query, and the current
-    /// sequence number
-    fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, InvalidationSequenceNumber) {
-        // we return the sequence number of the last invalidation
-        let sequence_number = self.next_sequence_number.wrapping_sub(1);
-        (self.user_map.keys().cloned().collect(), sequence_number)
-    }
-
-    /// Check if a key query is pending for a user, and register for a wakeup if
-    /// so.
-    ///
-    /// If no key query is currently pending, returns `None`. Otherwise, returns
-    /// (an `Arc` to) a `KeysQueryWaiter`, whose `completed` flag will
-    /// be set once the lookup completes.
-    fn maybe_register_waiting_task(&mut self, user: &UserId) -> Option<Arc<KeysQueryWaiter>> {
-        match self.user_map.get(user) {
-            None => None,
-            Some(&sequence_number) => {
-                trace!(?user, sequence_number, "registering new waiting task");
-                let waiter = Arc::new(KeysQueryWaiter {
-                    sequence_number,
-                    user: user.to_owned(),
-                    completed: AtomicBool::new(false),
-                });
-                self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
-                Some(waiter)
-            }
-        }
-    }
-}
-
-/// Information on a task which is waiting for a `/keys/query` to complete.
-#[derive(Debug)]
-struct KeysQueryWaiter {
-    /// The user that we are waiting for
-    user: OwnedUserId,
-
-    /// The sequence number of the last invalidation of the users's device list
-    /// when we started waiting (ie, any `/keys/query` result with the same or
-    /// greater sequence number will satisfy this waiter)
-    sequence_number: InvalidationSequenceNumber,
-
-    /// Whether the `/keys/query` has completed.
-    ///
-    /// This is only modified whilst holding the mutex on `users_for_key_query`.
-    completed: AtomicBool,
-}
-
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct Changes {
@@ -281,6 +134,7 @@ pub struct Changes {
     pub key_requests: Vec<GossipRequest>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+    pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -451,9 +305,28 @@ pub(crate) enum UserKeyQueryResult {
     TimeoutExpired,
 }
 
+/// Room encryption settings which are modified by state events or user options
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RoomSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl Default for RoomSettings {
+    fn default() -> Self {
+        Self {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            only_allow_trusted_devices: false,
+        }
+    }
+}
+
 impl Store {
     /// Create a new Store
-    pub fn new(
+    pub(crate) fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<DynCryptoStore>,
@@ -473,33 +346,33 @@ impl Store {
     }
 
     /// UserId associated with this store
-    pub fn user_id(&self) -> &UserId {
+    pub(crate) fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
     /// DeviceId associated with this store
-    pub fn device_id(&self) -> &DeviceId {
+    pub(crate) fn device_id(&self) -> &DeviceId {
         self.verification_machine.own_device_id()
     }
 
     /// The Account associated with this store
-    pub fn account(&self) -> &ReadOnlyAccount {
+    pub(crate) fn account(&self) -> &ReadOnlyAccount {
         &self.verification_machine.store.account
     }
 
     #[cfg(test)]
     /// test helper to reset the cross signing identity
-    pub async fn reset_cross_signing_identity(&self) {
+    pub(crate) async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
     }
 
     ///  PrivateCrossSigningIdentity associated with this store
-    pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
+    pub(crate) fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
         self.identity.clone()
     }
 
     /// Save the given Sessions to the store
-    pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+    pub(crate) async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
@@ -511,7 +384,7 @@ impl Store {
     /// This method returns `SessionOrdering::Better` if the given session is
     /// better than the one we already have or if we don't have such a
     /// session in the store.
-    pub async fn compare_group_session(
+    pub(crate) async fn compare_group_session(
         &self,
         session: &InboundGroupSession,
     ) -> Result<SessionOrdering> {
@@ -527,7 +400,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allow to save only a set of devices
-    pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
+    pub(crate) async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
             ..Default::default()
@@ -538,7 +411,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allo to save only a set of InboundGroupSession
-    pub async fn save_inbound_group_sessions(
+    pub(crate) async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],
     ) -> Result<()> {
@@ -548,7 +421,7 @@ impl Store {
     }
 
     /// Get the display name of our own device.
-    pub async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
+    pub(crate) async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
         Ok(self
             .inner
             .get_device(self.user_id(), self.device_id())
@@ -557,7 +430,7 @@ impl Store {
     }
 
     /// Get the read-only device associated with `device_id` for `user_id`
-    pub async fn get_readonly_device(
+    pub(crate) async fn get_readonly_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -568,7 +441,7 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_devices_filtered(
+    pub(crate) async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
@@ -583,7 +456,7 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This does also return our own device.
-    pub async fn get_readonly_devices_unfiltered(
+    pub(crate) async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
@@ -593,7 +466,7 @@ impl Store {
     /// Get a device for the given user with the given curve25519 key.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_device_from_curve_key(
+    pub(crate) async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
         curve_key: Curve25519PublicKey,
@@ -606,7 +479,7 @@ impl Store {
     /// Get all devices associated with the given `user_id`
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
+    pub(crate) async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
         self.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.inner.remove(self.device_id());
@@ -618,7 +491,7 @@ impl Store {
     /// Get all devices associated with the given `user_id`
     ///
     /// *Note*: This does also return our own device.
-    pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
+    pub(crate) async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.get_readonly_devices_unfiltered(user_id).await?;
 
         let own_identity =
@@ -634,7 +507,7 @@ impl Store {
     }
 
     /// Get a Device copy associated with `device_id` for `user_id`
-    pub async fn get_device(
+    pub(crate) async fn get_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -652,7 +525,7 @@ impl Store {
     }
 
     ///  Get the Identity of `user_id`
-    pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         // let own_identity =
         // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
         Ok(if let Some(identity) = self.inner.get_user_identity(user_id).await? {
@@ -692,7 +565,7 @@ impl Store {
     /// # Arguments
     ///
     /// * `secret_name` - The name of the secret that should be exported.
-    pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
+    pub(crate) async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
         match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
@@ -719,7 +592,7 @@ impl Store {
     }
 
     /// Import the Cross Signing Keys
-    pub async fn import_cross_signing_keys(
+    pub(crate) async fn import_cross_signing_keys(
         &self,
         export: CrossSigningKeyExport,
     ) -> Result<CrossSigningStatus, SecretImportError> {
@@ -749,7 +622,7 @@ impl Store {
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
-    pub async fn import_secret(
+    pub(crate) async fn import_secret(
         &self,
         secret_name: &SecretName,
         secret: &str,
@@ -794,7 +667,7 @@ impl Store {
     ///
     /// This means that the user will be considered for a `/keys/query` request
     /// next time [`Store::users_for_key_query()`] is called.
-    pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
+    pub(crate) async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.users_for_key_query.lock().await.insert_user(user);
         self.tracked_users_cache.insert(user.to_owned());
 
@@ -805,7 +678,10 @@ impl Store {
     ///
     /// Any users not already on the list are flagged as awaiting a key query.
     /// Users that were already in the list are unaffected.
-    pub async fn update_tracked_users(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+    pub(crate) async fn update_tracked_users(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
         self.load_tracked_users().await?;
 
         let mut store_updates = Vec::new();
@@ -828,22 +704,23 @@ impl Store {
     /// from the `/sync` response. Any users *whose device lists we are
     /// tracking* are flagged as needing a key query. Users whose devices we
     /// are not tracking are ignored.
-    pub async fn mark_tracked_users_as_changed(
+    pub(crate) async fn mark_tracked_users_as_changed(
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
         self.load_tracked_users().await?;
-        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
 
+        let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
+
         for user_id in users {
             if self.tracked_users_cache.contains(user_id) {
                 key_query_lock.insert_user(user_id);
                 store_updates.push((user_id, true));
             }
         }
-        self.inner.save_tracked_users(&store_updates).await?;
-        Ok(())
+
+        self.inner.save_tracked_users(&store_updates).await
     }
 
     /// Flag that the given users devices are now up-to-date.
@@ -851,13 +728,14 @@ impl Store {
     /// This is called after processing the response to a /keys/query request.
     /// Any users whose device lists we are tracking are removed from the
     /// list of those pending a /keys/query.
-    pub async fn mark_tracked_users_as_up_to_date(
+    pub(crate) async fn mark_tracked_users_as_up_to_date(
         &self,
         users: impl Iterator<Item = &UserId>,
-        sequence_number: InvalidationSequenceNumber,
+        sequence_number: SequenceNumber,
     ) -> Result<()> {
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.users_for_key_query.lock().await;
+
         for user_id in users {
             if self.tracked_users_cache.contains(user_id) {
                 let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
@@ -915,9 +793,9 @@ impl Store {
     /// A pair `(users, sequence_number)`, where `users` is the list of users to
     /// be queried, and `sequence_number` is the current sequence number,
     /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub async fn users_for_key_query(
+    pub(crate) async fn users_for_key_query(
         &self,
-    ) -> Result<(HashSet<OwnedUserId>, InvalidationSequenceNumber)> {
+    ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
         self.load_tracked_users().await?;
 
         Ok(self.users_for_key_query.lock().await.users_for_key_query())
@@ -928,7 +806,7 @@ impl Store {
     ///
     /// If the given timeout elapses, the method will stop waiting and return
     /// `UserKeyQueryResult::TimeoutExpired`
-    pub async fn wait_if_user_key_query_pending(
+    pub(crate) async fn wait_if_user_key_query_pending(
         &self,
         timeout_duration: Duration,
         user: &UserId,
@@ -960,10 +838,54 @@ impl Store {
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
+    pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
         self.load_tracked_users().await?;
 
         Ok(self.tracked_users_cache.iter().map(|u| u.clone()).collect())
+    }
+
+    /// Check whether there is a global flag to only encrypt messages for
+    /// trusted devices or for everyone.
+    pub async fn get_only_allow_trusted_devices(&self) -> Result<bool> {
+        let value = self.get_value("only_allow_trusted_devices").await?.unwrap_or_default();
+        Ok(value)
+    }
+
+    /// Set global flag whether to encrypt messages for untrusted devices, or
+    /// whether they should be excluded from the conversation.
+    pub async fn set_only_allow_trusted_devices(
+        &self,
+        block_untrusted_devices: bool,
+    ) -> Result<()> {
+        self.set_value("only_allow_trusted_devices", &block_untrusted_devices).await
+    }
+
+    /// Get custom stored value associated with a key
+    pub async fn get_value<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let Some(value) = self.get_custom_value(key).await? else {
+            return Ok(None);
+        };
+        let deserialized = self.deserialize_value(&value)?;
+        Ok(Some(deserialized))
+    }
+
+    /// Store custom value associated with a key
+    pub async fn set_value(&self, key: &str, value: &impl Serialize) -> Result<()> {
+        let serialized = self.serialize_value(value)?;
+        self.set_custom_value(key, serialized).await?;
+        Ok(())
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized =
+            rmp_serde::to_vec_named(value).map_err(|x| CryptoStoreError::Backend(x.into()))?;
+        Ok(serialized)
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let deserialized =
+            rmp_serde::from_slice(value).map_err(|e| CryptoStoreError::Backend(e.into()))?;
+        Ok(deserialized)
     }
 }
 

@@ -35,6 +35,7 @@ use ruma::{
         relation::Annotation,
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
+    push::Action,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
@@ -145,6 +146,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             handle_remote_event(
                 event.event,
                 event.encryption_info,
+                event.push_actions,
                 TimelineItemPosition::End,
                 state,
                 &self.room_data_provider,
@@ -170,11 +172,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         raw: Raw<AnySyncTimelineEvent>,
         encryption_info: Option<EncryptionInfo>,
+        push_actions: Vec<Action>,
     ) {
         let mut state = self.state.lock().await;
         handle_remote_event(
             raw,
             encryption_info,
+            push_actions,
             TimelineItemPosition::End,
             &mut state,
             &self.room_data_provider,
@@ -200,6 +204,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
             read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
         };
 
         let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
@@ -267,6 +273,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         handle_remote_event(
             event.event.cast(),
             event.encryption_info,
+            event.push_actions,
             TimelineItemPosition::Start,
             &mut state,
             &self.room_data_provider,
@@ -412,6 +419,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             let result = handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
+                event.push_actions,
                 TimelineItemPosition::Update(idx),
                 &mut state,
                 &self.room_data_provider,
@@ -642,6 +650,7 @@ impl RoomDataProvider for room::Common {
 async fn handle_remote_event<P: RoomDataProvider>(
     raw: Raw<AnySyncTimelineEvent>,
     encryption_info: Option<EncryptionInfo>,
+    push_actions: Vec<Action>,
     position: TimelineItemPosition,
     timeline_state: &mut TimelineInnerState,
     room_data_provider: &P,
@@ -682,6 +691,7 @@ async fn handle_remote_event<P: RoomDataProvider>(
     } else {
         Default::default()
     };
+    let is_highlighted = push_actions.iter().any(Action::is_highlight);
     let event_meta = TimelineEventMetadata {
         sender,
         sender_profile,
@@ -689,6 +699,7 @@ async fn handle_remote_event<P: RoomDataProvider>(
         relations,
         encryption_info,
         read_receipts,
+        is_highlighted,
     };
     let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
 

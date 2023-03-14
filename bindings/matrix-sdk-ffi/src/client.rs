@@ -5,17 +5,25 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
-            account::whoami, error::ErrorKind, media::get_content_thumbnail::v3::Method,
+            account::whoami,
+            error::ErrorKind,
+            media::get_content_thumbnail::v3::Method,
+            room::{create_room, Visibility},
             session::get_login_types,
         },
-        events::{room::MediaSource, AnyToDeviceEvent},
+        events::{
+            room::{
+                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent, MediaSource,
+            },
+            AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
+        },
         serde::Raw,
-        TransactionId, UInt,
+        EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 
@@ -245,6 +253,15 @@ impl Client {
         Ok(device_id.to_string())
     }
 
+    pub fn create_room(&self, request: CreateRoomParameters) -> anyhow::Result<String> {
+        let client = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let response = client.create_room(request.into()).await?;
+            Ok(String::from(response.room_id()))
+        })
+    }
+
     /// Get the content of the event of the given type out of the account data
     /// store.
     ///
@@ -383,6 +400,100 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+}
+
+pub struct CreateRoomParameters {
+    pub name: String,
+    pub topic: Option<String>,
+    pub is_encrypted: bool,
+    pub is_direct: bool,
+    pub visibility: RoomVisibility,
+    pub preset: RoomPreset,
+    pub invite: Option<Vec<String>>,
+    pub avatar: Option<String>,
+}
+
+impl From<CreateRoomParameters> for create_room::v3::Request {
+    fn from(value: CreateRoomParameters) -> create_room::v3::Request {
+        let mut request = create_room::v3::Request::new();
+        request.name = Some(value.name);
+        request.topic = value.topic;
+        request.is_direct = value.is_direct;
+        request.visibility = value.visibility.into();
+        request.preset = Some(value.preset.into());
+        request.invite = match value.invite {
+            Some(invite) => invite
+                .iter()
+                .filter_map(|user_id| match UserId::parse(user_id) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        error!(user_id, "Skipping invalid user ID, error: {e}");
+                        None
+                    }
+                })
+                .collect(),
+            None => vec![],
+        };
+
+        let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
+
+        if value.is_encrypted {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        if let Some(url) = value.avatar {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url.into());
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        request.initial_state = initial_state;
+
+        request
+    }
+}
+
+pub enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    Public,
+
+    /// Indicates that the room will not be shown in the published room list.
+    Private,
+}
+
+impl From<RoomVisibility> for Visibility {
+    fn from(value: RoomVisibility) -> Self {
+        match value {
+            RoomVisibility::Public => Self::Public,
+            RoomVisibility::Private => Self::Private,
+        }
+    }
+}
+
+pub enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    PrivateChat,
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    PublicChat,
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    TrustedPrivateChat,
+}
+
+impl From<RoomPreset> for create_room::v3::RoomPreset {
+    fn from(value: RoomPreset) -> Self {
+        match value {
+            RoomPreset::PrivateChat => Self::PrivateChat,
+            RoomPreset::PublicChat => Self::PublicChat,
+            RoomPreset::TrustedPrivateChat => Self::TrustedPrivateChat,
+        }
     }
 }
 

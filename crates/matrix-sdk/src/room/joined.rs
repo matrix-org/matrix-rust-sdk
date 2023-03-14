@@ -39,7 +39,7 @@ use crate::{
     attachment::AttachmentConfig,
     error::{Error, HttpResult},
     room::Common,
-    BaseRoom, Client, Result, RoomType,
+    BaseRoom, Client, Result, RoomState,
 };
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -52,9 +52,9 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A room in the joined state.
 ///
-/// The `JoinedRoom` contains all methods specific to a `Room` with type
-/// `RoomType::Joined`. Operations may fail once the underlying `Room` changes
-/// `RoomType`.
+/// The `JoinedRoom` contains all methods specific to a `Room` with
+/// `RoomState::Joined`. Operations may fail once the underlying `Room` changes
+/// `RoomState`.
 #[derive(Debug, Clone)]
 pub struct Joined {
     pub(crate) inner: Common,
@@ -69,15 +69,15 @@ impl Deref for Joined {
 }
 
 impl Joined {
-    /// Create a new `room::Joined` if the underlying `BaseRoom` has type
-    /// `RoomType::Joined`.
+    /// Create a new `room::Joined` if the underlying `BaseRoom` has
+    /// `RoomState::Joined`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
     pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
-        if room.room_type() == RoomType::Joined {
+        if room.state() == RoomState::Joined {
             Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None
@@ -432,7 +432,7 @@ impl Joined {
     /// room anymore!
     #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn sync_up(&self) {
-        while !self.is_synced() && self.room_type() == RoomType::Joined {
+        while !self.is_synced() && self.state() == RoomState::Joined {
             self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
         }
     }

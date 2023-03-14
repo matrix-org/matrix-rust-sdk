@@ -50,7 +50,7 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
-use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
+use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
@@ -234,6 +234,7 @@ pub struct EventHandlerData<'a> {
     room: Option<room::Room>,
     raw: &'a RawJsonValue,
     encryption_info: Option<&'a EncryptionInfo>,
+    push_actions: &'a [Action],
     handle: EventHandlerHandle,
 }
 
@@ -338,7 +339,7 @@ impl Client {
 
         for raw_event in events {
             let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
-            self.call_event_handlers(room, raw_event.json(), kind, &event_type, None).await;
+            self.call_event_handlers(room, raw_event.json(), kind, &event_type, None, &[]).await;
         }
 
         Ok(())
@@ -365,7 +366,8 @@ impl Client {
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
             let handler_kind = HandlerKind::state_redacted(redacted);
 
-            self.call_event_handlers(room, raw_event.json(), handler_kind, &event_type, None).await;
+            self.call_event_handlers(room, raw_event.json(), handler_kind, &event_type, None, &[])
+                .await;
         }
 
         Ok(())
@@ -396,18 +398,41 @@ impl Client {
 
             let raw_event = item.event.json();
             let encryption_info = item.encryption_info.as_ref();
+            let push_actions = &item.push_actions;
 
             // Event handlers for possibly-redacted timeline events
-            self.call_event_handlers(room, raw_event, handler_kind_g, &event_type, encryption_info)
-                .await;
+            self.call_event_handlers(
+                room,
+                raw_event,
+                handler_kind_g,
+                &event_type,
+                encryption_info,
+                push_actions,
+            )
+            .await;
 
             // Event handlers specifically for redacted OR unredacted timeline events
-            self.call_event_handlers(room, raw_event, handler_kind_r, &event_type, encryption_info)
-                .await;
+            self.call_event_handlers(
+                room,
+                raw_event,
+                handler_kind_r,
+                &event_type,
+                encryption_info,
+                push_actions,
+            )
+            .await;
 
             // Event handlers for `AnySyncTimelineEvent`
             let kind = HandlerKind::Timeline;
-            self.call_event_handlers(room, raw_event, kind, &event_type, encryption_info).await;
+            self.call_event_handlers(
+                room,
+                raw_event,
+                kind,
+                &event_type,
+                encryption_info,
+                push_actions,
+            )
+            .await;
         }
 
         Ok(())
@@ -421,6 +446,7 @@ impl Client {
         event_kind: HandlerKind,
         event_type: &str,
         encryption_info: Option<&EncryptionInfo>,
+        push_actions: &[Action],
     ) {
         let room_id = room.as_ref().map(|r| r.room_id());
         if let Some(room_id) = room_id {
@@ -441,6 +467,7 @@ impl Client {
                     room: room.clone(),
                     raw,
                     encryption_info,
+                    push_actions,
                     handle,
                 };
 

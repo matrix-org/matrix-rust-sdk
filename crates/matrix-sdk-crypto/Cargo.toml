@@ -40,6 +40,7 @@ futures-core = "0.3.24"
 futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
+itertools = "0.10.5"
 matrix-sdk-qrcode = { version = "0.4.0", path = "../matrix-sdk-qrcode", optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
@@ -47,6 +48,7 @@ pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
 serde = { workspace = true, features = ["derive", "rc"] }
+rmp-serde = "1.1.1"
 serde_json = { workspace = true }
 sha2 = "0.10.2"
 thiserror = { workspace = true }

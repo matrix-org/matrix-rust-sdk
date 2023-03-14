@@ -14,6 +14,12 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
+    [Throws=MigrationError]
+    void migrate_room_settings(
+        record<string, RoomSettings> room_settings,
+        [ByRef] string path,
+        string? passphrase
+    );
 };
 
 [Error]
@@ -429,6 +435,7 @@ dictionary MigrationData {
     sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
+    record<string, RoomSettings> room_settings;
 };
 
 dictionary SessionMigrationData {
@@ -465,4 +472,9 @@ dictionary PickledInboundGroupSession {
     sequence<string> forwarding_chains;
     boolean imported;
     boolean backed_up;
+};
+
+dictionary RoomSettings {
+    EventEncryptionAlgorithm algorithm;
+    boolean only_allow_trusted_devices;
 };
