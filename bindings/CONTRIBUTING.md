@@ -33,7 +33,8 @@ If the API is on UniFFI already, you can probably see it also in the file [matri
 
 ## FAQ
 
-**Q**: I wrote my Rust code and exposed it to UniFFI. How can I check if the compiler is happy?<br/>**A**: Run `cargo build` in the crate you touched (e.g. matrix-sdk-ffi). The compiler will complain if the Rust code and/or the `.udl` is wrong.
+**Q**: I wrote my Rust code and exposed it to UniFFI. How can I check if the compiler is happy?\
+**A**: Run `cargo build` in the crate you touched (e.g. matrix-sdk-ffi). The compiler will complain if the Rust code and/or the `.udl` is wrong.
 
 
 **Q**: The compiler is happy with my code but the CI is failing on GitHub. How can I fix it?<br/>**A**: The CI may fail for different reasons, you need to have a look on the failing GitHub workflow. One common reason though, is that the linter ([Clippy](https://github.com/rust-lang/rust-clippy)) isn’t happy with your code. If this is the case, you can run `cargo clippy` in the crate you touched to see what’s wrong.
