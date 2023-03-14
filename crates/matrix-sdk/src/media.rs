@@ -16,7 +16,7 @@
 //! High-level media API.
 
 #[cfg(feature = "e2e-encryption")]
-use std::io::{Read, Write};
+use std::io::Read;
 use std::{path::Path, time::Duration};
 
 pub use matrix_sdk_base::media::*;
@@ -29,6 +29,7 @@ use ruma::{
     MxcUri,
 };
 use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -115,8 +116,7 @@ impl Media {
 
     /// Gets a media file by copying it to a temporary location on disk.
     ///
-    /// If the content is encrypted and encryption is enabled, the content will
-    /// be decrypted.
+    /// The file won't be encrypted even if it is encrypted on the server.
     ///
     /// Returns a `MediaFileHandle` which takes ownership of the file. When the
     /// handle is dropped, the file will be deleted from the temporary location.
@@ -144,8 +144,8 @@ impl Media {
             suffix = String::from(".") + extension;
         }
 
-        let mut file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
-        file.write_all(&data)?;
+        let file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
+        TokioFile::from_std(file.reopen()?).write_all(&data).await?;
 
         Ok(MediaFileHandle { file })
     }
