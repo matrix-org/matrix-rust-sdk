@@ -19,6 +19,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     sync::{atomic::AtomicBool, Arc, Weak},
 };
 
@@ -26,7 +27,7 @@ use atomic::Ordering;
 use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
-use tracing::{field::debug, instrument, trace, Span};
+use tracing::{field::display, instrument, trace, Span};
 
 use crate::{
     identities::ReadOnlyDevice,
@@ -180,6 +181,12 @@ impl DeviceStore {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SequenceNumber(i64);
 
+impl Display for SequenceNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl PartialOrd for SequenceNumber {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.0.wrapping_sub(other.0).cmp(&0))
@@ -254,11 +261,11 @@ impl UsersForKeyQuery {
 
     /// Record a new user that requires a key query
     pub(super) fn insert_user(&mut self, user: &UserId) {
-        let seq = self.next_sequence_number;
+        let sequence_number = self.next_sequence_number;
 
-        trace!(?user, sequence_number = ?seq, "Flagging user for key query");
+        trace!(?user, %sequence_number, "Flagging user for key query");
 
-        self.user_map.insert(user.to_owned(), seq);
+        self.user_map.insert(user.to_owned(), sequence_number);
         self.next_sequence_number.increment();
     }
 
@@ -286,20 +293,22 @@ impl UsersForKeyQuery {
                 // caller went away. We can remove it from our list whether or not it's for this
                 // user.
                 trace!("removing expired waiting task");
+
                 return false;
             };
             if waiter.user == user && waiter.sequence_number <= query_sequence {
-                trace!(?user, ?query_sequence, waiter_sequence=?waiter.sequence_number, "removing completed waiting task");
+                trace!(?user, %query_sequence, waiter_sequence = %waiter.sequence_number, "Removing completed waiting task");
                 waiter.completed.store(true, Ordering::Relaxed);
+
                 false
             } else {
-                trace!(?user, ?query_sequence, waiter_user=?waiter.user, waiter_sequence=?waiter.sequence_number, "retaining still-waiting task");
+                trace!(?user, %query_sequence, waiter_user = ?waiter.user, waiter_sequence= %waiter.sequence_number, "Retaining still-waiting task");
                 true
             }
         });
 
         if let Some(last_invalidation) = last_invalidation {
-            Span::current().record("invalidation_sequence", debug(last_invalidation));
+            Span::current().record("invalidation_sequence", display(last_invalidation));
 
             if last_invalidation > query_sequence {
                 trace!("User invalidated since this query started: still not up-to-date");
@@ -336,13 +345,16 @@ impl UsersForKeyQuery {
         match self.user_map.get(user) {
             None => None,
             Some(&sequence_number) => {
-                trace!(?user, ?sequence_number, "registering new waiting task");
+                trace!(?user, %sequence_number, "Registering new waiting task");
+
                 let waiter = Arc::new(KeysQueryWaiter {
                     sequence_number,
                     user: user.to_owned(),
                     completed: AtomicBool::new(false),
                 });
+
                 self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
+
                 Some(waiter)
             }
         }
