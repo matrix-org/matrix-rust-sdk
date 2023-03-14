@@ -7,18 +7,20 @@ The process requires to developers to write a `.udl` (UniFFI Definition Language
 Rust code related with bindings live in the [matrix-rust-sdk/bindings](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings) folder.
 
 Each Rust crate can expose definitions to UniFFI using two different approaches:
-- Using an `.udl` file. When a crate has one, you find it under the `src` folder (an example is [here](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl)). In this case most of the Rust definitions can be found in the file.
-- Add UniFFI directivies as Rust attributes. In this case Rust source files (`.rs`) contain attributes related to UniFFI (e.g. `#[uniffi::export]`). 
+- Using an `.udl` file. When a crate has one, you find it under the `src` folder (an example is [here](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl)).
+- Add UniFFI directivies as Rust attributes. In this case Rust source files (`.rs`) contain attributes related to UniFFI (e.g. `#[uniffi::export]`). Attributes are preferred, where applicable.
  
 
 ## Expose Rust methods/types to UniFFI
 
 ### Check if the API is already on UniFFI
 
-First of all check if the API / type you are looking for exists on UniFFI already. Most of exposed matrix definitions are collected in the crate [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings/matrix-sdk-ffi).
+First of all check if the API / type you are looking for exists on UniFFI already. Most of exposed matrix definitions are collected in the crate [matrix-sdk-ffi](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings/matrix-sdk-ffi).
 This crate contains mainly small Rust wrappers around the actual Rust SDK (e.g. the crate [matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk))
 
-If the API is on UniFFI already, you can probably see it also in the file [matrix-sdk-ffi/src/api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl) where most of the matrix definitions are declared.
+If the Rust definition is on UniFFI already, you either:
+- find it in a `.udl` file like [matrix-sdk-ffi/src/api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl)
+- see it marked with a proper UniFFI Rust attribute like this `#[uniffi::export]`. This method should be preferred where applicable
 
 
 ### Adding a missing matrix API
@@ -37,5 +39,4 @@ If the API is on UniFFI already, you can probably see it also in the file [matri
 **A**: Run `cargo build` in the crate you touched (e.g. matrix-sdk-ffi). The compiler will complain if the Rust code and/or the `.udl` is wrong.
 
 
-**Q**: The compiler is happy with my code but the CI is failing on GitHub. How can I fix it?\
-**A**: The CI may fail for different reasons, you need to have a look on the failing GitHub workflow. One common reason though, is that the linter ([Clippy](https://github.com/rust-lang/rust-clippy)) isn’t happy with your code. If this is the case, you can run `cargo clippy` in the crate you touched to see what’s wrong.
+**Q**: The compiler is happy with my code but the CI is failing on GitHub. How can I fix it?<br/>**A**: The CI may fail for different reasons, you need to have a look on the failing GitHub workflow. One common reason though, is that the linter ([Clippy](https://github.com/rust-lang/rust-clippy)) isn’t happy with your code. If this is the case, you can run `cargo clippy` in the crate you touched to see what’s wrong.
