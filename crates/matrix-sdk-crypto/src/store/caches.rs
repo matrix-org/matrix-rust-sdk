@@ -296,13 +296,27 @@ impl UsersForKeyQuery {
 
                 return false;
             };
+
             if waiter.user == user && waiter.sequence_number <= query_sequence {
-                trace!(?user, %query_sequence, waiter_sequence = %waiter.sequence_number, "Removing completed waiting task");
+                trace!(
+                    ?user,
+                    %query_sequence,
+                    waiter_sequence = %waiter.sequence_number,
+                    "Removing completed waiting task"
+                );
+
                 waiter.completed.store(true, Ordering::Relaxed);
 
                 false
             } else {
-                trace!(?user, %query_sequence, waiter_user = ?waiter.user, waiter_sequence= %waiter.sequence_number, "Retaining still-waiting task");
+                trace!(
+                    ?user,
+                    %query_sequence,
+                    waiter_user = ?waiter.user,
+                    waiter_sequence= %waiter.sequence_number,
+                    "Retaining still-waiting task"
+                );
+
                 true
             }
         });
