@@ -29,7 +29,7 @@ use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::client;
+use crate::{client, ClientError};
 
 #[derive(Clone)]
 pub struct PusherIdentifiers {
@@ -181,9 +181,12 @@ impl Client {
             Ok(())
         })
     }
+}
 
+#[uniffi::export]
+impl Client {
     /// Restores the client from a `Session`.
-    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
+    pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
         let Session {
             access_token,
             refresh_token,
@@ -201,9 +204,11 @@ impl Client {
             user_id: user_id.try_into()?,
             device_id: device_id.into(),
         };
-        self.restore_session_inner(session)
+        Ok(self.restore_session_inner(session)?)
     }
+}
 
+impl Client {
     /// Restores the client from a `matrix_sdk::Session`.
     pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
@@ -253,8 +258,11 @@ impl Client {
         RUNTIME
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
+}
 
-    pub fn session(&self) -> anyhow::Result<Session> {
+#[uniffi::export]
+impl Client {
+    pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
@@ -272,12 +280,12 @@ impl Client {
         })
     }
 
-    pub fn user_id(&self) -> anyhow::Result<String> {
+    pub fn user_id(&self) -> Result<String, ClientError> {
         let user_id = self.client.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
     }
 
-    pub fn display_name(&self) -> anyhow::Result<String> {
+    pub fn display_name(&self) -> Result<String, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let display_name = l.account().get_display_name().await?.context("No User ID found")?;
@@ -285,18 +293,19 @@ impl Client {
         })
     }
 
-    pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
+    pub fn set_display_name(&self, name: String) -> Result<(), ClientError> {
         let client = self.client.clone();
         RUNTIME.block_on(async move {
             client
                 .account()
                 .set_display_name(Some(name.as_str()))
                 .await
-                .context("Unable to set display name")
+                .context("Unable to set display name")?;
+            Ok(())
         })
     }
 
-    pub fn avatar_url(&self) -> anyhow::Result<Option<String>> {
+    pub fn avatar_url(&self) -> Result<Option<String>, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let avatar_url = l.account().get_avatar_url().await?;
@@ -304,7 +313,7 @@ impl Client {
         })
     }
 
-    pub fn cached_avatar_url(&self) -> anyhow::Result<Option<String>> {
+    pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let url = l.account().get_cached_avatar_url().await?;
@@ -312,12 +321,12 @@ impl Client {
         })
     }
 
-    pub fn device_id(&self) -> anyhow::Result<String> {
+    pub fn device_id(&self) -> Result<String, ClientError> {
         let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
     }
 
-    pub fn create_room(&self, request: CreateRoomParameters) -> anyhow::Result<String> {
+    pub fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
         let client = self.client.clone();
 
         RUNTIME.block_on(async move {
@@ -330,7 +339,7 @@ impl Client {
     /// store.
     ///
     /// It will be returned as a JSON string.
-    pub fn account_data(&self, event_type: String) -> anyhow::Result<Option<String>> {
+    pub fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
         RUNTIME.block_on(async move {
             let event = self.client.account().account_data_raw(event_type.into()).await?;
             Ok(event.map(|e| e.json().get().to_owned()))
@@ -340,7 +349,7 @@ impl Client {
     /// Set the given account data content for the given event type.
     ///
     /// It should be supplied as a JSON string.
-    pub fn set_account_data(&self, event_type: String, content: String) -> anyhow::Result<()> {
+    pub fn set_account_data(&self, event_type: String, content: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let raw_content = Raw::from_json_string(content)?;
             self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
@@ -348,17 +357,20 @@ impl Client {
         })
     }
 
-    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> anyhow::Result<String> {
+    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> Result<String, ClientError> {
         let l = self.client.clone();
 
         RUNTIME.block_on(async move {
-            let mime_type: mime::Mime = mime_type.parse()?;
+            let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
             let response = l.media().upload(&mime_type, data).await?;
             Ok(String::from(response.content_uri))
         })
     }
 
-    pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {
+    pub fn get_media_content(
+        &self,
+        media_source: Arc<MediaSource>,
+    ) -> Result<Vec<u8>, ClientError> {
         let l = self.client.clone();
         let source = (*media_source).clone();
 
@@ -374,7 +386,7 @@ impl Client {
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, ClientError> {
         let l = self.client.clone();
         let source = (*media_source).clone();
 
@@ -397,7 +409,7 @@ impl Client {
 
     pub fn get_session_verification_controller(
         &self,
-    ) -> anyhow::Result<Arc<SessionVerificationController>> {
+    ) -> Result<Arc<SessionVerificationController>, ClientError> {
         RUNTIME.block_on(async move {
             if let Some(session_verification_controller) =
                 &*self.session_verification_controller.read().await
@@ -423,28 +435,9 @@ impl Client {
     }
 
     /// Log out the current user
-    pub fn logout(&self) -> anyhow::Result<()> {
-        RUNTIME.block_on(async move {
-            match self.client.logout().await {
-                Ok(_) => Ok(()),
-                Err(error) => Err(anyhow!(error.to_string())),
-            }
-        })
-    }
-
-    /// Process a sync error and return loop control accordingly
-    pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        let client_api_error_kind = sync_error.client_api_error_kind();
-        match client_api_error_kind {
-            Some(ErrorKind::UnknownPos) => {
-                let _ = self.sliding_sync_reset_broadcast_tx.send(());
-                LoopCtrl::Continue
-            }
-            _ => {
-                warn!("Ignoring sync error: {sync_error:?}");
-                LoopCtrl::Continue
-            }
-        }
+    pub fn logout(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move { self.client.logout().await })?;
+        Ok(())
     }
 
     /// Registers a pusher with given parameters
@@ -456,7 +449,7 @@ impl Client {
         device_display_name: String,
         profile_tag: Option<String>,
         lang: String,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let ids = identifiers.into();
 
@@ -473,15 +466,6 @@ impl Client {
         })
     }
 
-    fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
-        if let Some(delegate) = &*self.delegate.read().unwrap() {
-            delegate.did_receive_auth_error(unknown_token.soft_logout);
-        }
-    }
-}
-
-#[uniffi::export]
-impl Client {
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
         #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
@@ -490,6 +474,29 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+}
+
+impl Client {
+    /// Process a sync error and return loop control accordingly
+    pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
+        let client_api_error_kind = sync_error.client_api_error_kind();
+        match client_api_error_kind {
+            Some(ErrorKind::UnknownPos) => {
+                let _ = self.sliding_sync_reset_broadcast_tx.send(());
+                LoopCtrl::Continue
+            }
+            _ => {
+                warn!("Ignoring sync error: {sync_error:?}");
+                LoopCtrl::Continue
+            }
+        }
+    }
+
+    fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
+        if let Some(delegate) = &*self.delegate.read().unwrap() {
+            delegate.did_receive_auth_error(unknown_token.soft_logout);
+        }
     }
 }
 

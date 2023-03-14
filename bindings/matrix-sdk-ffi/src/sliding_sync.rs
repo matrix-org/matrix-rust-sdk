@@ -20,10 +20,9 @@ use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
 use tracing::{debug, error, warn};
 use url::Url;
 
-use super::{Client, Room, RUNTIME};
 use crate::{
-    helpers::unwrap_or_clone_arc, room::TimelineLock, EventTimelineItem, TimelineDiff,
-    TimelineItem, TimelineListener,
+    helpers::unwrap_or_clone_arc, room::TimelineLock, Client, ClientError, EventTimelineItem, Room,
+    TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
 
 type TaskHandleFinalizer = Box<dyn FnOnce() + Send + Sync>;
@@ -837,8 +836,9 @@ impl SlidingSyncBuilder {
     }
 }
 
+#[uniffi::export]
 impl Client {
-    pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
+    pub fn full_sliding_sync(&self) -> Result<Arc<SlidingSync>, ClientError> {
         RUNTIME.block_on(async move {
             let builder = self.client.sliding_sync().await;
             let inner = builder.add_fullsync_list().build().await?;

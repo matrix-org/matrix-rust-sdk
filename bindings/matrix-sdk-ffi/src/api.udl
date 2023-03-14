@@ -209,65 +209,6 @@ interface Client {
 
     [Throws=ClientError]
     void login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=ClientError]
-    void restore_session(Session session);
-
-    [Throws=ClientError]
-    Session session();
-
-    [Throws=ClientError]
-    string user_id();
-
-    [Throws=ClientError]
-    string display_name();
-
-    [Throws=ClientError]
-    void set_display_name(string name);
-
-    [Throws=ClientError]
-    string? avatar_url();
-
-    [Throws=ClientError]
-    string? cached_avatar_url();
-
-    [Throws=ClientError]
-    string device_id();
-
-    [Throws=ClientError]
-    string create_room(CreateRoomParameters request);
-
-    [Throws=ClientError]
-    string? account_data(string event_type);
-
-    [Throws=ClientError]
-    void set_account_data(string event_type, string content);
-
-    [Throws=ClientError]
-    string upload_media(string mime_type, sequence<u8> content);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_content(MediaSource source);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_thumbnail(MediaSource source, u64 width, u64 height);
-
-    [Throws=ClientError]
-    SessionVerificationController get_session_verification_controller();
-
-    [Throws=ClientError]
-    SlidingSync full_sliding_sync();
-
-    [Throws=ClientError]
-    void logout();
-
-    [Throws=ClientError]
-    void set_pusher(PusherIdentifiers identifiers,
-                    PusherKind kind,
-                    string app_display_name,
-                    string device_display_name,
-                    string? profile_tag,
-                    string lang);
 };
 
 dictionary Session {
