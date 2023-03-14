@@ -29,7 +29,7 @@ async-trait = { workspace = true }
 dashmap = { workspace = true }
 fs_extra = "1.2.0"
 futures-core = "0.3.21"
-futures-util = { version = "0.3.21", default-features = false }
+futures-util = { workspace = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }

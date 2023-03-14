@@ -176,7 +176,7 @@ pub enum TimelineChange {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct TimelineItem(matrix_sdk::room::timeline::TimelineItem);
+pub struct TimelineItem(pub(crate) matrix_sdk::room::timeline::TimelineItem);
 
 impl TimelineItem {
     pub(crate) fn from_arc(arc: Arc<matrix_sdk::room::timeline::TimelineItem>) -> Arc<Self> {
@@ -312,7 +312,7 @@ impl EventTimelineItem {
         use matrix_sdk::room::timeline::EventTimelineItem::*;
 
         match &self.0 {
-            Local(local_event) => Some((&local_event.send_state).into()),
+            Local(local_event) => Some(local_event.send_state().into()),
             Remote(_) => None,
         }
     }

@@ -158,7 +158,7 @@ impl LoginBuilder {
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `LoginBuilder` directly.
     #[instrument(
-        parent = &self.client.root_span,
+        parent = &self.client.inner.root_span,
         target = "matrix_sdk::client",
         name = "login",
         skip_all,
@@ -296,7 +296,7 @@ where
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `SsoLoginBuilder` directly.
     #[instrument(
-        parent = &self.client.root_span,
+        parent = &self.client.inner.root_span,
         target = "matrix_sdk::client",
         name = "login",
         skip_all,

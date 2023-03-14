@@ -23,9 +23,11 @@ use ruma::{
 use tracing::error;
 
 use super::{
+    compare_events_positions,
     inner::{RoomDataProvider, TimelineInnerState},
-    rfind_event_by_id, EventTimelineItem, TimelineItem,
+    rfind_event_by_id, EventTimelineItem, RelativePosition, TimelineItem,
 };
+use crate::room;
 
 struct FullReceipt<'a> {
     event_id: &'a EventId,
@@ -77,7 +79,7 @@ pub(super) fn handle_explicit_read_receipts(
                     });
 
                     if let Some((pos, mut remote_event_item)) = new_receipt_event_item {
-                        remote_event_item.read_receipts.insert(user_id, receipt);
+                        remote_event_item.add_read_receipt(user_id, receipt);
                         timeline_state
                             .items
                             .set(pos, Arc::new(TimelineItem::Event(remote_event_item.into())));
@@ -106,10 +108,10 @@ pub(super) fn maybe_add_implicit_read_receipt(
         return;
     };
 
-    let receipt = Receipt::new(remote_event_item.timestamp);
+    let receipt = Receipt::new(remote_event_item.timestamp());
     let new_receipt = FullReceipt {
-        event_id: &remote_event_item.event_id,
-        user_id: &remote_event_item.sender.clone(),
+        event_id: remote_event_item.event_id(),
+        user_id: remote_event_item.sender(),
         receipt_type: ReceiptType::Read,
         receipt: &receipt,
     };
@@ -122,7 +124,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
         users_read_receipts,
     );
     if read_receipt_updated && !is_own_event {
-        remote_event_item.read_receipts.insert(remote_event_item.sender.clone(), receipt);
+        remote_event_item.add_read_receipt(remote_event_item.sender().to_owned(), receipt);
     }
 }
 
@@ -174,8 +176,11 @@ fn maybe_update_read_receipt(
         if !is_own_user_id {
             // Remove the read receipt for this user from the old event.
             let mut old_event_item = old_event_item.clone();
-            if old_event_item.read_receipts.remove(receipt.user_id).is_none() {
-                error!("inconsistent state: old event item for user's read receipt doesn't have a receipt for the user");
+            if !old_event_item.remove_read_receipt(receipt.user_id) {
+                error!(
+                    "inconsistent state: old event item for user's read \
+                     receipt doesn't have a receipt for the user"
+                );
             }
             timeline_items
                 .set(old_receipt_pos, Arc::new(TimelineItem::Event(old_event_item.into())));
@@ -225,4 +230,75 @@ pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
     }
 
     read_receipts
+}
+
+/// Get the unthreaded receipt of the given type for the given user in the
+/// timeline.
+pub(super) async fn user_receipt(
+    user_id: &UserId,
+    receipt_type: ReceiptType,
+    timeline_state: &TimelineInnerState,
+    room: &room::Common,
+) -> Option<(OwnedEventId, Receipt)> {
+    if let Some(receipt) = timeline_state
+        .users_read_receipts
+        .get(user_id)
+        .and_then(|user_map| user_map.get(&receipt_type))
+        .cloned()
+    {
+        return Some(receipt);
+    }
+
+    room.user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Could not get user read receipt of type {receipt_type:?}: {e}");
+            None
+        })
+}
+
+/// Get the latest read receipt for the given user.
+///
+/// Useful to get the latest read receipt, whether it's private or public.
+pub(super) async fn latest_user_read_receipt(
+    user_id: &UserId,
+    timeline_state: &TimelineInnerState,
+    room: &room::Common,
+) -> Option<(OwnedEventId, Receipt)> {
+    let public_read_receipt = user_receipt(user_id, ReceiptType::Read, timeline_state, room).await;
+    let private_read_receipt =
+        user_receipt(user_id, ReceiptType::ReadPrivate, timeline_state, room).await;
+
+    // If we only have one, return it.
+    let Some((pub_event_id, pub_receipt)) = &public_read_receipt else {
+        return private_read_receipt;
+    };
+    let Some((priv_event_id, priv_receipt)) = &private_read_receipt else {
+        return public_read_receipt;
+    };
+
+    // Compare by position in the timeline.
+    if let Some(relative_pos) =
+        compare_events_positions(pub_event_id, priv_event_id, &timeline_state.items)
+    {
+        if relative_pos == RelativePosition::After {
+            return private_read_receipt;
+        }
+
+        return public_read_receipt;
+    }
+
+    // Compare by timestamp.
+    if let Some((pub_ts, priv_ts)) = pub_receipt.ts.zip(priv_receipt.ts) {
+        if priv_ts > pub_ts {
+            return private_read_receipt;
+        }
+
+        return public_read_receipt;
+    }
+
+    // As a fallback, let's assume that a private read receipt should be more recent
+    // than a public read receipt, otherwise there's no point in the private read
+    // receipt.
+    private_read_receipt
 }

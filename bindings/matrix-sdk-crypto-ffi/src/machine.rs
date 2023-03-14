@@ -16,7 +16,7 @@ use matrix_sdk_crypto::{
     },
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
-    store::RecoveryKey,
+    store::{Changes, RecoveryKey},
     LocalTrust, OlmMachine as InnerMachine, UserIdentities,
 };
 use ruma::{
@@ -53,9 +53,9 @@ use crate::{
     responses::{response_from_string, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
     CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
-    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, Request, RequestType,
-    RequestVerificationResult, RoomKeyCounts, Sas, SignatureUploadRequest, StartSasResult,
-    UserIdentity, Verification, VerificationRequest,
+    EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
+    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
+    Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -450,7 +450,10 @@ impl OlmMachine {
 
         Ok(())
     }
+}
 
+#[uniffi::export]
+impl OlmMachine {
     /// Let the state machine know about E2EE related sync changes that we
     /// received from the server.
     ///
@@ -468,12 +471,12 @@ impl OlmMachine {
     /// * `key_counts` - The map of uploaded one-time key types and counts.
     pub fn receive_sync_changes(
         &self,
-        events: &str,
+        events: String,
         device_changes: DeviceLists,
         key_counts: HashMap<String, i32>,
         unused_fallback_keys: Option<Vec<String>>,
     ) -> Result<String, CryptoStoreError> {
-        let to_device: ToDevice = serde_json::from_str(events)?;
+        let to_device: ToDevice = serde_json::from_str(&events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
         let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
             .into_iter()
@@ -528,8 +531,8 @@ impl OlmMachine {
     ///
     /// A user can be marked for tracking using the
     /// [`OlmMachine::update_tracked_users()`] method.
-    pub fn is_user_tracked(&self, user_id: &str) -> Result<bool, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+    pub fn is_user_tracked(&self, user_id: String) -> Result<bool, CryptoStoreError> {
+        let user_id = parse_user_id(&user_id)?;
         Ok(self.runtime.block_on(self.inner.tracked_users())?.contains(&user_id))
     }
 
@@ -560,6 +563,101 @@ impl OlmMachine {
             .map(|r| r.into()))
     }
 
+    /// Get the stored room settings, such as the encryption algorithm or
+    /// whether to encrypt only for trusted devices.
+    ///
+    /// These settings can be modified via
+    /// [set_room_algorithm()](#method.set_room_algorithm) and
+    /// [set_room_only_allow_trusted_devices()](#method.
+    /// set_room_only_allow_trusted_devices) methods.
+    pub fn get_room_settings(
+        &self,
+        room_id: String,
+    ) -> Result<Option<RoomSettings>, CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        let settings = self
+            .runtime
+            .block_on(self.inner.store().get_room_settings(&room_id))?
+            .map(|v| v.try_into())
+            .transpose()?;
+        Ok(settings)
+    }
+
+    /// Set the room algorithm used for encrypting messages to one of the
+    /// available variants
+    pub fn set_room_algorithm(
+        &self,
+        room_id: String,
+        algorithm: EventEncryptionAlgorithm,
+    ) -> Result<(), CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.runtime.block_on(async move {
+            let mut settings =
+                self.inner.store().get_room_settings(&room_id).await?.unwrap_or_default();
+            settings.algorithm = algorithm.into();
+            self.inner
+                .store()
+                .save_changes(Changes {
+                    room_settings: HashMap::from([(room_id, settings)]),
+                    ..Default::default()
+                })
+                .await?;
+            Ok(())
+        })
+    }
+
+    /// Set flag whether this room should encrypt messages for untrusted
+    /// devices, or whether they should be excluded from the conversation.
+    ///
+    /// Note that per-room setting may be overridden by a global
+    /// [set_only_allow_trusted_devices()](#method.
+    /// set_only_allow_trusted_devices) method.
+    pub fn set_room_only_allow_trusted_devices(
+        &self,
+        room_id: String,
+        only_allow_trusted_devices: bool,
+    ) -> Result<(), CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.runtime.block_on(async move {
+            let mut settings =
+                self.inner.store().get_room_settings(&room_id).await?.unwrap_or_default();
+            settings.only_allow_trusted_devices = only_allow_trusted_devices;
+            self.inner
+                .store()
+                .save_changes(Changes {
+                    room_settings: HashMap::from([(room_id, settings)]),
+                    ..Default::default()
+                })
+                .await?;
+            Ok(())
+        })
+    }
+
+    /// Check whether there is a global flag to only encrypt messages for
+    /// trusted devices or for everyone.
+    ///
+    /// Note that if the global flag is false, individual rooms may still be
+    /// encrypting only for trusted devices, depending on the per-room
+    /// `only_allow_trusted_devices` flag.
+    pub fn get_only_allow_trusted_devices(&self) -> Result<bool, CryptoStoreError> {
+        let block = self.runtime.block_on(self.inner.store().get_only_allow_trusted_devices())?;
+        Ok(block)
+    }
+
+    /// Set global flag whether to encrypt messages for untrusted devices, or
+    /// whether they should be excluded from the conversation.
+    ///
+    /// Note that if enabled, it will override any per-room settings.
+    pub fn set_only_allow_trusted_devices(
+        &self,
+        only_allow_trusted_devices: bool,
+    ) -> Result<(), CryptoStoreError> {
+        self.runtime.block_on(
+            self.inner.store().set_only_allow_trusted_devices(only_allow_trusted_devices),
+        )?;
+        Ok(())
+    }
+
     /// Share a room key with the given list of users for the given room.
     ///
     /// After the request was sent out and a successful response was received
@@ -581,7 +679,7 @@ impl OlmMachine {
     /// * `settings` - The settings that should be used for the room key.
     pub fn share_room_key(
         &self,
-        room_id: &str,
+        room_id: String,
         users: Vec<String>,
         settings: EncryptionSettings,
     ) -> Result<Vec<Request>, CryptoStoreError> {
@@ -633,16 +731,16 @@ impl OlmMachine {
     /// * `content` - The serialized content of the event.
     pub fn encrypt(
         &self,
-        room_id: &str,
-        event_type: &str,
-        content: &str,
+        room_id: String,
+        event_type: String,
+        content: String,
     ) -> Result<String, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
-        let content: Value = serde_json::from_str(content)?;
+        let content: Value = serde_json::from_str(&content)?;
 
         let encrypted_content = self
             .runtime
-            .block_on(self.inner.encrypt_room_event_raw(&room_id, content, event_type))
+            .block_on(self.inner.encrypt_room_event_raw(&room_id, content, &event_type))
             .expect("Encrypting an event produced an error");
 
         Ok(serde_json::to_string(&encrypted_content)?)
@@ -662,8 +760,8 @@ impl OlmMachine {
     /// unverified identities are not decorated).
     pub fn decrypt_room_event(
         &self,
-        event: &str,
-        room_id: &str,
+        event: String,
+        room_id: String,
         handle_verification_events: bool,
         strict_shields: bool,
     ) -> Result<DecryptedEvent, DecryptionError> {
@@ -678,7 +776,7 @@ impl OlmMachine {
             content: &'a RawValue,
         }
 
-        let event: Raw<_> = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(&event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
@@ -737,10 +835,10 @@ impl OlmMachine {
     /// * `room_id` - The id of the room the event was sent to.
     pub fn request_room_key(
         &self,
-        event: &str,
-        room_id: &str,
+        event: String,
+        room_id: String,
     ) -> Result<KeyRequestPair, DecryptionError> {
-        let event: Raw<_> = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(&event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let (cancel, request) =
@@ -763,17 +861,19 @@ impl OlmMachine {
     /// passphrase into an key.
     pub fn export_room_keys(
         &self,
-        passphrase: &str,
+        passphrase: String,
         rounds: i32,
     ) -> Result<String, CryptoStoreError> {
         let keys = self.runtime.block_on(self.inner.export_room_keys(|_| true))?;
 
-        let encrypted = encrypt_room_key_export(&keys, passphrase, rounds as u32)
+        let encrypted = encrypt_room_key_export(&keys, &passphrase, rounds as u32)
             .map_err(CryptoStoreError::Serialization)?;
 
         Ok(encrypted)
     }
+}
 
+impl OlmMachine {
     fn import_room_keys_helper(
         &self,
         keys: Vec<ExportedRoomKey>,
@@ -848,10 +948,13 @@ impl OlmMachine {
 
         self.import_room_keys_helper(keys, true, progress_listener)
     }
+}
 
+#[uniffi::export]
+impl OlmMachine {
     /// Discard the currently active room key for the given room if there is
     /// one.
-    pub fn discard_room_key(&self, room_id: &str) -> Result<(), CryptoStoreError> {
+    pub fn discard_room_key(&self, room_id: String) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
 
         self.runtime.block_on(self.inner.invalidate_group_session(&room_id))?;
@@ -867,8 +970,8 @@ impl OlmMachine {
     /// **Note**: This has been deprecated.
     pub fn receive_unencrypted_verification_event(
         &self,
-        event: &str,
-        room_id: &str,
+        event: String,
+        room_id: String,
     ) -> Result<(), CryptoStoreError> {
         self.receive_verification_event(event, room_id)
     }
@@ -879,11 +982,11 @@ impl OlmMachine {
     /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
     pub fn receive_verification_event(
         &self,
-        event: &str,
-        room_id: &str,
+        event: String,
+        room_id: String,
     ) -> Result<(), CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
-        let event: AnySyncMessageLikeEvent = serde_json::from_str(event)?;
+        let event: AnySyncMessageLikeEvent = serde_json::from_str(&event)?;
 
         let event = event.into_full_event(room_id);
 
@@ -898,7 +1001,7 @@ impl OlmMachine {
     ///
     /// * `user_id` - The ID of the user for which we would like to fetch the
     /// verification requests.
-    pub fn get_verification_requests(&self, user_id: &str) -> Vec<Arc<VerificationRequest>> {
+    pub fn get_verification_requests(&self, user_id: String) -> Vec<Arc<VerificationRequest>> {
         let Ok(user_id) = UserId::parse(user_id) else {
             return vec![];
         };
@@ -923,8 +1026,8 @@ impl OlmMachine {
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_verification_request(
         &self,
-        user_id: &str,
-        flow_id: &str,
+        user_id: String,
+        flow_id: String,
     ) -> Option<Arc<VerificationRequest>> {
         let user_id = UserId::parse(user_id).ok()?;
 
@@ -944,10 +1047,10 @@ impl OlmMachine {
     /// support.
     pub fn verification_request_content(
         &self,
-        user_id: &str,
+        user_id: String,
         methods: Vec<String>,
     ) -> Result<Option<String>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
 
         let identity = self.runtime.block_on(self.inner.get_identity(&user_id, None))?;
 
@@ -984,12 +1087,12 @@ impl OlmMachine {
     /// [verification_request_content()]: #method.verification_request_content
     pub fn request_verification(
         &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
+        user_id: String,
+        room_id: String,
+        event_id: String,
         methods: Vec<String>,
     ) -> Result<Option<Arc<VerificationRequest>>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
         let event_id = EventId::parse(event_id)?;
         let room_id = RoomId::parse(room_id)?;
 
@@ -1026,17 +1129,18 @@ impl OlmMachine {
     /// supported in the `m.key.verification.request` event.
     pub fn request_verification_with_device(
         &self,
-        user_id: &str,
-        device_id: &str,
+        user_id: String,
+        device_id: String,
         methods: Vec<String>,
     ) -> Result<Option<RequestVerificationResult>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
+        let device_id = device_id.as_str().into();
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
             {
                 let (verification, request) =
                     self.runtime.block_on(device.request_verification_with_methods(methods));
@@ -1095,11 +1199,11 @@ impl OlmMachine {
     /// verification.
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    pub fn get_verification(&self, user_id: &str, flow_id: &str) -> Option<Arc<Verification>> {
+    pub fn get_verification(&self, user_id: String, flow_id: String) -> Option<Arc<Verification>> {
         let user_id = UserId::parse(user_id).ok()?;
 
         self.inner
-            .get_verification(&user_id, flow_id)
+            .get_verification(&user_id, &flow_id)
             .map(|v| Verification { inner: v, runtime: self.runtime.handle().to_owned() }.into())
     }
 
@@ -1119,14 +1223,15 @@ impl OlmMachine {
     /// [request_verification_with_device()]: #method.request_verification_with_device
     pub fn start_sas_with_device(
         &self,
-        user_id: &str,
-        device_id: &str,
+        user_id: String,
+        device_id: String,
     ) -> Result<Option<StartSasResult>, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
+        let user_id = parse_user_id(&user_id)?;
+        let device_id = device_id.as_str().into();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
             {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 
@@ -1169,10 +1274,7 @@ impl OlmMachine {
 
         Ok(())
     }
-}
 
-#[uniffi::export]
-impl OlmMachine {
     /// Activate the given backup key to be used with the given backup version.
     ///
     /// **Warning**: The caller needs to make sure that the given `BackupKey` is

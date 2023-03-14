@@ -1,13 +1,13 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, Mutex, RwLock as StdRwLock},
+    sync::{Mutex, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptConfig, ToDeviceConfig,
+        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
     assign, OwnedRoomId,
@@ -16,8 +16,8 @@ use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncView, SlidingSync, SlidingSyncRoom, SlidingSyncView,
-    SlidingSyncViewBuilder,
+    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
+    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -30,7 +30,7 @@ pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Option<Client>,
-    views: BTreeMap<String, SlidingSyncView>,
+    lists: BTreeMap<String, SlidingSyncList>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
 }
@@ -41,7 +41,7 @@ impl SlidingSyncBuilder {
             storage_key: None,
             homeserver: None,
             client: None,
-            views: BTreeMap::new(),
+            lists: BTreeMap::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
         }
@@ -73,12 +73,12 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Convenience function to add a full-sync view to the builder
-    pub fn add_fullsync_view(self) -> Self {
-        self.add_view(
-            SlidingSyncViewBuilder::default_with_fullsync()
+    /// Convenience function to add a full-sync list to the builder
+    pub fn add_fullsync_list(self) -> Self {
+        self.add_list(
+            SlidingSyncListBuilder::default_with_fullsync()
                 .build()
-                .expect("Building default full sync view doesn't fail"),
+                .expect("Building default full sync list doesn't fail"),
         )
     }
 
@@ -94,17 +94,18 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Reset the views to `None`
-    pub fn no_views(mut self) -> Self {
-        self.views.clear();
+    /// Reset the lists to `None`
+    pub fn no_lists(mut self) -> Self {
+        self.lists.clear();
         self
     }
 
-    /// Add the given view to the views.
+    /// Add the given list to the lists.
     ///
-    /// Replace any view with the name.
-    pub fn add_view(mut self, v: SlidingSyncView) -> Self {
-        self.views.insert(v.name.clone(), v);
+    /// Replace any list with the name.
+    pub fn add_list(mut self, list: SlidingSyncList) -> Self {
+        self.lists.insert(list.name.clone(), list);
+
         self
     }
 
@@ -153,8 +154,8 @@ impl SlidingSyncBuilder {
                     Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
             }
 
-            if cfg.receipt.is_none() {
-                cfg.receipt = Some(assign!(ReceiptConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.is_none() {
+                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
             }
 
             if cfg.typing.is_none() {
@@ -213,14 +214,14 @@ impl SlidingSyncBuilder {
     }
 
     /// Set the Receipt extension configuration.
-    pub fn with_receipt_extension(mut self, receipt: ReceiptConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = Some(receipt);
+    pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
+        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipt = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = None;
         self
     }
 
@@ -231,24 +232,24 @@ impl SlidingSyncBuilder {
     pub async fn build(mut self) -> Result<SlidingSync> {
         let client = self.client.ok_or(Error::BuildMissingField("client"))?;
 
-        let mut delta_token_inner = None;
+        let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         if let Some(storage_key) = &self.storage_key {
             trace!(storage_key, "trying to load from cold");
 
-            for (name, view) in &mut self.views {
-                if let Some(frozen_view) = client
+            for (name, list) in &mut self.lists {
+                if let Some(frozen_list) = client
                     .store()
                     .get_custom_value(format!("{storage_key}::{name}").as_bytes())
                     .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncView>(&v))
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
                     .transpose()?
                 {
-                    trace!(name, "frozen for view found");
+                    trace!(name, "frozen for list found");
 
-                    let FrozenSlidingSyncView { rooms_count, rooms_list, rooms } = frozen_view;
-                    view.set_from_cold(rooms_count, rooms_list);
+                    let FrozenSlidingSyncList { rooms_count, rooms_list, rooms } = frozen_list;
+                    list.set_from_cold(rooms_count, rooms_list);
 
                     for (key, frozen_room) in rooms.into_iter() {
                         rooms_found.entry(key).or_insert_with(|| {
@@ -256,16 +257,17 @@ impl SlidingSyncBuilder {
                         });
                     }
                 } else {
-                    trace!(name, "no frozen state for view found");
+                    trace!(name, "no frozen state for list found");
                 }
             }
 
-            if let Some(FrozenSlidingSync { to_device_since, delta_token }) = client
-                .store()
-                .get_custom_value(storage_key.as_bytes())
-                .await?
-                .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
-                .transpose()?
+            if let Some(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token }) =
+                client
+                    .store()
+                    .get_custom_value(storage_key.as_bytes())
+                    .await?
+                    .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
+                    .transpose()?
             {
                 trace!("frozen for generic found");
 
@@ -277,7 +279,7 @@ impl SlidingSyncBuilder {
                     }
                 }
 
-                delta_token_inner = delta_token;
+                delta_token = frozen_delta_token;
             }
 
             trace!("sync unfrozen done");
@@ -285,25 +287,27 @@ impl SlidingSyncBuilder {
 
         trace!(len = rooms_found.len(), "rooms unfrozen");
 
-        let rooms = Arc::new(StdRwLock::new(rooms_found));
-        let views = Arc::new(StdRwLock::new(self.views));
+        let rooms = StdRwLock::new(rooms_found);
+        let lists = StdRwLock::new(self.lists);
 
-        Ok(SlidingSync {
+        Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,
 
-            views,
+            lists,
             rooms,
 
-            extensions: Mutex::new(self.extensions).into(),
-            sent_extensions: Mutex::new(None).into(),
+            extensions: Mutex::new(self.extensions),
             reset_counter: Default::default(),
 
-            pos: Arc::new(StdRwLock::new(Observable::new(None))),
-            delta_token: Arc::new(StdRwLock::new(Observable::new(delta_token_inner))),
-            subscriptions: Arc::new(StdRwLock::new(self.subscriptions)),
+            position: StdRwLock::new(SlidingSyncPositionMarkers {
+                pos: Observable::new(None),
+                delta_token: Observable::new(delta_token),
+            }),
+
+            subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
-        })
+        }))
     }
 }

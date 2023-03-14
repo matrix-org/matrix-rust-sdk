@@ -27,6 +27,7 @@ testing = ["dep:http"]
 [dependencies]
 aes = "0.8.1"
 atomic = "0.5.1"
+async-std = { version = "1.12.0", features = ["unstable"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bs58 = { version = "0.4.0", optional = true }
@@ -36,9 +37,10 @@ dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
 futures-core = "0.3.24"
-futures-util = { version = "0.3.21", default-features = false, features = ["alloc"] }
+futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
+itertools = "0.10.5"
 matrix-sdk-qrcode = { version = "0.4.0", path = "../matrix-sdk-qrcode", optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
@@ -46,6 +48,7 @@ pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
 serde = { workspace = true, features = ["derive", "rc"] }
+rmp-serde = "1.1.1"
 serde_json = { workspace = true }
 sha2 = "0.10.2"
 thiserror = { workspace = true }
@@ -60,6 +63,7 @@ tokio = { version = "1.24", default-features = false, features = ["time"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 assert_matches = "1.5.0"
+ctor.workspace = true
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 http = { workspace = true }
 indoc = "1.0.4"
@@ -67,3 +71,4 @@ matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { version = "1.24.2", default-features = false, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

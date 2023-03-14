@@ -26,6 +26,7 @@ pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
 mod helpers;
+pub mod notification_service;
 pub mod room;
 pub mod session_verification;
 pub mod sliding_sync;
@@ -47,17 +48,9 @@ pub use matrix_sdk::{
 };
 
 pub use self::{
-    authentication_service::*, client::*, room::*, session_verification::*, sliding_sync::*,
-    timeline::*,
+    authentication_service::*, client::*, notification_service::*, room::*,
+    session_verification::*, sliding_sync::*, timeline::*,
 };
-
-#[derive(Default, Debug)]
-pub struct ClientState {
-    has_first_synced: bool,
-    is_syncing: bool,
-    should_stop_syncing: bool,
-    is_soft_logout: bool,
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -85,9 +78,9 @@ mod uniffi_types {
         room::{Membership, MembershipState, Room, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder,
-            SlidingSyncRequestListFilters, SlidingSyncRoom, SlidingSyncView,
-            SlidingSyncViewBuilder, TaskHandle, UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
+            SlidingSyncListBuilder, SlidingSyncRequestListFilters, SlidingSyncRoom, TaskHandle,
+            UnreadNotificationsCount,
         },
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,

@@ -20,3 +20,6 @@ maintained by the owners of the Matrix Rust SDK project.
 [`matrix-sdk-crypto`]: ../crates/matrix-sdk-crypto
 [`matrix-sdk-ffi`]: ./matrix-sdk-ffi
 [`matrix-sdk`]: ../crates/matrix-sdk
+
+# Contributing
+To contribute read this [guide](./CONTRIBUTING.md).

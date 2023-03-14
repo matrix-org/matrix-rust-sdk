@@ -3,28 +3,28 @@ use std::ops::Deref;
 use ruma::api::client::membership::forget_room;
 
 use super::Joined;
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+use crate::{room::Common, BaseRoom, Client, Result, RoomState};
 
 /// A room in the left state.
 ///
-/// This struct contains all methods specific to a `Room` with type
-/// `RoomType::Left`. Operations may fail once the underlying `Room` changes
-/// `RoomType`.
+/// This struct contains all methods specific to a `Room` with
+/// `RoomState::Left`. Operations may fail once the underlying `Room` changes
+/// `RoomState`.
 #[derive(Debug, Clone)]
 pub struct Left {
     pub(crate) inner: Common,
 }
 
 impl Left {
-    /// Create a new `room::Left` if the underlying `Room` has type
-    /// `RoomType::Left`.
+    /// Create a new `room::Left` if the underlying `Room` has
+    /// `RoomState::Left`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlying room.
     pub(crate) fn new(client: &Client, room: BaseRoom) -> Option<Self> {
-        if room.room_type() == RoomType::Left {
+        if room.state() == RoomState::Left {
             Some(Self { inner: Common::new(client.clone(), room) })
         } else {
             None

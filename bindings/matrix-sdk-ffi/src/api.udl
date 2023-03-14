@@ -9,9 +9,7 @@ interface ClientError {
 };
 
 callback interface ClientDelegate {
-    void did_receive_sync_update();
     void did_receive_auth_error(boolean is_soft_logout);
-    void did_update_restore_token();
 };
 
 dictionary RequiredState {
@@ -25,7 +23,7 @@ dictionary RoomSubscription {
 };
 
 dictionary UpdateSummary {
-    sequence<string> views;
+    sequence<string> lists;
     sequence<string> rooms;
 };
 
@@ -53,7 +51,7 @@ enum SlidingSyncMode {
     "Selective",
 };
 
-callback interface SlidingSyncViewStateObserver {
+callback interface SlidingSyncListStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };
 
@@ -65,7 +63,7 @@ interface RoomListEntry {
 };
 
 [Enum]
-interface SlidingSyncViewRoomsListDiff {
+interface SlidingSyncListRoomsListDiff {
     Append(sequence<RoomListEntry> values);
     Insert(u32 index, RoomListEntry value);
     Set(u32 index, RoomListEntry value);
@@ -78,36 +76,36 @@ interface SlidingSyncViewRoomsListDiff {
     Reset(sequence<RoomListEntry> values);
 };
 
-callback interface SlidingSyncViewRoomListObserver {
-    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+callback interface SlidingSyncListRoomListObserver {
+    void did_receive_update(SlidingSyncListRoomsListDiff diff);
 };
 
-callback interface SlidingSyncViewRoomsCountObserver {
+callback interface SlidingSyncListRoomsCountObserver {
     void did_receive_update(u32 count);
 };
 
-callback interface SlidingSyncViewRoomItemsObserver {
+callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
-interface SlidingSyncViewBuilder {
+interface SlidingSyncListBuilder {
     constructor();
 
     [Self=ByArc]
-    SlidingSyncViewBuilder sync_mode(SlidingSyncMode mode);
+    SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
 
     [Self=ByArc]
-    SlidingSyncViewBuilder send_updates_for_items(boolean enable);
+    SlidingSyncListBuilder send_updates_for_items(boolean enable);
 
     [Throws=ClientError, Self=ByArc]
-    SlidingSyncView build();
+    SlidingSyncList build();
 };
 
-interface SlidingSyncView {
-    TaskHandle observe_room_list(SlidingSyncViewRoomListObserver observer);
-    TaskHandle observe_rooms_count(SlidingSyncViewRoomsCountObserver observer);
-    TaskHandle observe_state(SlidingSyncViewStateObserver observer);
-    TaskHandle observe_room_items(SlidingSyncViewRoomItemsObserver observer);
+interface SlidingSyncList {
+    TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
+    TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
+    TaskHandle observe_state(SlidingSyncListStateObserver observer);
+    TaskHandle observe_room_items(SlidingSyncListRoomItemsObserver observer);
 };
 
 interface SlidingSyncRoom {
@@ -151,6 +149,61 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+dictionary CreateRoomParameters {
+    string name;
+    string? topic = null;
+    boolean is_encrypted;
+    boolean is_direct = false;
+    RoomVisibility visibility;
+    RoomPreset preset;
+    sequence<string>? invite = null;
+    string? avatar = null;
+};
+
+enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    "Public",
+
+    /// Indicates that the room will not be shown in the published room list.
+    "Private",
+};
+
+enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    "PrivateChat",
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    "PublicChat",
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    "TrustedPrivateChat",
+};
+
+dictionary PusherIdentifiers {
+    string pushkey;
+    string app_id;
+};
+
+[Enum]
+interface PushFormat {
+    EventIdOnly();
+};
+
+dictionary HttpPusherData {
+    string url;
+    PushFormat? format;
+    string? default_payload;
+};
+
+[Enum]
+interface PusherKind {
+    Http(HttpPusherData data);
+    Email();
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -173,10 +226,16 @@ interface Client {
     void set_display_name(string name);
 
     [Throws=ClientError]
-    string avatar_url();
+    string? avatar_url();
+
+    [Throws=ClientError]
+    string? cached_avatar_url();
 
     [Throws=ClientError]
     string device_id();
+
+    [Throws=ClientError]
+    string create_room(CreateRoomParameters request);
 
     [Throws=ClientError]
     string? account_data(string event_type);
@@ -201,6 +260,14 @@ interface Client {
 
     [Throws=ClientError]
     void logout();
+
+    [Throws=ClientError]
+    void set_pusher(PusherIdentifiers identifiers,
+                    PusherKind kind,
+                    string app_display_name,
+                    string device_display_name,
+                    string? profile_tag,
+                    string lang);
 };
 
 dictionary Session {
@@ -209,7 +276,6 @@ dictionary Session {
     string user_id;
     string device_id;
     string homeserver_url;
-    boolean is_soft_logout;
     string? sliding_sync_proxy;
 };
 
@@ -282,6 +348,21 @@ interface Room {
 
     [Throws=ClientError]
     void send_reaction(string event_id, string key);
+
+    [Throws=ClientError]
+    void leave();
+
+    [Throws=ClientError]
+    void reject_invitation();
+
+    [Throws=ClientError]
+    void set_topic(string topic);
+
+    [Throws=ClientError]
+    void upload_avatar(string mime_type, sequence<u8> data);
+
+    [Throws=ClientError]
+    void remove_avatar();
 };
 
 callback interface TimelineListener {
@@ -311,6 +392,21 @@ interface MediaSource {
 
 interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
+};
+
+dictionary NotificationItem {
+    TimelineItem item;
+    string title;
+    string? subtitle;
+    boolean is_noisy;
+    string? avatar_url;
+};
+
+interface NotificationService {
+    constructor(string base_path, string user_id);
+
+    [Throws=ClientError]
+    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};

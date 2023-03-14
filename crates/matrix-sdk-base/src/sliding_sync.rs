@@ -17,7 +17,7 @@ use super::BaseClient;
 use crate::{
     deserialized_responses::AmbiguityChanges,
     error::Result,
-    rooms::RoomType,
+    rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges},
     sync::{JoinedRoom, Rooms, SyncResponse},
 };
@@ -52,7 +52,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let v4::Extensions { to_device, e2ee, account_data, .. } = extensions;
+        let v4::Extensions { to_device, e2ee, account_data, receipts, .. } = extensions;
 
         let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
@@ -138,7 +138,7 @@ impl BaseClient {
                     v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
                 );
             } else {
-                let room = store.get_or_create_room(room_id, RoomType::Joined).await;
+                let room = store.get_or_create_room(room_id, RoomState::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
@@ -159,17 +159,6 @@ impl BaseClient {
                 } else {
                     Default::default()
                 };
-
-                // FIXME not yet supported by sliding sync. see
-                // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-                // if let Some(event) =
-                //     room_data.ephemeral.events.iter().find_map(|e| match e.deserialize() {
-                //         Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
-                //         _ => None,
-                //     })
-                // {
-                //     changes.add_receipts(&room_id, event);
-                // }
 
                 let room_account_data = if let Some(inner_account_data) = &account_data {
                     if let Some(events) = inner_account_data.rooms.get(room_id) {
@@ -235,6 +224,15 @@ impl BaseClient {
                 );
 
                 changes.add_room(room_info);
+            }
+        }
+
+        // Process receipts now we have rooms
+        if let Some(receipts) = &receipts {
+            for (room_id, receipt_edu) in &receipts.rooms {
+                if let Ok(receipt_edu) = receipt_edu.deserialize() {
+                    changes.add_receipts(room_id, receipt_edu.content);
+                }
             }
         }
 

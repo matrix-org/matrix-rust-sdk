@@ -30,7 +30,7 @@ use crate::room::timeline::{
 
 fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
     let event = serde_json::from_value(event).unwrap();
-    SyncTimelineEvent { event, encryption_info: None }
+    SyncTimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
 }
 
 #[async_test]
@@ -70,7 +70,7 @@ async fn reaction_redaction() {
     let event = item.as_event().unwrap().as_remote().unwrap();
     assert_eq!(event.reactions().len(), 0);
 
-    let msg_event_id = &event.event_id;
+    let msg_event_id = event.event_id();
 
     let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
@@ -81,7 +81,7 @@ async fn reaction_redaction() {
 
     // TODO: After adding raw timeline items, check for one here
 
-    let reaction_event_id = event.event_id.as_ref();
+    let reaction_event_id = event.event_id();
 
     timeline.handle_live_redaction(&BOB, reaction_event_id).await;
     let item =

@@ -1,10 +1,7 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
-};
+use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
@@ -20,7 +17,7 @@ pub use matrix_sdk::{
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{Client, Room, RUNTIME};
@@ -29,30 +26,22 @@ use crate::{
     TimelineItem, TimelineListener,
 };
 
-type TaskHandleCallback = Box<dyn FnOnce() + Send + Sync>;
+type TaskHandleFinalizer = Box<dyn FnOnce() + Send + Sync>;
 
 pub struct TaskHandle {
-    handle: Option<JoinHandle<()>>,
-    callback: RwLock<Option<TaskHandleCallback>>,
+    handle: JoinHandle<()>,
+    finalizer: RwLock<Option<TaskHandleFinalizer>>,
 }
 
 impl TaskHandle {
-    fn with_handle(handle: JoinHandle<()>) -> Self {
-        Self { handle: Some(handle), callback: Default::default() }
+    // Create a new task handle.
+    fn new(handle: JoinHandle<()>) -> Self {
+        Self { handle, finalizer: RwLock::new(None) }
     }
 
-    fn with_callback(callback: TaskHandleCallback) -> Self {
-        Self { handle: Default::default(), callback: RwLock::new(Some(callback)) }
-    }
-
-    fn set_callback(&mut self, f: TaskHandleCallback) {
-        *self.callback.write().unwrap() = Some(f)
-    }
-}
-
-impl From<JoinHandle<()>> for TaskHandle {
-    fn from(value: JoinHandle<()>) -> Self {
-        Self::with_handle(value)
+    /// Define a function that will run after the handle has been aborted.
+    fn set_finalizer(&mut self, finalizer: TaskHandleFinalizer) {
+        *self.finalizer.write().unwrap() = Some(finalizer);
     }
 }
 
@@ -60,16 +49,17 @@ impl From<JoinHandle<()>> for TaskHandle {
 impl TaskHandle {
     pub fn cancel(&self) {
         debug!("stoppable.cancel() called");
-        if let Some(handle) = &self.handle {
-            handle.abort();
-        }
-        if let Some(callback) = self.callback.write().unwrap().take() {
-            callback();
+
+        self.handle.abort();
+
+        if let Some(finalizer) = self.finalizer.write().unwrap().take() {
+            finalizer();
         }
     }
 
+    /// Check whether the handle is finished.
     pub fn is_finished(&self) -> bool {
-        self.handle.as_ref().map(|h| h.is_finished()).unwrap_or_default()
+        self.handle.is_finished()
     }
 }
 
@@ -169,6 +159,7 @@ impl SlidingSyncRoom {
         listener: Box<dyn TimelineListener>,
     ) -> anyhow::Result<SlidingSyncSubscribeResult> {
         let (items, stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
+
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
@@ -179,9 +170,12 @@ impl SlidingSyncRoom {
     ) -> anyhow::Result<SlidingSyncSubscribeResult> {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
+
         self.runner.subscribe(room_id.clone(), settings.map(Into::into));
+
         let runner = self.runner.clone();
-        stoppable_spawn.set_callback(Box::new(move || runner.unsubscribe(room_id)));
+        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id)));
+
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
@@ -200,8 +194,8 @@ impl SlidingSyncRoom {
             }
         };
 
-        let (timeline_items, timeline_stream) =
-            RUNTIME.block_on(async { timeline.subscribe().await });
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+        let (timeline_items, timeline_stream) = RUNTIME.block_on(timeline.subscribe());
 
         let handle_events = async move {
             let listener: Arc<dyn TimelineListener> = listener.into();
@@ -233,9 +227,10 @@ impl SlidingSyncRoom {
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
-        let task_handle = TaskHandle::with_handle(RUNTIME.spawn(async move {
+        let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
             join(handle_events, handle_sliding_sync_reset).await;
         }));
+
         Ok((items, task_handle))
     }
 }
@@ -246,12 +241,11 @@ pub struct SlidingSyncSubscribeResult {
 }
 
 pub struct UpdateSummary {
-    /// The views (according to their name), which have seen an update
-    pub views: Vec<String>,
+    /// The lists (according to their name), which have seen an update
+    pub lists: Vec<String>,
     pub rooms: Vec<String>,
 }
 
-#[derive(uniffi::Record)]
 pub struct RequiredState {
     pub key: String,
     pub value: String,
@@ -274,15 +268,15 @@ impl From<RoomSubscription> for RumaRoomSubscription {
 }
 
 impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
-    fn from(other: matrix_sdk::UpdateSummary) -> UpdateSummary {
-        UpdateSummary {
-            views: other.views,
+    fn from(other: matrix_sdk::UpdateSummary) -> Self {
+        Self {
+            lists: other.lists,
             rooms: other.rooms.into_iter().map(|r| r.as_str().to_owned()).collect(),
         }
     }
 }
 
-pub enum SlidingSyncViewRoomsListDiff {
+pub enum SlidingSyncListRoomsListDiff {
     Append { values: Vec<RoomListEntry> },
     Insert { index: u32, value: RoomListEntry },
     Set { index: u32, value: RoomListEntry },
@@ -295,41 +289,33 @@ pub enum SlidingSyncViewRoomsListDiff {
     Reset { values: Vec<RoomListEntry> },
 }
 
-impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncViewRoomsListDiff {
+impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncListRoomsListDiff {
     fn from(other: VectorDiff<MatrixRoomEntry>) -> Self {
         match other {
-            VectorDiff::Append { values } => SlidingSyncViewRoomsListDiff::Append {
-                values: values.into_iter().map(|e| (&e).into()).collect(),
-            },
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(|e| (&e).into()).collect() }
+            }
             VectorDiff::Insert { index, value } => {
-                SlidingSyncViewRoomsListDiff::Insert { index: index as u32, value: (&value).into() }
+                Self::Insert { index: index as u32, value: (&value).into() }
             }
             VectorDiff::Set { index, value } => {
-                SlidingSyncViewRoomsListDiff::Set { index: index as u32, value: (&value).into() }
+                Self::Set { index: index as u32, value: (&value).into() }
             }
-            VectorDiff::Remove { index } => {
-                SlidingSyncViewRoomsListDiff::Remove { index: index as u32 }
-            }
-            VectorDiff::PushBack { value } => {
-                SlidingSyncViewRoomsListDiff::PushBack { value: (&value).into() }
-            }
-            VectorDiff::PushFront { value } => {
-                SlidingSyncViewRoomsListDiff::PushFront { value: (&value).into() }
-            }
-            VectorDiff::PopBack => SlidingSyncViewRoomsListDiff::PopBack,
-            VectorDiff::PopFront => SlidingSyncViewRoomsListDiff::PopFront,
-            VectorDiff::Clear => SlidingSyncViewRoomsListDiff::Clear,
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::PushBack { value } => Self::PushBack { value: (&value).into() },
+            VectorDiff::PushFront { value } => Self::PushFront { value: (&value).into() },
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::Clear => Self::Clear,
             VectorDiff::Reset { values } => {
                 warn!("Room list subscriber lagged behind and was reset");
-                SlidingSyncViewRoomsListDiff::Reset {
-                    values: values.into_iter().map(|e| (&e).into()).collect(),
-                }
+                Self::Reset { values: values.into_iter().map(|e| (&e).into()).collect() }
             }
         }
     }
 }
 
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, Debug)]
 pub enum RoomListEntry {
     Empty,
     Invalidated { room_id: String },
@@ -339,34 +325,32 @@ pub enum RoomListEntry {
 impl From<&MatrixRoomEntry> for RoomListEntry {
     fn from(other: &MatrixRoomEntry) -> Self {
         match other {
-            MatrixRoomEntry::Empty => RoomListEntry::Empty,
-            MatrixRoomEntry::Filled(b) => RoomListEntry::Filled { room_id: b.to_string() },
-            MatrixRoomEntry::Invalidated(b) => {
-                RoomListEntry::Invalidated { room_id: b.to_string() }
-            }
+            MatrixRoomEntry::Empty => Self::Empty,
+            MatrixRoomEntry::Filled(b) => Self::Filled { room_id: b.to_string() },
+            MatrixRoomEntry::Invalidated(b) => Self::Invalidated { room_id: b.to_string() },
         }
     }
 }
 
-pub trait SlidingSyncViewRoomItemsObserver: Sync + Send {
+pub trait SlidingSyncListRoomItemsObserver: Sync + Send {
     fn did_receive_update(&self);
 }
 
-pub trait SlidingSyncViewRoomListObserver: Sync + Send {
-    fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
+pub trait SlidingSyncListRoomListObserver: Sync + Send {
+    fn did_receive_update(&self, diff: SlidingSyncListRoomsListDiff);
 }
 
-pub trait SlidingSyncViewRoomsCountObserver: Sync + Send {
+pub trait SlidingSyncListRoomsCountObserver: Sync + Send {
     fn did_receive_update(&self, new_count: u32);
 }
 
-pub trait SlidingSyncViewStateObserver: Sync + Send {
+pub trait SlidingSyncListStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 
 #[derive(Clone)]
-pub struct SlidingSyncViewBuilder {
-    inner: matrix_sdk::SlidingSyncViewBuilder,
+pub struct SlidingSyncListBuilder {
+    inner: matrix_sdk::SlidingSyncListBuilder,
 }
 
 #[derive(uniffi::Record)]
@@ -398,15 +382,16 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
             tags,
             not_tags,
         } = value;
+
         assign!(SyncRequestListFilters::default(), {
             is_dm, spaces, is_encrypted, is_invite, is_tombstoned, room_types, not_room_types, room_name_like, tags, not_tags,
         })
     }
 }
 
-impl SlidingSyncViewBuilder {
+impl SlidingSyncListBuilder {
     pub fn new() -> Self {
-        Self { inner: matrix_sdk::SlidingSyncView::builder() }
+        Self { inner: matrix_sdk::SlidingSyncList::builder() }
     }
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
@@ -427,14 +412,14 @@ impl SlidingSyncViewBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncView>> {
+    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncList>> {
         let builder = unwrap_or_clone_arc(self);
         Ok(Arc::new(builder.inner.build()?.into()))
     }
 }
 
 #[uniffi::export]
-impl SlidingSyncViewBuilder {
+impl SlidingSyncListBuilder {
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sort(sort);
@@ -511,24 +496,24 @@ impl SlidingSyncViewBuilder {
 }
 
 #[derive(Clone)]
-pub struct SlidingSyncView {
-    inner: matrix_sdk::SlidingSyncView,
+pub struct SlidingSyncList {
+    inner: matrix_sdk::SlidingSyncList,
 }
 
-impl From<matrix_sdk::SlidingSyncView> for SlidingSyncView {
-    fn from(inner: matrix_sdk::SlidingSyncView) -> Self {
-        SlidingSyncView { inner }
+impl From<matrix_sdk::SlidingSyncList> for SlidingSyncList {
+    fn from(inner: matrix_sdk::SlidingSyncList) -> Self {
+        SlidingSyncList { inner }
     }
 }
 
-impl SlidingSyncView {
+impl SlidingSyncList {
     pub fn observe_state(
         &self,
-        observer: Box<dyn SlidingSyncViewStateObserver>,
+        observer: Box<dyn SlidingSyncListStateObserver>,
     ) -> Arc<TaskHandle> {
         let mut state_stream = self.inner.state_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(new_state) = state_stream.next().await {
                     observer.did_receive_update(new_state);
@@ -539,11 +524,11 @@ impl SlidingSyncView {
 
     pub fn observe_room_list(
         &self,
-        observer: Box<dyn SlidingSyncViewRoomListObserver>,
+        observer: Box<dyn SlidingSyncListRoomListObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_list_stream = self.inner.rooms_list_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(diff) = rooms_list_stream.next().await {
                     observer.did_receive_update(diff.into());
@@ -554,11 +539,11 @@ impl SlidingSyncView {
 
     pub fn observe_room_items(
         &self,
-        observer: Box<dyn SlidingSyncViewRoomItemsObserver>,
+        observer: Box<dyn SlidingSyncListRoomItemsObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_updated =
             Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
                     observer.did_receive_update();
@@ -569,11 +554,11 @@ impl SlidingSyncView {
 
     pub fn observe_rooms_count(
         &self,
-        observer: Box<dyn SlidingSyncViewRoomsCountObserver>,
+        observer: Box<dyn SlidingSyncListRoomsCountObserver>,
     ) -> Arc<TaskHandle> {
         let mut rooms_count_stream = self.inner.rooms_count_stream();
 
-        Arc::new(TaskHandle::with_handle(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if let Some(Some(new)) = rooms_count_stream.next().await {
                     observer.did_receive_update(new);
@@ -584,7 +569,7 @@ impl SlidingSyncView {
 }
 
 #[uniffi::export]
-impl SlidingSyncView {
+impl SlidingSyncList {
     /// Get the current list of rooms
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
         self.inner.rooms_list()
@@ -646,7 +631,7 @@ pub struct SlidingSync {
 
 impl SlidingSync {
     fn new(inner: matrix_sdk::SlidingSync, client: Client) -> Self {
-        SlidingSync { inner, client, observer: Default::default() }
+        Self { inner, client, observer: Default::default() }
     }
 
     pub fn set_observer(&self, observer: Option<Box<dyn SlidingSyncObserver>>) {
@@ -709,16 +694,16 @@ impl SlidingSync {
 #[uniffi::export]
 impl SlidingSync {
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
-        self.inner.view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
+    pub fn get_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
+        self.inner.list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
     }
 
-    pub fn add_view(&self, view: Arc<SlidingSyncView>) -> Option<Arc<SlidingSyncView>> {
-        self.inner.add_view(view.inner.clone()).map(|inner| Arc::new(SlidingSyncView { inner }))
+    pub fn add_list(&self, list: Arc<SlidingSyncList>) -> Option<Arc<SlidingSyncList>> {
+        self.inner.add_list(list.inner.clone()).map(|inner| Arc::new(SlidingSyncList { inner }))
     }
 
-    pub fn pop_view(&self, name: String) -> Option<Arc<SlidingSyncView>> {
-        self.inner.pop_view(&name).map(|inner| Arc::new(SlidingSyncView { inner }))
+    pub fn pop_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
+        self.inner.pop_list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
     }
 
     pub fn add_common_extensions(&self) {
@@ -729,43 +714,35 @@ impl SlidingSync {
         let inner = self.inner.clone();
         let client = self.client.clone();
         let observer = self.observer.clone();
-        let stop_loop = Arc::new(AtomicBool::new(false));
-        let remote_stopper = stop_loop.clone();
 
-        let stoppable = Arc::new(TaskHandle::with_callback(Box::new(move || {
-            remote_stopper.store(true, Ordering::Relaxed);
-        })));
-
-        RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let stream = inner.stream();
             pin_mut!(stream);
+
             loop {
-                let update = match stream.next().await {
-                    Some(Ok(u)) => u,
-                    Some(Err(e)) => {
-                        if client.process_sync_error(e) == LoopCtrl::Break {
+                let update_summary = match stream.next().await {
+                    Some(Ok(update_summary)) => update_summary,
+
+                    Some(Err(error)) => {
+                        if client.process_sync_error(error) == LoopCtrl::Break {
                             warn!("loop was stopped by client error processing");
                             break;
                         } else {
                             continue;
                         }
                     }
+
                     None => {
                         warn!("Inner streaming loop ended unexpectedly");
                         break;
                     }
                 };
+
                 if let Some(ref observer) = *observer.read().unwrap() {
-                    observer.did_receive_sync_update(update.into());
-                }
-                if stop_loop.load(Ordering::Relaxed) {
-                    trace!("stopped sync loop after cancellation");
-                    break;
+                    observer.did_receive_sync_update(update_summary.into());
                 }
             }
-        });
-
-        stoppable
+        })))
     }
 }
 
@@ -792,15 +769,15 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl SlidingSyncBuilder {
-    pub fn add_fullsync_view(self: Arc<Self>) -> Arc<Self> {
+    pub fn add_fullsync_list(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_fullsync_view();
+        builder.inner = builder.inner.add_fullsync_list();
         Arc::new(builder)
     }
 
-    pub fn no_views(self: Arc<Self>) -> Arc<Self> {
+    pub fn no_lists(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.no_views();
+        builder.inner = builder.inner.no_lists();
         Arc::new(builder)
     }
 
@@ -810,10 +787,10 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncView>) -> Arc<Self> {
+    pub fn add_list(self: Arc<Self>, v: Arc<SlidingSyncList>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        let view = unwrap_or_clone_arc(v);
-        builder.inner = builder.inner.add_view(view.inner);
+        let list = unwrap_or_clone_arc(v);
+        builder.inner = builder.inner.add_list(list.inner);
         Arc::new(builder)
     }
 
@@ -864,7 +841,7 @@ impl Client {
     pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
         RUNTIME.block_on(async move {
             let builder = self.client.sliding_sync().await;
-            let inner = builder.add_fullsync_view().build().await?;
+            let inner = builder.add_fullsync_list().build().await?;
             Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
     }

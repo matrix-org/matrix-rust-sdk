@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use eyeball::Observable;
+use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use im::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -100,7 +100,7 @@ impl SlidingSyncRoom {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
-    #[instrument(skip_all, parent = &self.client.root_span)]
+    #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.timeline_builder()?.build().await.latest_event().await
     }
@@ -153,14 +153,33 @@ impl SlidingSyncRoom {
         } = room_data;
 
         self.inner.unread_notifications = unread_notifications;
-        self.inner.name = name;
-        self.inner.initial = initial;
-        self.inner.is_dm = is_dm;
-        self.inner.invite_state = invite_state;
-        self.inner.required_state = required_state;
 
-        if let Some(batch) = prev_batch {
-            Observable::set(&mut self.prev_batch.write().unwrap(), Some(batch));
+        // The server might not send some parts of the response, because they were sent
+        // before and the server wants to save bandwidth. So let's update the values
+        // only when they exist.
+
+        if name.is_some() {
+            self.inner.name = name;
+        }
+
+        if initial.is_some() {
+            self.inner.initial = initial;
+        }
+
+        if is_dm.is_some() {
+            self.inner.is_dm = is_dm;
+        }
+
+        if !invite_state.is_empty() {
+            self.inner.invite_state = invite_state;
+        }
+
+        if !required_state.is_empty() {
+            self.inner.required_state = required_state;
+        }
+
+        if prev_batch.is_some() {
+            Observable::set(&mut self.prev_batch.write().unwrap(), prev_batch);
         }
 
         // There is timeline updates.
@@ -349,8 +368,8 @@ mod tests {
             room_id: <&RoomId>::try_from("!29fhd83h92h0:example.com").unwrap().to_owned(),
             inner: v4::SlidingSyncRoom::default(),
             prev_batch: Some("let it go!".to_owned()),
-            timeline_queue: vector![TimelineEvent {
-                event: Raw::new(&json! ({
+            timeline_queue: vector![TimelineEvent::new(
+                Raw::new(&json! ({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
                     "type": "m.room.message",
                     "event_id": "$xxxxx:example.org",
@@ -359,9 +378,8 @@ mod tests {
                     "sender": "@bob:example.com",
                 }))
                 .unwrap()
-                .cast(),
-                encryption_info: None,
-            }
+                .cast()
+            )
             .into()],
         };
 

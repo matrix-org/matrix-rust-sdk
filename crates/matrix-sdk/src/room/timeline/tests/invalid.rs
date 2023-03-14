@@ -26,10 +26,10 @@ async fn invalid_edit() {
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event = item.as_event().unwrap().as_remote().unwrap();
-    let msg = event.content.as_message().unwrap();
+    let msg = event.content().as_message().unwrap();
     assert_eq!(msg.body(), "test");
 
-    let msg_event_id = &event.event_id;
+    let msg_event_id = event.event_id();
 
     let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
@@ -66,11 +66,11 @@ async fn invalid_event_content() {
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event_item = item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(event_item.sender, "@alice:example.org");
-    assert_eq!(event_item.event_id, event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned());
-    assert_eq!(event_item.timestamp, MilliSecondsSinceUnixEpoch(uint!(10)));
+    assert_eq!(event_item.sender(), "@alice:example.org");
+    assert_eq!(event_item.event_id(), event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I").to_owned());
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
     let event_type = assert_matches!(
-        &event_item.content,
+        event_item.content(),
         TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
     );
     assert_eq!(*event_type, MessageLikeEventType::RoomMessage);
@@ -90,11 +90,11 @@ async fn invalid_event_content() {
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let event_item = item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(event_item.sender, "@alice:example.org");
-    assert_eq!(event_item.event_id, event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned());
-    assert_eq!(event_item.timestamp, MilliSecondsSinceUnixEpoch(uint!(2179)));
+    assert_eq!(event_item.sender(), "@alice:example.org");
+    assert_eq!(event_item.event_id(), event_id!("$d5G0HA0FAZ37wP8kXlNkxx3I").to_owned());
+    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
     let (event_type, state_key) = assert_matches!(
-        &event_item.content,
+        event_item.content(),
         TimelineItemContent::FailedToParseState {
             event_type,
             state_key,

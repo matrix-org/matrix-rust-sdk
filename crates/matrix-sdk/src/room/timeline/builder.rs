@@ -19,17 +19,15 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,
 };
-use ruma::events::{
-    fully_read::FullyReadEventContent,
-    receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
+use ruma::{
+    events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
+    push::Action,
 };
 use tracing::error;
 
-use super::{
-    inner::TimelineInner,
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-    Timeline, TimelineEventHandlerHandles,
-};
+#[cfg(feature = "e2e-encryption")]
+use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
+use super::{inner::TimelineInner, Timeline, TimelineEventHandlerHandles};
 use crate::room;
 
 /// Builder that allows creating and configuring various parts of a
@@ -126,10 +124,10 @@ impl TimelineBuilder {
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>| {
+            move |event, encryption_info: Option<EncryptionInfo>, push_actions: Vec<Action>| {
                 let inner = inner.clone();
                 async move {
-                    inner.handle_live_event(event, encryption_info).await;
+                    inner.handle_live_event(event, encryption_info, push_actions).await;
                 }
             }
         });
@@ -154,20 +152,7 @@ impl TimelineBuilder {
         ];
 
         if track_read_marker_and_receipts {
-            match room.account_data_static::<FullyReadEventContent>().await {
-                Ok(Some(fully_read)) => match fully_read.deserialize() {
-                    Ok(fully_read) => {
-                        inner.set_fully_read_event(fully_read.content.event_id).await;
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize fully-read account data: {e}");
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to get fully-read account data from the store: {e}");
-                }
-                _ => {}
-            }
+            inner.load_fully_read_event().await;
 
             let fully_read_handle = room.add_event_handler({
                 let inner = inner.clone();

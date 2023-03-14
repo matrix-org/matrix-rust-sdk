@@ -16,8 +16,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, test_json, EphemeralTestEvent, EventBuilder, JoinedRoomBuilder,
-    RoomAccountDataTestEvent, TimelineTestEvent,
+    async_test, test_json, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    StateTestEvent, TimelineTestEvent,
 };
 use ruma::{
     event_id,
@@ -32,6 +32,8 @@ use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
 };
+
+mod read_receipts;
 
 use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
@@ -180,6 +182,7 @@ async fn echo() {
 
     // Don't move the original timeline, it must live until the end of the test
     let timeline = timeline.clone();
+    #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
     let send_hdl = spawn(async move {
         timeline
             .send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id))
@@ -189,9 +192,9 @@ async fn echo() {
     let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = local_echo.as_event().unwrap().as_local().unwrap();
-    assert_matches!(&item.send_state, EventSendState::NotSentYet);
+    assert_matches!(item.send_state(), EventSendState::NotSentYet);
 
-    let msg = assert_matches!(&item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "Hello, World!");
 
@@ -203,7 +206,7 @@ async fn echo() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
-    assert_matches!(&item.send_state, EventSendState::Sent { .. });
+    assert_matches!(item.send_state(), EventSendState::Sent { .. });
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -241,8 +244,8 @@ async fn echo() {
         Some(VectorDiff::PushBack { value }) => value
     );
     let item = remote_echo.as_event().unwrap().as_remote().unwrap();
-    assert!(item.is_own);
-    assert_eq!(item.timestamp, MilliSecondsSinceUnixEpoch(uint!(152038280)));
+    assert!(item.is_own());
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 }
 
 #[async_test]
@@ -421,7 +424,7 @@ async fn reaction() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
-    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 1);
     let group = &event_item.reactions()["👍"];
@@ -451,7 +454,7 @@ async fn reaction() {
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let event_item = updated_message.as_event().unwrap().as_remote().unwrap();
-    let msg = assert_matches!(&event_item.content, TimelineItemContent::Message(msg) => msg);
+    let msg = assert_matches!(event_item.content(), TimelineItemContent::Message(msg) => msg);
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 0);
 }
@@ -634,13 +637,13 @@ async fn in_reply_to_details() {
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let second_event = second.as_event().unwrap().as_remote().unwrap();
     let message =
-        assert_matches!(&second_event.content, TimelineItemContent::Message(message) => message);
+        assert_matches!(second_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
 
     // Fetch details locally first.
-    timeline.fetch_event_details(&second_event.event_id).await.unwrap();
+    timeline.fetch_event_details(second_event.event_id()).await.unwrap();
 
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
     let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
@@ -674,7 +677,7 @@ async fn in_reply_to_details() {
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let third_event = third.as_event().unwrap().as_remote().unwrap();
     let message =
-        assert_matches!(&third_event.content, TimelineItemContent::Message(message) => message);
+        assert_matches!(third_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
     assert_matches!(in_reply_to.details, TimelineDetails::Unavailable);
@@ -691,7 +694,7 @@ async fn in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+    timeline.fetch_event_details(third_event.event_id()).await.unwrap();
     server.reset().await;
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
@@ -720,7 +723,7 @@ async fn in_reply_to_details() {
         .mount(&server)
         .await;
 
-    timeline.fetch_event_details(&third_event.event_id).await.unwrap();
+    timeline.fetch_event_details(third_event.event_id()).await.unwrap();
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
@@ -732,19 +735,19 @@ async fn in_reply_to_details() {
 }
 
 #[async_test]
-async fn read_receipts_updates() {
+async fn sync_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let alice = user_id!("@alice:localhost");
-    let bob = user_id!("@bob:localhost");
-
-    let second_event_id = event_id!("$e32037280er453l:localhost");
-    let third_event_id = event_id!("$Sg2037280074GZr34:localhost");
-
     let mut ev_builder = EventBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ev_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -752,73 +755,48 @@ async fn read_receipts_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    assert!(items.is_empty());
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "hello",
+                "msgtype": "m.text",
+            },
+            "event_id": "$msda7m0df9E9op3",
+            "origin_server_ts": 152037280,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+        })),
+    ));
 
-    ev_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::MessageText)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
-                "content": {
-                    "body": "I'm dancing too",
-                    "msgtype": "m.text"
-                },
-                "event_id": second_event_id,
-                "origin_server_ts": 152039280,
-                "sender": alice,
-                "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
-                "content": {
-                    "body": "Viva la macarena!",
-                    "msgtype": "m.text"
-                },
-                "event_id": third_event_id,
-                "origin_server_ts": 152045280,
-                "sender": alice,
-                "type": "m.room.message",
-            }))),
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let _day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
     );
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    // Own events don't trigger push rules.
+    assert!(!remote_event.is_highlighted());
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-
-    // We don't list the read receipt of our own user on events.
-    let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let first_event = first_item.as_event().unwrap().as_remote().unwrap();
-    assert!(first_event.read_receipts.is_empty());
-
-    // Implicit read receipt of @alice:localhost.
-    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(second_event.read_receipts.len(), 1);
-
-    // Read receipt of @alice:localhost is moved to third event.
-    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
-    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
-    assert!(second_event.read_receipts.is_empty());
-
-    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(third_event.read_receipts.len(), 1);
-
-    // Read receipt on unknown event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
-                "$unknowneventid": {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436453550,
-                        },
-                    },
-                },
+                "body": "This room has been replaced",
+                "replacement_room": "!newroom:localhost",
             },
-            "type": "m.receipt",
+            "event_id": "$foun39djjod0f",
+            "origin_server_ts": 152039280,
+            "sender": "@bob:localhost",
+            "state_key": "",
+            "type": "m.room.tombstone",
         })),
     ));
 
@@ -826,59 +804,107 @@ async fn read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Read receipt on older event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                second_event_id: {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436451550,
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
+    let second = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushBack { value }) => value
+    );
+    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    // `m.room.tombstone` should be highlighted by default.
+    assert!(remote_event.is_highlighted());
+}
 
-    // Read receipt on same event is ignored.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                third_event_id: {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436451550,
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
+#[async_test]
+async fn back_pagination_highlighted() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    // New user with explicit read receipt.
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                third_event_id: {
-                    "m.read": {
-                        bob: {
-                            "ts": 1436451550,
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
+    let mut ev_builder = EventBuilder::new();
+    ev_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
-    assert_eq!(third_event.read_receipts.len(), 2);
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let response_json = json!({
+        "chunk": [
+          {
+            "content": {
+                "body": "hello",
+                "msgtype": "m.text",
+            },
+            "event_id": "$msda7m0df9E9op3",
+            "origin_server_ts": 152037280,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+            "room_id": room_id,
+          },
+          {
+            "content": {
+                "body": "This room has been replaced",
+                "replacement_room": "!newroom:localhost",
+            },
+            "event_id": "$foun39djjod0f",
+            "origin_server_ts": 152039280,
+            "sender": "@bob:localhost",
+            "state_key": "",
+            "type": "m.room.tombstone",
+            "room_id": room_id,
+          },
+        ],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+    server.reset().await;
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushFront { value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 1, value }) => value
+    );
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider(_));
+
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 2, value }) => value
+    );
+    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    // Own events don't trigger push rules.
+    assert!(!remote_event.is_highlighted());
+
+    let second = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 2, value }) => value
+    );
+    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    // `m.room.tombstone` should be highlighted by default.
+    assert!(remote_event.is_highlighted());
+
+    // Removal of the loading indicator
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::PopFront));
 }

@@ -192,7 +192,9 @@ pub struct KeysQueryRequest {
 }
 
 impl KeysQueryRequest {
-    pub(crate) fn new(device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>) -> Self {
+    pub(crate) fn new(users: impl Iterator<Item = OwnedUserId>) -> Self {
+        let device_keys = users.map(|u| (u, Vec::new())).collect();
+
         Self { timeout: None, device_keys, token: None }
     }
 }

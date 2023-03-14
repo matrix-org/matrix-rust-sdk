@@ -160,7 +160,7 @@ fn build_for_android_target(
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    let package_camel = package_name.replace("-", "_");
+    let package_camel = package_name.replace('-', "_");
     let lib_name = format!("lib{package_camel}.so");
     Ok(workspace::target_path()?.join(target).join(profile_dir_name).join(lib_name))
 }

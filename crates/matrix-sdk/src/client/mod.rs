@@ -15,6 +15,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
@@ -24,12 +25,11 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
-use eyeball::Observable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    BaseClient, RoomType, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
-    SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
+    SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::Instant,
@@ -51,7 +51,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            push::get_notifications::v3::Notification,
+            push::{get_notifications::v3::Notification, set_pusher, Pusher},
             room::create_room,
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
@@ -68,6 +68,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
@@ -125,13 +126,19 @@ pub enum LoopCtrl {
     Break,
 }
 
+/// Wrapper struct for ErrorKind::UnknownToken
+#[derive(Debug, Clone)]
+pub struct UnknownToken {
+    /// Whether or not the session was soft logged out
+    pub soft_logout: bool,
+}
+
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
 #[derive(Clone)]
 pub struct Client {
     pub(crate) inner: Arc<ClientInner>,
-    pub(crate) root_span: Span,
 }
 
 pub(crate) struct ClientInner {
@@ -151,11 +158,11 @@ pub(crate) struct ClientInner {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Locks for requests on the encryption state of rooms.
     pub(crate) encryption_state_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
@@ -181,6 +188,11 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
+    /// Client API UnknownToken error publisher. Allows the subscriber logout
+    /// the user when any request fails because of an invalid access token
+    pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
+    /// Root span for `tracing`.
+    pub(crate) root_span: Span,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -354,7 +366,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens(&self) -> Option<SessionTokens> {
-        self.base_client().session_tokens().clone()
+        self.base_client().session_tokens().get()
     }
 
     /// Get the current access token for this session.
@@ -489,7 +501,7 @@ impl Client {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens_stream(&self) -> impl Stream<Item = Option<SessionTokens>> {
-        Observable::subscribe(&self.base_client().session_tokens())
+        self.base_client().session_tokens()
     }
 
     /// Get the whole session info of this client.
@@ -503,7 +515,7 @@ impl Client {
     }
 
     /// Get a reference to the state store.
-    pub fn store(&self) -> &dyn StateStore {
+    pub fn store(&self) -> &DynStateStore {
         self.base_client().store()
     }
 
@@ -567,6 +579,7 @@ impl Client {
     ///             push_rules::PushRulesEvent,
     ///             room::{message::SyncRoomMessageEvent, topic::SyncRoomTopicEvent},
     ///         },
+    ///         push::Action,
     ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
     ///     Client,
@@ -591,6 +604,16 @@ impl Client {
     ///         async move {
     ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         }
+    ///     },
+    /// );
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, push_actions: Vec<Action>| {
+    ///         async move {
+    ///             // A `Vec<Action>` parameter allows you to know which push actions
+    ///             // are applicable for an event. For example, an event with
+    ///             // `Action::SetTweak(Tweak::Highlight(true))` should be highlighted
+    ///             // in the timeline.
     ///         }
     ///     },
     /// );
@@ -1196,13 +1219,14 @@ impl Client {
             }
         }
 
-        self.root_span
+        self.inner
+            .root_span
             .record("user_id", display(&response.user_id))
             .record("device_id", display(&response.device_id));
 
         #[cfg(feature = "e2e-encryption")]
         if let Some(key) = self.encryption().ed25519_key().await {
-            self.root_span.record("ed25519_key", key);
+            self.inner.root_span.record("ed25519_key", key);
         }
 
         self.inner.base_client.receive_login_response(response).await?;
@@ -1269,13 +1293,14 @@ impl Client {
     /// ```
     ///
     /// [`login`]: #method.login
-    #[instrument(skip_all, parent = &self.root_span)]
+    #[instrument(skip_all, parent = &self.inner.root_span)]
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         debug!("Restoring session");
 
         let (meta, tokens) = session.into_parts();
 
-        self.root_span
+        self.inner
+            .root_span
             .record("user_id", display(&meta.user_id))
             .record("device_id", display(&meta.device_id));
 
@@ -1284,7 +1309,7 @@ impl Client {
 
         #[cfg(feature = "e2e-encryption")]
         if let Some(key) = self.encryption().ed25519_key().await {
-            self.root_span.record("ed25519_key", key);
+            self.inner.root_span.record("ed25519_key", key);
         }
 
         debug!("Done restoring session");
@@ -1471,7 +1496,7 @@ impl Client {
     /// client.register(request).await;
     /// # })
     /// ```
-    #[instrument(skip_all, parent = &self.root_span)]
+    #[instrument(skip_all, parent = &self.inner.root_span)]
     pub async fn register(
         &self,
         request: register::v3::Request,
@@ -1534,7 +1559,7 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
-    #[instrument(skip(self, definition), parent = &self.root_span)]
+    #[instrument(skip(self, definition), parent = &self.inner.root_span)]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
@@ -1670,7 +1695,7 @@ impl Client {
         let response = self.send(request, None).await?;
 
         let base_room =
-            self.base_client().get_or_create_room(&response.room_id, RoomType::Joined).await;
+            self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
         Ok(room::Joined::new(self, base_room).unwrap())
     }
 
@@ -1843,7 +1868,8 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
-        self.inner
+        let response = self
+            .inner
             .http_client
             .send(
                 request,
@@ -1853,7 +1879,20 @@ impl Client {
                 self.user_id(),
                 self.server_versions().await?,
             )
-            .await
+            .await;
+
+        if let Err(http_error) = &response {
+            if let Some(ErrorKind::UnknownToken { soft_logout }) =
+                http_error.client_api_error_kind()
+            {
+                _ = self
+                    .inner
+                    .unknown_token_error_sender
+                    .send(UnknownToken { soft_logout: *soft_logout });
+            }
+        }
+
+        response
     }
 
     async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
@@ -2247,7 +2286,7 @@ impl Client {
     ///     .await;
     /// })
     /// ```
-    #[instrument(skip_all, parent = &self.root_span)]
+    #[instrument(skip_all, parent = &self.inner.root_span)]
     pub async fn sync_with_callback<C>(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2402,7 +2441,8 @@ impl Client {
     ///
     /// # anyhow::Ok(()) });
     /// ```
-    #[instrument(skip(self), parent = &self.root_span)]
+    #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
+    #[instrument(skip(self), parent = &self.inner.root_span)]
     pub async fn sync_stream(
         &self,
         mut sync_settings: crate::config::SyncSettings,
@@ -2439,6 +2479,18 @@ impl Client {
     /// Log out the current user
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Subscribes a new receiver to client UnknownToken errors
+    pub fn subscribe_to_unknown_token_errors(&self) -> broadcast::Receiver<UnknownToken> {
+        let broadcast = &self.inner.unknown_token_error_sender;
+        broadcast.subscribe()
+    }
+
+    /// Sets a given pusher
+    pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
+        let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
     }
 }

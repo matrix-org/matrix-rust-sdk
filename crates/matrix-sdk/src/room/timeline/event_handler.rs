@@ -76,6 +76,7 @@ pub(super) struct TimelineEventMetadata {
     pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
+    pub(super) is_highlighted: bool,
 }
 
 #[derive(Clone)]
@@ -185,6 +186,7 @@ pub(super) enum TimelineItemPosition {
 #[derive(Default)]
 pub(super) struct HandleEventResult {
     pub(super) item_added: bool,
+    #[cfg(feature = "e2e-encryption")]
     pub(super) item_removed: bool,
     pub(super) items_updated: u16,
 }
@@ -325,6 +327,8 @@ impl<'a> TimelineEventHandler<'a> {
 
         if !self.result.item_added {
             trace!("No new item added");
+
+            #[cfg(feature = "e2e-encryption")]
             if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
@@ -407,11 +411,11 @@ impl<'a> TimelineEventHandler<'a> {
 
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
-            if let TimelineItemContent::RedactedMessage = remote_event_item.content {
+            if let TimelineItemContent::RedactedMessage = remote_event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
             } else {
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
@@ -474,7 +478,7 @@ impl<'a> TimelineEventHandler<'a> {
                     return None;
                 };
 
-                let mut reactions = remote_event_item.reactions.clone();
+                let mut reactions = remote_event_item.reactions().clone();
 
                 let count = {
                     let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
@@ -543,14 +547,16 @@ impl<'a> TimelineEventHandler<'a> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let mut item = match &self.flow {
-            Flow::Local { txn_id, timestamp } => EventTimelineItem::Local(LocalEventTimelineItem {
-                send_state: EventSendState::NotSentYet,
-                transaction_id: txn_id.to_owned(),
-                sender,
-                sender_profile,
-                timestamp: *timestamp,
-                content,
-            }),
+            Flow::Local { txn_id, timestamp } => {
+                EventTimelineItem::Local(LocalEventTimelineItem::new(
+                    EventSendState::NotSentYet,
+                    txn_id.to_owned(),
+                    sender,
+                    sender_profile,
+                    *timestamp,
+                    content,
+                ))
+            }
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -559,18 +565,19 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                EventTimelineItem::Remote(RemoteEventTimelineItem {
-                    event_id: event_id.clone(),
+                EventTimelineItem::Remote(RemoteEventTimelineItem::new(
+                    event_id.clone(),
                     sender,
                     sender_profile,
-                    timestamp: *origin_server_ts,
+                    *origin_server_ts,
                     content,
                     reactions,
-                    is_own: self.meta.is_own_event,
-                    encryption_info: self.meta.encryption_info.clone(),
-                    read_receipts: self.meta.read_receipts.clone(),
-                    raw: raw_event.clone(),
-                })
+                    self.meta.read_receipts.clone(),
+                    self.meta.is_own_event,
+                    self.meta.encryption_info.clone(),
+                    raw_event.clone(),
+                    self.meta.is_highlighted,
+                ))
             }
         };
 

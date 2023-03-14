@@ -184,14 +184,11 @@ impl OlmMachine {
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
-        let event = identity_manager.listen_for_received_queries();
-
         let session_manager = SessionManager::new(
             account.clone(),
             users_for_key_claim,
             key_request_machine.clone(),
             store.clone(),
-            event,
         );
 
         #[cfg(feature = "backups_v1")]
@@ -299,6 +296,11 @@ impl OlmMachine {
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
+    /// Get the crypto store associated with this `OlmMachine` instance.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// The unique user id that owns this `OlmMachine` instance.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -345,9 +347,13 @@ impl OlmMachine {
             requests.push(r);
         }
 
-        for request in self.identity_manager.users_for_key_query().await?.into_iter().map(|r| {
-            OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
-        }) {
+        for request in self
+            .identity_manager
+            .users_for_key_query()
+            .await?
+            .into_iter()
+            .map(|(request_id, r)| OutgoingRequest { request_id, request: Arc::new(r.into()) })
+        {
             requests.push(request);
         }
 
@@ -376,7 +382,7 @@ impl OlmMachine {
                 self.receive_keys_upload_response(response).await?;
             }
             IncomingResponse::KeysQuery(response) => {
-                self.receive_keys_query_response(response).await?;
+                self.receive_keys_query_response(request_id, response).await?;
             }
             IncomingResponse::KeysClaim(response) => {
                 self.receive_keys_claim_response(response).await?;
@@ -530,9 +536,10 @@ impl OlmMachine {
     /// performed.
     async fn receive_keys_query_response(
         &self,
+        request_id: &TransactionId,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        self.identity_manager.receive_keys_query_response(response).await
+        self.identity_manager.receive_keys_query_response(request_id, response).await
     }
 
     /// Get a request to upload E2EE keys to the server.
@@ -748,6 +755,9 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the room key.
+    ///
+    /// `settings` - Encryption settings that affect when are room keys rotated
+    /// and who are they shared with
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -1203,7 +1213,11 @@ impl OlmMachine {
             let (decrypted_event, _) = session.decrypt(event).await?;
             let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
 
-            Ok(TimelineEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+            Ok(TimelineEvent {
+                event: decrypted_event,
+                encryption_info: Some(encryption_info),
+                push_actions: vec![],
+            })
         } else {
             Err(MegolmError::MissingRoomKey)
         }
@@ -1284,9 +1298,7 @@ impl OlmMachine {
 
     async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
         if let Some(timeout) = timeout {
-            let listener = self.identity_manager.listen_for_received_queries();
-
-            let _ = listener.wait_if_user_pending(timeout, user_id).await;
+            self.store.wait_if_user_key_query_pending(timeout, user_id).await;
         }
     }
 
@@ -1668,7 +1680,7 @@ pub(crate) mod tests {
         room_id,
         serde::Raw,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, UserId,
+        OwnedDeviceKeyId, TransactionId, UserId,
     };
     use serde_json::json;
     use vodozemac::{
@@ -1755,8 +1767,9 @@ pub(crate) mod tests {
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
         let (machine, otk) = get_prepared_machine().await;
         let response = keys_query_response();
+        let req_id = TransactionId::new();
 
-        machine.receive_keys_query_response(&response).await.unwrap();
+        machine.receive_keys_query_response(&req_id, &response).await.unwrap();
 
         (machine, otk)
     }
@@ -1976,7 +1989,8 @@ pub(crate) mod tests {
         let alice_devices = machine.store.get_user_devices(alice_id).await.unwrap();
         assert!(alice_devices.devices().peekable().peek().is_none());
 
-        machine.receive_keys_query_response(&response).await.unwrap();
+        let req_id = TransactionId::new();
+        machine.receive_keys_query_response(&req_id, &response).await.unwrap();
 
         let device = machine.store.get_device(alice_id, alice_device_id).await.unwrap().unwrap();
         assert_eq!(device.user_id(), alice_id);
@@ -2331,8 +2345,8 @@ pub(crate) mod tests {
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
             .expect("Can't parse the keys upload response");
 
-        alice.receive_keys_query_response(&kq_response).await.unwrap();
-        bob.receive_keys_query_response(&kq_response).await.unwrap();
+        alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+        bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     }
 
     async fn sign_alice_device_for_machine(alice: &OlmMachine, bob: &OlmMachine) {
@@ -2396,8 +2410,8 @@ pub(crate) mod tests {
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
             .expect("Can't parse the keys upload response");
 
-        alice.receive_keys_query_response(&kq_response).await.unwrap();
-        bob.receive_keys_query_response(&kq_response).await.unwrap();
+        alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+        bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     }
 
     async fn mark_alice_identity_as_verified(alice: &OlmMachine, bob: &OlmMachine) {
@@ -2461,8 +2475,8 @@ pub(crate) mod tests {
         let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
             .expect("Can't parse the keys upload response");
 
-        alice.receive_keys_query_response(&kq_response).await.unwrap();
-        bob.receive_keys_query_response(&kq_response).await.unwrap();
+        alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+        bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 
         // so alice identity should be now trusted
 
@@ -2487,7 +2501,7 @@ pub(crate) mod tests {
             .expect("Can't parse the keys upload response");
 
         let (device_change, identity_change) =
-            bob.receive_keys_query_response(&response).await.unwrap();
+            bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
         assert_eq!(device_change.new.len(), 2);
         assert_eq!(identity_change.new.len(), 1);
         //

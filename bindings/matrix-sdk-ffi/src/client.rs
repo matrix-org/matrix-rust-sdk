@@ -2,29 +2,94 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
-    config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
             account::whoami,
             error::ErrorKind,
-            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             media::get_content_thumbnail::v3::Method,
+            push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
+            room::{create_room, Visibility},
             session::get_login_types,
-            sync::sync_events::v3::Filter,
         },
-        events::{room::MediaSource, AnyToDeviceEvent},
+        events::{
+            room::{
+                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent, MediaSource,
+            },
+            AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
+        },
         serde::Raw,
-        TransactionId, UInt,
+        EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
-use tokio::sync::broadcast;
-use tracing::{debug, warn};
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
+use serde_json::Value;
+use tokio::sync::broadcast::{self, error::RecvError};
+use tracing::{debug, error, warn};
 
-use super::{
-    room::Room, session_verification::SessionVerificationController, ClientState, RUNTIME,
-};
+use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
+use crate::client;
+
+#[derive(Clone)]
+pub struct PusherIdentifiers {
+    pub pushkey: String,
+    pub app_id: String,
+}
+
+impl From<PusherIdentifiers> for PusherIds {
+    fn from(value: PusherIdentifiers) -> Self {
+        Self::new(value.pushkey, value.app_id)
+    }
+}
+
+#[derive(Clone)]
+pub struct HttpPusherData {
+    pub url: String,
+    pub format: Option<PushFormat>,
+    pub default_payload: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum PusherKind {
+    Http { data: HttpPusherData },
+    Email,
+}
+
+impl TryFrom<PusherKind> for RumaPusherKind {
+    type Error = anyhow::Error;
+
+    fn try_from(value: PusherKind) -> anyhow::Result<Self> {
+        match value {
+            PusherKind::Http { data } => {
+                let mut ruma_data = RumaHttpPusherData::new(data.url);
+                if let Some(payload) = data.default_payload {
+                    let json: Value = serde_json::from_str(&payload)?;
+                    ruma_data.default_payload = json;
+                }
+                ruma_data.format = data.format.map(Into::into);
+                Ok(Self::Http(ruma_data))
+            }
+            PusherKind::Email => {
+                let ruma_data = EmailPusherData::new();
+                Ok(Self::Email(ruma_data))
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum PushFormat {
+    EventIdOnly,
+}
+
+impl From<PushFormat> for RumaPushFormat {
+    fn from(value: PushFormat) -> Self {
+        match value {
+            client::PushFormat::EventIdOnly => Self::EventIdOnly,
+        }
+    }
+}
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -34,15 +99,12 @@ impl std::ops::Deref for Client {
 }
 
 pub trait ClientDelegate: Sync + Send {
-    fn did_receive_sync_update(&self);
     fn did_receive_auth_error(&self, is_soft_logout: bool);
-    fn did_update_restore_token(&self);
 }
 
 #[derive(Clone)]
 pub struct Client {
     pub(crate) client: MatrixClient,
-    state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
         Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
@@ -54,7 +116,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(client: MatrixClient, state: ClientState) -> Self {
+    pub fn new(client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
             matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -73,14 +135,30 @@ impl Client {
 
         let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
 
-        Client {
+        let client = Client {
             client,
-            state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx,
-        }
+        };
+
+        let mut unknown_token_error_receiver = client.subscribe_to_unknown_token_errors();
+        let client_clone = client.clone();
+        RUNTIME.spawn(async move {
+            loop {
+                match unknown_token_error_receiver.recv().await {
+                    Ok(unknown_token) => client_clone.process_unknown_token_error(unknown_token),
+                    Err(receive_error) => {
+                        if let RecvError::Closed = receive_error {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        client
     }
 
     /// Login using a username and password.
@@ -112,12 +190,9 @@ impl Client {
             user_id,
             device_id,
             homeserver_url: _,
-            is_soft_logout,
             sliding_sync_proxy,
         } = session;
 
-        // update the client state
-        self.state.write().unwrap().is_soft_logout = is_soft_logout;
         *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
 
         let session = matrix_sdk::Session {
@@ -184,8 +259,6 @@ impl Client {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
             let homeserver_url = self.client.homeserver().await.into();
-            let state = self.state.read().unwrap();
-            let is_soft_logout = state.is_soft_logout;
             let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
 
             Ok(Session {
@@ -194,7 +267,6 @@ impl Client {
                 user_id: user_id.to_string(),
                 device_id: device_id.to_string(),
                 homeserver_url,
-                is_soft_logout,
                 sliding_sync_proxy,
             })
         })
@@ -224,17 +296,34 @@ impl Client {
         })
     }
 
-    pub fn avatar_url(&self) -> anyhow::Result<String> {
+    pub fn avatar_url(&self) -> anyhow::Result<Option<String>> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let avatar_url = l.account().get_avatar_url().await?.context("No User ID found")?;
-            Ok(avatar_url.to_string())
+            let avatar_url = l.account().get_avatar_url().await?;
+            Ok(avatar_url.map(|u| u.to_string()))
+        })
+    }
+
+    pub fn cached_avatar_url(&self) -> anyhow::Result<Option<String>> {
+        let l = self.client.clone();
+        RUNTIME.block_on(async move {
+            let url = l.account().get_cached_avatar_url().await?;
+            Ok(url)
         })
     }
 
     pub fn device_id(&self) -> anyhow::Result<String> {
         let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
+    }
+
+    pub fn create_room(&self, request: CreateRoomParameters) -> anyhow::Result<String> {
+        let client = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let response = client.create_room(request.into()).await?;
+            Ok(String::from(response.room_id()))
+        })
     }
 
     /// Get the content of the event of the given type out of the account data
@@ -347,14 +436,6 @@ impl Client {
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
         let client_api_error_kind = sync_error.client_api_error_kind();
         match client_api_error_kind {
-            Some(ErrorKind::UnknownToken { soft_logout }) => {
-                self.state.write().unwrap().is_soft_logout = *soft_logout;
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_update_restore_token();
-                    delegate.did_receive_auth_error(*soft_logout);
-                }
-                LoopCtrl::Break
-            }
             Some(ErrorKind::UnknownPos) => {
                 let _ = self.sliding_sync_reset_broadcast_tx.send(());
                 LoopCtrl::Continue
@@ -365,84 +446,144 @@ impl Client {
             }
         }
     }
+
+    /// Registers a pusher with given parameters
+    pub fn set_pusher(
+        &self,
+        identifiers: PusherIdentifiers,
+        kind: PusherKind,
+        app_display_name: String,
+        device_display_name: String,
+        profile_tag: Option<String>,
+        lang: String,
+    ) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            let ids = identifiers.into();
+
+            let pusher_init = PusherInit {
+                ids,
+                kind: kind.try_into()?,
+                app_display_name,
+                device_display_name,
+                profile_tag,
+                lang,
+            };
+            self.client.set_pusher(pusher_init.into()).await?;
+            Ok(())
+        })
+    }
+
+    fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
+        if let Some(delegate) = &*self.delegate.read().unwrap() {
+            delegate.did_receive_auth_error(unknown_token.soft_logout);
+        }
+    }
 }
 
 #[uniffi::export]
 impl Client {
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(async move { self.async_homeserver().await })
-    }
-
-    /// Indication whether we've received a first sync response since
-    /// establishing the client (in memory)
-    pub fn has_first_synced(&self) -> bool {
-        self.state.read().unwrap().has_first_synced
-    }
-
-    /// Indication whether we are currently syncing
-    pub fn is_syncing(&self) -> bool {
-        self.state.read().unwrap().is_syncing
-    }
-
-    /// Flag indicating whether the session is in soft logout mode
-    pub fn is_soft_logout(&self) -> bool {
-        self.state.read().unwrap().is_soft_logout
+        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+        RUNTIME.block_on(self.async_homeserver())
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
+}
 
-    pub fn start_sync(&self, timeline_limit: Option<u16>) {
-        let client = self.client.clone();
-        let state = self.state.clone();
-        let delegate = self.delegate.clone();
-        let local_self = self.clone();
-        RUNTIME.spawn(async move {
-            let mut filter = FilterDefinition::default();
-            let mut room_filter = RoomFilter::default();
-            let mut event_filter = RoomEventFilter::default();
-            let mut timeline_filter = RoomEventFilter::default();
+pub struct CreateRoomParameters {
+    pub name: String,
+    pub topic: Option<String>,
+    pub is_encrypted: bool,
+    pub is_direct: bool,
+    pub visibility: RoomVisibility,
+    pub preset: RoomPreset,
+    pub invite: Option<Vec<String>>,
+    pub avatar: Option<String>,
+}
 
-            event_filter.lazy_load_options =
-                LazyLoadOptions::Enabled { include_redundant_members: false };
-            room_filter.state = event_filter;
-            filter.room = room_filter;
-
-            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
-            filter.room.timeline = timeline_filter;
-
-            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
-
-            let sync_settings = SyncSettings::new().filter(Filter::FilterId(filter_id));
-
-            client
-                .sync_with_result_callback(sync_settings, |result| async {
-                    Ok(if result.is_ok() {
-                        if !state.read().unwrap().has_first_synced {
-                            state.write().unwrap().has_first_synced = true;
-                        }
-
-                        if state.read().unwrap().should_stop_syncing {
-                            state.write().unwrap().is_syncing = false;
-                            return Ok(LoopCtrl::Break);
-                        } else if !state.read().unwrap().is_syncing {
-                            state.write().unwrap().is_syncing = true;
-                        }
-
-                        if let Some(delegate) = &*delegate.read().unwrap() {
-                            delegate.did_receive_sync_update()
-                        }
-
-                        LoopCtrl::Continue
-                    } else {
-                        local_self.process_sync_error(result.err().unwrap())
-                    })
+impl From<CreateRoomParameters> for create_room::v3::Request {
+    fn from(value: CreateRoomParameters) -> create_room::v3::Request {
+        let mut request = create_room::v3::Request::new();
+        request.name = Some(value.name);
+        request.topic = value.topic;
+        request.is_direct = value.is_direct;
+        request.visibility = value.visibility.into();
+        request.preset = Some(value.preset.into());
+        request.invite = match value.invite {
+            Some(invite) => invite
+                .iter()
+                .filter_map(|user_id| match UserId::parse(user_id) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        error!(user_id, "Skipping invalid user ID, error: {e}");
+                        None
+                    }
                 })
-                .await
-                .unwrap();
-        });
+                .collect(),
+            None => vec![],
+        };
+
+        let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
+
+        if value.is_encrypted {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        if let Some(url) = value.avatar {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url.into());
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        request.initial_state = initial_state;
+
+        request
+    }
+}
+
+pub enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    Public,
+
+    /// Indicates that the room will not be shown in the published room list.
+    Private,
+}
+
+impl From<RoomVisibility> for Visibility {
+    fn from(value: RoomVisibility) -> Self {
+        match value {
+            RoomVisibility::Public => Self::Public,
+            RoomVisibility::Private => Self::Private,
+        }
+    }
+}
+
+pub enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    PrivateChat,
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    PublicChat,
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    TrustedPrivateChat,
+}
+
+impl From<RoomPreset> for create_room::v3::RoomPreset {
+    fn from(value: RoomPreset) -> Self {
+        match value {
+            RoomPreset::PrivateChat => Self::PrivateChat,
+            RoomPreset::PublicChat => Self::PublicChat,
+            RoomPreset::TrustedPrivateChat => Self::TrustedPrivateChat,
+        }
     }
 }
 
@@ -461,7 +602,6 @@ pub struct Session {
 
     // FFI-only fields (for now)
     pub homeserver_url: String,
-    pub is_soft_logout: bool,
     pub sliding_sync_proxy: Option<String>,
 }
 
