@@ -679,7 +679,7 @@ impl Store {
     /// from the `/sync` response. Any users *whose device lists we are
     /// tracking* are flagged as needing a key query. Users whose devices we
     /// are not tracking are ignored.
-    pub async fn mark_tracked_users_as_changed(
+    pub(crate) async fn mark_tracked_users_as_changed(
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
@@ -703,7 +703,7 @@ impl Store {
     /// This is called after processing the response to a /keys/query request.
     /// Any users whose device lists we are tracking are removed from the
     /// list of those pending a /keys/query.
-    pub async fn mark_tracked_users_as_up_to_date(
+    pub(crate) async fn mark_tracked_users_as_up_to_date(
         &self,
         users: impl Iterator<Item = &UserId>,
         sequence_number: SequenceNumber,
@@ -765,7 +765,9 @@ impl Store {
     /// A pair `(users, sequence_number)`, where `users` is the list of users to
     /// be queried, and `sequence_number` is the current sequence number,
     /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub(crate) async fn users_for_key_query(&self) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
+    pub(crate) async fn users_for_key_query(
+        &self,
+    ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
         self.load_tracked_users().await?;
 
         Ok(self.users_for_key_query.lock().await.users_for_key_query())
