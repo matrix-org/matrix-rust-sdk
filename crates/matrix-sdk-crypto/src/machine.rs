@@ -181,14 +181,11 @@ impl OlmMachine {
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
-        let event = identity_manager.listen_for_received_queries();
-
         let session_manager = SessionManager::new(
             account.clone(),
             users_for_key_claim,
             key_request_machine.clone(),
             store.clone(),
-            event,
         );
 
         #[cfg(feature = "backups_v1")]
@@ -1271,9 +1268,7 @@ impl OlmMachine {
 
     async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
         if let Some(timeout) = timeout {
-            let listener = self.identity_manager.listen_for_received_queries();
-
-            let _ = listener.wait_if_user_pending(timeout, user_id).await;
+            self.store.wait_if_user_key_query_pending(timeout, user_id).await;
         }
     }
 

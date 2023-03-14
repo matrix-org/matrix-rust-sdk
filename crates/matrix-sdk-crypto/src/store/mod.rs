@@ -43,8 +43,10 @@ use std::{
     fmt::Debug,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
+    time::Duration,
 };
 
+use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
@@ -84,6 +86,7 @@ pub mod integration_tests;
 
 use caches::{SequenceNumber, UsersForKeyQuery};
 pub use error::{CryptoStoreError, Result};
+use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
@@ -102,7 +105,17 @@ pub struct Store {
     inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
-    users_for_key_query: Arc<Mutex<UsersForKeyQuery>>,
+
+    /// Record of the users that are waiting for a /keys/query.
+    //
+    // This uses an async_std::sync::Mutex rather than a
+    // matrix_sdk_common::locks::Mutex because it has to match the Condvar (and tokio lacks a
+    // working Condvar implementation)
+    users_for_key_query: Arc<AsyncStdMutex<UsersForKeyQuery>>,
+
+    // condition variable that is notified each time an update is received for a user.
+    users_for_key_query_condvar: Arc<Condvar>,
+
     tracked_user_loading_lock: Arc<Mutex<()>>,
     tracked_users_loaded: Arc<AtomicBool>,
 }
@@ -281,6 +294,17 @@ pub enum SecretImportError {
     Store(#[from] CryptoStoreError),
 }
 
+/// Result type telling us if a `/keys/query` response was expected for a given
+/// user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UserKeyQueryResult {
+    WasPending,
+    WasNotPending,
+
+    /// A query was pending, but we gave up waiting
+    TimeoutExpired,
+}
+
 /// Room encryption settings which are modified by state events or user options
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RoomSettings {
@@ -314,7 +338,8 @@ impl Store {
             inner: store,
             verification_machine,
             tracked_users_cache: DashSet::new().into(),
-            users_for_key_query: Mutex::new(UsersForKeyQuery::new()).into(),
+            users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()).into(),
+            users_for_key_query_condvar: Condvar::new().into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
         }
@@ -717,8 +742,11 @@ impl Store {
                 store_updates.push((user_id, !clean));
             }
         }
+        self.inner.save_tracked_users(&store_updates).await?;
+        // wake up any tasks that may have been waiting for updates
+        self.users_for_key_query_condvar.notify_all();
 
-        self.inner.save_tracked_users(&store_updates).await
+        Ok(())
     }
 
     /// Load the list of users for whom we are tracking their device lists and
@@ -771,6 +799,42 @@ impl Store {
         self.load_tracked_users().await?;
 
         Ok(self.users_for_key_query.lock().await.users_for_key_query())
+    }
+
+    /// Wait for a `/keys/query` response to be received if one is expected for
+    /// the given user.
+    ///
+    /// If the given timeout elapses, the method will stop waiting and return
+    /// `UserKeyQueryResult::TimeoutExpired`
+    pub(crate) async fn wait_if_user_key_query_pending(
+        &self,
+        timeout_duration: Duration,
+        user: &UserId,
+    ) -> UserKeyQueryResult {
+        let mut g = self.users_for_key_query.lock().await;
+
+        let Some(w) = g.maybe_register_waiting_task(user) else {
+            return UserKeyQueryResult::WasNotPending;
+        };
+
+        let f1 = async {
+            while !w.completed.load(Ordering::Relaxed) {
+                g = self.users_for_key_query_condvar.wait(g).await;
+            }
+        };
+
+        match timeout(Box::pin(f1), timeout_duration).await {
+            Err(_) => {
+                warn!(
+                    user_id = ?user,
+                    "The user has a pending `/key/query` request which did \
+                    not finish yet, some devices might be missing."
+                );
+
+                UserKeyQueryResult::TimeoutExpired
+            }
+            _ => UserKeyQueryResult::WasPending,
+        }
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
