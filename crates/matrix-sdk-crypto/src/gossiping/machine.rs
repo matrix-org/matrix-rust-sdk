@@ -78,13 +78,7 @@ impl GossipMachine {
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     ) -> Self {
-        #[cfg(feature = "automatic-room-key-forwarding")]
-        let room_key_forwarding_enabled = true;
-
-        #[cfg(not(feature = "automatic-room-key-forwarding"))]
-        let room_key_forwarding_enabled = false;
-
-        let room_key_forwarding_enabled = AtomicBool::new(room_key_forwarding_enabled).into();
+        let room_key_forwarding_enabled = AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding")).into();
 
         Self {
             user_id,
