@@ -27,11 +27,11 @@ If the Rust definition is on UniFFI already, you either:
 
 1. Unless you want to contribute on the crypto side, you probably need to add some code in the [matrix-rust-sdk/bindings/matrix-sdk-ffi](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings/matrix-sdk-ffi) crate. After you find the crate you need to understand which file is best to contain the new Rust definition. When exposing new matrix API often (but not always) you need to touch the file [client.rs](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/client.rs).
 
-2. Identify the API to expose in the the target Rust crate (typically in [matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk). If you can’t find your definition. If you can’t find it, you probably need to touch the actual Rust sdk as well. In this case you typically just need to write some around [ruma](https://github.com/ruma/ruma) (a rust sdk’s dependency) which already implements most of the matrix protocol. 
+2. Identify the API to expose in the target Rust crate (typically in [matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk). If you can’t find it, you probably need to touch the actual Rust SDK as well. In this case you typically just need to write some code around [ruma](https://github.com/ruma/ruma) (a Rust SDK’s dependency) which already implements most of the matrix protocol. 
 
-3. When you got the Rust code you need to expose to UniFFI, just write a small Rust wrapper in the related UniFFI crate (most of the time is **matrix-sdk-ffi**).
+3. After you got (by finding or writing) the required Rust code, you need to expose to UniFFI. To do that just write a small Rust wrapper in the related UniFFI crate (most of the time is **matrix-sdk-ffi**).
 
-4. When your new definition is ready, remember to expose it in the related `.udl` file (or add an appropriate UniFFI export Rust attribute). For the **matrix-sdk-ffi** crate the definition file is [api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl). Remember: the language inside a `.udl` file isn’t Rust. To learn more about how map Rust into UDL read [here](https://mozilla.github.io/uniffi-rs/udl_file_spec.html).
+4. When your new (wrapping) Rust definition is ready, remember to expose it in the related `.udl` file (or add an appropriate UniFFI export Rust attribute). For the **matrix-sdk-ffi** crate the definition file is [api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl). Remember: the language inside a `.udl` file isn’t Rust. To learn more about how map Rust into UDL read [here](https://mozilla.github.io/uniffi-rs/udl_file_spec.html).
 
 ## FAQ
 
@@ -39,4 +39,5 @@ If the Rust definition is on UniFFI already, you either:
 **A**: Run `cargo build` in the crate you touched (e.g. matrix-sdk-ffi). The compiler will complain if the Rust code and/or the `.udl` is wrong.
 
 
-**Q**: The compiler is happy with my code but the CI is failing on GitHub. How can I fix it?<br/>**A**: The CI may fail for different reasons, you need to have a look on the failing GitHub workflow. One common reason though, is that the linter ([Clippy](https://github.com/rust-lang/rust-clippy)) isn’t happy with your code. If this is the case, you can run `cargo clippy` in the crate you touched to see what’s wrong.
+**Q**: The compiler is happy with my code but the CI is failing on GitHub. How can I fix it?\
+**A**: The CI may fail for different reasons, you need to have a look on the failing GitHub workflow. One common reason though is that the linter ([Clippy](https://github.com/rust-lang/rust-clippy)) isn’t happy with your code. If this is the case, you can run `cargo clippy` in the crate you touched to see what’s wrong and fix it accordingly.
