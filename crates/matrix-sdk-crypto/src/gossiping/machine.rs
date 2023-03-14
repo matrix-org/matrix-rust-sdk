@@ -323,7 +323,7 @@ impl GossipMachine {
             user_id = ?device.user_id(),
             device_id = ?device.device_id(),
             session_id = session.session_id(),
-            room_id = ?session.room_id,
+            room_id = ?session.room_id(),
             ?message_index,
             "Serving a room key request",
         );
@@ -882,7 +882,7 @@ impl GossipMachine {
                     info!(
                         ?sender_key,
                         claimed_sender_key = ?session.sender_key(),
-                        room_id = ?session.room_id,
+                        room_id = ?session.room_id(),
                         session_id = session.session_id(),
                         algorithm = ?session.algorithm(),
                         "Received a forwarded room key but we already have a better version of it",

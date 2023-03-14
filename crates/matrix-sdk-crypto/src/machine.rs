@@ -2517,7 +2517,7 @@ pub(crate) mod tests {
             .unwrap()
             .into();
         let signing_keys = SigningKeys::from([(DeviceKeyAlgorithm::Ed25519, fake_key)]);
-        inbound.signing_keys = signing_keys.into();
+        inbound.creator_info.signing_keys = signing_keys.into();
 
         let content = json!({});
         let content = outbound.encrypt(content, "m.dummy").await;
