@@ -864,9 +864,6 @@ impl Joined {
     }
 
     /// Sets a new topic for this room.
-    ///
-    /// # Arguments
-    /// * `topic` - The new topic for the room
     pub async fn set_room_topic(&self, topic: &str) -> Result<send_state_event::v3::Response> {
         let topic_event = RoomTopicEventContent::new(topic.into());
 
