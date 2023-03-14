@@ -550,6 +550,8 @@ mod tests {
         let missing_sessions_task = {
             let manager = manager.clone();
             let bob_user_id = bob.user_id.clone();
+
+            #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
             tokio::spawn(async move {
                 manager.get_missing_sessions(iter::once(bob_user_id.deref())).await
             })
