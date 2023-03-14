@@ -812,3 +812,99 @@ async fn sync_highlighted() {
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
 }
+
+#[async_test]
+async fn back_pagination_highlighted() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let response_json = json!({
+        "chunk": [
+          {
+            "content": {
+                "body": "hello",
+                "msgtype": "m.text",
+            },
+            "event_id": "$msda7m0df9E9op3",
+            "origin_server_ts": 152037280,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+            "room_id": room_id,
+          },
+          {
+            "content": {
+                "body": "This room has been replaced",
+                "replacement_room": "!newroom:localhost",
+            },
+            "event_id": "$foun39djjod0f",
+            "origin_server_ts": 152039280,
+            "sender": "@bob:localhost",
+            "state_key": "",
+            "type": "m.room.tombstone",
+            "room_id": room_id,
+          },
+        ],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+    server.reset().await;
+
+    let loading = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::PushFront { value }) => value
+    );
+    assert_matches!(loading.as_virtual().unwrap(), VirtualTimelineItem::LoadingIndicator);
+
+    let day_divider = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 1, value }) => value
+    );
+    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider(_));
+
+    let first = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 2, value }) => value
+    );
+    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    // Own events don't trigger push rules.
+    assert!(!remote_event.is_highlighted());
+
+    let second = assert_matches!(
+        timeline_stream.next().await,
+        Some(VectorDiff::Insert { index: 2, value }) => value
+    );
+    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    // `m.room.tombstone` should be highlighted by default.
+    assert!(remote_event.is_highlighted());
+
+    // Removal of the loading indicator
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::PopFront));
+}

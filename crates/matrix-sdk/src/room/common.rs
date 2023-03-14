@@ -28,10 +28,12 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
+        push_rules::PushRulesEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
-            server_acl::RoomServerAclEventContent, MediaSource,
+            power_levels::RoomPowerLevelsEventContent, server_acl::RoomServerAclEventContent,
+            MediaSource,
         },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
@@ -39,6 +41,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
+    push::{PushConditionRoomCtx, Ruleset},
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
     UInt, UserId,
@@ -234,6 +237,20 @@ impl Common {
             }
         } else {
             response.chunk.extend(http_response.chunk.into_iter().map(TimelineEvent::new));
+        }
+
+        if let Some(push_context) = self.push_context().await? {
+            let push_rules = self
+                .client()
+                .account()
+                .account_data::<PushRulesEventContent>()
+                .await?
+                .and_then(|r| r.deserialize().ok().map(|r| r.global))
+                .unwrap_or_else(|| Ruleset::server_default(self.own_user_id()));
+
+            for event in &mut response.chunk {
+                event.push_actions = push_rules.get_actions(&event.event, &push_context).to_owned();
+            }
         }
 
         Ok(response)
@@ -1007,6 +1024,43 @@ impl Common {
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         self.inner.event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+    }
+
+    /// Get the push context for this room.
+    ///
+    /// Returns `None` if some data couldn't be found. This should only happen
+    /// in brand new rooms, while we process its state.
+    async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
+        let room_id = self.room_id();
+        let user_id = self.own_user_id();
+        let room_info = self.clone_info();
+        let member_count = room_info.active_members_count();
+
+        let user_display_name = if let Some(member) = self.get_member_no_sync(user_id).await? {
+            member.name().to_owned()
+        } else {
+            return Ok(None);
+        };
+
+        let room_power_levels = if let Some(event) = self
+            .get_state_event_static::<RoomPowerLevelsEventContent>()
+            .await?
+            .and_then(|e| e.deserialize().ok())
+        {
+            event.power_levels()
+        } else {
+            return Ok(None);
+        };
+
+        Ok(Some(PushConditionRoomCtx {
+            user_id: user_id.to_owned(),
+            room_id: room_id.to_owned(),
+            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_display_name,
+            users_power_levels: room_power_levels.users,
+            default_power_level: room_power_levels.users_default,
+            notification_power_levels: room_power_levels.notifications,
+        }))
     }
 }
 
