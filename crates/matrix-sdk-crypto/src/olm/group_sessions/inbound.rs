@@ -63,20 +63,24 @@ use crate::{
 /// Information about the creator of an inbound group session.
 #[derive(Clone)]
 pub(crate) struct SessionCreatorInfo {
-    /// The Curve25519 key of the session creator.
+    /// The Curve25519 identity key of the session creator.
     ///
-    /// If the session was received directly from the creator through an
-    /// `m.room_key` event, this key corresponds to the long-term Curve25519
-    /// identity key of the Olm Session that was utilized to decrypt the
-    /// event.
+    /// If the session was received directly from its creator device through an
+    /// `m.room_key` event (and therefore, session sender == session creator),
+    /// this key equals the Curve25519 device identity key of that device. Since
+    /// this key is one of three keys used to establish the Olm session through
+    /// which encrypted to-device messages (including `m.room_key`) are sent,
+    /// this constitutes a proof that this inbound group session is owned by
+    /// that particular Curve25519 key.
     ///
-    /// However, if the session was forwarded to us using an
-    /// `m.forwarded_room_key`, this key is just a copy of the claimed
-    /// Curve25519 key from the content of the event.
+    /// However, if the session was simply forwarded to us in an
+    /// `m.forwarded_room_key` event (in which case sender != creator), this key
+    /// is just a *claim* made by the session sender of what the actual creator
+    /// device is.
     pub curve25519_key: Curve25519PublicKey,
 
     /// A mapping of DeviceKeyAlgorithm to the public signing keys of the
-    /// [`Device`] that sent the room key to us.
+    /// [`Device`] that sent us the session.
     ///
     /// If the session was received directly from the creator via an
     /// `m.room_key` event, this map is taken from the plaintext value of
@@ -97,9 +101,11 @@ pub(crate) struct SessionCreatorInfo {
 /// the exchange of room messages among a group of participants. The inbound
 /// variant of the group session is used to decrypt the room messages.
 ///
-/// This struct wraps the `vodozemac` type of the same name, and adds additional
-/// Matrix- specific data to it. Additionally, the wrapper ensures thread-safe
+/// This struct wraps the [vodozemac] type of the same name, and adds additional
+/// Matrix-specific data to it. Additionally, the wrapper ensures thread-safe
 /// access of the vodozemac type.
+///
+/// [vodozemac]: https://matrix-org.github.io/vodozemac/vodozemac/index.html
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<InnerSession>>,
@@ -112,19 +118,19 @@ pub struct InboundGroupSession {
     /// a lock to get to the first known index.
     first_known_index: u32,
 
-    /// Information about the creator of the room key or
-    /// [`InboundGroupSession`]. The thrustworthiness of this field depends
+    /// Information about the creator of the [`InboundGroupSession`] ("room
+    /// key"). The trustworthiness of the information in this field depends
     /// on how the session was received.
     pub(crate) creator_info: SessionCreatorInfo,
 
     /// The Room this GroupSession belongs to
     pub room_id: Arc<RoomId>,
 
-    /// A flag remembering if the InboundGroupSession was received directly as a
-    /// `m.room_key` event or indirectly via a forward or file import.
+    /// A flag recording whether the `InboundGroupSession` was received directly
+    /// as a `m.room_key` event or indirectly via a forward or file import.
     ///
-    /// If the session is considered to be imported the
-    /// `InboundGroupSession::creator_info` field is not proven to be
+    /// If the session is considered to be imported, the information contained
+    /// in the `InboundGroupSession::creator_info` field is not proven to be
     /// correct.
     imported: bool,
 
