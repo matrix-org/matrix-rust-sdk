@@ -15,7 +15,7 @@ Each Rust crate can expose definitions to UniFFI using two different approaches:
 
 ### Check if the API is already on UniFFI
 
-First of all check if the API/type you are looking for exists on UniFFI already. Most of exposed matrix definitions are collected in the crate [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings/matrix-sdk-ffi).
+First of all check if the API / type you are looking for exists on UniFFI already. Most of exposed matrix definitions are collected in the crate [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/bindings/matrix-sdk-ffi).
 This crate contains mainly small Rust wrappers around the actual Rust sdk (e.g. the crate [matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk))
 
 If the API is on UniFFI already, you can probably see it also in the file [matrix-sdk-ffi/src/api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl) where most of the matrix definitions are declared.
