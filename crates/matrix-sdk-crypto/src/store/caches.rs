@@ -89,7 +89,7 @@ impl GroupSessionStore {
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
-            .entry((*session.room_id).to_owned())
+            .entry(session.room_id().to_owned())
             .or_default()
             .insert(session.session_id().to_owned(), session)
             .is_none()
