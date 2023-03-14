@@ -17,7 +17,7 @@ use matrix_sdk::{
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test, test_json, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    TimelineTestEvent,
+    StateTestEvent, TimelineTestEvent,
 };
 use ruma::{
     event_id,
@@ -741,7 +741,13 @@ async fn sync_highlighted() {
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = EventBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ev_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -804,5 +810,5 @@ async fn sync_highlighted() {
     );
     let remote_event = second.as_event().unwrap().as_remote().unwrap();
     // `m.room.tombstone` should be highlighted by default.
-    assert!(!remote_event.is_highlighted());
+    assert!(remote_event.is_highlighted());
 }
