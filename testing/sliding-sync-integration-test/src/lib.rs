@@ -133,7 +133,7 @@ mod tests {
 
             // Get the list to all rooms to check the list' state.
             let list = sync.list("init_list").context("list `init_list` isn't found")?;
-            assert_eq!(list.state(), SlidingSyncState::Cold);
+            assert_eq!(list.state(), SlidingSyncState::NotLoaded);
 
             // Send the request and wait for a response.
             let update_summary = stream
@@ -142,7 +142,7 @@ mod tests {
                 .context("No room summary found, loop ended unsuccessfully")??;
 
             // Check the state has switched to `Live`.
-            assert_eq!(list.state(), SlidingSyncState::Live);
+            assert_eq!(list.state(), SlidingSyncState::FullyLoaded);
 
             // One room has received an update.
             assert_eq!(update_summary.rooms.len(), 1);
@@ -543,7 +543,7 @@ mod tests {
 
         let full = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("full")
             .build()?;
@@ -552,8 +552,8 @@ mod tests {
 
         let list = sync_proxy.list("sliding").context("but we just added that list!")?;
         let full_list = sync_proxy.list("full").context("but we just added that list!")?;
-        assert_eq!(list.state(), SlidingSyncState::Cold, "list isn't cold");
-        assert_eq!(full_list.state(), SlidingSyncState::Cold, "full isn't cold");
+        assert_eq!(list.state(), SlidingSyncState::NotLoaded, "list isn't cold");
+        assert_eq!(full_list.state(), SlidingSyncState::NotLoaded, "full isn't cold");
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
@@ -564,8 +564,8 @@ mod tests {
 
         // we only heard about the ones we had asked for
         assert_eq!(room_summary.rooms.len(), 11);
-        assert_eq!(list.state(), SlidingSyncState::Live, "list isn't live");
-        assert_eq!(full_list.state(), SlidingSyncState::CatchingUp, "full isn't preloading");
+        assert_eq!(list.state(), SlidingSyncState::FullyLoaded, "list isn't live");
+        assert_eq!(full_list.state(), SlidingSyncState::PartiallyLoaded, "full isn't preloading");
 
         // doing another two requests 0-20; 0-21 should bring full live, too
         let _room_summary =
@@ -574,7 +574,7 @@ mod tests {
         let rooms_list = full_list.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
-        assert_eq!(full_list.state(), SlidingSyncState::Live, "full isn't live yet");
+        assert_eq!(full_list.state(), SlidingSyncState::FullyLoaded, "full isn't live yet");
 
         Ok(())
     }
@@ -844,7 +844,7 @@ mod tests {
                 .build()?;
             let growing_sync = SlidingSyncList::builder()
                 .sync_mode(SlidingSyncMode::GrowingFullSync)
-                .limit(100)
+                .full_sync_maximum_number_of_rooms_to_fetch(100)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name("growing")
                 .build()?;
@@ -867,7 +867,7 @@ mod tests {
                 sync_proxy.list("growing").context("but we just added that list!")?; // let's catch it up fully.
             let stream = sync_proxy.stream();
             pin_mut!(stream);
-            while growing_sync.state() != SlidingSyncState::Live {
+            while growing_sync.state() != SlidingSyncState::FullyLoaded {
                 // we wait until growing sync is all done, too
                 println!("awaiting");
                 let _room_summary = stream
@@ -902,7 +902,7 @@ mod tests {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -954,7 +954,7 @@ mod tests {
         let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -1014,7 +1014,7 @@ mod tests {
         print!("setup took its time");
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .limit(100)
+            .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -1096,7 +1096,7 @@ mod tests {
         print!("setup took its time");
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .limit(100)
+            .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -1111,7 +1111,7 @@ mod tests {
         let list = sync_proxy.list("growing").context("but we just added that list!")?; // let's catch it up fully.
         let stream = sync_proxy.stream();
         pin_mut!(stream);
-        while list.state() != SlidingSyncState::Live {
+        while list.state() != SlidingSyncState::FullyLoaded {
             // we wait until growing sync is all done, too
             println!("awaiting");
             let _room_summary = stream
@@ -1142,7 +1142,7 @@ mod tests {
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.lists.iter().any(|s| s == "growing")
-                && list.rooms_count().unwrap_or_default() == 32
+                && list.maximum_number_of_rooms().unwrap_or_default() == 32
             {
                 if seen {
                     // once we saw 32, we give it another loop to catch up!

@@ -22,14 +22,13 @@ pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
     required_state: Vec<(StateEventType, String)>,
-    batch_size: u32,
+    full_sync_batch_size: u32,
+    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     send_updates_for_items: bool,
-    limit: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<UInt>,
     name: Option<String>,
     state: SlidingSyncState,
-    rooms_count: Option<u32>,
     rooms_list: Vector<RoomListEntry>,
     ranges: Vec<(UInt, UInt)>,
 }
@@ -43,14 +42,13 @@ impl SlidingSyncListBuilder {
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
             ],
-            batch_size: 20,
+            full_sync_batch_size: 20,
+            full_sync_maximum_number_of_rooms_to_fetch: None,
             send_updates_for_items: false,
-            limit: None,
             filters: None,
             timeline_limit: None,
             name: None,
             state: SlidingSyncState::default(),
-            rooms_count: None,
             rooms_list: Vector::new(),
             ranges: Vec::new(),
         }
@@ -79,9 +77,20 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// How many rooms request at a time when doing a full-sync catch up.
-    pub fn batch_size(mut self, value: u32) -> Self {
-        self.batch_size = value;
+    /// When doing a full-sync, this method defines the value by which ranges of
+    /// rooms will be extended.
+    pub fn full_sync_batch_size(mut self, value: u32) -> Self {
+        self.full_sync_batch_size = value;
+        self
+    }
+
+    /// When doing a full-sync, this method defines the total limit of rooms to
+    /// load (it can be useful for gigantic account).
+    pub fn full_sync_maximum_number_of_rooms_to_fetch(
+        mut self,
+        value: impl Into<Option<u32>>,
+    ) -> Self {
+        self.full_sync_maximum_number_of_rooms_to_fetch = value.into();
         self
     }
 
@@ -89,12 +98,6 @@ impl SlidingSyncListBuilder {
     /// have changed.
     pub fn send_updates_for_items(mut self, value: bool) -> Self {
         self.send_updates_for_items = value;
-        self
-    }
-
-    /// How many rooms request a total hen doing a full-sync catch up.
-    pub fn limit(mut self, value: impl Into<Option<u32>>) -> Self {
-        self.limit = value.into();
         self
     }
 
@@ -123,31 +126,31 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set the ranges to fetch
+    /// Set the ranges to fetch.
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
         self
     }
 
-    /// Set a single range fetch
+    /// Set a single range fetch.
     pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
         self.ranges = vec![(from.into(), to.into())];
         self
     }
 
-    /// Set the ranges to fetch
+    /// Set the ranges to fetch.
     pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
         self.ranges.push((from.into(), to.into()));
         self
     }
 
-    /// Set the ranges to fetch
+    /// Set the ranges to fetch.
     pub fn reset_ranges(mut self) -> Self {
-        self.ranges = Default::default();
+        self.ranges.clear();
         self
     }
 
-    /// Build the list
+    /// Build the list.
     pub fn build(self) -> Result<SlidingSyncList> {
         let mut rooms_list = ObservableVector::new();
         rooms_list.append(self.rooms_list);
@@ -156,14 +159,15 @@ impl SlidingSyncListBuilder {
             sync_mode: self.sync_mode,
             sort: self.sort,
             required_state: self.required_state,
-            batch_size: self.batch_size,
+            full_sync_batch_size: self.full_sync_batch_size,
             send_updates_for_items: self.send_updates_for_items,
-            limit: self.limit,
+            full_sync_maximum_number_of_rooms_to_fetch: self
+                .full_sync_maximum_number_of_rooms_to_fetch,
             filters: self.filters,
             timeline_limit: Arc::new(StdRwLock::new(Observable::new(self.timeline_limit))),
             name: self.name.ok_or(Error::BuildMissingField("name"))?,
             state: Arc::new(StdRwLock::new(Observable::new(self.state))),
-            rooms_count: Arc::new(StdRwLock::new(Observable::new(self.rooms_count))),
+            maximum_number_of_rooms: Arc::new(StdRwLock::new(Observable::new(None))),
             rooms_list: Arc::new(StdRwLock::new(rooms_list)),
             ranges: Arc::new(StdRwLock::new(Observable::new(self.ranges))),
             is_cold: Arc::new(AtomicBool::new(false)),

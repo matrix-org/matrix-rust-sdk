@@ -448,19 +448,19 @@ impl SlidingSyncListBuilder {
 
     pub fn batch_size(self: Arc<Self>, batch_size: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.batch_size(batch_size);
+        builder.inner = builder.inner.full_sync_batch_size(batch_size);
         Arc::new(builder)
     }
 
     pub fn room_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.limit(limit);
+        builder.inner = builder.inner.full_sync_maximum_number_of_rooms_to_fetch(limit);
         Arc::new(builder)
     }
 
     pub fn no_room_limit(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.limit(None);
+        builder.inner = builder.inner.full_sync_maximum_number_of_rooms_to_fetch(None);
         Arc::new(builder)
     }
 
@@ -556,7 +556,7 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomsCountObserver>,
     ) -> Arc<TaskHandle> {
-        let mut rooms_count_stream = self.inner.rooms_count_stream();
+        let mut rooms_count_stream = self.inner.maximum_number_of_rooms_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
@@ -598,7 +598,7 @@ impl SlidingSyncList {
 
     /// Total of rooms matching the filter
     pub fn current_room_count(&self) -> Option<u32> {
-        self.inner.rooms_count()
+        self.inner.maximum_number_of_rooms()
     }
 
     /// The current timeline limit
