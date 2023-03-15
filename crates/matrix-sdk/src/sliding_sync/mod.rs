@@ -1041,23 +1041,19 @@ impl SlidingSync {
         let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
 
         // Prepare the request.
-        let request = assign!(v4::Request::new(), {
-            pos,
-            delta_token,
-            // We want to track whether the incoming response maps to this
-            // request. We use the (optional) `txn_id` field for that.
-            txn_id: Some(stream_id.to_owned()),
-            timeout: Some(timeout),
-            lists,
-            room_subscriptions,
-            unsubscribe_rooms,
-            extensions,
-        });
-
-        debug!(?request, "Sliding Sync will send this request");
-
         let request = self.inner.client.send_with_homeserver(
-            request,
+            assign!(v4::Request::new(), {
+                pos,
+                delta_token,
+                // We want to track whether the incoming response maps to this
+                // request. We use the (optional) `txn_id` field for that.
+                txn_id: Some(stream_id.to_owned()),
+                timeout: Some(timeout),
+                lists,
+                room_subscriptions,
+                unsubscribe_rooms,
+                extensions,
+            }),
             Some(request_config),
             self.inner.homeserver.as_ref().map(ToString::to_string),
         );
@@ -1069,7 +1065,7 @@ impl SlidingSync {
         // coming from the `OlmMachine::outgoing_requests()` method.
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request _with_ E2EE");
+            debug!("Sliding Sync is sending the request along with  outgoing E2EE requests");
 
             let (e2ee_uploads, response) =
                 futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
@@ -1085,7 +1081,7 @@ impl SlidingSync {
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
         let response = {
-            debug!("Sliding Sync is sending the request _without_ E2EE");
+            debug!("Sliding Sync is sending the request");
 
             request.await?
         };
@@ -1107,10 +1103,10 @@ impl SlidingSync {
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
         spawn(async move {
-            debug!("Sliding Sync response handing starts");
+            debug!("Sliding Sync response handling starts");
 
-            // In case the task running this future is detached, we must be
-            // ensured responses are handled one at a time, hence we lock the
+            // In case the task running this future is detached, we must
+            // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
             let response_handling_lock = this.response_handling_lock.lock().await;
 
@@ -1138,7 +1134,7 @@ impl SlidingSync {
             // happens here.
             let sync_response = this.inner.client.process_sliding_sync(&response).await?;
 
-            debug!(?sync_response, "Sliding Sync response has been processed");
+            debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
             let updates = this.handle_response(response, sync_response, list_generators.lock().unwrap().borrow_mut())?;
 
@@ -1147,7 +1143,7 @@ impl SlidingSync {
             // Release the lock.
             drop(response_handling_lock);
 
-            debug!("Sliding sync response has been handled");
+            debug!("Sliding Sync response has been fully handled");
 
             Ok(Some(updates))
         }).await.unwrap()
