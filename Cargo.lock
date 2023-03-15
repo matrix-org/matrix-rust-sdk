@@ -2755,6 +2755,7 @@ dependencies = [
  "matrix-sdk-sled",
  "matrix-sdk-test",
  "mime",
+ "mime_guess",
  "once_cell",
  "pin-project-lite",
  "rand 0.8.5",

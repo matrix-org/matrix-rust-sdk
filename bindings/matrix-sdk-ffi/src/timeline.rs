@@ -589,6 +589,7 @@ pub struct AudioInfo {
     // for that
     pub duration: Option<u64>,
     pub size: Option<u64>,
+    pub mimetype: Option<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -681,6 +682,7 @@ impl From<&matrix_sdk::ruma::events::room::message::AudioInfo> for AudioInfo {
         Self {
             duration: info.duration.map(|d| d.as_millis() as u64),
             size: info.size.map(Into::into),
+            mimetype: info.mimetype.clone(),
         }
     }
 }
