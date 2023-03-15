@@ -16,6 +16,8 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 //#![warn(missing_docs, missing_debug_implementations)]
 
+use napi_derive::napi;
+
 pub mod attachment;
 pub mod encryption;
 mod errors;
@@ -30,5 +32,26 @@ pub mod sync_events;
 pub mod tracing;
 pub mod types;
 pub mod vodozemac;
+
+/// Object containing the versions of the Rust libraries we are using.
+#[napi(object)]
+pub struct Versions {
+    /// The version of the vodozemac crate.
+    #[napi(getter)]
+    pub vodozemac: &'static str,
+
+    /// The version of the matrix-sdk-crypto crate.
+    #[napi(getter)]
+    pub matrix_sdk_crypto: &'static str,
+}
+
+/// Get the versions of the Rust libraries we are using.
+#[napi(js_name = "getVersions")]
+pub fn get_versions() -> Versions {
+    Versions {
+        vodozemac: matrix_sdk_crypto::vodozemac::VERSION,
+        matrix_sdk_crypto: matrix_sdk_crypto::VERSION,
+    }
+}
 
 use crate::errors::into_err;

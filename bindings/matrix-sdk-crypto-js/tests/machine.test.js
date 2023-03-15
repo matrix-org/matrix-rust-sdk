@@ -7,7 +7,6 @@ const {
     EncryptionSettings,
     EventId,
     InboundGroupSession,
-    KeysClaimRequest,
     KeysQueryRequest,
     KeysUploadRequest,
     MaybeSignature,
@@ -16,15 +15,29 @@ const {
     RequestType,
     RoomId,
     RoomMessageRequest,
+    ShieldColor,
     SignatureUploadRequest,
     ToDeviceRequest,
     UserId,
     UserIdentity,
     VerificationRequest,
-    ShieldColor,
+    VerificationState,
+    Versions,
+    getVersions,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { addMachineToMachine } = require("./helper");
 require("fake-indexeddb/auto");
+
+describe("Versions", () => {
+    test("can find out the crate versions", async () => {
+        const versions = getVersions();
+
+        expect(versions).toBeInstanceOf(Versions)
+        expect(versions.vodozemac).toBeDefined()
+        expect(versions.matrix_sdk_crypto).toBeDefined()
+    });
+
+});
 
 describe(OlmMachine.name, () => {
     test("can be instantiated with the async initializer", async () => {

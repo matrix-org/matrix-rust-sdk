@@ -40,6 +40,27 @@ pub mod vodozemac;
 
 use wasm_bindgen::prelude::*;
 
+/// Object containing the versions of the Rust libraries we are using.
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug)]
+pub struct Versions {
+    /// The version of the vodozemac crate.
+    #[wasm_bindgen(readonly)]
+    pub vodozemac: &'static str,
+    /// The version of the matrix-sdk-crypto crate.
+    #[wasm_bindgen(readonly)]
+    pub matrix_sdk_crypto: &'static str,
+}
+
+/// Get the versions of the Rust libraries we are using.
+#[wasm_bindgen(js_name = "getVersions")]
+pub fn get_versions() -> Versions {
+    Versions {
+        vodozemac: matrix_sdk_crypto::vodozemac::VERSION,
+        matrix_sdk_crypto: matrix_sdk_crypto::VERSION,
+    }
+}
+
 /// Run some stuff when the Wasm module is instantiated.
 ///
 /// Right now, it does the following:

@@ -840,6 +840,9 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 mod uniffi_types {
+    pub use matrix_sdk_crypto::VERSION;
+    pub use vodozemac::VERSION as VODOZEMAC_VERSION;
+
     pub use crate::{
         backup_recovery_key::{
             BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
