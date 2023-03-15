@@ -52,7 +52,7 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedUserId, TransactionId, UserId, RoomId,
+    assign, DeviceId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -279,7 +279,11 @@ impl Client {
     ///
     /// * `room_id` - The room id of the DM room.
     /// * `user_id` - The user id of the invitee for the DM room.
-    pub(crate) async fn update_m_direct_account_data(&self, room_id: &RoomId, user_id: &OwnedUserId) -> Result<()> {
+    pub(crate) async fn update_m_direct_account_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &OwnedUserId,
+    ) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
