@@ -28,6 +28,7 @@ use ruma::{
         room::{
             avatar::{ImageInfo, RoomAvatarEventContent},
             message::RoomMessageEventContent,
+            name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
             topic::RoomTopicEventContent,
         },
@@ -861,6 +862,11 @@ impl Joined {
         }
 
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
+    }
+
+    /// Sets the name of this room.
+    pub async fn set_name(&self, name: Option<String>) -> Result<send_state_event::v3::Response> {
+        self.send_state_event(RoomNameEventContent::new(name)).await
     }
 
     /// Sets a new topic for this room.
