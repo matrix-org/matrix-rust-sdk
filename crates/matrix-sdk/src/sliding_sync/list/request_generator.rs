@@ -296,7 +296,7 @@ fn create_range(
         end = min(end, maximum_number_of_rooms);
     }
 
-    // Finally, because the bounds of the range are inclusive, 1 is substracted.
+    // Finally, because the bounds of the range are inclusive, 1 is subtracted.
     end = end.saturating_sub(1);
 
     // Make sure `start` is smaller than `end`. It can happen if `start` is greater
