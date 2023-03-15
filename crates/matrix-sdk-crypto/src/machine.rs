@@ -1110,57 +1110,57 @@ impl OlmMachine {
             .devices()
             .find(|d| d.curve25519_key() == Some(session.sender_key()));
 
-        match claimed_device {
+        Ok(match claimed_device {
             None => {
+                // We didn't find a device, no way to know if we should trust the
+                // `InboundGroupSession` or not.
+
                 let link_problem = if session.has_been_imported() {
                     DeviceLinkProblem::InsecureSource
                 } else {
                     DeviceLinkProblem::MissingDevice
                 };
-                // We didn't find a device, no way to know if we should trust
-                // the `InboundGroupSession` or not.
-                Ok((VerificationState::Unverified(VerificationLevel::None(link_problem)), None))
+
+                (VerificationState::Unverified(VerificationLevel::None(link_problem)), None)
             }
             Some(device) => {
-                let owned_device_id = device.device_id().to_owned();
-                // We found a matching device, let's check if it owns the session
+                let device_id = device.device_id().to_owned();
+
+                // We found a matching device, let's check if it owns the session.
                 if !(device.is_owner_of_session(session)?) {
                     // The key cannot be linked to an owning device.
-                    Ok((
+                    (
                         VerificationState::Unverified(VerificationLevel::None(
                             DeviceLinkProblem::InsecureSource,
                         )),
-                        Some(owned_device_id),
-                    ))
+                        Some(device_id),
+                    )
                 } else {
-                    let device_owner_verified = device.is_device_owner_verified();
-                    // We only consider cross trust and not local trust.
-                    // If your own device is not signed and send a message, it will
-                    // be seen as Unverified.
+                    // We only consider cross trust and not local trust. If your own device is not
+                    // signed and send a message, it will be seen as Unverified.
                     if device.is_cross_signed_by_owner() {
-                        // The device is cross signed by this owner
-                        // Meaning that the user did self verify it properly
-                        // Let's check if we trust the identity
-                        Ok(if device_owner_verified {
-                            (VerificationState::Verified, Some(owned_device_id))
+                        // The device is cross signed by this owner Meaning that the user did self
+                        // verify it properly. Let's check if we trust the identity.
+                        if device.is_device_owner_verified() {
+                            (VerificationState::Verified, Some(device_id))
                         } else {
                             (
                                 VerificationState::Unverified(
                                     VerificationLevel::UnverifiedIdentity,
                                 ),
-                                Some(owned_device_id),
+                                Some(device_id),
                             )
-                        })
+                        }
                     } else {
-                        // The device owner hasn't self-verified its device
-                        Ok((
+                        // The device owner hasn't self-verified its device.
+                        (
                             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-                            Some(owned_device_id),
-                        ))
+                            Some(device_id),
+                        )
                     }
                 }
             }
-        }
+        })
     }
 
     /// Get some metadata pertaining to a given group session.
@@ -1193,10 +1193,10 @@ impl OlmMachine {
     }
 
     #[instrument(
-    skip_all,
-    // This function is only ever called by decrypt_room_event, so
-    // room_id, sender, algorithm and session_id are recorded already
-    fields(sender_key, event_type),
+        skip_all,
+        // This function is only ever called by decrypt_room_event, so
+        // room_id, sender, algorithm and session_id are recorded already
+        fields(sender_key, event_type),
     )]
     async fn decrypt_megolm_events(
         &self,
@@ -1654,7 +1654,7 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_common::deserialized_responses::{
-        DeviceLinkProblem, EncryptionInfo, ShieldColor, VerificationLevel, VerificationState,
+        DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -2172,6 +2172,15 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_decryption_verification_state() {
+        macro_rules! assert_shield {
+            ($foo: ident, $strict: ident, $lax: ident) => {
+                let lax = $foo.verification_state.to_shield_state_lax();
+                let strict = $foo.verification_state.to_shield_state_strict();
+
+                assert_matches!(lax, ShieldState::$lax { .. });
+                assert_matches!(strict, ShieldState::$strict { .. });
+            };
+        }
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
         let room_id = room_id!("!test:example.org");
 
@@ -2219,7 +2228,7 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
+        assert_shield!(encryption_info, Red, Red);
 
         // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
@@ -2235,7 +2244,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
-        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
+        assert_shield!(encryption_info, Red, Red);
 
         setup_cross_signing_for_machine(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
@@ -2251,7 +2260,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
-        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::RED);
+        assert_shield!(encryption_info, Red, Red);
 
         // Let alice sign her device
         sign_alice_device_for_machine(&alice, &bob).await;
@@ -2264,13 +2273,13 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::NONE);
+        assert_shield!(encryption_info, Red, None);
 
         mark_alice_identity_as_verified(&alice, &bob).await;
         let encryption_info =
             bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
-        assert_shield(&encryption_info, ShieldColor::GREEN, ShieldColor::GREEN);
+        assert_shield!(encryption_info, None, None);
 
         // Simulate an imported session, to change verification state
         let imported = InboundGroupSession::from_export(&export).unwrap();
@@ -2288,12 +2297,7 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(&encryption_info, ShieldColor::RED, ShieldColor::GRAY);
-    }
-
-    fn assert_shield(info: &EncryptionInfo, strict: ShieldColor, lax: ShieldColor) {
-        assert_eq!(info.verification_state.to_shield_state_strict().color, strict);
-        assert_eq!(info.verification_state.to_shield_state_lax().color, lax);
+        assert_shield!(encryption_info, Red, Grey);
     }
 
     async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {

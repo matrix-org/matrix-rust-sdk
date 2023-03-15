@@ -8,94 +8,88 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Event decoration representing its authenticity properties.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub enum ShieldColor {
-    /// Trusted
-    GREEN,
-    /// Important warning
-    RED,
-    /// Low warning
-    GRAY,
-    /// No warning
-    NONE,
-}
-
-/// Directive for clients on how to decorate a decrypted message with this
-/// state.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ShieldState {
-    /// Recommended indicator color for this message
-    pub color: ShieldColor,
-    /// To display as a "tooltip" for users
-    pub message: Option<String>,
-}
-
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 
+/// Represents the state of verification for a decrypted message sent by a
+/// device.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub enum VerificationState {
+    /// This message is guaranteed to be authentic as it is coming from a device
+    /// belonging to a user that we have verified.
+    ///
+    /// This is the only state where authenticity can be guaranteed.
+    Verified,
+
+    /// The message could not be linked to a verified device.
+    ///
+    /// For more detailed information on why the message is considered
+    /// unverified, refer to the VerificationLevel sub-enum.
+    Unverified(VerificationLevel),
+}
+
 impl VerificationState {
-    /// Converts the state to a shield state that can be used by clients.
+    /// Convert the `VerificationState` into a `ShieldState` which can be
+    /// directly used to decorate messages in the recommended way.
+    ///
+    /// This method decorates messages using a strict ruleset, for a more lax
+    /// variant of this method take a look at
+    /// [`VerificationState::to_shield_state_lax()`].
     pub fn to_shield_state_strict(&self) -> ShieldState {
         match self {
-            VerificationState::Verified => ShieldState { color: ShieldColor::GREEN, message: None },
-            VerificationState::Unverified(level) => ShieldState {
-                color: ShieldColor::RED,
-                message: match level {
+            VerificationState::Verified => ShieldState::None,
+            VerificationState::Unverified(level) => {
+                let message = match level {
                     VerificationLevel::UnverifiedIdentity | VerificationLevel::UnsignedDevice => {
-                        Some(UNVERIFIED_DEVICE.to_owned())
+                        UNVERIFIED_IDENTITY
                     }
                     VerificationLevel::None(link) => match link {
-                        DeviceLinkProblem::MissingDevice => Some(UNKNOWN_DEVICE.to_owned()),
-                        DeviceLinkProblem::InsecureSource => {
-                            Some(AUTHENTICITY_NOT_GUARANTEED.to_owned())
-                        }
+                        DeviceLinkProblem::MissingDevice => UNKNOWN_DEVICE,
+                        DeviceLinkProblem::InsecureSource => AUTHENTICITY_NOT_GUARANTEED,
                     },
-                },
-            },
+                };
+
+                ShieldState::Red { message }
+            }
         }
     }
 
-    /// Legacy decoration mode.
-    /// Converts the state to a shield state that can be used by clients.
+    /// Convert the `VerificationState` into a `ShieldState` which can be used
+    /// to decorate messages in the recommended way.
+    ///
+    /// This implements a legacy, lax decoration mode.
+    ///
+    /// For a more strict variant of this method take a look at
+    /// [`VerificationState::to_shield_state_strict()`].
     pub fn to_shield_state_lax(&self) -> ShieldState {
         match self {
-            VerificationState::Verified => ShieldState { color: ShieldColor::GREEN, message: None },
+            VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity => {
                     // If you didn't show interest in verifying that user we don't
                     // nag you with an error message.
                     // TODO: We should detect identity rotation of a previously trusted identity and
                     // then warn see https://github.com/matrix-org/matrix-rust-sdk/issues/1129
-                    ShieldState { color: ShieldColor::NONE, message: None }
+                    ShieldState::None
                 }
                 VerificationLevel::UnsignedDevice => {
                     // This is a high warning. The sender hasn't verified his own device.
-                    ShieldState {
-                        color: ShieldColor::RED,
-                        message: Some(UNSIGNED_DEVICE.to_owned()),
-                    }
+                    ShieldState::Red { message: UNSIGNED_DEVICE }
                 }
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => {
                         // Have to warn as it could have been a temporary injected device.
                         // Notice that the device might just not be known at this time, so callers
                         // should retry when there is a device change for that user.
-                        ShieldState {
-                            color: ShieldColor::RED,
-                            message: Some(UNKNOWN_DEVICE.to_owned()),
-                        }
+                        ShieldState::Red { message: UNKNOWN_DEVICE }
                     }
                     DeviceLinkProblem::InsecureSource => {
                         // In legacy mode, we tone down this warning as it is quite common and
                         // mostly noise (due to legacy backup and lack of trusted forwards).
-                        ShieldState {
-                            color: ShieldColor::GRAY,
-                            message: Some(AUTHENTICITY_NOT_GUARANTEED.to_owned()),
-                        }
+                        ShieldState::Grey { message: AUTHENTICITY_NOT_GUARANTEED }
                     }
                 },
             },
@@ -103,27 +97,17 @@ impl VerificationState {
     }
 }
 
-/// The verification state of the device that sent an event to us.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub enum VerificationState {
-    /// This the only state were the authenticity is guaranteed. It's coming
-    /// from a device belonging to a user that we have verified. Other states
-    /// give you more details about the level of trust.
-    Verified,
-    /// The message could not be linked to a verified user identity. The
-    /// verification level that was achieved is supplied as a struct member.
-    Unverified(VerificationLevel),
-}
-
-/// The partial verification level we were able to achieve for a received event
-/// or to-device message.
+/// The sub-enum containing detailed information on why a message is considered
+/// to be unverified.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum VerificationLevel {
     /// The message was sent by a user identity we have not verified.
     UnverifiedIdentity,
+
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
     UnsignedDevice,
+
     /// We weren't able to link the message back to any device. This might be
     /// because the message claims to have been sent by a device which we have
     /// not been able to obtain (for example, because the device was since
@@ -132,6 +116,8 @@ pub enum VerificationLevel {
     None(DeviceLinkProblem),
 }
 
+/// The sub-enum containing detailed information on why we were not able to link
+/// a message back to a device.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum DeviceLinkProblem {
     /// The device is missing, either because it was deleted, or you haven't
@@ -143,6 +129,19 @@ pub enum DeviceLinkProblem {
     InsecureSource,
 }
 
+/// Recommended decorations for decrypted messages, representing the message's
+/// authenticity properties.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub enum ShieldState {
+    /// A red shield with a tooltip containing the associated message should be
+    /// presented.
+    Red { message: &'static str },
+    /// A grey shield with a tooltip containing the associated message should be
+    /// presented.
+    Grey { message: &'static str },
+    /// No shield should be presented.
+    None,
+}
 
 /// The algorithm specific information of a decrypted event.
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -147,10 +147,7 @@ impl OlmMachine {
 
         HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
     }
-}
 
-#[uniffi::export]
-impl OlmMachine {
     /// Get the status of the private cross signing keys.
     ///
     /// This can be used to check which private cross signing keys we have
@@ -814,9 +811,9 @@ impl OlmMachine {
                         .cloned(),
                     forwarding_curve25519_chain: vec![],
                     shield_state: if strict_shields {
-                        encryption_info.verification_state.to_shield_state_strict()
+                        encryption_info.verification_state.to_shield_state_strict().into()
                     } else {
-                        encryption_info.verification_state.to_shield_state_lax()
+                        encryption_info.verification_state.to_shield_state_lax().into()
                     },
                 }
             }

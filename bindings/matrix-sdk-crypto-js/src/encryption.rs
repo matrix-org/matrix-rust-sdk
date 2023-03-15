@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use wasm_bindgen::prelude::*;
 
 use crate::events;
@@ -108,32 +109,29 @@ impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgo
     }
 }
 
-/// Message shield decoration color abstraction
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy)]
 pub enum ShieldColor {
-    /// Trusted
-    GREEN,
     /// Important warning
-    RED,
+    Red,
     /// Low warning
-    GRAY,
+    Grey,
     /// No warning
-    NONE,
+    None,
 }
 
-/// Message shield decoration color abstraction.
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct ShieldState {
     /// The shield color
     pub color: ShieldColor,
-    // Can't expose as need to imp copy
-    // So giving access via get/set
     message: Option<String>,
 }
 
-/// Directive for clients on how to decorate a decrypted message.
 #[wasm_bindgen]
 impl ShieldState {
     /// Error message that can be displayed as a tooltip
@@ -143,20 +141,16 @@ impl ShieldState {
     }
 }
 
-impl From<&matrix_sdk_common::deserialized_responses::ShieldState> for ShieldState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldState) -> Self {
-        ShieldState { color: ShieldColor::from(&value.color), message: value.message.clone() }
-    }
-}
-
-impl From<&matrix_sdk_common::deserialized_responses::ShieldColor> for ShieldColor {
-    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldColor) -> Self {
-        use matrix_sdk_common::deserialized_responses::ShieldColor::*;
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
         match value {
-            GREEN => Self::GREEN,
-            RED => Self::RED,
-            GRAY => Self::GRAY,
-            NONE => Self::NONE,
+            RustShieldState::Red { message } => {
+                Self { color: ShieldColor::Red, message: Some(message.to_owned()) }
+            }
+            RustShieldState::Grey { message } => {
+                Self { color: ShieldColor::Grey, message: Some(message.to_owned()) }
+            }
+            RustShieldState::None => Self { color: ShieldColor::None, message: None },
         }
     }
 }

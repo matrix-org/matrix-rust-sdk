@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use napi::bindgen_prelude::{BigInt, ToNapiValue};
 use napi_derive::*;
 
@@ -107,50 +108,33 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     }
 }
 
-/// Event decoration representing its authenticity properties.
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[napi]
 pub enum ShieldColor {
-    GREEN,
-    RED,
-    GRAY,
-    NONE,
+    Red,
+    Grey,
+    None,
 }
 
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[napi]
 pub struct ShieldState {
     pub color: ShieldColor,
-    // Can't expose as need to imp copy
-    // So giving access via get/set
-    pub message: Option<String>,
+    pub message: Option<&'static str>,
 }
 
-// #[wasm_bindgen]
-// impl ShieldState {
-//     #[wasm_bindgen(getter)]
-//     pub fn message(&self) -> Option<String> {
-//         self.message.clone()
-//     }
-//
-//     #[wasm_bindgen(setter)]
-//     pub fn set_message(&mut self, message: Option<String>) {
-//         self.message = message;
-//     }
-// }
-
-impl From<&matrix_sdk_common::deserialized_responses::ShieldState> for ShieldState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldState) -> Self {
-        ShieldState { color: ShieldColor::from(&value.color), message: value.message.clone() }
-    }
-}
-
-impl From<&matrix_sdk_common::deserialized_responses::ShieldColor> for ShieldColor {
-    fn from(value: &matrix_sdk_common::deserialized_responses::ShieldColor) -> Self {
-        use matrix_sdk_common::deserialized_responses::ShieldColor::*;
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
         match value {
-            GREEN => Self::GREEN,
-            RED => Self::RED,
-            GRAY => Self::GRAY,
-            NONE => Self::NONE,
+            RustShieldState::Red { message } => {
+                ShieldState { color: ShieldColor::Red, message: Some(message) }
+            }
+            RustShieldState::Grey { message } => {
+                ShieldState { color: ShieldColor::Grey, message: Some(message) }
+            }
+            RustShieldState::None => ShieldState { color: ShieldColor::None, message: None },
         }
     }
 }

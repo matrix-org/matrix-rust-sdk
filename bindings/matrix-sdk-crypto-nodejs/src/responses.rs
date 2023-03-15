@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
 use napi_derive::*;
@@ -190,9 +188,9 @@ impl DecryptedRoomEvent {
     pub fn shield_state(&self, strict: bool) -> Option<encryption::ShieldState> {
         let state = &self.encryption_info.as_ref()?.verification_state;
         if strict {
-            Some(state.to_shield_state_strict().borrow().into())
+            Some(state.to_shield_state_strict().to_owned().into())
         } else {
-            Some(state.to_shield_state_lax().borrow().into())
+            Some(state.to_shield_state_lax().to_owned().into())
         }
     }
 }
