@@ -650,6 +650,6 @@ pub struct MediaFileHandle {
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> String {
-        self.inner.path().to_str().unwrap().to_string()
+        self.inner.path().to_str().unwrap().to_owned()
     }
 }
