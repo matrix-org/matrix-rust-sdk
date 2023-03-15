@@ -32,11 +32,10 @@ describe("Versions", () => {
     test("can find out the crate versions", async () => {
         const versions = getVersions();
 
-        expect(versions).toBeInstanceOf(Versions)
-        expect(versions.vodozemac).toBeDefined()
-        expect(versions.matrix_sdk_crypto).toBeDefined()
+        expect(versions).toBeInstanceOf(Versions);
+        expect(versions.vodozemac).toBeDefined();
+        expect(versions.matrix_sdk_crypto).toBeDefined();
     });
-
 });
 
 describe(OlmMachine.name, () => {
