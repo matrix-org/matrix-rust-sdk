@@ -38,6 +38,7 @@ pub mod types;
 pub mod verification;
 pub mod vodozemac;
 
+use js_sys::JsString;
 use wasm_bindgen::prelude::*;
 
 /// Object containing the versions of the Rust libraries we are using.
@@ -46,18 +47,18 @@ use wasm_bindgen::prelude::*;
 pub struct Versions {
     /// The version of the vodozemac crate.
     #[wasm_bindgen(readonly)]
-    pub vodozemac: &'static str,
+    pub vodozemac: JsString,
     /// The version of the matrix-sdk-crypto crate.
     #[wasm_bindgen(readonly)]
-    pub matrix_sdk_crypto: &'static str,
+    pub matrix_sdk_crypto: JsString,
 }
 
 /// Get the versions of the Rust libraries we are using.
 #[wasm_bindgen(js_name = "getVersions")]
 pub fn get_versions() -> Versions {
     Versions {
-        vodozemac: matrix_sdk_crypto::vodozemac::VERSION,
-        matrix_sdk_crypto: matrix_sdk_crypto::VERSION,
+        vodozemac: matrix_sdk_crypto::vodozemac::VERSION.into(),
+        matrix_sdk_crypto: matrix_sdk_crypto::VERSION.into(),
     }
 }
 
