@@ -182,28 +182,6 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-dictionary PusherIdentifiers {
-    string pushkey;
-    string app_id;
-};
-
-[Enum]
-interface PushFormat {
-    EventIdOnly();
-};
-
-dictionary HttpPusherData {
-    string url;
-    PushFormat? format;
-    string? default_payload;
-};
-
-[Enum]
-interface PusherKind {
-    Http(HttpPusherData data);
-    Email();
-};
-
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -211,72 +189,11 @@ interface Client {
     void login(string username, string password, string? initial_device_name, string? device_id);
 
     [Throws=ClientError]
-    void restore_session(Session session);
-
-    [Throws=ClientError]
-    Session session();
-
-    [Throws=ClientError]
-    string user_id();
-
-    [Throws=ClientError]
-    string display_name();
-
-    [Throws=ClientError]
-    void set_display_name(string name);
-
-    [Throws=ClientError]
-    string? avatar_url();
-
-    [Throws=ClientError]
-    string? cached_avatar_url();
-
-    [Throws=ClientError]
-    string device_id();
-
-    [Throws=ClientError]
-    string create_room(CreateRoomParameters request);
-
-    [Throws=ClientError]
-    string? account_data(string event_type);
-
-    [Throws=ClientError]
-    void set_account_data(string event_type, string content);
-
-    [Throws=ClientError]
-    string upload_media(string mime_type, sequence<u8> content);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_content(MediaSource source);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_thumbnail(MediaSource source, u64 width, u64 height);
-
-    [Throws=ClientError]
-    SessionVerificationController get_session_verification_controller();
-
-    [Throws=ClientError]
-    SlidingSync full_sliding_sync();
-
-    [Throws=ClientError]
-    void logout();
-
-    [Throws=ClientError]
-    void set_pusher(PusherIdentifiers identifiers,
-                    PusherKind kind,
-                    string app_display_name,
-                    string device_display_name,
-                    string? profile_tag,
-                    string lang);
+    MediaFileHandle get_media_file(MediaSource source, string mime_type);
 };
 
-dictionary Session {
-    string access_token;
-    string? refresh_token;
-    string user_id;
-    string device_id;
-    string homeserver_url;
-    string? sliding_sync_proxy;
+interface MediaFileHandle {
+    string path();
 };
 
 enum MembershipState {

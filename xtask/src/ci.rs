@@ -235,6 +235,7 @@ fn run_crypto_tests() -> Result<()> {
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
     )
     .run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features").run()?;
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
     cmd!(

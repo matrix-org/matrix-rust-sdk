@@ -181,7 +181,7 @@ impl Device {
             // know that the room key belongs to this device.
             Ok(false)
         } else if let Some(key) =
-            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
+            session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
             // Room keys are received as an `m.room.encrypted` event using the `m.olm`
             // algorithm. Upon decryption of the `m.room.encrypted` event, the
@@ -237,7 +237,7 @@ impl Device {
             //
             // [1]: https://spec.matrix.org/v1.5/client-server-api/#molmv1curve25519-aes-sha2
             let ed25519_comparison = self.ed25519_key().map(|k| k == key);
-            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key);
+            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key());
 
             match (ed25519_comparison, curve25519_comparison) {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt

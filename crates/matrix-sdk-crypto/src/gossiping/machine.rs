@@ -20,8 +20,12 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
+use atomic::Ordering;
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
@@ -34,10 +38,10 @@ use ruma::{
 use tracing::{debug, info, trace, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
+use super::{GossipRequest, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
-    olm::{InboundGroupSession, Session, ShareState},
+    olm::{InboundGroupSession, Session},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
@@ -45,7 +49,7 @@ use crate::{
         forwarded_room_key::ForwardedRoomKeyContent,
         olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
         room::encrypted::EncryptedEvent,
-        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEvent},
+        room_key_request::RoomKeyRequestEvent,
         secret_send::SecretSendContent,
         EventType,
     },
@@ -57,11 +61,13 @@ pub(crate) struct GossipMachine {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
     store: Store,
+    #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
     outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
     incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    room_key_forwarding_enabled: Arc<AtomicBool>,
 }
 
 impl GossipMachine {
@@ -69,19 +75,33 @@ impl GossipMachine {
         user_id: Arc<UserId>,
         device_id: Arc<DeviceId>,
         store: Store,
-        outbound_group_sessions: GroupSessionCache,
+        #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     ) -> Self {
+        let room_key_forwarding_enabled =
+            AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding")).into();
+
         Self {
             user_id,
             device_id,
             store,
+            #[cfg(feature = "automatic-room-key-forwarding")]
             outbound_group_sessions,
             outgoing_requests: Default::default(),
             incoming_key_requests: Default::default(),
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
+            room_key_forwarding_enabled,
         }
+    }
+
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub fn toggle_room_key_forwarding(&self, enabled: bool) {
+        self.room_key_forwarding_enabled.store(enabled, Ordering::SeqCst)
+    }
+
+    pub fn is_room_key_forwarding_enabled(&self) -> bool {
+        self.room_key_forwarding_enabled.load(Ordering::SeqCst)
     }
 
     /// Load stored outgoing requests that were not yet sent out.
@@ -171,8 +191,11 @@ impl GossipMachine {
             let event = item.value();
 
             if let Some(s) = match event {
+                #[cfg(feature = "automatic-room-key-forwarding")]
                 RequestEvent::KeyShare(e) => self.handle_key_request(e).await?,
                 RequestEvent::Secret(e) => self.handle_secret_request(e).await?,
+                #[cfg(not(feature = "automatic-room-key-forwarding"))]
+                _ => None,
             } {
                 changed_sessions.push(s);
             }
@@ -312,6 +335,7 @@ impl GossipMachine {
     /// given `Device`, in that case we're going to queue up an
     /// `/keys/claim` request to be sent out and retry once the 1-to-1 Olm
     /// session has been established.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn try_to_forward_room_key(
         &self,
         event: &RoomKeyRequestEvent,
@@ -323,7 +347,7 @@ impl GossipMachine {
             user_id = ?device.user_id(),
             device_id = ?device.device_id(),
             session_id = session.session_id(),
-            room_id = ?session.room_id,
+            room_id = ?session.room_id(),
             ?message_index,
             "Serving a room key request",
         );
@@ -358,11 +382,14 @@ impl GossipMachine {
 
     /// Answer a room key request after we found the matching
     /// `InboundGroupSession`.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn answer_room_key_request(
         &self,
         event: &RoomKeyRequestEvent,
         session: InboundGroupSession,
     ) -> OlmResult<Option<Session>> {
+        use super::KeyForwardDecision;
+
         let device =
             self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
@@ -403,6 +430,7 @@ impl GossipMachine {
         }
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn handle_supported_key_request(
         &self,
         event: &RoomKeyRequestEvent,
@@ -427,27 +455,38 @@ impl GossipMachine {
     }
 
     /// Handle a single incoming key request.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn handle_key_request(&self, event: &RoomKeyRequestEvent) -> OlmResult<Option<Session>> {
-        match &event.content.action {
-            Action::Request(info) => match info {
-                RequestedKeyInfo::MegolmV1AesSha2(i) => {
-                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
-                }
-                #[cfg(feature = "experimental-algorithms")]
-                RequestedKeyInfo::MegolmV2AesSha2(i) => {
-                    self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
-                }
-                RequestedKeyInfo::Unknown(i) => {
-                    debug!(
-                        sender = ?event.sender,
-                        algorithm = ?i.algorithm,
-                        "Received a room key request for a unsupported algorithm"
-                    );
-                    Ok(None)
-                }
-            },
-            // We ignore cancellations here since there's nothing to serve.
-            Action::Cancellation => Ok(None),
+        use crate::types::events::room_key_request::{Action, RequestedKeyInfo};
+
+        if self.room_key_forwarding_enabled.load(Ordering::SeqCst) {
+            match &event.content.action {
+                Action::Request(info) => match info {
+                    RequestedKeyInfo::MegolmV1AesSha2(i) => {
+                        self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                    }
+                    #[cfg(feature = "experimental-algorithms")]
+                    RequestedKeyInfo::MegolmV2AesSha2(i) => {
+                        self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                    }
+                    RequestedKeyInfo::Unknown(i) => {
+                        debug!(
+                            sender = ?event.sender,
+                            algorithm = ?i.algorithm,
+                            "Received a room key request for a unsupported algorithm"
+                        );
+                        Ok(None)
+                    }
+                },
+                // We ignore cancellations here since there's nothing to serve.
+                Action::Cancellation => Ok(None),
+            }
+        } else {
+            debug!(
+                sender = ?event.sender,
+                "Received a room key request, but room key forwarding has been turned off"
+            );
+            Ok(None)
         }
     }
 
@@ -476,6 +515,7 @@ impl GossipMachine {
         Ok(used_session)
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn forward_room_key(
         &self,
         session: &InboundGroupSession,
@@ -533,11 +573,16 @@ impl GossipMachine {
     ///   i.
     /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for
     ///   the refusal.
+
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key(
         &self,
         device: &Device,
         session: &InboundGroupSession,
-    ) -> Result<Option<u32>, KeyForwardDecision> {
+    ) -> Result<Option<u32>, super::KeyForwardDecision> {
+        use super::KeyForwardDecision;
+        use crate::olm::ShareState;
+
         let outbound_session = self
             .outbound_group_sessions
             .get_with_id(session.room_id(), session.session_id())
@@ -575,20 +620,21 @@ impl GossipMachine {
     ///
     /// * `key_info` - The info of our key request containing information about
     /// the key we wish to request.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
-        let request = self.store.get_secret_request_by_info(key_info).await?;
+        if self.room_key_forwarding_enabled.load(Ordering::SeqCst) {
+            let request = self.store.get_secret_request_by_info(key_info).await?;
 
-        // Don't send out duplicate requests, users can re-request them if they
-        // think a second request might succeed.
-        if request.is_none() {
-            let devices = self.store.get_user_devices(self.user_id()).await?;
+            // Don't send out duplicate requests, users can re-request them if they
+            // think a second request might succeed.
+            if request.is_none() {
+                let devices = self.store.get_user_devices(self.user_id()).await?;
 
-            // Devices will only respond to key requests if the devices are
-            // verified, if the device isn't verified by us it's unlikely that
-            // we're verified by them either. Don't request keys if there isn't
-            // at least one verified device.
-            if devices.is_any_verified() {
-                Ok(true)
+                // Devices will only respond to key requests if the devices are
+                // verified, if the device isn't verified by us it's unlikely that
+                // we're verified by them either. Don't request keys if there isn't
+                // at least one verified device.
+                Ok(devices.is_any_verified())
             } else {
                 Ok(false)
             }
@@ -681,6 +727,7 @@ impl GossipMachine {
     /// * `room_id` - The id of the room where the key is used in.
     ///
     /// * `event` - The event for which we would like to request the room key.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     pub async fn create_outgoing_key_request(
         &self,
         room_id: &RoomId,
@@ -882,7 +929,7 @@ impl GossipMachine {
                     info!(
                         ?sender_key,
                         claimed_sender_key = ?session.sender_key(),
-                        room_id = ?session.room_id,
+                        room_id = ?session.room_id(),
                         session_id = session.session_id(),
                         algorithm = ?session.algorithm(),
                         "Received a forwarded room key but we already have a better version of it",
@@ -989,6 +1036,7 @@ impl GossipMachine {
 mod tests {
     use std::sync::Arc;
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     use assert_matches::assert_matches;
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
@@ -997,34 +1045,39 @@ mod tests {
         device_id, event_id,
         events::{
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
-            AnyToDeviceEventContent, ToDeviceEvent as RumaToDeviceEvent,
+            ToDeviceEvent as RumaToDeviceEvent,
         },
         room_id,
         serde::Raw,
         user_id, DeviceId, RoomId, UserId,
     };
+    #[cfg(feature = "automatic-room-key-forwarding")]
     use serde::{de::DeserializeOwned, Serialize};
     use serde_json::json;
 
-    use super::{GossipMachine, KeyForwardDecision};
+    use super::GossipMachine;
+    #[cfg(feature = "automatic-room-key-forwarding")]
     use crate::{
-        identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, OutboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount},
-        session_manager::GroupSessionCache,
-        store::{Changes, IntoCryptoStore, MemoryStore, Store},
+        gossiping::KeyForwardDecision,
+        olm::OutboundGroupSession,
+        store::Changes,
         types::{
             events::{
-                forwarded_room_key::ForwardedRoomKeyContent,
-                olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
-                room::encrypted::{
-                    EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
-                },
-                EventType, ToDeviceEvent,
+                forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
+                olm_v1::DecryptedOlmV1Event, room::encrypted::EncryptedToDeviceEvent, EventType,
+                ToDeviceEvent,
             },
             EventEncryptionAlgorithm,
         },
-        verification::VerificationMachine,
         EncryptionSettings, OutgoingRequest, OutgoingRequests,
+    };
+    use crate::{
+        identities::{LocalTrust, ReadOnlyDevice},
+        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        session_manager::GroupSessionCache,
+        store::{IntoCryptoStore, MemoryStore, Store},
+        types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
+        verification::VerificationMachine,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1063,6 +1116,7 @@ mod tests {
         ReadOnlyAccount::new(alice_id(), alice2_device_id())
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     fn test_gossip_machine(user_id: &UserId) -> GossipMachine {
         let user_id = Arc::from(user_id);
         let device_id = DeviceId::new();
@@ -1107,6 +1161,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn machines_for_key_share(
         other_machine_owner: &UserId,
         create_sessions: bool,
@@ -1148,9 +1203,10 @@ mod tests {
             .await
             .unwrap();
 
+        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
+
         let content = group_session.encrypt(json!({}), "m.dummy").await;
         let event = wrap_encrypted_content(bob_machine.user_id(), content);
-        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
         // Alice wants to request the outbound group session from bob.
         assert!(
@@ -1172,10 +1228,11 @@ mod tests {
         (alice_machine, alice_account, group_session, bob_machine)
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     fn extract_content<'a>(
         recipient: &UserId,
         request: &'a OutgoingRequest,
-    ) -> &'a Raw<AnyToDeviceEventContent> {
+    ) -> &'a Raw<ruma::events::AnyToDeviceEventContent> {
         request
             .request()
             .to_device()
@@ -1204,6 +1261,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     fn request_to_event<C>(
         recipient: &UserId,
         sender: &UserId,
@@ -1250,6 +1308,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn create_key_request() {
         let machine = get_machine().await;
         let account = account();
@@ -1281,6 +1340,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn receive_forwarded_key() {
         let machine = get_machine().await;
         let account = account();
@@ -1383,6 +1443,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key_test() {
         let machine = get_machine().await;
         let account = account();
@@ -1497,6 +1558,7 @@ mod tests {
         assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(None));
     }
 
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn key_share_cycle(algorithm: EventEncryptionAlgorithm) {
         let (alice_machine, alice_account, group_session, bob_machine) =
             machines_for_key_share(alice_id(), true, algorithm).await;
@@ -1556,6 +1618,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn reject_forward_from_another_user() {
         let (alice_machine, alice_account, group_session, bob_machine) =
             machines_for_key_share(bob_id(), true, EventEncryptionAlgorithm::MegolmV1AesSha2).await;
@@ -1605,12 +1668,13 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn key_share_cycle_megolm_v1() {
         key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
     }
 
-    #[cfg(feature = "experimental-algorithms")]
     #[async_test]
+    #[cfg(all(feature = "experimental-algorithms", feature = "automatic-room-key-forwarding"))]
     async fn key_share_cycle_megolm_v2() {
         key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
     }
@@ -1686,6 +1750,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "automatic-room-key-forwarding")]
     async fn key_share_cycle_without_session() {
         let (alice_machine, alice_account, group_session, bob_machine) =
             machines_for_key_share(alice_id(), false, EventEncryptionAlgorithm::MegolmV1AesSha2)
