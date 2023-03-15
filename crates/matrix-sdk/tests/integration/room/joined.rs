@@ -579,6 +579,7 @@ async fn set_name() {
             "name": name,
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        .expect(1)
         .mount(&server)
         .await;
 
