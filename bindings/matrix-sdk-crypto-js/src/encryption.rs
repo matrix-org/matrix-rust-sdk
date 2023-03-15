@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use wasm_bindgen::prelude::*;
 
 use crate::events;
@@ -108,28 +109,48 @@ impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgo
     }
 }
 
-/// The verification state of the device that sent an event to us.
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[wasm_bindgen]
-#[derive(Debug)]
-pub enum VerificationState {
-    /// The device is trusted.
-    Trusted,
-
-    /// The device is not trusted.
-    Untrusted,
-
-    /// The device is not known to us.
-    UnknownDevice,
+#[derive(Debug, Clone, Copy)]
+pub enum ShieldColor {
+    /// Important warning
+    Red,
+    /// Low warning
+    Grey,
+    /// No warning
+    None,
 }
 
-impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
-        use matrix_sdk_common::deserialized_responses::VerificationState::*;
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct ShieldState {
+    /// The shield color
+    pub color: ShieldColor,
+    message: Option<String>,
+}
 
+#[wasm_bindgen]
+impl ShieldState {
+    /// Error message that can be displayed as a tooltip
+    #[wasm_bindgen(getter)]
+    pub fn message(&self) -> Option<String> {
+        self.message.clone()
+    }
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
         match value {
-            Trusted => Self::Trusted,
-            Untrusted => Self::Untrusted,
-            UnknownDevice => Self::UnknownDevice,
+            RustShieldState::Red { message } => {
+                Self { color: ShieldColor::Red, message: Some(message.to_owned()) }
+            }
+            RustShieldState::Grey { message } => {
+                Self { color: ShieldColor::Grey, message: Some(message.to_owned()) }
+            }
+            RustShieldState::None => Self { color: ShieldColor::None, message: None },
         }
     }
 }

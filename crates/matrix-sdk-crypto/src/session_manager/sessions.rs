@@ -34,10 +34,9 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    identities::{KeysQueryListener, UserKeyQueryResult},
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{Changes, Result as StoreResult, Store},
+    store::{Changes, Result as StoreResult, Store, UserKeyQueryResult},
     types::{events::EventType, EventEncryptionAlgorithm},
     utilities::FailuresCache,
     ReadOnlyDevice,
@@ -55,7 +54,6 @@ pub(crate) struct SessionManager {
     wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
-    keys_query_listener: KeysQueryListener,
     failures: FailuresCache<OwnedServerName>,
 }
 
@@ -69,7 +67,6 @@ impl SessionManager {
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
         key_request_machine: GossipMachine,
         store: Store,
-        keys_query_listener: KeysQueryListener,
     ) -> Self {
         Self {
             account,
@@ -78,7 +75,6 @@ impl SessionManager {
             users_for_key_claim,
             wedged_devices: Default::default(),
             outgoing_to_device_requests: Default::default(),
-            keys_query_listener,
             failures: Default::default(),
         }
     }
@@ -176,11 +172,11 @@ impl SessionManager {
 
         let user_devices = if user_devices.is_empty() {
             match self
-                .keys_query_listener
-                .wait_if_user_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
+                .store
+                .wait_if_user_key_query_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
                 .await
             {
-                Ok(WasPending) => self.store.get_readonly_devices_filtered(user_id).await?,
+                WasPending => self.store.get_readonly_devices_filtered(user_id).await?,
                 _ => user_devices,
             }
         } else {
@@ -401,21 +397,28 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, sync::Arc};
+    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
-        api::{client::keys::claim_keys::v3::Response as KeyClaimResponse, IncomingResponse},
+        api::{
+            client::keys::{
+                claim_keys::v3::Response as KeyClaimResponse,
+                get_keys::v3::Response as KeysQueryResponse,
+            },
+            IncomingResponse,
+        },
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
+    use tracing::info;
 
     use super::SessionManager;
     use crate::{
         gossiping::GossipMachine,
-        identities::{KeysQueryListener, ReadOnlyDevice},
+        identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{IntoCryptoStore, MemoryStore, Store},
@@ -490,13 +493,7 @@ mod tests {
             users_for_key_claim.clone(),
         );
 
-        SessionManager::new(
-            account,
-            users_for_key_claim,
-            key_request,
-            store.clone(),
-            KeysQueryListener::new(store),
-        )
+        SessionManager::new(account, users_for_key_claim, key_request, store)
     }
 
     #[async_test]
@@ -529,6 +526,64 @@ mod tests {
         manager.receive_keys_claim_response(&response).await.unwrap();
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn session_creation_waits_for_keys_query() {
+        let manager = session_manager().await;
+        let identity_manager = IdentityManager::new(
+            manager.account.user_id.clone(),
+            manager.account.device_id.clone(),
+            manager.store.clone(),
+        );
+
+        // start a keys query request. At this point, we are only interested in our own
+        // devices.
+        let (key_query_txn_id, key_query_request) =
+            identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
+        info!("Initial key query: {:?}", key_query_request);
+
+        // now bob turns up, and we start tracking his devices...
+        let bob = bob_account();
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        manager.store.update_tracked_users(iter::once(bob.user_id())).await.unwrap();
+
+        // ... and start off an attempt to get the missing sessions. This should block
+        // for now.
+        let missing_sessions_task = {
+            let manager = manager.clone();
+            let bob_user_id = bob.user_id.clone();
+
+            #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+            tokio::spawn(async move {
+                manager.get_missing_sessions(iter::once(bob_user_id.deref())).await
+            })
+        };
+
+        // the initial keys query completes, and we start another
+        let response_json = json!({ "device_keys": { manager.account.user_id(): {}}});
+        let response =
+            KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
+        identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
+
+        let (key_query_txn_id, key_query_request) =
+            identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
+        info!("Second key query: {:?}", key_query_request);
+
+        // that second request completes with info on bob's device
+        let response_json = json!({ "device_keys": { bob.user_id(): {
+            bob_device.device_id(): bob_device.as_device_keys()
+        }}});
+        let response =
+            KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
+        identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
+
+        // the missing_sessions_task should now finally complete, with a claim
+        // including bob's device
+        let (_, keys_claim_request) = missing_sessions_task.await.unwrap().unwrap().unwrap();
+        info!("Key claim request: {:?}", keys_claim_request.one_time_keys);
+        let bob_key_claims = keys_claim_request.one_time_keys.get(bob.user_id()).unwrap();
+        assert!(bob_key_claims.contains_key(bob_device.device_id()));
     }
 
     // This test doesn't run on macos because we're modifying the session

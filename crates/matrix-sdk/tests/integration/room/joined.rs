@@ -18,7 +18,7 @@ use ruma::{
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex},
+    matchers::{body_json, body_partial_json, header, method, path, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -559,4 +559,29 @@ async fn fetch_members_deduplication() {
     let response_count =
         results.iter().filter(|r| r.as_ref().unwrap().as_ref().unwrap().is_some()).count();
     assert_eq!(response_count, 1);
+}
+
+#[async_test]
+async fn set_name() {
+    let (client, server) = synced_client().await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    let sync_settings = SyncSettings::new();
+    client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let name = "The room name";
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.name/$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_json(json!({
+            "name": name,
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    room.set_name(Some(name.to_owned())).await.unwrap();
 }

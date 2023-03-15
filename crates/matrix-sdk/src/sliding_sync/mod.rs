@@ -806,6 +806,7 @@ impl SlidingSync {
         self.inner.rooms.read().unwrap().len()
     }
 
+    #[instrument(skip(self))]
     fn update_to_device_since(&self, since: String) {
         // FIXME: Find a better place where the to-device since token should be
         // persisted.
@@ -917,6 +918,12 @@ impl SlidingSync {
         list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
     ) -> Result<UpdateSummary, crate::Error> {
         {
+            debug!(
+                pos = ?sliding_sync_response.pos,
+                delta_token = ?sliding_sync_response.delta_token,
+                "Update position markers`"
+            );
+
             let mut position_lock = self.inner.position.write().unwrap();
             Observable::set(&mut position_lock.pos, Some(sliding_sync_response.pos));
             Observable::set(&mut position_lock.delta_token, sliding_sync_response.delta_token);
@@ -1058,6 +1065,8 @@ impl SlidingSync {
         // coming from the `OlmMachine::outgoing_requests()` method.
         #[cfg(feature = "e2e-encryption")]
         let response = {
+            debug!("Sliding Sync is sending the request along with  outgoing E2EE requests");
+
             let (e2ee_uploads, response) =
                 futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
                     .await;
@@ -1071,7 +1080,13 @@ impl SlidingSync {
 
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
-        let response = request.await?;
+        let response = {
+            debug!("Sliding Sync is sending the request");
+
+            request.await?
+        };
+
+        debug!(?response, "Sliding Sync response received");
 
         // At this point, the request has been sent, and a response has been received.
         //
@@ -1088,12 +1103,12 @@ impl SlidingSync {
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
         spawn(async move {
-            debug!("Sliding sync response received");
+            debug!("Sliding Sync response handling starts");
 
-            // In case the task running this future is detached, we must be
+            // In case the task running this future is detached, we must
             // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
-            let global_lock = this.response_handling_lock.lock().await;
+            let response_handling_lock = this.response_handling_lock.lock().await;
 
             match &response.txn_id {
                 None => {
@@ -1119,15 +1134,16 @@ impl SlidingSync {
             // happens here.
             let sync_response = this.inner.client.process_sliding_sync(&response).await?;
 
-            debug!("Sliding sync response has been processed");
+            debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
             let updates = this.handle_response(response, sync_response, list_generators.lock().unwrap().borrow_mut())?;
 
             this.cache_to_storage().await?;
 
-            drop(global_lock);
+            // Release the lock.
+            drop(response_handling_lock);
 
-            debug!("Sliding sync response has been handled");
+            debug!("Sliding Sync response has been fully handled");
 
             Ok(Some(updates))
         }).await.unwrap()

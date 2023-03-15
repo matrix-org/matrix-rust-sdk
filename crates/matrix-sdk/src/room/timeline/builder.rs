@@ -20,10 +20,7 @@ use matrix_sdk_base::{
     locks::Mutex,
 };
 use ruma::{
-    events::{
-        fully_read::FullyReadEventContent,
-        receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
-    },
+    events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
     push::Action,
 };
 use tracing::error;
@@ -155,20 +152,7 @@ impl TimelineBuilder {
         ];
 
         if track_read_marker_and_receipts {
-            match room.account_data_static::<FullyReadEventContent>().await {
-                Ok(Some(fully_read)) => match fully_read.deserialize() {
-                    Ok(fully_read) => {
-                        inner.set_fully_read_event(fully_read.content.event_id).await;
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize fully-read account data: {e}");
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to get fully-read account data from the store: {e}");
-                }
-                _ => {}
-            }
+            inner.load_fully_read_event().await;
 
             let fully_read_handle = room.add_event_handler({
                 let inner = inner.clone();

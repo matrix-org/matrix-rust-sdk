@@ -29,7 +29,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        RoomKeyCounts,
+        RoomKeyCounts, RoomSettings,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
@@ -175,7 +175,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -225,6 +225,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     }
 
     if version < 3 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+        })
+        .await?;
+    }
+
+    if version < 4 {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/003_withheld_code.sql"))
         })
@@ -280,6 +287,7 @@ trait SqliteConnectionExt {
     //     session_id: Key,
     //     room_id: Key,
     // ) -> rusqlite::Result<Option<Vec<u8>>>;
+    fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -383,6 +391,16 @@ impl SqliteConnectionExt for rusqlite::Connection {
             VALUES (?1, ?2, ?3)
             ON CONFLICT (session_id) DO UPDATE SET room_id = ?2, data = ?3",
             (session_id, room_id, data),
+        )?;
+        Ok(())
+    }
+
+    fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO room_settings (room_id, data)
+            VALUES (?1, ?2)
+            ON CONFLICT (room_id) DO UPDATE SET data = ?2",
+            (room_id, data),
         )?;
         Ok(())
     }
@@ -568,6 +586,15 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .await
             .optional()?)
     }
+
+    async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
+                row.get(0)
+            })
+            .await
+            .optional()?)
+    }
 }
 
 #[async_trait]
@@ -749,6 +776,12 @@ impl CryptoStore for SqliteCryptoStore {
                     let room_id = this.encode_key("direct_withheld_info", info.room_id.as_bytes());
                     let serialized_info = this.serialize_value(&info)?;
                     txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                }
+
+                for (room_id, settings) in changes.room_settings {
+                    let room_id = this.encode_key("room_settings", room_id.as_bytes());
+                    let value = this.serialize_value(&settings)?;
+                    txn.set_room_settings(&room_id, &value)?;
                 }
 
                 Ok::<_, Error>(())
@@ -1024,6 +1057,43 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok(info)
             })
             .transpose()
+    }
+
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let room_id = self.encode_key("room_settings", room_id.as_bytes());
+        let Some(value) = self.acquire().await?.get_room_settings(room_id).await? else {
+            return Ok(None);
+        };
+
+        let settings = self.deserialize_value(&value)?;
+
+        return Ok(Some(settings));
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let Some(serialized) = self.acquire().await?.get_kv(key).await? else {
+            return Ok(None);
+        };
+        let value = if let Some(cipher) = &self.store_cipher {
+            let encrypted = rmp_serde::from_slice(&serialized)?;
+            cipher.decrypt_value_data(encrypted)?
+        } else {
+            serialized
+        };
+
+        Ok(Some(value))
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        let serialized = if let Some(cipher) = &self.store_cipher {
+            let encrypted = cipher.encrypt_value_data(value)?;
+            rmp_serde::to_vec_named(&encrypted)?
+        } else {
+            value
+        };
+
+        self.acquire().await?.set_kv(key, serialized).await?;
+        Ok(())
     }
 }
 

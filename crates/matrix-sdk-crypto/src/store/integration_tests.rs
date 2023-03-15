@@ -17,7 +17,7 @@ macro_rules! cryptostore_integration_tests {
                 },
                 store::{
                     withheld::DirectWithheldInfo, Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, RecoveryKey,
+                    GossipRequest, IdentityChanges, RecoveryKey, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
@@ -685,6 +685,56 @@ macro_rules! cryptostore_integration_tests {
                     store.get_withheld_info(other_room_id, session_id_2).await.unwrap();
 
                 assert_eq!(is_withheld, None);
+            }
+
+            #[async_test]
+            async fn room_settings_saving() {
+                let (account, store) = get_loaded_store("room_settings_saving").await;
+
+                let room_1 = room_id!("!test_1:localhost");
+                let settings_1 = RoomSettings {
+                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    only_allow_trusted_devices: true,
+                };
+
+                let room_2 = room_id!("!test_2:localhost");
+                let settings_2 = RoomSettings {
+                    algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                    only_allow_trusted_devices: false,
+                };
+
+                let room_3 = room_id!("!test_3:localhost");
+
+                let changes = Changes {
+                    room_settings: HashMap::from([
+                        (room_1.into(), settings_1.clone()),
+                        (room_2.into(), settings_2.clone()),
+                    ]),
+                    ..Default::default()
+                };
+
+                store.save_changes(changes).await.unwrap();
+
+                let loaded_settings_1 = store.get_room_settings(room_1).await.unwrap();
+                assert_eq!(Some(settings_1), loaded_settings_1);
+
+                let loaded_settings_2 = store.get_room_settings(room_2).await.unwrap();
+                assert_eq!(Some(settings_2), loaded_settings_2);
+
+                let loaded_settings_3 = store.get_room_settings(room_3).await.unwrap();
+                assert_eq!(None, loaded_settings_3);
+            }
+
+            #[async_test]
+            async fn custom_value_saving() {
+                let (account, store) = get_loaded_store("custom_value_saving").await;
+                store.set_custom_value("A", "Hello".as_bytes().to_vec()).await.unwrap();
+
+                let loaded_1 = store.get_custom_value("A").await.unwrap();
+                assert_eq!(Some("Hello".as_bytes().to_vec()), loaded_1);
+
+                let loaded_2 = store.get_custom_value("B").await.unwrap();
+                assert_eq!(None, loaded_2);
             }
         }
     };

@@ -28,7 +28,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        CryptoStoreError, Result, RoomKeyCounts,
+        CryptoStoreError, Result, RoomKeyCounts, RoomSettings,
     },
     types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
@@ -60,6 +60,7 @@ const SECRET_REQUEST_BY_INFO_TABLE: &str = "crypto-store-secret-request-by-info"
 const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
 const DIRECT_WITHHELD_INFO_TABLE: &str = "crypto-store-direct-withheld-info";
 const NO_OLM_SENT_TABLE: &str = "crypto-store-no-olm-sent";
+const ROOM_SETTINGS_TABLE: &str = "crypto-store-secret-room-settings";
 
 impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
@@ -190,6 +191,7 @@ pub struct SledCryptoStore {
 
     direct_withheld_info: Tree,
     no_olm_sent: Tree,
+    room_settings: Tree,
 }
 
 impl std::fmt::Debug for SledCryptoStore {
@@ -397,6 +399,8 @@ impl SledCryptoStore {
         let unsent_secret_requests = db.open_tree("unsent_secret_requests")?;
         let secret_requests_by_info = db.open_tree("secret_requests_by_info")?;
 
+        let room_settings = db.open_tree("room_settings")?;
+
         let session_cache = SessionStore::new();
 
         let direct_withheld_info = db.open_tree("direct_withheld_info")?;
@@ -422,6 +426,7 @@ impl SledCryptoStore {
             identities,
             direct_withheld_info,
             no_olm_sent,
+            room_settings,
         };
 
         database.upgrade().await?;
@@ -522,6 +527,7 @@ impl SledCryptoStore {
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
         let backup_version = changes.backup_version;
+        let room_settings_changes = changes.room_settings;
 
         let ret: Result<(), TransactionError<CryptoStoreError>> = (
             &self.account,
@@ -537,6 +543,7 @@ impl SledCryptoStore {
             &self.secret_requests_by_info,
             &self.direct_withheld_info,
             &self.no_olm_sent,
+            &self.room_settings,
         )
             .transaction(
                 |(
@@ -553,6 +560,7 @@ impl SledCryptoStore {
                     secret_requests_by_info,
                     direct_withheld_info,
                     no_olm_sent,
+                    room_settings,
                 )| {
                     if let Some(a) = &account_pickle {
                         account.insert(
@@ -672,6 +680,15 @@ impl SledCryptoStore {
                         direct_withheld_info.insert(
                             key,
                             self.serialize_value(info)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+
+                    for (room_id, settings) in &room_settings_changes {
+                        let key = self.encode_key(ROOM_SETTINGS_TABLE, room_id);
+                        room_settings.insert(
+                            key.as_slice(),
+                            self.serialize_value(&settings)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -1068,6 +1085,25 @@ impl CryptoStore for SledCryptoStore {
             .map_err(CryptoStoreError::backend)?
             .map(|d| self.deserialize_value::<DirectWithheldInfo>(&d))
             .transpose()?)
+    }
+
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let key = self.encode_key(ROOM_SETTINGS_TABLE, room_id);
+        self.room_settings
+            .get(key)
+            .map_err(CryptoStoreError::backend)?
+            .map(|p| self.deserialize_value(&p))
+            .transpose()
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let value = self.inner.get(key).map_err(CryptoStoreError::backend)?.map(|v| v.to_vec());
+        Ok(value)
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self.inner.insert(key, value).map_err(CryptoStoreError::backend)?;
+        Ok(())
     }
 }
 

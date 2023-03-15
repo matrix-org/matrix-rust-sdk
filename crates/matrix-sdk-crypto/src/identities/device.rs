@@ -185,7 +185,7 @@ impl Device {
             // know that the room key belongs to this device.
             Ok(false)
         } else if let Some(key) =
-            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
+            session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
             // Room keys are received as an `m.room.encrypted` event using the `m.olm`
             // algorithm. Upon decryption of the `m.room.encrypted` event, the
@@ -241,7 +241,7 @@ impl Device {
             //
             // [1]: https://spec.matrix.org/v1.5/client-server-api/#molmv1curve25519-aes-sha2
             let ed25519_comparison = self.ed25519_key().map(|k| k == key);
-            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key);
+            let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key());
 
             match (ed25519_comparison, curve25519_comparison) {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt
@@ -261,6 +261,40 @@ impl Device {
         } else {
             Ok(false)
         }
+    }
+
+    /// Is this device cross signed by its owner?
+    pub fn is_cross_signed_by_owner(&self) -> bool {
+        self.device_owner_identity
+            .as_ref()
+            .map(|device_identity| match device_identity {
+                // If it's one of our own devices, just check that
+                // we signed the device.
+                ReadOnlyUserIdentities::Own(identity) => {
+                    identity.is_device_signed(&self.inner).is_ok()
+                }
+                // If it's a device from someone else, check
+                // if the other user has signed this device.
+                ReadOnlyUserIdentities::Other(device_identity) => {
+                    device_identity.is_device_signed(&self.inner).is_ok()
+                }
+            })
+            .unwrap_or(false)
+    }
+
+    /// Is the device owner verified by us?
+    pub fn is_device_owner_verified(&self) -> bool {
+        self.device_owner_identity
+            .as_ref()
+            .map(|id| match id {
+                ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
+                ReadOnlyUserIdentities::Other(other_identity) => self
+                    .own_identity
+                    .as_ref()
+                    .map(|oi| oi.is_verified() && oi.is_identity_signed(other_identity).is_ok())
+                    .unwrap_or(false),
+            })
+            .unwrap_or(false)
     }
 
     /// Request an interactive verification with this `Device`.

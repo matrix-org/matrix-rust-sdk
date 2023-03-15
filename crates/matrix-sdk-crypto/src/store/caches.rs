@@ -19,13 +19,15 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    fmt::Display,
+    sync::{atomic::AtomicBool, Arc, Weak},
 };
 
+use atomic::Ordering;
 use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
-use tracing::{field::debug, instrument, trace, Span};
+use tracing::{field::display, instrument, trace, Span};
 
 use crate::{
     identities::ReadOnlyDevice,
@@ -89,7 +91,7 @@ impl GroupSessionStore {
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
-            .entry((*session.room_id).to_owned())
+            .entry(session.room_id().to_owned())
             .or_default()
             .insert(session.session_id().to_owned(), session)
             .is_none()
@@ -179,6 +181,12 @@ impl DeviceStore {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SequenceNumber(i64);
 
+impl Display for SequenceNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl PartialOrd for SequenceNumber {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.0.wrapping_sub(other.0).cmp(&0))
@@ -201,6 +209,23 @@ impl SequenceNumber {
     }
 }
 
+/// Information on a task which is waiting for a `/keys/query` to complete.
+#[derive(Debug)]
+pub(super) struct KeysQueryWaiter {
+    /// The user that we are waiting for
+    user: OwnedUserId,
+
+    /// The sequence number of the last invalidation of the users's device list
+    /// when we started waiting (ie, any `/keys/query` result with the same or
+    /// greater sequence number will satisfy this waiter)
+    sequence_number: SequenceNumber,
+
+    /// Whether the `/keys/query` has completed.
+    ///
+    /// This is only modified whilst holding the mutex on `users_for_key_query`.
+    pub(super) completed: AtomicBool,
+}
+
 /// Record of the users that are waiting for a /keys/query.
 ///
 /// To avoid races, we maintain a sequence number which is updated each time we
@@ -216,21 +241,31 @@ pub(super) struct UsersForKeyQuery {
     /// The users pending a lookup, together with the sequence number at which
     /// they were added to the list
     user_map: HashMap<OwnedUserId, SequenceNumber>,
+
+    /// A list of tasks waiting for key queries to complete.
+    ///
+    /// We expect this list to remain fairly short, so don't bother partitioning
+    /// by user.
+    tasks_awaiting_key_query: Vec<Weak<KeysQueryWaiter>>,
 }
 
 impl UsersForKeyQuery {
     /// Create a new, empty, `UsersForKeyQueryCache`
     pub(super) fn new() -> Self {
-        UsersForKeyQuery { next_sequence_number: Default::default(), user_map: Default::default() }
+        UsersForKeyQuery {
+            next_sequence_number: Default::default(),
+            user_map: Default::default(),
+            tasks_awaiting_key_query: Default::default(),
+        }
     }
 
     /// Record a new user that requires a key query
     pub(super) fn insert_user(&mut self, user: &UserId) {
-        let seq = self.next_sequence_number;
+        let sequence_number = self.next_sequence_number;
 
-        trace!(?user, sequence_number = ?seq, "Flagging user for key query");
+        trace!(?user, %sequence_number, "Flagging user for key query");
 
-        self.user_map.insert(user.to_owned(), seq);
+        self.user_map.insert(user.to_owned(), sequence_number);
         self.next_sequence_number.increment();
     }
 
@@ -249,8 +284,45 @@ impl UsersForKeyQuery {
     ) -> bool {
         let last_invalidation = self.user_map.get(user).copied();
 
+        // If there were any jobs waiting for this key query to complete, we can flag
+        // them as completed and remove them from our list. We also clear out any tasks
+        // that have been cancelled.
+        self.tasks_awaiting_key_query.retain(|waiter| {
+            let Some(waiter) = waiter.upgrade() else {
+                // the TaskAwaitingKeyQuery has been dropped, so it probably timed out and the
+                // caller went away. We can remove it from our list whether or not it's for this
+                // user.
+                trace!("removing expired waiting task");
+
+                return false;
+            };
+
+            if waiter.user == user && waiter.sequence_number <= query_sequence {
+                trace!(
+                    ?user,
+                    %query_sequence,
+                    waiter_sequence = %waiter.sequence_number,
+                    "Removing completed waiting task"
+                );
+
+                waiter.completed.store(true, Ordering::Relaxed);
+
+                false
+            } else {
+                trace!(
+                    ?user,
+                    %query_sequence,
+                    waiter_user = ?waiter.user,
+                    waiter_sequence= %waiter.sequence_number,
+                    "Retaining still-waiting task"
+                );
+
+                true
+            }
+        });
+
         if let Some(last_invalidation) = last_invalidation {
-            Span::current().record("invalidation_sequence", debug(last_invalidation));
+            Span::current().record("invalidation_sequence", display(last_invalidation));
 
             if last_invalidation > query_sequence {
                 trace!("User invalidated since this query started: still not up-to-date");
@@ -272,6 +344,34 @@ impl UsersForKeyQuery {
         // we return the sequence number of the last invalidation
         let sequence_number = self.next_sequence_number.previous();
         (self.user_map.keys().cloned().collect(), sequence_number)
+    }
+
+    /// Check if a key query is pending for a user, and register for a wakeup if
+    /// so.
+    ///
+    /// If no key query is currently pending, returns `None`. Otherwise, returns
+    /// (an `Arc` to) a `KeysQueryWaiter`, whose `completed` flag will
+    /// be set once the lookup completes.
+    pub(super) fn maybe_register_waiting_task(
+        &mut self,
+        user: &UserId,
+    ) -> Option<Arc<KeysQueryWaiter>> {
+        match self.user_map.get(user) {
+            None => None,
+            Some(&sequence_number) => {
+                trace!(?user, %sequence_number, "Registering new waiting task");
+
+                let waiter = Arc::new(KeysQueryWaiter {
+                    sequence_number,
+                    user: user.to_owned(),
+                    completed: AtomicBool::new(false),
+                });
+
+                self.tasks_awaiting_key_query.push(Arc::downgrade(&waiter));
+
+                Some(waiter)
+            }
+        }
     }
 }
 

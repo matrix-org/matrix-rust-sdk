@@ -18,6 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = [
     "e2e-encryption",
+    "automatic-room-key-forwarding",
     "sled",
     "native-tls",
 ]
@@ -25,6 +26,7 @@ testing = []
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
+    "matrix-sdk-base/automatic-room-key-forwarding",
     "matrix-sdk-sled?/crypto-store",          # activate crypto-store on sled if given
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
@@ -34,6 +36,7 @@ sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
 indexeddb = ["dep:matrix-sdk-indexeddb"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
+automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
@@ -84,6 +87,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
 matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
+mime_guess = "2.0.4"
 pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
@@ -91,6 +95,7 @@ ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
+tempfile = "3.3.0"
 thiserror = { workspace = true }
 tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
@@ -134,7 +139,6 @@ dirs = "4.0.0"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
-tempfile = "3.3.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

@@ -20,10 +20,12 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
+use tracing::warn;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
-    BackupKeys, Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, RoomKeyCounts, Session,
+    BackupKeys, Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, RoomKeyCounts,
+    RoomSettings, Session,
 };
 use crate::{
     gossiping::{GossipRequest, SecretInfo},
@@ -296,6 +298,21 @@ impl CryptoStore for MemoryStore {
             }
             Entry::Vacant(_) => Ok(None),
         }
+    }
+
+    async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        warn!("Method not implemented");
+        Ok(None)
+    }
+
+    async fn get_custom_value(&self, _key: &str) -> Result<Option<Vec<u8>>> {
+        warn!("Method not implemented");
+        Ok(None)
+    }
+
+    async fn set_custom_value(&self, _key: &str, _value: Vec<u8>) -> Result<()> {
+        warn!("Method not implemented");
+        Ok(())
     }
 }
 

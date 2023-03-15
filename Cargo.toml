@@ -31,8 +31,8 @@ eyeball = "0.4.0"
 eyeball-im = "0.1.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "543c03f8f2d0f5a357b6be41cc0e166aa58cce63", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "543c03f8f2d0f5a357b6be41cc0e166aa58cce63" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5", features = ["client-api-c"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"

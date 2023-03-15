@@ -190,7 +190,7 @@ jobs:
 
       - name: Test documentation
         run: |
-          cargo test --doc
+          cargo test --doc --features docsrs
 
   test-wasm:
     name: 🕸️ ${{ matrix.name }}

@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
 use napi_derive::*;
@@ -186,9 +184,14 @@ impl DecryptedRoomEvent {
     /// note this is the state of the device at the time of
     /// decryption. It may change in the future if a device gets
     /// verified or deleted.
-    #[napi(getter)]
-    pub fn verification_state(&self) -> Option<encryption::VerificationState> {
-        Some(self.encryption_info.as_ref()?.verification_state.borrow().into())
+    #[napi]
+    pub fn shield_state(&self, strict: bool) -> Option<encryption::ShieldState> {
+        let state = &self.encryption_info.as_ref()?.verification_state;
+        if strict {
+            Some(state.to_shield_state_strict().into())
+        } else {
+            Some(state.to_shield_state_lax().into())
+        }
     }
 }
 

@@ -28,11 +28,11 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::VerificationState;
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
-    store::{Changes, CryptoStore},
+    store::{Changes, CryptoStore, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     EncryptionSettings as RustEncryptionSettings, LocalTrust,
 };
@@ -75,6 +75,8 @@ pub struct MigrationData {
     cross_signing: CrossSigningKeyExport,
     /// The list of users that the Rust SDK should track.
     tracked_users: Vec<String>,
+    /// Map of room settings
+    room_settings: HashMap<String, RoomSettings>,
 }
 
 /// Struct collecting data that is important to migrate sessions to the rust-sdk
@@ -296,6 +298,12 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
+    let mut room_settings = HashMap::new();
+    for (room_id, settings) in data.room_settings {
+        let room_id = RoomId::parse(room_id)?;
+        room_settings.insert(room_id, settings.into());
+    }
+
     let changes = Changes {
         account: Some(account),
         private_identity: Some(cross_signing),
@@ -303,6 +311,7 @@ async fn migrate_data(
         inbound_group_sessions,
         recovery_key,
         backup_version: data.backup_version,
+        room_settings,
         ..Default::default()
     };
 
@@ -471,6 +480,45 @@ fn collect_sessions(
     Ok((sessions, inbound_group_sessions))
 }
 
+/// Migrate room settings, including room algorithm and whether to block
+/// untrusted devices from legacy store to Sqlite store.
+///
+/// Note that this method should only be used if a client has already migrated
+/// account data via [migrate](#method.migrate) method, which did not include
+/// room settings. For a brand new migration, the [migrate](#method.migrate)
+/// method will take care of room settings automatically, if provided.
+///
+/// # Arguments
+///
+/// * `room_settings` - Map of room settings
+///
+/// * `path` - The path where the Sqlite store should be created.
+///
+/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
+/// and all its data will remain unencrypted.
+pub fn migrate_room_settings(
+    room_settings: HashMap<String, RoomSettings>,
+    path: &str,
+    passphrase: Option<String>,
+) -> anyhow::Result<()> {
+    let runtime = Runtime::new()?;
+    runtime.block_on(async move {
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+
+        let mut rust_settings = HashMap::new();
+        for (room_id, settings) in room_settings {
+            let room_id = RoomId::parse(room_id)?;
+            rust_settings.insert(room_id, settings.into());
+        }
+
+        let changes = Changes { room_settings: rust_settings, ..Default::default() };
+        store.save_changes(changes).await?;
+
+        Ok(())
+    })
+}
+
 /// Callback that will be passed over the FFI to report progress
 pub trait ProgressListener {
     /// The callback that should be called on the Rust side
@@ -490,6 +538,7 @@ impl<T: Fn(i32, i32)> ProgressListener for T {
 }
 
 /// An encryption algorithm to be used to encrypt messages sent to a room.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub enum EventEncryptionAlgorithm {
     /// Olm version 1 using Curve25519, AES-256, and SHA-256.
     OlmV1Curve25519AesSha2,
@@ -500,12 +549,22 @@ pub enum EventEncryptionAlgorithm {
 impl From<EventEncryptionAlgorithm> for RustEventEncryptionAlgorithm {
     fn from(a: EventEncryptionAlgorithm) -> Self {
         match a {
-            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
-                RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+        }
+    }
+}
+
+impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
+    type Error = serde_json::Error;
+
+    fn try_from(value: RustEventEncryptionAlgorithm) -> Result<Self, Self::Error> {
+        match value {
+            RustEventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                Ok(Self::OlmV1Curve25519AesSha2)
             }
-            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                RustEventEncryptionAlgorithm::MegolmV1AesSha2
-            }
+            RustEventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(Self::MegolmV1AesSha2),
+            _ => Err(serde::de::Error::custom(format!("Unsupported algorithm {value}"))),
         }
     }
 }
@@ -540,10 +599,10 @@ pub enum HistoryVisibility {
 impl From<HistoryVisibility> for RustHistoryVisibility {
     fn from(h: HistoryVisibility) -> Self {
         match h {
-            HistoryVisibility::Invited => RustHistoryVisibility::Invited,
-            HistoryVisibility::Joined => RustHistoryVisibility::Joined,
-            HistoryVisibility::Shared => RustHistoryVisibility::Shared,
-            HistoryVisibility::WorldReadable => RustHistoryVisibility::Shared,
+            HistoryVisibility::Invited => Self::Invited,
+            HistoryVisibility::Joined => Self::Joined,
+            HistoryVisibility::Shared => Self::Shared,
+            HistoryVisibility::WorldReadable => Self::Shared,
         }
     }
 }
@@ -584,6 +643,7 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
 }
 
 /// An event that was successfully decrypted.
+#[derive(uniffi::Record)]
 pub struct DecryptedEvent {
     /// The decrypted version of the event.
     pub clear_event: String,
@@ -595,10 +655,48 @@ pub struct DecryptedEvent {
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
     pub forwarding_curve25519_chain: Vec<String>,
-    /// The verification state of the device that sent us the event, note this
-    /// is the state of the device at the time of decryption. It may change in
-    /// the future if a device gets verified or deleted.
-    pub verification_state: VerificationState,
+    /// The shield state (color and message to display to user) for the event,
+    /// representing the event's authenticity. Computed from the properties of
+    /// the sender user identity and their Olm device.
+    ///
+    /// Note that this is computed at time of decryption, so the value reflects
+    /// the computed event authenticity at that time. Authenticity-related
+    /// properties can change later on, such as when a user identity is
+    /// subsequently verified or a device is deleted.
+    pub shield_state: ShieldState,
+}
+
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[allow(missing_docs)]
+#[derive(uniffi::Enum)]
+pub enum ShieldColor {
+    Red,
+    Grey,
+    None,
+}
+
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[derive(uniffi::Record)]
+#[allow(missing_docs)]
+pub struct ShieldState {
+    color: ShieldColor,
+    message: Option<String>,
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
+        match value {
+            RustShieldState::Red { message } => {
+                Self { color: ShieldColor::Red, message: Some(message.to_owned()) }
+            }
+            RustShieldState::Grey { message } => {
+                Self { color: ShieldColor::Grey, message: Some(message.to_owned()) }
+            }
+            RustShieldState::None => Self { color: ShieldColor::None, message: None },
+        }
+    }
 }
 
 /// Struct representing the state of our private cross signing keys, it shows
@@ -709,6 +807,34 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
     }
 }
 
+/// Room encryption settings which are modified by state events or user options
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct RoomSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
+}
+
+impl TryFrom<RustRoomSettings> for RoomSettings {
+    type Error = serde_json::Error;
+
+    fn try_from(value: RustRoomSettings) -> Result<Self, Self::Error> {
+        let algorithm = value.algorithm.try_into()?;
+        Ok(Self { algorithm, only_allow_trusted_devices: value.only_allow_trusted_devices })
+    }
+}
+
+impl From<RoomSettings> for RustRoomSettings {
+    fn from(value: RoomSettings) -> Self {
+        Self {
+            algorithm: value.algorithm.into(),
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
+        }
+    }
+}
+
 fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
@@ -725,7 +851,7 @@ mod uniffi_types {
             RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
         },
         BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
-        RoomKeyCounts,
+        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings, ShieldColor, ShieldState,
     };
 }
 
@@ -736,7 +862,7 @@ mod test {
     use tempfile::tempdir;
 
     use super::MigrationData;
-    use crate::{migrate, OlmMachine};
+    use crate::{migrate, EventEncryptionAlgorithm, OlmMachine, RoomSettings};
 
     #[test]
     fn android_migration() -> Result<()> {
@@ -819,7 +945,17 @@ mod test {
                "@this-is-me:matrix.org",
                "@Amandine:matrix.org",
                "@ganfra:matrix.org"
-            ]
+            ],
+            "room_settings": {
+                "!AZkqtjvtwPAuyNOXEt:matrix.org": {
+                    "algorithm": "OlmV1Curve25519AesSha2",
+                    "only_allow_trusted_devices": true
+                },
+                "!CWLUCoEWXSFyTCOtfL:matrix.org": {
+                    "algorithm": "MegolmV1AesSha2",
+                    "only_allow_trusted_devices": false
+                },
+            }
         });
 
         let migration_data: MigrationData = serde_json::from_value(data)?;
@@ -847,6 +983,27 @@ mod test {
 
         let backup_keys = machine.get_backup_keys()?;
         assert!(backup_keys.is_some());
+
+        let settings1 = machine.get_room_settings("!AZkqtjvtwPAuyNOXEt:matrix.org".into())?;
+        assert_eq!(
+            Some(RoomSettings {
+                algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                only_allow_trusted_devices: true
+            }),
+            settings1
+        );
+
+        let settings2 = machine.get_room_settings("!CWLUCoEWXSFyTCOtfL:matrix.org".into())?;
+        assert_eq!(
+            Some(RoomSettings {
+                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                only_allow_trusted_devices: false
+            }),
+            settings2
+        );
+
+        let settings3 = machine.get_room_settings("!XYZ:matrix.org".into())?;
+        assert!(settings3.is_none());
 
         Ok(())
     }

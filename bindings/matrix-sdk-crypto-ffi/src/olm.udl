@@ -14,6 +14,12 @@ namespace matrix_sdk_crypto_ffi {
         string? passphrase,
         ProgressListener progress_listener
     );
+    [Throws=MigrationError]
+    void migrate_room_settings(
+        record<string, RoomSettings> room_settings,
+        [ByRef] string path,
+        string? passphrase
+    );
 };
 
 [Error]
@@ -75,14 +81,6 @@ dictionary KeysImportResult {
     i64 imported;
     i64 total;
     record<DOMString, record<DOMString, sequence<string>>> keys;
-};
-
-dictionary DecryptedEvent {
-    string clear_event;
-    string sender_curve25519_key;
-    string? claimed_ed25519_key;
-    sequence<string> forwarding_curve25519_chain;
-    VerificationState verification_state;
 };
 
 dictionary Device {
@@ -314,11 +312,6 @@ enum LocalTrust {
     "Unset",
 };
 
-enum VerificationState {
-    "Trusted",
-    "Untrusted",
-    "UnknownDevice",
-};
 
 enum EventEncryptionAlgorithm {
     "OlmV1Curve25519AesSha2",
@@ -429,6 +422,7 @@ dictionary MigrationData {
     sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
+    record<string, RoomSettings> room_settings;
 };
 
 dictionary SessionMigrationData {
@@ -465,4 +459,9 @@ dictionary PickledInboundGroupSession {
     sequence<string> forwarding_chains;
     boolean imported;
     boolean backed_up;
+};
+
+dictionary RoomSettings {
+    EventEncryptionAlgorithm algorithm;
+    boolean only_allow_trusted_devices;
 };

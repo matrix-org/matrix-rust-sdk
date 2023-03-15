@@ -100,6 +100,7 @@ impl GroupSessionCache {
     ///
     /// This is the same as [get_or_load()](#method.get_or_load) but it will
     /// filter out the session if it doesn't match the given session id.
+    #[cfg(feature = "automatic-room-key-forwarding")]
     pub async fn get_with_id(
         &self,
         room_id: &RoomId,

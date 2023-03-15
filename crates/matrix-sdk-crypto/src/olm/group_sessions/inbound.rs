@@ -60,25 +60,91 @@ use crate::{
 // sessions that were created between some time period, this should only be set
 // for non-imported sessions.
 
-/// Inbound group session.
+/// Information about the creator of an inbound group session.
+#[derive(Clone)]
+pub(crate) struct SessionCreatorInfo {
+    /// The Curve25519 identity key of the session creator.
+    ///
+    /// If the session was received directly from its creator device through an
+    /// `m.room_key` event (and therefore, session sender == session creator),
+    /// this key equals the Curve25519 device identity key of that device. Since
+    /// this key is one of three keys used to establish the Olm session through
+    /// which encrypted to-device messages (including `m.room_key`) are sent,
+    /// this constitutes a proof that this inbound group session is owned by
+    /// that particular Curve25519 key.
+    ///
+    /// However, if the session was simply forwarded to us in an
+    /// `m.forwarded_room_key` event (in which case sender != creator), this key
+    /// is just a *claim* made by the session sender of what the actual creator
+    /// device is.
+    pub curve25519_key: Curve25519PublicKey,
+
+    /// A mapping of DeviceKeyAlgorithm to the public signing keys of the
+    /// [`Device`] that sent us the session.
+    ///
+    /// If the session was received directly from the creator via an
+    /// `m.room_key` event, this map is taken from the plaintext value of
+    /// the decrypted Olm event, and is a copy of the
+    /// [`DecryptedOlmV1Event::keys`] field as defined in the [spec].
+    ///
+    /// If the session was forwarded to us using an `m.forwarded_room_key`, this
+    /// map is a copy of the claimed Ed25519 key from the content of the
+    /// event.
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#molmv1curve25519-aes-sha2
+    pub signing_keys: Arc<SigningKeys<DeviceKeyAlgorithm>>,
+}
+
+/// A structure representing an inbound group session.
 ///
-/// Inbound group sessions are used to exchange room messages between a group of
-/// participants. Inbound group sessions are used to decrypt the room messages.
+/// Inbound group sessions, also known as "room keys", are used to facilitate
+/// the exchange of room messages among a group of participants. The inbound
+/// variant of the group session is used to decrypt the room messages.
+///
+/// This struct wraps the [vodozemac] type of the same name, and adds additional
+/// Matrix-specific data to it. Additionally, the wrapper ensures thread-safe
+/// access of the vodozemac type.
+///
+/// [vodozemac]: https://matrix-org.github.io/vodozemac/vodozemac/index.html
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<InnerSession>>,
-    history_visibility: Arc<Option<HistoryVisibility>>,
-    /// The SessionId associated to this GroupSession
-    pub session_id: Arc<str>,
+
+    /// A copy of [`InnerSession::session_id`] to avoid having to acquire a lock
+    /// to get to the sesison ID.
+    session_id: Arc<str>,
+
+    /// A copy of [`InnerSession::first_known_index`] to avoid having to acquire
+    /// a lock to get to the first known index.
     first_known_index: u32,
-    /// The sender_key associated to this GroupSession
-    pub sender_key: Curve25519PublicKey,
-    /// Map of DeviceKeyAlgorithm to the public ed25519 key of the account
-    pub signing_keys: Arc<SigningKeys<DeviceKeyAlgorithm>>,
+
+    /// Information about the creator of the [`InboundGroupSession`] ("room
+    /// key"). The trustworthiness of the information in this field depends
+    /// on how the session was received.
+    pub(crate) creator_info: SessionCreatorInfo,
+
     /// The Room this GroupSession belongs to
     pub room_id: Arc<RoomId>,
+
+    /// A flag recording whether the `InboundGroupSession` was received directly
+    /// as a `m.room_key` event or indirectly via a forward or file import.
+    ///
+    /// If the session is considered to be imported, the information contained
+    /// in the `InboundGroupSession::creator_info` field is not proven to be
+    /// correct.
     imported: bool,
+
+    /// The messaging algorithm of this [`InboundGroupSession`] as defined by
+    /// the [spec]. Will be one of the `m.megolm.*` algorithms.
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#messaging-algorithms
     algorithm: Arc<EventEncryptionAlgorithm>,
+
+    /// The history visibility of the room at the time when the room key was
+    /// created.
+    history_visibility: Arc<Option<HistoryVisibility>>,
+
+    /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
 }
 
@@ -89,10 +155,10 @@ impl InboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `sender_key` - The public curve25519 key of the account that
-    /// sent us the session
+    /// * `sender_key` - The public Curve25519 key of the account that
+    /// sent us the session.
     ///
-    /// * `signing_key` - The public ed25519 key of the account that
+    /// * `signing_key` - The public Ed25519 key of the account that
     /// sent us the session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
@@ -121,8 +187,10 @@ impl InboundGroupSession {
             history_visibility: history_visibility.into(),
             session_id: session_id.into(),
             first_known_index,
-            sender_key,
-            signing_keys: keys.into(),
+            creator_info: SessionCreatorInfo {
+                curve25519_key: sender_key,
+                signing_keys: keys.into(),
+            },
             room_id: room_id.into(),
             imported: false,
             algorithm: encryption_algorithm.into(),
@@ -173,9 +241,9 @@ impl InboundGroupSession {
 
         PickledInboundGroupSession {
             pickle,
-            sender_key: self.sender_key,
-            signing_key: (*self.signing_keys).clone(),
-            room_id: (*self.room_id).to_owned(),
+            sender_key: self.creator_info.curve25519_key,
+            signing_key: (*self.creator_info.signing_keys).clone(),
+            room_id: self.room_id().to_owned(),
             imported: self.imported,
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
@@ -193,7 +261,7 @@ impl InboundGroupSession {
 
     /// Get the sender key that this session was received from.
     pub fn sender_key(&self) -> Curve25519PublicKey {
-        self.sender_key
+        self.creator_info.curve25519_key
     }
 
     /// Has the session been backed up to the server.
@@ -214,7 +282,7 @@ impl InboundGroupSession {
 
     /// Get the map of signing keys this session was received from.
     pub fn signing_keys(&self) -> &SigningKeys<DeviceKeyAlgorithm> {
-        &self.signing_keys
+        &self.creator_info.signing_keys
     }
 
     /// Export this session at the given message index.
@@ -226,11 +294,11 @@ impl InboundGroupSession {
 
         ExportedRoomKey {
             algorithm: self.algorithm().to_owned(),
-            room_id: (*self.room_id).to_owned(),
-            sender_key: self.sender_key,
+            room_id: self.room_id().to_owned(),
+            sender_key: self.creator_info.curve25519_key,
             session_id: self.session_id().to_owned(),
             forwarding_curve25519_key_chain: vec![],
-            sender_claimed_keys: (*self.signing_keys).clone(),
+            sender_claimed_keys: (*self.creator_info.signing_keys).clone(),
             session_key,
         }
     }
@@ -254,10 +322,12 @@ impl InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: session_id.into(),
-            sender_key: pickle.sender_key,
+            creator_info: SessionCreatorInfo {
+                curve25519_key: pickle.sender_key,
+                signing_keys: pickle.signing_key.into(),
+            },
             history_visibility: pickle.history_visibility.into(),
             first_known_index,
-            signing_keys: pickle.signing_key.into(),
             room_id: (*pickle.room_id).into(),
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             algorithm: pickle.algorithm.into(),
@@ -420,7 +490,7 @@ impl PartialEq for InboundGroupSession {
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: InboundGroupSessionPickle,
-    /// The public curve25519 key of the account that sent us the session
+    /// The public Curve25519 key of the account that sent us the session
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub sender_key: Curve25519PublicKey,
     /// The public ed25519 key of the account that sent us the session.
@@ -455,10 +525,12 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: key.session_id.to_owned().into(),
-            sender_key: key.sender_key,
+            creator_info: SessionCreatorInfo {
+                curve25519_key: key.sender_key,
+                signing_keys: key.sender_claimed_keys.to_owned().into(),
+            },
             history_visibility: None.into(),
             first_known_index,
-            signing_keys: key.sender_claimed_keys.to_owned().into(),
             room_id: key.room_id.to_owned().into(),
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
@@ -476,14 +548,16 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
         InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id,
-            sender_key: value.claimed_sender_key,
+            creator_info: SessionCreatorInfo {
+                curve25519_key: value.claimed_sender_key,
+                signing_keys: SigningKeys::from([(
+                    DeviceKeyAlgorithm::Ed25519,
+                    value.claimed_ed25519_key.into(),
+                )])
+                .into(),
+            },
             history_visibility: None.into(),
             first_known_index,
-            signing_keys: SigningKeys::from([(
-                DeviceKeyAlgorithm::Ed25519,
-                value.claimed_ed25519_key.into(),
-            )])
-            .into(),
             room_id: value.room_id.to_owned().into(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
@@ -501,10 +575,12 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
         InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id,
-            sender_key: value.claimed_sender_key,
+            creator_info: SessionCreatorInfo {
+                curve25519_key: value.claimed_sender_key,
+                signing_keys: value.claimed_signing_keys.to_owned().into(),
+            },
             history_visibility: None.into(),
             first_known_index,
-            signing_keys: value.claimed_signing_keys.to_owned().into(),
             room_id: value.room_id.to_owned().into(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
@@ -604,7 +680,7 @@ mod test {
         assert_eq!(inbound.compare(&inbound).await, SessionOrdering::Equal);
         assert_eq!(inbound.compare(&copy).await, SessionOrdering::Equal);
 
-        copy.sender_key =
+        copy.creator_info.curve25519_key =
             Curve25519PublicKey::from_base64("XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY")
                 .unwrap();
 

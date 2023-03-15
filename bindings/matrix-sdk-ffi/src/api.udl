@@ -149,6 +149,39 @@ interface SlidingSyncBuilder {
     SlidingSync build();
 };
 
+dictionary CreateRoomParameters {
+    string name;
+    string? topic = null;
+    boolean is_encrypted;
+    boolean is_direct = false;
+    RoomVisibility visibility;
+    RoomPreset preset;
+    sequence<string>? invite = null;
+    string? avatar = null;
+};
+
+enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    "Public",
+
+    /// Indicates that the room will not be shown in the published room list.
+    "Private",
+};
+
+enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    "PrivateChat",
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    "PublicChat",
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    "TrustedPrivateChat",
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -156,61 +189,11 @@ interface Client {
     void login(string username, string password, string? initial_device_name, string? device_id);
 
     [Throws=ClientError]
-    void restore_session(Session session);
-
-    [Throws=ClientError]
-    Session session();
-
-    [Throws=ClientError]
-    string user_id();
-
-    [Throws=ClientError]
-    string display_name();
-
-    [Throws=ClientError]
-    void set_display_name(string name);
-
-    [Throws=ClientError]
-    string? avatar_url();
-
-    [Throws=ClientError]
-    string? cached_avatar_url();
-
-    [Throws=ClientError]
-    string device_id();
-
-    [Throws=ClientError]
-    string? account_data(string event_type);
-
-    [Throws=ClientError]
-    void set_account_data(string event_type, string content);
-
-    [Throws=ClientError]
-    string upload_media(string mime_type, sequence<u8> content);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_content(MediaSource source);
-
-    [Throws=ClientError]
-    sequence<u8> get_media_thumbnail(MediaSource source, u64 width, u64 height);
-
-    [Throws=ClientError]
-    SessionVerificationController get_session_verification_controller();
-
-    [Throws=ClientError]
-    SlidingSync full_sliding_sync();
-
-    [Throws=ClientError]
-    void logout();
+    MediaFileHandle get_media_file(MediaSource source, string mime_type);
 };
 
-dictionary Session {
-    string access_token;
-    string? refresh_token;
-    string user_id;
-    string device_id;
-    string homeserver_url;
-    string? sliding_sync_proxy;
+interface MediaFileHandle {
+    string path();
 };
 
 enum MembershipState {
@@ -288,6 +271,15 @@ interface Room {
 
     [Throws=ClientError]
     void reject_invitation();
+
+    [Throws=ClientError]
+    void set_topic(string topic);
+
+    [Throws=ClientError]
+    void upload_avatar(string mime_type, sequence<u8> data);
+
+    [Throws=ClientError]
+    void remove_avatar();
 };
 
 callback interface TimelineListener {
@@ -317,6 +309,21 @@ interface MediaSource {
 
 interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
+};
+
+dictionary NotificationItem {
+    TimelineItem item;
+    string title;
+    string? subtitle;
+    boolean is_noisy;
+    string? avatar_url;
+};
+
+interface NotificationService {
+    constructor(string base_path, string user_id);
+
+    [Throws=ClientError]
+    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};

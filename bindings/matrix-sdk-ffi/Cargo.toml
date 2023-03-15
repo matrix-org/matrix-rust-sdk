@@ -29,7 +29,7 @@ mime = "0.3.16"
 once_cell = { workspace = true }
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client", "http-proto"] }
-ruma = { workspace = true, features = ["unstable-sanitize"] }
+ruma = { workspace = true, features = ["unstable-sanitize", "unstable-unspecified"] }
 sanitize-filename-reader-friendly = "2.2.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -42,11 +42,38 @@ uniffi = { workspace = true }
 url = "2.2.2"
 zeroize = { workspace = true }
 
-
 [target.'cfg(target_os = "android")'.dependencies]
 log-panics = { version = "2", features = ["with-backtrace"]}
 tracing-android = "0.2.0"
-matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features = ["anyhow", "experimental-timeline", "e2e-encryption", "sled", "markdown", "experimental-sliding-sync", "socks", "rustls-tls"], version = "0.6.0" }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-matrix-sdk = { path = "../../crates/matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "experimental-sliding-sync", "socks"], version = "0.6.0" }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+default-features = false
+features = [
+    "anyhow",
+    "experimental-sliding-sync",
+    "experimental-timeline",
+    "e2e-encryption",
+    "markdown", 
+    "sled",
+    "socks",
+    "rustls-tls",
+]
+
+[target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+default-features = false
+features = [
+    "anyhow",
+    "experimental-sliding-sync",
+    "experimental-timeline",
+    "e2e-encryption",
+    "markdown",
+    "native-tls",
+    "sled",
+    "socks",
+]

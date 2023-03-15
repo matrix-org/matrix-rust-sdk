@@ -24,12 +24,18 @@ use im::Vector;
 use matrix_sdk_base::locks::Mutex;
 use pin_project_lite::pin_project;
 use ruma::{
-    assign, events::AnyMessageLikeEventContent, EventId, MilliSecondsSinceUnixEpoch, TransactionId,
+    api::client::receipt::create_receipt::v3::ReceiptType,
+    assign,
+    events::{
+        receipt::{Receipt, ReceiptThread},
+        AnyMessageLikeEventContent,
+    },
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::{error, instrument, warn};
 
-use super::Joined;
+use super::{Joined, Receipts};
 use crate::{
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
@@ -325,6 +331,95 @@ impl Timeline {
             }
         }
     }
+
+    /// Get the latest read receipt for the given user.
+    ///
+    /// Contrary to [`Common::user_receipt()`](super::Common::user_receipt) that
+    /// only keeps track of read receipts received from the homeserver, this
+    /// keeps also track of implicit read receipts in this timeline, i.e.
+    /// when a room member sends an event.
+    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    pub async fn latest_user_read_receipt(
+        &self,
+        user_id: &UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.inner.latest_user_read_receipt(user_id).await
+    }
+
+    /// Send the given receipt.
+    ///
+    /// This uses [`Joined::send_single_receipt`] internally, but checks
+    /// first if the receipt points to an event in this timeline that is more
+    /// recent than the current ones, to avoid unnecessary requests.
+    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    pub async fn send_single_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: OwnedEventId,
+    ) -> Result<()> {
+        if !self.inner.should_send_receipt(&receipt_type, &thread, &event_id).await {
+            return Ok(());
+        }
+
+        // If this room isn't actually in joined state, we'll get a server error.
+        // Not ideal, but works for now.
+        let room = Joined { inner: self.room().clone() };
+
+        room.send_single_receipt(receipt_type, thread, event_id).await
+    }
+
+    /// Send the given receipts.
+    ///
+    /// This uses [`Joined::send_multiple_receipts`] internally, but checks
+    /// first if the receipts point to events in this timeline that are more
+    /// recent than the current ones, to avoid unnecessary requests.
+    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
+        if let Some(fully_read) = &receipts.fully_read {
+            if !self
+                .inner
+                .should_send_receipt(
+                    &ReceiptType::FullyRead,
+                    &ReceiptThread::Unthreaded,
+                    fully_read,
+                )
+                .await
+            {
+                receipts.fully_read = None;
+            }
+        }
+
+        if let Some(read_receipt) = &receipts.read_receipt {
+            if !self
+                .inner
+                .should_send_receipt(&ReceiptType::Read, &ReceiptThread::Unthreaded, read_receipt)
+                .await
+            {
+                receipts.read_receipt = None;
+            }
+        }
+
+        if let Some(private_read_receipt) = &receipts.private_read_receipt {
+            if !self
+                .inner
+                .should_send_receipt(
+                    &ReceiptType::ReadPrivate,
+                    &ReceiptThread::Unthreaded,
+                    private_read_receipt,
+                )
+                .await
+            {
+                receipts.private_read_receipt = None;
+            }
+        }
+
+        // If this room isn't actually in joined state, we'll get a server error.
+        // Not ideal, but works for now.
+        let room = Joined { inner: self.room().clone() };
+
+        room.send_multiple_receipts(receipts).await
+    }
 }
 
 #[derive(Debug)]
@@ -483,4 +578,34 @@ pub enum Error {
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]
     UnsupportedEvent,
+}
+
+/// Result of comparing events position in the timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelativePosition {
+    /// Event B is after (more recent than) event A.
+    After,
+    /// They are the same event.
+    Same,
+    /// Event B is before (older than) event A.
+    Before,
+}
+
+fn compare_events_positions(
+    event_a: &EventId,
+    event_b: &EventId,
+    timeline_items: &Vector<Arc<TimelineItem>>,
+) -> Option<RelativePosition> {
+    if event_a == event_b {
+        return Some(RelativePosition::Same);
+    }
+
+    let (pos_event_a, _) = rfind_event_by_id(timeline_items, event_a)?;
+    let (pos_event_b, _) = rfind_event_by_id(timeline_items, event_b)?;
+
+    if pos_event_a > pos_event_b {
+        Some(RelativePosition::Before)
+    } else {
+        Some(RelativePosition::After)
+    }
 }

@@ -25,11 +25,17 @@ use ruma::{
     assign,
     events::{
         receipt::ReceiptThread,
-        room::{message::RoomMessageEventContent, power_levels::RoomPowerLevelsEventContent},
+        room::{
+            avatar::{ImageInfo, RoomAvatarEventContent},
+            message::RoomMessageEventContent,
+            name::RoomNameEventContent,
+            power_levels::RoomPowerLevelsEventContent,
+            topic::RoomTopicEventContent,
+        },
         EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, Int, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, instrument};
@@ -858,6 +864,63 @@ impl Joined {
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
     }
 
+    /// Sets the name of this room.
+    pub async fn set_name(&self, name: Option<String>) -> Result<send_state_event::v3::Response> {
+        self.send_state_event(RoomNameEventContent::new(name)).await
+    }
+
+    /// Sets a new topic for this room.
+    pub async fn set_room_topic(&self, topic: &str) -> Result<send_state_event::v3::Response> {
+        let topic_event = RoomTopicEventContent::new(topic.into());
+
+        self.send_state_event(topic_event).await
+    }
+
+    /// Sets the new avatar url for this room.
+    ///
+    /// # Arguments
+    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `info` - The optional image info that can be provided for the avatar
+    pub async fn set_avatar_url(
+        &self,
+        url: &MxcUri,
+        info: Option<ImageInfo>,
+    ) -> Result<send_state_event::v3::Response> {
+        let mut room_avatar_event = RoomAvatarEventContent::new();
+        room_avatar_event.url = Some(url.to_owned());
+        room_avatar_event.info = info.map(Box::new);
+
+        self.send_state_event(room_avatar_event).await
+    }
+
+    /// Removes the avatar from the room
+    pub async fn remove_avatar(&self) -> Result<send_state_event::v3::Response> {
+        let room_avatar_event = RoomAvatarEventContent::new();
+
+        self.send_state_event(room_avatar_event).await
+    }
+
+    /// Uploads a new avatar for this room.
+    ///
+    /// # Arguments
+    /// * `mime` - The mime type describing the data
+    /// * `data` - The data representation of the avatar
+    /// * `info` - The optional image info provided for the avatar,
+    /// the blurhash and the mimetype will always be updated
+    pub async fn upload_avatar(
+        &self,
+        mime: &Mime,
+        data: Vec<u8>,
+        info: Option<ImageInfo>,
+    ) -> Result<send_state_event::v3::Response> {
+        let upload_response = self.client.media().upload(mime, data).await?;
+        let mut info = info.unwrap_or_else(ImageInfo::new);
+        info.blurhash = upload_response.blurhash;
+        info.mimetype = Some(mime.to_string());
+
+        self.set_avatar_url(&upload_response.content_uri, Some(info)).await
+    }
+
     /// Send a state event with an empty state key to the homeserver.
     ///
     /// For state events with a non-empty state key, see
@@ -1072,9 +1135,9 @@ impl Joined {
 /// Receipts to send all at once.
 #[derive(Debug, Clone, Default)]
 pub struct Receipts {
-    fully_read: Option<OwnedEventId>,
-    read_receipt: Option<OwnedEventId>,
-    private_read_receipt: Option<OwnedEventId>,
+    pub(super) fully_read: Option<OwnedEventId>,
+    pub(super) read_receipt: Option<OwnedEventId>,
+    pub(super) private_read_receipt: Option<OwnedEventId>,
 }
 
 impl Receipts {

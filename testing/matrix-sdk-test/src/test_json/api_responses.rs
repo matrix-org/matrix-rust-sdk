@@ -68,6 +68,91 @@ pub static KEYS_QUERY: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+/// `POST /_matrix/client/v3/keys/query`
+/// For a set of 2 devices own by a user named web2.
+/// First device is unsigned, second one is signed
+pub static KEYS_QUERY_TWO_DEVICES_ONE_SIGNED: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+    "device_keys":{
+       "@web2:localhost:8482":{
+          "AVXFQWJUQA":{
+             "algorithms":[
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+             ],
+             "device_id":"AVXFQWJUQA",
+             "keys":{
+                "curve25519:AVXFQWJUQA":"LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc",
+                "ed25519:AVXFQWJUQA":"loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw"
+             },
+             "signatures":{
+                "@web2:localhost:8482":{
+                   "ed25519:AVXFQWJUQA":"BmdzjXMwZaZ0ZK8T6h3pkTA+gZbD34Bzf8FNazBdAIE16fxVzrlSJkLfXnjdBqRO0Dlda5vKgGpqJazZP6obDw"
+                }
+             },
+             "user_id":"@web2:localhost:8482"
+          },
+          "JERTCKWUWG":{
+             "algorithms":[
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+             ],
+             "device_id":"JERTCKWUWG",
+             "keys":{
+                "curve25519:JERTCKWUWG":"XJixbpnfIk+RqcK5T6moqVY9d9Q1veR8WjjSlNiQNT0",
+                "ed25519:JERTCKWUWG":"48f3WQAMGwYLBg5M5qUhqnEVA8yeibjZpPsShoWMFT8"
+             },
+             "signatures":{
+                "@web2:localhost:8482":{
+                   "ed25519:JERTCKWUWG":"Wc67XYem4IKCpshcslQ6ketCE5otubpX+Bh01OB8ghLxl1d6exlZsgaRA57N8RJ0EMvbeTWCweHXXC/UeeQ4DQ",
+                   "ed25519:uXOM0Xlfts9SGysk/yNr0Vn9rgv1Ifh3R8oPhtic4BM":"dto9VPhhJbNw62j8NQyjnwukMd1NtYnDYSoUOzD5dABq1u2Kt/ZdthcTO42HyxG/3/hZdno8XPfJ47l1ZxuXBA"
+                }
+             },
+             "user_id":"@web2:localhost:8482"
+          }
+       }
+    },
+    "failures":{
+
+    },
+    "master_keys":{
+       "@web2:localhost:8482":{
+          "user_id":"@web2:localhost:8482",
+          "usage":[
+             "master"
+          ],
+          "keys":{
+             "ed25519:Ct4QR+aXrzW4iYIgH1B/56NkPEtSPoN+h2TGoQ0xxYI":"Ct4QR+aXrzW4iYIgH1B/56NkPEtSPoN+h2TGoQ0xxYI"
+          },
+          "signatures":{
+             "@web2:localhost:8482":{
+                "ed25519:JERTCKWUWG":"H9hEsUJ+alB5XAboDzU4loVb+SZajC4tsQzGaeU/FHMFAnWeVarTMCR+NmPSGsZfvPrNz2WVS2G7FIH5yhJfBg"
+             }
+          }
+       }
+    },
+    "self_signing_keys":{
+       "@web2:localhost:8482":{
+          "user_id":"@web2:localhost:8482",
+          "usage":[
+             "self_signing"
+          ],
+          "keys":{
+             "ed25519:uXOM0Xlfts9SGysk/yNr0Vn9rgv1Ifh3R8oPhtic4BM":"uXOM0Xlfts9SGysk/yNr0Vn9rgv1Ifh3R8oPhtic4BM"
+          },
+          "signatures":{
+             "@web2:localhost:8482":{
+                "ed25519:Ct4QR+aXrzW4iYIgH1B/56NkPEtSPoN+h2TGoQ0xxYI":"YbD6gTEwY078nllTxmlyea2VNvAElQ/ig7aPsyhA3h1gGwFvPdtyDbomjdIphUF/lXQ+Eyz4SzlUWeghr1b3BA"
+             }
+          }
+       }
+    },
+    "user_signing_keys":{
+
+    }
+     })
+});
+
 /// ``
 pub static KEYS_UPLOAD: Lazy<JsonValue> = Lazy::new(|| {
     json!({

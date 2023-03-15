@@ -17,16 +17,24 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 use std::time::Duration;
 
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
+#[cfg(not(target_arch = "wasm32"))]
+use mime_guess;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
     events::room::MediaSource,
     MxcUri,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -43,6 +51,23 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 pub struct Media {
     /// The underlying HTTP client.
     client: Client,
+}
+
+/// A file handle that takes ownership of a media file on disk. When the handle
+/// is dropped, the file will be removed from the disk.
+#[derive(Debug)]
+#[cfg(not(target_arch = "wasm32"))]
+pub struct MediaFileHandle {
+    /// The temporary file that contains the media.
+    file: NamedTempFile,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MediaFileHandle {
+    /// Get the media file's path.
+    pub fn path(&self) -> &Path {
+        self.file.path()
+    }
 }
 
 impl Media {
@@ -94,6 +119,43 @@ impl Media {
 
         let request_config = self.client.request_config().timeout(timeout);
         Ok(self.client.send(request, Some(request_config)).await?)
+    }
+
+    /// Gets a media file by copying it to a temporary location on disk.
+    ///
+    /// The file won't be encrypted even if it is encrypted on the server.
+    ///
+    /// Returns a `MediaFileHandle` which takes ownership of the file. When the
+    /// handle is dropped, the file will be deleted from the temporary location.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    ///
+    /// * `content_type` - The type of the media, this will be used to set the
+    ///   temporary file's extension.
+    ///
+    /// * `use_cache` - If we should use the media cache for this request.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn get_media_file(
+        &self,
+        request: &MediaRequest,
+        content_type: &Mime,
+        use_cache: bool,
+    ) -> Result<MediaFileHandle> {
+        let data = self.get_media_content(request, use_cache).await?;
+
+        let mut suffix = String::from("");
+        if let Some(extension) =
+            mime_guess::get_mime_extensions(content_type).and_then(|a| a.first())
+        {
+            suffix = String::from(".") + extension;
+        }
+
+        let file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
+        TokioFile::from_std(file.reopen()?).write_all(&data).await?;
+
+        Ok(MediaFileHandle { file })
     }
 
     /// Get a media file's content.

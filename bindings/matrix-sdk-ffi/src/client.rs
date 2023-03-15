@@ -2,22 +2,94 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
-    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+    media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     ruma::{
         api::client::{
-            account::whoami, error::ErrorKind, media::get_content_thumbnail::v3::Method,
+            account::whoami,
+            error::ErrorKind,
+            media::get_content_thumbnail::v3::Method,
+            push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
+            room::{create_room, Visibility},
             session::get_login_types,
         },
-        events::{room::MediaSource, AnyToDeviceEvent},
+        events::{
+            room::{
+                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent, MediaSource,
+            },
+            AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
+        },
         serde::Raw,
-        TransactionId, UInt,
+        EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
+use serde_json::Value;
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
+use crate::{client, ClientError};
+
+#[derive(Clone, uniffi::Record)]
+pub struct PusherIdentifiers {
+    pub pushkey: String,
+    pub app_id: String,
+}
+
+impl From<PusherIdentifiers> for PusherIds {
+    fn from(value: PusherIdentifiers) -> Self {
+        Self::new(value.pushkey, value.app_id)
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct HttpPusherData {
+    pub url: String,
+    pub format: Option<PushFormat>,
+    pub default_payload: Option<String>,
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PusherKind {
+    Http { data: HttpPusherData },
+    Email,
+}
+
+impl TryFrom<PusherKind> for RumaPusherKind {
+    type Error = anyhow::Error;
+
+    fn try_from(value: PusherKind) -> anyhow::Result<Self> {
+        match value {
+            PusherKind::Http { data } => {
+                let mut ruma_data = RumaHttpPusherData::new(data.url);
+                if let Some(payload) = data.default_payload {
+                    let json: Value = serde_json::from_str(&payload)?;
+                    ruma_data.default_payload = json;
+                }
+                ruma_data.format = data.format.map(Into::into);
+                Ok(Self::Http(ruma_data))
+            }
+            PusherKind::Email => {
+                let ruma_data = EmailPusherData::new();
+                Ok(Self::Email(ruma_data))
+            }
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PushFormat {
+    EventIdOnly,
+}
+
+impl From<PushFormat> for RumaPushFormat {
+    fn from(value: PushFormat) -> Self {
+        match value {
+            client::PushFormat::EventIdOnly => Self::EventIdOnly,
+        }
+    }
+}
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -110,8 +182,34 @@ impl Client {
         })
     }
 
+    pub fn get_media_file(
+        &self,
+        media_source: Arc<MediaSource>,
+        mime_type: String,
+    ) -> anyhow::Result<Arc<MediaFileHandle>> {
+        let client = self.client.clone();
+        let source = (*media_source).clone();
+        let mime_type: mime::Mime = mime_type.parse()?;
+
+        RUNTIME.block_on(async move {
+            let handle = client
+                .media()
+                .get_media_file(
+                    &MediaRequest { source, format: MediaFormat::File },
+                    &mime_type,
+                    true,
+                )
+                .await?;
+
+            Ok(Arc::new(MediaFileHandle { inner: handle }))
+        })
+    }
+}
+
+#[uniffi::export]
+impl Client {
     /// Restores the client from a `Session`.
-    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
+    pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
         let Session {
             access_token,
             refresh_token,
@@ -129,9 +227,11 @@ impl Client {
             user_id: user_id.try_into()?,
             device_id: device_id.into(),
         };
-        self.restore_session_inner(session)
+        Ok(self.restore_session_inner(session)?)
     }
+}
 
+impl Client {
     /// Restores the client from a `matrix_sdk::Session`.
     pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
@@ -181,8 +281,11 @@ impl Client {
         RUNTIME
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
+}
 
-    pub fn session(&self) -> anyhow::Result<Session> {
+#[uniffi::export]
+impl Client {
+    pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.client.session().context("Missing session")?;
@@ -200,12 +303,12 @@ impl Client {
         })
     }
 
-    pub fn user_id(&self) -> anyhow::Result<String> {
+    pub fn user_id(&self) -> Result<String, ClientError> {
         let user_id = self.client.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
     }
 
-    pub fn display_name(&self) -> anyhow::Result<String> {
+    pub fn display_name(&self) -> Result<String, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let display_name = l.account().get_display_name().await?.context("No User ID found")?;
@@ -213,18 +316,19 @@ impl Client {
         })
     }
 
-    pub fn set_display_name(&self, name: String) -> anyhow::Result<()> {
+    pub fn set_display_name(&self, name: String) -> Result<(), ClientError> {
         let client = self.client.clone();
         RUNTIME.block_on(async move {
             client
                 .account()
                 .set_display_name(Some(name.as_str()))
                 .await
-                .context("Unable to set display name")
+                .context("Unable to set display name")?;
+            Ok(())
         })
     }
 
-    pub fn avatar_url(&self) -> anyhow::Result<Option<String>> {
+    pub fn avatar_url(&self) -> Result<Option<String>, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let avatar_url = l.account().get_avatar_url().await?;
@@ -232,7 +336,7 @@ impl Client {
         })
     }
 
-    pub fn cached_avatar_url(&self) -> anyhow::Result<Option<String>> {
+    pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let url = l.account().get_cached_avatar_url().await?;
@@ -240,16 +344,25 @@ impl Client {
         })
     }
 
-    pub fn device_id(&self) -> anyhow::Result<String> {
+    pub fn device_id(&self) -> Result<String, ClientError> {
         let device_id = self.client.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
+    }
+
+    pub fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
+        let client = self.client.clone();
+
+        RUNTIME.block_on(async move {
+            let response = client.create_room(request.into()).await?;
+            Ok(String::from(response.room_id()))
+        })
     }
 
     /// Get the content of the event of the given type out of the account data
     /// store.
     ///
     /// It will be returned as a JSON string.
-    pub fn account_data(&self, event_type: String) -> anyhow::Result<Option<String>> {
+    pub fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
         RUNTIME.block_on(async move {
             let event = self.client.account().account_data_raw(event_type.into()).await?;
             Ok(event.map(|e| e.json().get().to_owned()))
@@ -259,7 +372,7 @@ impl Client {
     /// Set the given account data content for the given event type.
     ///
     /// It should be supplied as a JSON string.
-    pub fn set_account_data(&self, event_type: String, content: String) -> anyhow::Result<()> {
+    pub fn set_account_data(&self, event_type: String, content: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let raw_content = Raw::from_json_string(content)?;
             self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
@@ -267,17 +380,20 @@ impl Client {
         })
     }
 
-    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> anyhow::Result<String> {
+    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> Result<String, ClientError> {
         let l = self.client.clone();
 
         RUNTIME.block_on(async move {
-            let mime_type: mime::Mime = mime_type.parse()?;
+            let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
             let response = l.media().upload(&mime_type, data).await?;
             Ok(String::from(response.content_uri))
         })
     }
 
-    pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {
+    pub fn get_media_content(
+        &self,
+        media_source: Arc<MediaSource>,
+    ) -> Result<Vec<u8>, ClientError> {
         let l = self.client.clone();
         let source = (*media_source).clone();
 
@@ -293,7 +409,7 @@ impl Client {
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, ClientError> {
         let l = self.client.clone();
         let source = (*media_source).clone();
 
@@ -316,7 +432,7 @@ impl Client {
 
     pub fn get_session_verification_controller(
         &self,
-    ) -> anyhow::Result<Arc<SessionVerificationController>> {
+    ) -> Result<Arc<SessionVerificationController>, ClientError> {
         RUNTIME.block_on(async move {
             if let Some(session_verification_controller) =
                 &*self.session_verification_controller.read().await
@@ -342,15 +458,48 @@ impl Client {
     }
 
     /// Log out the current user
-    pub fn logout(&self) -> anyhow::Result<()> {
+    pub fn logout(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(self.client.logout())?;
+        Ok(())
+    }
+
+    /// Registers a pusher with given parameters
+    pub fn set_pusher(
+        &self,
+        identifiers: PusherIdentifiers,
+        kind: PusherKind,
+        app_display_name: String,
+        device_display_name: String,
+        profile_tag: Option<String>,
+        lang: String,
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            match self.client.logout().await {
-                Ok(_) => Ok(()),
-                Err(error) => Err(anyhow!(error.to_string())),
-            }
+            let ids = identifiers.into();
+
+            let pusher_init = PusherInit {
+                ids,
+                kind: kind.try_into()?,
+                app_display_name,
+                device_display_name,
+                profile_tag,
+                lang,
+            };
+            self.client.set_pusher(pusher_init.into()).await?;
+            Ok(())
         })
     }
 
+    /// The homeserver this client is configured to use.
+    pub fn homeserver(&self) -> String {
+        RUNTIME.block_on(self.async_homeserver())
+    }
+
+    pub fn rooms(&self) -> Vec<Arc<Room>> {
+        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+}
+
+impl Client {
     /// Process a sync error and return loop control accordingly
     pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
         let client_api_error_kind = sync_error.client_api_error_kind();
@@ -373,19 +522,101 @@ impl Client {
     }
 }
 
-#[uniffi::export]
-impl Client {
-    /// The homeserver this client is configured to use.
-    pub fn homeserver(&self) -> String {
-        #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-        RUNTIME.block_on(self.async_homeserver())
-    }
+pub struct CreateRoomParameters {
+    pub name: String,
+    pub topic: Option<String>,
+    pub is_encrypted: bool,
+    pub is_direct: bool,
+    pub visibility: RoomVisibility,
+    pub preset: RoomPreset,
+    pub invite: Option<Vec<String>>,
+    pub avatar: Option<String>,
+}
 
-    pub fn rooms(&self) -> Vec<Arc<Room>> {
-        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+impl From<CreateRoomParameters> for create_room::v3::Request {
+    fn from(value: CreateRoomParameters) -> create_room::v3::Request {
+        let mut request = create_room::v3::Request::new();
+        request.name = Some(value.name);
+        request.topic = value.topic;
+        request.is_direct = value.is_direct;
+        request.visibility = value.visibility.into();
+        request.preset = Some(value.preset.into());
+        request.invite = match value.invite {
+            Some(invite) => invite
+                .iter()
+                .filter_map(|user_id| match UserId::parse(user_id) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        error!(user_id, "Skipping invalid user ID, error: {e}");
+                        None
+                    }
+                })
+                .collect(),
+            None => vec![],
+        };
+
+        let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
+
+        if value.is_encrypted {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        if let Some(url) = value.avatar {
+            let mut content = RoomAvatarEventContent::new();
+            content.url = Some(url.into());
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        request.initial_state = initial_state;
+
+        request
     }
 }
 
+pub enum RoomVisibility {
+    /// Indicates that the room will be shown in the published room list.
+    Public,
+
+    /// Indicates that the room will not be shown in the published room list.
+    Private,
+}
+
+impl From<RoomVisibility> for Visibility {
+    fn from(value: RoomVisibility) -> Self {
+        match value {
+            RoomVisibility::Public => Self::Public,
+            RoomVisibility::Private => Self::Private,
+        }
+    }
+}
+
+pub enum RoomPreset {
+    /// `join_rules` is set to `invite` and `history_visibility` is set to
+    /// `shared`.
+    PrivateChat,
+
+    /// `join_rules` is set to `public` and `history_visibility` is set to
+    /// `shared`.
+    PublicChat,
+
+    /// Same as `PrivateChat`, but all initial invitees get the same power level
+    /// as the creator.
+    TrustedPrivateChat,
+}
+
+impl From<RoomPreset> for create_room::v3::RoomPreset {
+    fn from(value: RoomPreset) -> Self {
+        match value {
+            RoomPreset::PrivateChat => Self::PrivateChat,
+            RoomPreset::PublicChat => Self::PublicChat,
+            RoomPreset::TrustedPrivateChat => Self::TrustedPrivateChat,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct Session {
     // Same fields as the Session type in matrix-sdk, just simpler types
     /// The access token used for this session.
@@ -407,4 +638,17 @@ pub struct Session {
 #[uniffi::export]
 fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
+}
+
+/// A file handle that takes ownership of a media file on disk. When the handle
+/// is dropped, the file will be removed from the disk.
+pub struct MediaFileHandle {
+    inner: SdkMediaFileHandle,
+}
+
+impl MediaFileHandle {
+    /// Get the media file's path.
+    pub fn path(&self) -> String {
+        self.inner.path().to_str().unwrap().to_owned()
+    }
 }

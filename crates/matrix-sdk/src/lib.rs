@@ -76,7 +76,37 @@ fn init_logging() {
 }
 
 /// Creates a server name from a user supplied string. The string is first
-/// sanitized by removing the http(s) scheme before being parsed.
+/// sanitized by removing whitespace, the http(s) scheme and any trailing
+/// slashes before being parsed.
 pub fn sanitize_server_name(s: &str) -> Result<OwnedServerName, IdParseError> {
-    ServerName::parse(s.trim_start_matches("http://").trim_start_matches("https://"))
+    ServerName::parse(
+        s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+
+    use crate::sanitize_server_name;
+
+    #[test]
+    fn test_sanitize_server_name() {
+        assert_eq!(sanitize_server_name("matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("https://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(sanitize_server_name("http://matrix.org").unwrap().as_str(), "matrix.org");
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("https://matrix.server.org/").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_eq!(
+            sanitize_server_name("  https://matrix.server.org// ").unwrap().as_str(),
+            "matrix.server.org"
+        );
+        assert_matches!(sanitize_server_name("https://matrix.server.org/something"), Err(_))
+    }
 }
