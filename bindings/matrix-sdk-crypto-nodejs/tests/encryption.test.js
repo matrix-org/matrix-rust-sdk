@@ -28,11 +28,3 @@ describe(EncryptionSettings.name, () => {
         }).toThrow();
     });
 });
-
-describe("VerificationState", () => {
-    test("has the correct variant values", () => {
-        expect(VerificationState.Trusted).toStrictEqual(0);
-        expect(VerificationState.Untrusted).toStrictEqual(1);
-        expect(VerificationState.UnknownDevice).toStrictEqual(2);
-    });
-});

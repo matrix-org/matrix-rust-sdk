@@ -28,7 +28,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::VerificationState;
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
     backups::SignatureState,
     olm::{IdentityKeys, InboundGroupSession, Session},
@@ -643,6 +643,7 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
 }
 
 /// An event that was successfully decrypted.
+#[derive(uniffi::Record)]
 pub struct DecryptedEvent {
     /// The decrypted version of the event.
     pub clear_event: String,
@@ -654,10 +655,48 @@ pub struct DecryptedEvent {
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
     pub forwarding_curve25519_chain: Vec<String>,
-    /// The verification state of the device that sent us the event, note this
-    /// is the state of the device at the time of decryption. It may change in
-    /// the future if a device gets verified or deleted.
-    pub verification_state: VerificationState,
+    /// The shield state (color and message to display to user) for the event,
+    /// representing the event's authenticity. Computed from the properties of
+    /// the sender user identity and their Olm device.
+    ///
+    /// Note that this is computed at time of decryption, so the value reflects
+    /// the computed event authenticity at that time. Authenticity-related
+    /// properties can change later on, such as when a user identity is
+    /// subsequently verified or a device is deleted.
+    pub shield_state: ShieldState,
+}
+
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[allow(missing_docs)]
+#[derive(uniffi::Enum)]
+pub enum ShieldColor {
+    Red,
+    Grey,
+    None,
+}
+
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[derive(uniffi::Record)]
+#[allow(missing_docs)]
+pub struct ShieldState {
+    color: ShieldColor,
+    message: Option<String>,
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
+        match value {
+            RustShieldState::Red { message } => {
+                Self { color: ShieldColor::Red, message: Some(message.to_owned()) }
+            }
+            RustShieldState::Grey { message } => {
+                Self { color: ShieldColor::Grey, message: Some(message.to_owned()) }
+            }
+            RustShieldState::None => Self { color: ShieldColor::None, message: None },
+        }
+    }
 }
 
 /// Struct representing the state of our private cross signing keys, it shows
@@ -812,7 +851,7 @@ mod uniffi_types {
             RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
         },
         BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
-        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings,
+        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings, ShieldColor, ShieldState,
     };
 }
 

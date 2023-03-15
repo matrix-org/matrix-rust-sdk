@@ -21,7 +21,7 @@ const {
     UserId,
     UserIdentity,
     VerificationRequest,
-    VerificationState,
+    ShieldColor,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { addMachineToMachine } = require("./helper");
 require("fake-indexeddb/auto");
@@ -497,7 +497,8 @@ describe(OlmMachine.name, () => {
             expect(decrypted.senderCurve25519Key).toBeDefined();
             expect(decrypted.senderClaimedEd25519Key).toBeDefined();
             expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
-            expect(decrypted.verificationState).toStrictEqual(VerificationState.Trusted);
+            expect(decrypted.shieldState(true).color).toStrictEqual(ShieldColor.Red);
+            expect(decrypted.shieldState(false).color).toStrictEqual(ShieldColor.Red);
         });
     });
 

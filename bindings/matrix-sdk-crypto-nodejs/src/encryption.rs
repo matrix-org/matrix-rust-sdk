@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use napi::bindgen_prelude::{BigInt, ToNapiValue};
 use napi_derive::*;
 
@@ -107,27 +108,33 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     }
 }
 
-/// The verification state of the device that sent an event to us.
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
 #[napi]
-pub enum VerificationState {
-    /// The device is trusted.
-    Trusted,
-
-    /// The device is not trusted.
-    Untrusted,
-
-    /// The device is not known to us.
-    UnknownDevice,
+pub enum ShieldColor {
+    Red,
+    Grey,
+    None,
 }
 
-impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
-        use matrix_sdk_common::deserialized_responses::VerificationState::*;
+/// Take a look at [`matrix_sdk_common::deserialized_responses::ShieldState`]
+/// for more info.
+#[napi]
+pub struct ShieldState {
+    pub color: ShieldColor,
+    pub message: Option<&'static str>,
+}
 
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
         match value {
-            Trusted => Self::Trusted,
-            Untrusted => Self::Untrusted,
-            UnknownDevice => Self::UnknownDevice,
+            RustShieldState::Red { message } => {
+                ShieldState { color: ShieldColor::Red, message: Some(message) }
+            }
+            RustShieldState::Grey { message } => {
+                ShieldState { color: ShieldColor::Grey, message: Some(message) }
+            }
+            RustShieldState::None => ShieldState { color: ShieldColor::None, message: None },
         }
     }
 }
