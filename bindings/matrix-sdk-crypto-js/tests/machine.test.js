@@ -497,8 +497,8 @@ describe(OlmMachine.name, () => {
             expect(decrypted.senderCurve25519Key).toBeDefined();
             expect(decrypted.senderClaimedEd25519Key).toBeDefined();
             expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
-            expect(decrypted.shieldState(true).color).toStrictEqual(ShieldColor.RED);
-            expect(decrypted.shieldState(false).color).toStrictEqual(ShieldColor.RED);
+            expect(decrypted.shieldState(true).color).toStrictEqual(ShieldColor.Red);
+            expect(decrypted.shieldState(false).color).toStrictEqual(ShieldColor.Red);
         });
     });
 

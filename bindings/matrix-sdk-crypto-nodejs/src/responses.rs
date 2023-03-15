@@ -188,9 +188,9 @@ impl DecryptedRoomEvent {
     pub fn shield_state(&self, strict: bool) -> Option<encryption::ShieldState> {
         let state = &self.encryption_info.as_ref()?.verification_state;
         if strict {
-            Some(state.to_shield_state_strict().to_owned().into())
+            Some(state.to_shield_state_strict().into())
         } else {
-            Some(state.to_shield_state_lax().to_owned().into())
+            Some(state.to_shield_state_lax().into())
         }
     }
 }
