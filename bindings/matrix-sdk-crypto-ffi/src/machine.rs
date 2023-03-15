@@ -754,10 +754,9 @@ impl OlmMachine {
     ///
     /// * `room_id` - The unique id of the room where the event was sent to.
     ///
-    /// * `strict_shields` - If true messages will be decorated with strict
-    ///   warnings (use false
-    /// to match legacy behaviour where unsafe keys have lower warnings and
-    /// unverified identities are not decorated).
+    /// * `strict_shields` - If `true`, messages will be decorated with strict
+    ///   warnings (use `false` to match legacy behaviour where unsafe keys have
+    ///   lower severity warnings and unverified identities are not decorated).
     pub fn decrypt_room_event(
         &self,
         event: String,

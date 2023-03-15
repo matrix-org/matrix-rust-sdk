@@ -107,7 +107,7 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     }
 }
 
-/// Message shield decoration color abstraction
+/// Event decoration representing its authenticity properties.
 #[napi]
 pub enum ShieldColor {
     GREEN,

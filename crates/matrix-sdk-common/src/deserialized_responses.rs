@@ -8,7 +8,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Message shield decoration color abstraction.
+/// Event decoration representing its authenticity properties.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub enum ShieldColor {
     /// Trusted
@@ -33,12 +33,12 @@ pub struct ShieldState {
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
-const UNVERIFIED_DEVICE: &str = "Encrypted by an unverified device.";
+const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 
 impl VerificationState {
-    /// Converts the state to a shield state that can be used by clients
+    /// Converts the state to a shield state that can be used by clients.
     pub fn to_shield_state_strict(&self) -> ShieldState {
         match self {
             VerificationState::Verified => ShieldState { color: ShieldColor::GREEN, message: None },
@@ -60,15 +60,15 @@ impl VerificationState {
     }
 
     /// Legacy decoration mode.
-    /// Converts the state to a shield state that can be used by clients
+    /// Converts the state to a shield state that can be used by clients.
     pub fn to_shield_state_lax(&self) -> ShieldState {
         match self {
             VerificationState::Verified => ShieldState { color: ShieldColor::GREEN, message: None },
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity => {
                     // If you didn't show interest in verifying that user we don't
-                    // nag you with an error message
-                    // TODO We should detect identity rotation of a previously trusted identity and
+                    // nag you with an error message.
+                    // TODO: We should detect identity rotation of a previously trusted identity and
                     // then warn see https://github.com/matrix-org/matrix-rust-sdk/issues/1129
                     ShieldState { color: ShieldColor::NONE, message: None }
                 }
@@ -90,8 +90,8 @@ impl VerificationState {
                         }
                     }
                     DeviceLinkProblem::InsecureSource => {
-                        // In legacy mode we tone down this warning as it is quite common and
-                        // mostly noise (due to legacy backup and lack of trusted forwards)
+                        // In legacy mode, we tone down this warning as it is quite common and
+                        // mostly noise (due to legacy backup and lack of trusted forwards).
                         ShieldState {
                             color: ShieldColor::GRAY,
                             message: Some(AUTHENTICITY_NOT_GUARANTEED.to_owned()),
@@ -106,10 +106,9 @@ impl VerificationState {
 /// The verification state of the device that sent an event to us.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum VerificationState {
-    /// This the only state were the authenticity is
-    /// guaranteed. It's coming from a device belonging to a
-    /// user that we have verified.
-    /// Other states give you more details about the level of trust.
+    /// This the only state were the authenticity is guaranteed. It's coming
+    /// from a device belonging to a user that we have verified. Other states
+    /// give you more details about the level of trust.
     Verified,
     /// The message could not be linked to a verified user identity. The
     /// verification level that was achieved is supplied as a struct member.
@@ -144,6 +143,7 @@ pub enum DeviceLinkProblem {
     InsecureSource,
 }
 
+
 /// The algorithm specific information of a decrypted event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum AlgorithmInfo {
@@ -166,13 +166,14 @@ pub struct EncryptionInfo {
     /// `verification_state` is `Verified` as well.
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
-    ///  untrusted data unless `verification_state` is `Verified` as well.
+    /// untrusted data unless `verification_state` is `Verified` as well.
     pub sender_device: Option<OwnedDeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
     /// is the state of the device at the time of decryption. It may change in
     /// the future if a device gets verified or deleted.
+    ///
     /// Callers that persist this should mark the state as dirty when a device
     /// change is received down the sync.
     pub verification_state: VerificationState,

@@ -654,10 +654,14 @@ pub struct DecryptedEvent {
     /// key to us. Is empty if the key came directly from the sender of the
     /// event.
     pub forwarding_curve25519_chain: Vec<String>,
-    /// The shield state (color and message to display to user) of the device
-    /// that sent us the event, note this is the state of the device at the
-    /// time of decryption. It may change in the future if a device gets
-    /// verified or deleted.
+    /// The shield state (color and message to display to user) for the event,
+    /// representing the event's authenticity. Computed from the properties of
+    /// the sender user identity and their Olm device.
+    ///
+    /// Note that this is computed at time of decryption, so the value reflects
+    /// the computed event authenticity at that time. Authenticity-related
+    /// properties can change later on, such as when a user identity is
+    /// subsequently verified or a device is deleted.
     pub shield_state: ShieldState,
 }
 
