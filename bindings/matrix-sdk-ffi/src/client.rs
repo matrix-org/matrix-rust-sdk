@@ -522,7 +522,6 @@ impl Client {
     }
 }
 
-#[derive(uniffi::Record)]
 pub struct CreateRoomParameters {
     pub name: String,
     pub topic: Option<String>,
