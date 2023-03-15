@@ -293,43 +293,39 @@ impl Default for AttachmentConfig {
 /// # Examples
 ///
 /// ```no_run
-/// # use std::{path::PathBuf, fs::File, io::{BufReader, Cursor, Read, Seek}};
-/// # use matrix_sdk::{
-/// #     Client,
-/// #     attachment::{AttachmentConfig, Thumbnail, generate_image_thumbnail},
-/// #     ruma::room_id
-/// # };
+/// use std::{io::Cursor, path::PathBuf};
+///
+/// use matrix_sdk::attachment::{
+///     generate_image_thumbnail, AttachmentConfig, Thumbnail,
+/// };
+/// use mime;
+/// # use matrix_sdk::{Client, ruma::room_id };
 /// # use url::Url;
-/// # use mime;
 /// # use futures::executor::block_on;
 /// # block_on(async {
 /// # let homeserver = Url::parse("http://localhost:8080")?;
 /// # let mut client = Client::new(homeserver).await?;
 /// # let room_id = room_id!("!test:localhost");
 /// let path = PathBuf::from("/home/example/my-cat.jpg");
-/// let mut image = BufReader::new(File::open(path)?);
+/// let image = tokio::fs::read(path).await?;
 ///
-/// let (thumbnail_data, thumbnail_info) = generate_image_thumbnail(
-///     &mime::IMAGE_JPEG,
-///     &mut image,
-///     None
-/// )?;
-/// let mut cursor = Cursor::new(thumbnail_data);
+/// let cursor = Cursor::new(&image);
+/// let (thumbnail_data, thumbnail_info) =
+///     generate_image_thumbnail(&mime::IMAGE_JPEG, cursor, None)?;
 /// let config = AttachmentConfig::with_thumbnail(Thumbnail {
-///     reader: &mut cursor,
-///     content_type: &mime::IMAGE_JPEG,
+///     data: thumbnail_data,
+///     content_type: mime::IMAGE_JPEG,
 ///     info: Some(thumbnail_info),
 /// });
-///
-/// image.rewind()?;
 ///
 /// if let Some(room) = client.get_joined_room(&room_id) {
 ///     room.send_attachment(
 ///         "My favorite cat",
 ///         &mime::IMAGE_JPEG,
-///         &mut image,
+///         image,
 ///         config,
-///     ).await?;
+///     )
+///     .await?;
 /// }
 /// # anyhow::Ok(()) });
 /// ```
