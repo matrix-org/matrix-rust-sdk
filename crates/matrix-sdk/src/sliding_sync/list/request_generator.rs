@@ -3,7 +3,7 @@
 //! Depending on the [`SlidingSyncMode`], the generated requests aren't the
 //! same.
 //!
-//! In [`SlidingSyncMode::Selective`], it's pretty straighforward:
+//! In [`SlidingSyncMode::Selective`], it's pretty straightforward:
 //!
 //! * There is set of ranges,
 //! * Each request asks to load the particular ranges.
