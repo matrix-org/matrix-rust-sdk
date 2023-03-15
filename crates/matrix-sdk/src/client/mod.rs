@@ -1691,12 +1691,24 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn create_room(&self, request: create_room::v3::Request) -> HttpResult<room::Joined> {
+    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Joined> {
+        let invite = request.invite.clone();
+        let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
         let base_room =
             self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
-        Ok(room::Joined::new(self, base_room).unwrap())
+
+        let joined_room = room::Joined::new(self, base_room).unwrap();
+
+        // supporting just the DM chat with another person (no group dm chat)
+        if is_direct_room && invite.len() == 1 {
+            if let Some(user) = invite.first() {
+                self.update_m_direct_account_data(joined_room.room_id(), user).await?;
+            }
+        }
+
+        Ok(joined_room)
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

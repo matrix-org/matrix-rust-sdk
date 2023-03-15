@@ -52,7 +52,7 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedUserId, TransactionId, UserId,
+    assign, DeviceId, OwnedUserId, TransactionId, UserId, RoomId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -254,9 +254,7 @@ impl Client {
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn create_dm_room(&self, user_id: OwnedUserId) -> Result<room::Joined> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
-        };
+        use ruma::api::client::room::create_room::v3::RoomPreset;
 
         // First we create the DM room, where we invite the user and tell the
         // invitee that the room should be a DM.
@@ -270,6 +268,20 @@ impl Client {
 
         let room = self.create_room(request).await?;
 
+        self.update_m_direct_account_data(room.room_id(), &user_id).await?;
+
+        Ok(room)
+    }
+
+    /// Update the m.direct account data event.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id of the DM room.
+    /// * `user_id` - The user id of the invitee for the DM room.
+    pub(crate) async fn update_m_direct_account_data(&self, room_id: &RoomId, user_id: &OwnedUserId) -> Result<()> {
+        use ruma::events::direct::DirectEventContent;
+
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
@@ -281,14 +293,14 @@ impl Client {
             .transpose()?
             .unwrap_or_default();
 
-        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
+        content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
 
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
         self.account().set_account_data(content).await?;
 
-        Ok(room)
+        Ok(())
     }
 
     /// Claim one-time keys creating new Olm sessions.
