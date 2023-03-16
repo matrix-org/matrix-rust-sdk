@@ -408,7 +408,10 @@ impl ClientBuilder {
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
                     sliding_sync_proxy = Url::parse(&proxy).ok();
                 }
-                debug!(homserver_url = well_known.homeserver.base_url, "Discovered the homeserver");
+                debug!(
+                    homeserver_url = well_known.homeserver.base_url,
+                    "Discovered the homeserver"
+                );
 
                 well_known.homeserver.base_url
             }
