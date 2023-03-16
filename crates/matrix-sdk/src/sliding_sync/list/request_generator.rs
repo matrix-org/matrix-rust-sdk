@@ -1,11 +1,11 @@
-//! The logic to generate Sliding Sync list request.
+//! The logic to generate Sliding Sync list requests.
 //!
 //! Depending on the [`SlidingSyncMode`], the generated requests aren't the
 //! same.
 //!
 //! In [`SlidingSyncMode::Selective`], it's pretty straightforward:
 //!
-//! * There is set of ranges,
+//! * There is a set of ranges,
 //! * Each request asks to load the particular ranges.
 //!
 //! In [`SlidingSyncMode::PagingFullSync`]:
@@ -232,7 +232,8 @@ impl SlidingSyncListRequestGenerator {
                         *state = SlidingSyncState::PartiallyLoaded;
                     });
                 }
-                // Otherwise the current range has reached its maximum, we switched to `Live` mode.
+                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
+                // mode.
                 else {
                     // The range is covering the entire list, from 0 to its maximum.
                     self.list.set_range(0, range_maximum);

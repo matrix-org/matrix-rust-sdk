@@ -85,7 +85,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// When doing a full-sync, this method defines the total limit of rooms to
-    /// load (it can be useful for gigantic account).
+    /// load (it can be useful for gigantic accounts).
     pub fn full_sync_maximum_number_of_rooms_to_fetch(
         mut self,
         value: impl Into<Option<u32>>,

@@ -25,7 +25,7 @@ use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered list within the concept of sliding sync.
-/// Main entrypoint to the SlidingSync
+/// Main entrypoint to the `SlidingSync`:
 ///
 /// ```no_run
 /// # use futures::executor::block_on;
@@ -76,10 +76,12 @@ pub struct SlidingSyncList {
     state: Arc<StdRwLock<Observable<SlidingSyncState>>>,
 
     /// The total number of rooms that is possible to interact with for the
-    /// given list. It's not the total rooms that have been fetched. The
-    /// server tells the client that it's possible to fetch this amount of
-    /// rooms maximum. Since this number can change according to the list
-    /// filters, it's observable.
+    /// given list.
+    ///
+    /// It's not the total rooms that have been fetched. The server tells the
+    /// client that it's possible to fetch this amount of rooms maximum.
+    /// Since this number can change according to the list filters, it's
+    /// observable.
     maximum_number_of_rooms: Arc<StdRwLock<Observable<Option<u32>>>>,
 
     /// The rooms in order.
@@ -620,14 +622,13 @@ fn room_ops(
 
 /// The state the [`SlidingSyncList`] is in.
 ///
-/// The lifetime of a `SlidingSync` usually starts at a `Loading`, getting a
-/// fast response for the first given number of rooms, then switches into
-/// `PartiallyLoaded` during which the list fetches the remaining rooms, usually
-/// in order, some times in batches. Once that is ready, it switches into
-/// `Live`.
+/// The lifetime of a `SlidingSyncList` ususally starts at `NotLoaded` or
+/// `Preloaded` (if it is restored from a cache). When loading rooms in a list,
+/// depending of the [`SlidingSyncMode`], it moves to `PartiallyLoaded` or
+/// `FullyLoaded`. The lifetime of a `SlidingSync` usually starts at a
 ///
-/// If the client has been offline for a while, though, the SlidingSync might
-/// return back to `PartiallyLoaded` at any point.
+/// If the client has been offline for a while, though, the `SlidingSyncList`
+/// might return back to `PartiallyLoaded` at any point.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncState {
     /// Sliding Sync has not started to load anything yet.
@@ -647,18 +648,18 @@ pub enum SlidingSyncState {
     FullyLoaded,
 }
 
-/// The mode by which the the [`SlidingSyncList`] is in fetching the data.
+/// How a [`SlidingSyncList`] fetches the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..20`, `21..40`, 41..60` etc. assuming the `batch_size` is 20.
+    /// like `0..19`, `20..39`, 40..59` etc. assuming the `batch_size` is 20.
     #[serde(alias = "FullSync")]
     PagingFullSync,
     /// Fully sync all rooms in the background, with a growing window of
-    /// `batch_size`, like `0..20`, `0..40`, `0..60` etc. assuming the
+    /// `batch_size`, like `0..19`, `0..39`, `0..59` etc. assuming the
     /// `batch_size` is 20.
     GrowingFullSync,
-    /// Only sync the specific windows defined
+    /// Only sync the specific defined windows/ranges.
     #[default]
     Selective,
 }
