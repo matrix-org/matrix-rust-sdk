@@ -717,6 +717,16 @@ mod tests {
 
     use super::*;
 
+    macro_rules! assert_json_roundtrip {
+        (from $type:ty: $to_string:path => $to_json:expr) => {
+            let json = serde_json::to_string(&$to_string).unwrap();
+            assert_eq!(json, $to_json);
+
+            let rust: $type = serde_json::from_str(&json).unwrap();
+            assert_eq!(rust, $to_string);
+        };
+    }
+
     #[test]
     fn test_room_list_entry_is_empty_or_invalidated() {
         let room_id = room_id!("!foo:bar.org");
@@ -748,5 +758,24 @@ mod tests {
             RoomListEntry::Filled(room_id.to_owned()).freeze_by_ref(),
             RoomListEntry::Invalidated(room_id.to_owned())
         );
+    }
+
+    #[test]
+    fn test_sliding_sync_mode_serialization() {
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => r#""PagingFullSync""#);
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => r#""GrowingFullSync""#);
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => r#""Selective""#);
+
+        // Specificity: `PagingFullSync` has a serde alias.
+        let alias: SlidingSyncMode = serde_json::from_str(r#""FullSync""#).unwrap();
+        assert_eq!(alias, SlidingSyncMode::PagingFullSync);
+    }
+
+    #[test]
+    fn test_sliding_sync_state_serialization() {
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => r#""Cold""#);
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => r#""Preload""#);
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => r#""CatchingUp""#);
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded=> r#""Live""#);
     }
 }
