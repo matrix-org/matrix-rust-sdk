@@ -445,7 +445,7 @@ impl FrozenSlidingSyncList {
                 _ => {}
             };
 
-            rooms_list.push_back(room_list_entry.freeze());
+            rooms_list.push_back(room_list_entry.freeze_by_ref());
         }
 
         FrozenSlidingSyncList {
@@ -693,7 +693,7 @@ impl RoomListEntry {
 
     /// Clone this entry, but freeze it, i.e. if the entry is empty, it remains
     /// empty, otherwise it is invalidated.
-    fn freeze(&self) -> Self {
+    fn freeze_by_ref(&self) -> Self {
         match &self {
             Self::Empty => Self::Empty,
             Self::Invalidated(room_id) | Self::Filled(room_id) => {
