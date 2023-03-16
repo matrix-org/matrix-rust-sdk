@@ -511,65 +511,33 @@ impl OutboundGroupSession {
         }
     }
 
-    pub(crate) fn is_withheld_to(&self, device: &Device, code: WithheldCode) -> bool {
-        let shared_withheld = self
-            .shared_with_set
-            .get(device.user_id())
-            .and_then(|d| {
-                d.get(device.device_id()).map(|s| match s.value() {
-                    ShareInfo::Shared(_) => None,
-                    ShareInfo::Withheld(code) => Some(code.to_owned()),
-                })
-            })
-            .flatten();
+    pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
+        let withheld = self.shared_with_set.get(device.user_id()).and_then(|d| {
+            d.get(device.device_id())
+                .map(|s| matches!(s.value(), ShareInfo::Withheld(c) if c == code))
+        });
 
-        if Some(code.to_owned()) == shared_withheld {
-            true
+        if let Some(withheld) = withheld {
+            withheld
         } else {
             // If we haven't yet withheld, check if we're going to withheld
             // the session.
 
             // Find the first request that contains the given user id and
             // device ID.
-            let shared = self
-                .to_share_with_set
-                .iter()
-                .find_map(|item| {
-                    let share_info = &item.value().1;
+            self.to_share_with_set.iter().any(|item| {
+                let share_info = &item.value().1;
 
-                    share_info.get(device.user_id()).and_then(|d| {
-                        d.get(device.device_id()).map(|info| match info {
-                            ShareInfo::Shared(_) => None,
-                            ShareInfo::Withheld(code) => Some(code.to_owned()),
-                        })
+                share_info
+                    .get(device.user_id())
+                    .and_then(|d| {
+                        d.get(device.device_id())
+                            .map(|info| matches!(info, ShareInfo::Withheld(c) if c == code))
                     })
-                })
-                .flatten();
-
-            Some(code) == shared
+                    .unwrap_or_default()
+            })
         }
     }
-
-    // TODO as for sharing we should check if its not in the process of being
-    // withheld
-    /// Has or will this device receive a withheld code for that session
-    /*
-    pub(crate) fn is_withheld_to(&self, device: &Device) -> Option<WithheldCode> {
-        // Check if we shared the session.
-        let shared_state = self.withheld_to_set.get(device.user_id()).and_then(|d| {
-            d.get(device.device_id()).map(|s| {
-                *s.value()
-                // if Some(s.sender_key) == device.curve25519_key() {
-                //     ShareState::Shared(s.message_index)
-                // } else {
-                //     ShareState::SharedButChangedSenderKey
-                // }
-            })
-        });
-        // withtheld?
-        shared_state
-    }
-    */
 
     /// Mark the session as shared with the given user/device pair, starting
     /// from some message index.

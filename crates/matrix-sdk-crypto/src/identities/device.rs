@@ -26,8 +26,9 @@ use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
-    DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
+    events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
+    serde::Raw,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -40,12 +41,15 @@ use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
+    },
     store::{Changes, DeviceChanges, DynCryptoStore, Result as StoreResult},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
-            room::encrypted::ToDeviceEncryptedEventContent, EventType,
+            room::encrypted::ToDeviceEncryptedEventContent, room_key_withheld::WithheldCode,
+            EventType,
         },
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
@@ -53,6 +57,18 @@ use crate::{
     MegolmError, OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest,
     VerificationRequest,
 };
+
+pub enum MaybeEncryptedRoomKey {
+    Encrypted {
+        used_session: Session,
+        share_info: ShareInfo,
+        message: Raw<AnyToDeviceEventContent>,
+    },
+    Withheld {
+        code: WithheldCode,
+    },
+    None,
+}
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -413,6 +429,35 @@ impl Device {
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
+    }
+
+    pub(crate) async fn maybe_encrypt_room_key(
+        &self,
+        session: OutboundGroupSession,
+    ) -> OlmResult<MaybeEncryptedRoomKey> {
+        let content = session.as_content().await;
+        let message_index = session.message_index().await;
+        let event_type = content.event_type();
+        let content =
+            serde_json::to_value(content).expect("We can always serialize our own room key");
+
+        match self.encrypt(event_type, content).await {
+            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                used_session: session,
+                message: encrypted.cast(),
+            }),
+
+            Err(OlmError::MissingSession)
+            | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(if self.is_no_olm_sent() {
+                    MaybeEncryptedRoomKey::None
+                } else {
+                    MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm }
+                })
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
