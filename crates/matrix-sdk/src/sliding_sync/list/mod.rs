@@ -635,7 +635,7 @@ pub enum SlidingSyncState {
     #[default]
     #[serde(rename = "Cold")]
     NotLoaded,
-    /// Sliding Sync has been preloaded, i.e. restored from a catch for example.
+    /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
     #[serde(rename = "Preload")]
     Preloaded,
     /// Updates are received from the loaded rooms, and new rooms are being

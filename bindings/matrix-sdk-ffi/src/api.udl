@@ -32,14 +32,17 @@ callback interface SlidingSyncObserver {
 };
 
 enum SlidingSyncState {
-    /// Hasn't started yet
-    "Cold",
-    /// We are quickly preloading a preview of the most important rooms
-    "Preload",
+    /// Sliding Sync has not started to load anything yet.
+    "NotLoaded",
+    /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
+    "Preloaded",
     /// We are trying to load all remaining rooms, might be in batches
-    "CatchingUp",
-    /// We are all caught up and now only sync the live responses.
-    "Live",
+    /// Updates are received from the loaded rooms, and new rooms are being fetched
+    /// in background
+    "PartiallyLoaded",
+    /// Updates are received for all the loaded rooms, and all rooms have been
+    /// loaded!
+    "FullyLoaded",
 };
 
 enum SlidingSyncMode {
