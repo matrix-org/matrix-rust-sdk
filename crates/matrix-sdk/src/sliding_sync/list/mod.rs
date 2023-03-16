@@ -415,7 +415,7 @@ impl SlidingSyncList {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct FrozenSlidingSyncList {
     #[serde(default, rename = "rooms_count", skip_serializing_if = "Option::is_none")]
     pub(super) maximum_number_of_rooms: Option<u32>,
@@ -713,17 +713,27 @@ impl<'a> From<&'a RoomListEntry> for RoomListEntry {
 mod tests {
     use std::ops::{Deref, Not};
 
-    use ruma::room_id;
+    use im::vector;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
+    use serde_json::json;
 
     use super::*;
 
     macro_rules! assert_json_roundtrip {
-        (from $type:ty: $to_string:path => $to_json:expr) => {
+        (from $type:ty: $to_string:expr => $to_json:expr) => {
             let json = serde_json::to_string(&$to_string).unwrap();
             assert_eq!(json, $to_json);
 
             let rust: $type = serde_json::from_str(&json).unwrap();
             assert_eq!(rust, $to_string);
+        };
+    }
+
+    macro_rules! assert_json_eq {
+        (from $type:ty: $to_string:expr => $to_json:expr) => {
+            let json = serde_json::to_string(&$to_string).unwrap();
+            assert_eq!(json, $to_json);
         };
     }
 
@@ -765,12 +775,8 @@ mod tests {
         let room_id = room_id!("!foo:bar.org");
 
         assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Empty => r#""Empty""#);
-
-        let invalidated = RoomListEntry::Invalidated(room_id.to_owned());
-        assert_json_roundtrip!(from RoomListEntry: invalidated => r#"{"Invalidated":"!foo:bar.org"}"#);
-
-        let filled = RoomListEntry::Filled(room_id.to_owned());
-        assert_json_roundtrip!(from RoomListEntry: filled => r#"{"Filled":"!foo:bar.org"}"#);
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Invalidated(room_id.to_owned()) => r#"{"Invalidated":"!foo:bar.org"}"#);
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Filled(room_id.to_owned()) => r#"{"Filled":"!foo:bar.org"}"#);
     }
 
     #[test]
@@ -790,5 +796,48 @@ mod tests {
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => r#""Preload""#);
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => r#""CatchingUp""#);
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded=> r#""Live""#);
+    }
+
+    #[test]
+    fn test_frozen_sliding_sync_list_serialization() {
+        // Doing a roundtrip isn't possible because `v4::SlidingSyncRoom` doesn't
+        // implement `PartialEq`.
+        assert_json_eq!(
+            from FrozenSlidingSyncList:
+
+            FrozenSlidingSyncList {
+                maximum_number_of_rooms: Some(42),
+                rooms_list: vector![RoomListEntry::Empty],
+                rooms: {
+                    let mut rooms = BTreeMap::new();
+                    rooms.insert(
+                        room_id!("!foo:bar.org").to_owned(),
+                        FrozenSlidingSyncRoom {
+                            room_id: room_id!("!foo:bar.org").to_owned(),
+                            inner: v4::SlidingSyncRoom::default(),
+                            prev_batch: Some("let it go!".to_owned()),
+                            timeline_queue: vector![TimelineEvent {
+                                event: Raw::new(&json! ({
+                                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
+                                    "type": "m.room.message",
+                                    "event_id": "$xxxxx:example.org",
+                                    "room_id": "!someroom:example.com",
+                                    "origin_server_ts": 2189,
+                                    "sender": "@bob:example.com",
+                                }))
+                                .unwrap()
+                                .cast(),
+                                encryption_info: None,
+                            }
+                            .into()],
+                        },
+                    );
+
+                    rooms
+                },
+            }
+            =>
+            r#"{"rooms_count":42,"rooms_list":["Empty"],"rooms":{"!foo:bar.org":{"room_id":"!foo:bar.org","inner":{},"prev_batch":"let it go!","timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}}}"#
+        );
     }
 }

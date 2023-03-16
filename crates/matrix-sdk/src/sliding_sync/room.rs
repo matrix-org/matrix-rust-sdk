@@ -319,13 +319,13 @@ impl SlidingSyncRoom {
 
 /// A “frozen” [`SlidingSyncRoom`], i.e. that can be written into, or read from
 /// a store.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct FrozenSlidingSyncRoom {
-    room_id: OwnedRoomId,
-    inner: v4::SlidingSyncRoom,
-    prev_batch: Option<String>,
+    pub(super) room_id: OwnedRoomId,
+    pub(super) inner: v4::SlidingSyncRoom,
+    pub(super) prev_batch: Option<String>,
     #[serde(rename = "timeline")]
-    timeline_queue: Vector<SyncTimelineEvent>,
+    pub(super) timeline_queue: Vector<SyncTimelineEvent>,
 }
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
@@ -357,15 +357,15 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, RoomId};
+    use ruma::{events::room::message::RoomMessageEventContent, room_id};
     use serde_json::json;
 
     use super::*;
 
     #[test]
-    fn test_frozen_sliding_sync_room_serialize() {
+    fn test_frozen_sliding_sync_room_serialization() {
         let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
-            room_id: <&RoomId>::try_from("!29fhd83h92h0:example.com").unwrap().to_owned(),
+            room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             inner: v4::SlidingSyncRoom::default(),
             prev_batch: Some("let it go!".to_owned()),
             timeline_queue: vector![TimelineEvent::new(
@@ -385,7 +385,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_string(&frozen_sliding_sync_room).unwrap(),
-            "{\"room_id\":\"!29fhd83h92h0:example.com\",\"inner\":{},\"prev_batch\":\"let it go!\",\"timeline\":[{\"event\":{\"content\":{\"body\":\"let it gooo!\",\"msgtype\":\"m.text\"},\"event_id\":\"$xxxxx:example.org\",\"origin_server_ts\":2189,\"room_id\":\"!someroom:example.com\",\"sender\":\"@bob:example.com\",\"type\":\"m.room.message\"},\"encryption_info\":null}]}",
+            r#"{"room_id":"!29fhd83h92h0:example.com","inner":{},"prev_batch":"let it go!","timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}"#,
         );
     }
 }
