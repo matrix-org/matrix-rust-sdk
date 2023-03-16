@@ -144,11 +144,14 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 2.0)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 2)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            let old_version = evt.old_version();
+            // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
+            // works with an unsigned integer.
+            // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
+            let old_version = evt.old_version() as u32;
 
-            if old_version < 1.0 {
+            if old_version < 1 {
                 // migrating to version 1
                 let db = evt.db();
 
@@ -167,21 +170,19 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(keys::SECRET_REQUESTS_BY_INFO)?;
 
                 db.create_object_store(keys::BACKUP_KEYS)?;
-            } else if old_version < 1.1 {
+            }
+
+            if old_version < 2 {
+                let db = evt.db();
+
                 // We changed how we store inbound group sessions, the key used to
                 // be a trippled of `(room_id, sender_key, session_id)` now it's a
                 // tuple of `(room_id, session_id)`
                 //
                 // Let's just drop the whole object store.
-
-                let db = evt.db();
-
                 db.delete_object_store(keys::INBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
-            }
 
-            if old_version < 2.0 {
-                let db = evt.db();
                 db.create_object_store(keys::ROOM_SETTINGS)?;
             }
 
@@ -238,9 +239,10 @@ impl IndexeddbCryptoStore {
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
 
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            if evt.old_version() < 1.0 {
+            let old_version = evt.old_version() as u32;
+            if old_version < 1 {
                 // migrating to version 1
                 let db = evt.db();
 
