@@ -761,6 +761,19 @@ mod tests {
     }
 
     #[test]
+    fn test_room_list_entry_serialization() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Empty => r#""Empty""#);
+
+        let invalidated = RoomListEntry::Invalidated(room_id.to_owned());
+        assert_json_roundtrip!(from RoomListEntry: invalidated => r#"{"Invalidated":"!foo:bar.org"}"#);
+
+        let filled = RoomListEntry::Filled(room_id.to_owned());
+        assert_json_roundtrip!(from RoomListEntry: filled => r#"{"Filled":"!foo:bar.org"}"#);
+    }
+
+    #[test]
     fn test_sliding_sync_mode_serialization() {
         assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => r#""PagingFullSync""#);
         assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => r#""GrowingFullSync""#);
