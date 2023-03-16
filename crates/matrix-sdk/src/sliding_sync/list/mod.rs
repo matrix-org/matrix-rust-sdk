@@ -125,13 +125,24 @@ impl SlidingSyncList {
 
     /// Return a builder with the same settings as before
     pub fn new_builder(&self) -> SlidingSyncListBuilder {
-        Self::builder()
+        let mut builder = Self::builder()
             .name(&self.name)
             .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .full_sync_batch_size(self.full_sync_batch_size)
-            .ranges(self.ranges.read().unwrap().clone())
+            .full_sync_maximum_number_of_rooms_to_fetch(
+                self.full_sync_maximum_number_of_rooms_to_fetch,
+            )
+            .send_updates_for_items(self.send_updates_for_items)
+            .filters(self.filters.clone())
+            .ranges(self.ranges.read().unwrap().clone());
+
+        if let Some(timeline_limit) = Observable::get(&self.timeline_limit.read().unwrap()) {
+            builder = builder.timeline_limit(timeline_limit.clone());
+        }
+
+        builder
     }
 
     /// Set the ranges to fetch.
