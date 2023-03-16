@@ -839,10 +839,17 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
-mod uniffi_types {
-    pub use matrix_sdk_crypto::VERSION;
-    pub use vodozemac::VERSION as VODOZEMAC_VERSION;
+#[uniffi::export]
+fn version() -> String {
+    matrix_sdk_crypto::VERSION.to_owned()
+}
 
+#[uniffi::export]
+fn vodozemac_version() -> String {
+    vodozemac::VERSION.to_owned()
+}
+
+mod uniffi_types {
     pub use crate::{
         backup_recovery_key::{
             BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
