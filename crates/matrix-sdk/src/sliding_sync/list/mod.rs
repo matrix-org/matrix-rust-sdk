@@ -665,7 +665,7 @@ pub enum SlidingSyncMode {
 }
 
 /// The Entry in the Sliding Sync room list per Sliding Sync list.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`.
     #[default]
@@ -706,5 +706,47 @@ impl RoomListEntry {
 impl<'a> From<&'a RoomListEntry> for RoomListEntry {
     fn from(value: &'a RoomListEntry) -> Self {
         value.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::{Deref, Not};
+
+    use ruma::room_id;
+
+    use super::*;
+
+    #[test]
+    fn test_room_list_entry_is_empty_or_invalidated() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert!(RoomListEntry::Empty.is_empty_or_invalidated());
+        assert!(RoomListEntry::Invalidated(room_id.to_owned()).is_empty_or_invalidated());
+        assert!(RoomListEntry::Filled(room_id.to_owned()).is_empty_or_invalidated().not());
+    }
+
+    #[test]
+    fn test_room_list_entry_as_room_id() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_eq!(RoomListEntry::Empty.as_room_id(), None);
+        assert_eq!(RoomListEntry::Invalidated(room_id.to_owned()).as_room_id(), Some(room_id));
+        assert_eq!(RoomListEntry::Filled(room_id.to_owned()).as_room_id(), Some(room_id));
+    }
+
+    #[test]
+    fn test_room_list_entry_freeze() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_eq!(RoomListEntry::Empty.freeze_by_ref(), RoomListEntry::Empty);
+        assert_eq!(
+            RoomListEntry::Invalidated(room_id.to_owned()).freeze_by_ref(),
+            RoomListEntry::Invalidated(room_id.to_owned())
+        );
+        assert_eq!(
+            RoomListEntry::Filled(room_id.to_owned()).freeze_by_ref(),
+            RoomListEntry::Invalidated(room_id.to_owned())
+        );
     }
 }
