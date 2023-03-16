@@ -67,7 +67,7 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 #[cfg(test)]
 mod tests {
     use std::{
-        iter::repeat,
+        iter::{once, repeat},
         time::{Duration, Instant},
     };
 
@@ -133,7 +133,7 @@ mod tests {
 
             // Get the list to all rooms to check the list' state.
             let list = sync.list("init_list").context("list `init_list` isn't found")?;
-            assert_eq!(list.state(), SlidingSyncState::Cold);
+            assert_eq!(list.state(), SlidingSyncState::NotLoaded);
 
             // Send the request and wait for a response.
             let update_summary = stream
@@ -142,7 +142,7 @@ mod tests {
                 .context("No room summary found, loop ended unsuccessfully")??;
 
             // Check the state has switched to `Live`.
-            assert_eq!(list.state(), SlidingSyncState::Live);
+            assert_eq!(list.state(), SlidingSyncState::FullyLoaded);
 
             // One room has received an update.
             assert_eq!(update_summary.rooms.len(), 1);
@@ -543,7 +543,7 @@ mod tests {
 
         let full = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("full")
             .build()?;
@@ -552,29 +552,46 @@ mod tests {
 
         let list = sync_proxy.list("sliding").context("but we just added that list!")?;
         let full_list = sync_proxy.list("full").context("but we just added that list!")?;
-        assert_eq!(list.state(), SlidingSyncState::Cold, "list isn't cold");
-        assert_eq!(full_list.state(), SlidingSyncState::Cold, "full isn't cold");
+        assert_eq!(list.state(), SlidingSyncState::NotLoaded, "list isn't cold");
+        assert_eq!(full_list.state(), SlidingSyncState::NotLoaded, "full isn't cold");
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
-        // exactly one poll!
+        // Exactly one poll!
+        // Ranges are 0..=9 for selective list, and 0..=9 for growing list.
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
         // we only heard about the ones we had asked for
         assert_eq!(room_summary.rooms.len(), 11);
-        assert_eq!(list.state(), SlidingSyncState::Live, "list isn't live");
-        assert_eq!(full_list.state(), SlidingSyncState::CatchingUp, "full isn't preloading");
+        assert_eq!(list.state(), SlidingSyncState::FullyLoaded, "list isn't live");
+        assert_eq!(full_list.state(), SlidingSyncState::PartiallyLoaded, "full isn't preloading");
 
-        // doing another two requests 0-20; 0-21 should bring full live, too
+        // Another poll!
+        // Ranges are 0..=10 for selective list, and 0..=19 for growing list.
         let _room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
         let rooms_list = full_list.rooms_list::<RoomListEntryEasy>();
 
+        assert_eq!(
+            rooms_list,
+            repeat(RoomListEntryEasy::Filled)
+                .take(20)
+                .chain(once(RoomListEntryEasy::Empty))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(full_list.state(), SlidingSyncState::PartiallyLoaded, "full isn't preloading");
+
+        // One last poll, and we should get all rooms loaded.
+        let _room_summary =
+            stream.next().await.context("No room summary found, loop ended unsecessfully")??;
+
+        let rooms_list = full_list.rooms_list::<RoomListEntryEasy>();
+
         assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
-        assert_eq!(full_list.state(), SlidingSyncState::Live, "full isn't live yet");
+        assert_eq!(full_list.state(), SlidingSyncState::FullyLoaded, "full isn't fully loaded");
 
         Ok(())
     }
@@ -844,7 +861,7 @@ mod tests {
                 .build()?;
             let growing_sync = SlidingSyncList::builder()
                 .sync_mode(SlidingSyncMode::GrowingFullSync)
-                .limit(100)
+                .full_sync_maximum_number_of_rooms_to_fetch(100)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .name("growing")
                 .build()?;
@@ -867,7 +884,7 @@ mod tests {
                 sync_proxy.list("growing").context("but we just added that list!")?; // let's catch it up fully.
             let stream = sync_proxy.stream();
             pin_mut!(stream);
-            while growing_sync.state() != SlidingSyncState::Live {
+            while growing_sync.state() != SlidingSyncState::FullyLoaded {
                 // we wait until growing sync is all done, too
                 println!("awaiting");
                 let _room_summary = stream
@@ -899,10 +916,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn growing_sync_keeps_going() -> anyhow::Result<()> {
-        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(5u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -913,9 +930,9 @@ mod tests {
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
-        // we have 50 and catch up in batches of 10. so let's get over to 20.
+        // we have 20 and catch up in batches of 5. so let's get over to 15.
 
-        for _n in 0..2 {
+        for _ in 0..=2 {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let _summary = room_summary?;
         }
@@ -925,25 +942,20 @@ mod tests {
         assert_eq!(
             collection_simple,
             repeat(RoomListEntryEasy::Filled)
-                .take(21)
-                .chain(repeat(RoomListEntryEasy::Empty).take(29))
+                .take(15)
+                .chain(repeat(RoomListEntryEasy::Empty).take(5))
                 .collect::<Vec<_>>()
         );
 
-        // we have 50 and catch up in batches of 10. let's go two more, see it grow.
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let _summary = room_summary?;
-        }
+        // we have 20 and catch up in batches of 5. let's go one more, see it grows.
+        let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+        let _summary = room_summary?;
 
         let collection_simple = list.rooms_list::<RoomListEntryEasy>();
 
         assert_eq!(
             collection_simple,
-            repeat(RoomListEntryEasy::Filled)
-                .take(41)
-                .chain(repeat(RoomListEntryEasy::Empty).take(9))
-                .collect::<Vec<_>>()
+            repeat(RoomListEntryEasy::Filled).take(20).collect::<Vec<_>>()
         );
 
         Ok(())
@@ -951,10 +963,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
-        let (_client, sync_proxy_builder) = random_setup_with_rooms(50).await?;
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .batch_size(10u32)
+            .full_sync_batch_size(5u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -965,9 +977,9 @@ mod tests {
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
-        // we have 50 and catch up in batches of 10. so let's get over to 20.
+        // we have 20 and catch up in batches of 5. so let's get over to 15.
 
-        for _n in 0..2 {
+        for _ in 0..=2 {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let _summary = room_summary?;
         }
@@ -980,19 +992,17 @@ mod tests {
             } else {
                 acc
             }),
-            21
+            15
         );
 
-        // we have 50 and catch up in batches of 10. Let's make sure the restart
-        // continues
+        // we have 20 and catch up in batches of 5. Let's make sure the restart
+        // continues.
 
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
-        for _n in 0..2 {
-            let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-            let _summary = room_summary?;
-        }
+        let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
+        let _summary = room_summary?;
 
         let collection_simple = list.rooms_list::<RoomListEntryEasy>();
 
@@ -1002,7 +1012,7 @@ mod tests {
             } else {
                 acc
             }),
-            41
+            20
         );
 
         Ok(())
@@ -1010,11 +1020,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn continue_on_reset() -> anyhow::Result<()> {
-        let (_client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        let (_client, sync_proxy_builder) = random_setup_with_rooms(10).await?;
         print!("setup took its time");
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .limit(100)
+            .full_sync_batch_size(5u32)
+            .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -1030,9 +1041,10 @@ mod tests {
         let stream = sync_proxy.stream();
         pin_mut!(stream);
 
-        for _n in 0..2 {
+        for _ in 0..=2 {
             let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
             let summary = room_summary?;
+
             if summary.lists.iter().any(|s| s == "growing") {
                 break;
             }
@@ -1046,14 +1058,14 @@ mod tests {
             } else {
                 acc
             }),
-            21
+            5
         );
 
         // force the pos to be invalid and thus this being reset internally
         sync_proxy.set_pos("100".to_owned());
         let mut error_seen = false;
 
-        for _n in 0..2 {
+        for _ in 0..2 {
             let summary = match stream.next().await {
                 Some(Ok(e)) => e,
                 Some(Err(e)) => {
@@ -1068,6 +1080,7 @@ mod tests {
                 }
                 None => anyhow::bail!("Stream ended unexpectedly."),
             };
+
             // we only heard about the ones we had asked for
             if summary.lists.iter().any(|s| s == "growing") {
                 break;
@@ -1084,7 +1097,7 @@ mod tests {
             } else {
                 acc
             }),
-            30
+            10
         );
 
         Ok(())
@@ -1092,11 +1105,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
-        let (client, sync_proxy_builder) = random_setup_with_rooms(30).await?;
+        let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
         print!("setup took its time");
         let growing_sync = SlidingSyncList::builder()
             .sync_mode(SlidingSyncMode::GrowingFullSync)
-            .limit(100)
+            .full_sync_batch_size(10u32)
+            .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
             .build()?;
@@ -1111,7 +1125,7 @@ mod tests {
         let list = sync_proxy.list("growing").context("but we just added that list!")?; // let's catch it up fully.
         let stream = sync_proxy.stream();
         pin_mut!(stream);
-        while list.state() != SlidingSyncState::Live {
+        while list.state() != SlidingSyncState::FullyLoaded {
             // we wait until growing sync is all done, too
             println!("awaiting");
             let _room_summary = stream
@@ -1128,7 +1142,7 @@ mod tests {
             } else {
                 acc
             }),
-            30
+            20
         );
         // all found. let's add two more.
 
@@ -1142,10 +1156,10 @@ mod tests {
             let summary = room_summary?;
             // we only heard about the ones we had asked for
             if summary.lists.iter().any(|s| s == "growing")
-                && list.rooms_count().unwrap_or_default() == 32
+                && list.maximum_number_of_rooms().unwrap_or_default() == 22
             {
                 if seen {
-                    // once we saw 32, we give it another loop to catch up!
+                    // once we saw 22, we give it another loop to catch up!
                     break;
                 } else {
                     seen = true;
@@ -1161,7 +1175,7 @@ mod tests {
             } else {
                 acc
             }),
-            32
+            22
         );
 
         Ok(())

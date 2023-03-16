@@ -248,8 +248,9 @@ impl SlidingSyncBuilder {
                 {
                     trace!(name, "frozen for list found");
 
-                    let FrozenSlidingSyncList { rooms_count, rooms_list, rooms } = frozen_list;
-                    list.set_from_cold(rooms_count, rooms_list);
+                    let FrozenSlidingSyncList { maximum_number_of_rooms, rooms_list, rooms } =
+                        frozen_list;
+                    list.set_from_cold(maximum_number_of_rooms, rooms_list);
 
                     for (key, frozen_room) in rooms.into_iter() {
                         rooms_found.entry(key).or_insert_with(|| {
