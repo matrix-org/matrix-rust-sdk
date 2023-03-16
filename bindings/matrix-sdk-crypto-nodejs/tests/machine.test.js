@@ -38,7 +38,6 @@ describe("Versions", () => {
         expect(versions.vodozemac).toBeDefined();
         expect(versions.matrixSdkCrypto).toBeDefined();
     });
-
 });
 
 describe(OlmMachine.name, () => {
