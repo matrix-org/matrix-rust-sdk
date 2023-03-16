@@ -615,7 +615,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(1, 10);
+    list.set_range(1u32, 10);
     // Ensure 0-0 invalidation ranges work.
 
     for _n in 0..2 {
@@ -638,7 +638,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
     );
 
-    list.set_range(5, 10);
+    list.set_range(5u32, 10);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -662,7 +662,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(5, 15);
+    list.set_range(5u32, 15);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -719,7 +719,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(0, 10);
+    list.set_range(0u32, 10);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -742,7 +742,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window again
 
-    list.set_range(2, 12);
+    list.set_range(2u32, 12);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -800,7 +800,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window again
 
-    list.set_range(0, 10);
+    list.set_range(0u32, 10);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -1191,7 +1191,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(1, 2);
+    list.set_range(1u32, 2);
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")??;

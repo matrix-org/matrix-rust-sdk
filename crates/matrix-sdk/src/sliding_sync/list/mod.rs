@@ -149,7 +149,10 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn ranges(&self, range: Vec<(u32, u32)>) -> &Self {
+    pub fn ranges<U>(&self, range: Vec<(U, U)>) -> &Self
+    where
+        U: Into<UInt>,
+    {
         let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
         Observable::set(&mut self.ranges.write().unwrap(), value);
 
@@ -160,7 +163,10 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> &Self {
+    pub fn set_range<U>(&self, start: U, end: U) -> &Self
+    where
+        U: Into<UInt>,
+    {
         let value = vec![(start.into(), end.into())];
         Observable::set(&mut self.ranges.write().unwrap(), value);
 
@@ -171,7 +177,10 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> &Self {
+    pub fn add_range<U>(&self, start: U, end: U) -> &Self
+    where
+        U: Into<UInt>,
+    {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push((start.into(), end.into()));
         });
