@@ -145,7 +145,7 @@ pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
     /// The OIDC Provider that is trusted by the homeserver.
-    authentication_issuer: Option<RwLock<Url>>,
+    authentication_issuer: Option<RwLock<String>>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: Option<RwLock<Url>>,
@@ -330,7 +330,7 @@ impl Client {
     }
 
     /// The OIDC Provider that is trusted by the homeserver.
-    pub async fn authentication_issuer(&self) -> Option<Url> {
+    pub async fn authentication_issuer(&self) -> Option<String> {
         let server = self.inner.authentication_issuer.as_ref()?;
         Some(server.read().await.clone())
     }
