@@ -1704,7 +1704,7 @@ impl Client {
         // supporting just the DM chat with another person (no group dm chat)
         if is_direct_room && invite.len() == 1 {
             if let Some(user) = invite.first() {
-                self.update_m_direct_account_data(joined_room.room_id(), user).await?;
+                self.account().mark_as_dm(joined_room.room_id(), user).await?;
             }
         }
 
