@@ -39,7 +39,7 @@ use ruma::{
     },
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt, RoomId, OwnedUserId,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt,
 };
 use serde::Deserialize;
 
@@ -758,11 +758,7 @@ impl Account {
     ///
     /// * `room_id` - The room id of the DM room.
     /// * `user_id` - The user id of the invitee for the DM room.
-    pub async fn mark_as_dm(
-        &self,
-        room_id: &RoomId,
-        user_id: &OwnedUserId,
-    ) -> Result<()> {
+    pub async fn mark_as_dm(&self, room_id: &RoomId, user_id: &OwnedUserId) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
