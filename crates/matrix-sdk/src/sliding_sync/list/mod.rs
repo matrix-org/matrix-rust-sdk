@@ -794,6 +794,17 @@ mod tests {
         }
     }
 
+    macro_rules! ranges {
+        ( $( ( $start:literal, $end:literal ) ),* $(,)* ) => {
+            vec![$(
+                (
+                    uint!($start),
+                    uint!($end),
+                )
+            ),+]
+        }
+    }
+
     #[test]
     fn test_sliding_sync_list_new_builder() {
         let list = SlidingSyncList {
@@ -846,7 +857,7 @@ mod tests {
         let list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .ranges(vec![(uint!(0), uint!(1)), (uint!(2), uint!(3))])
+            .ranges(ranges![(0, 1), (2, 3)])
             .build()
             .unwrap();
 
@@ -854,16 +865,94 @@ mod tests {
             let lock = list.ranges.read().unwrap();
             let ranges = Observable::get(&lock);
 
-            assert_eq!(ranges, &[(uint!(0), uint!(1)), (uint!(2), uint!(3))]);
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
         }
 
-        list.ranges(vec![(uint!(4), uint!(5)), (uint!(6), uint!(7))]);
+        list.ranges(ranges![(4, 5), (6, 7)]);
 
         {
             let lock = list.ranges.read().unwrap();
             let ranges = Observable::get(&lock);
 
-            assert_eq!(ranges, &[(uint!(4), uint!(5)), (uint!(6), uint!(7))]);
+            assert_eq!(ranges, &ranges![(4, 5), (6, 7)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_set_range() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1), (2, 3)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+
+        list.set_range(4u32, 5);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(4, 5)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_add_range() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1)]);
+        }
+
+        list.add_range(2u32, 3);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_reset_ranges() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1)]);
+        }
+
+        list.reset_ranges();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert!(ranges.is_empty());
         }
     }
 
