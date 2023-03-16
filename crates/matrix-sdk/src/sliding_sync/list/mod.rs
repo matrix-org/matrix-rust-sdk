@@ -149,7 +149,7 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
+    pub fn ranges(&self, range: Vec<(u32, u32)>) -> &Self {
         let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
         Observable::set(&mut self.ranges.write().unwrap(), value);
 
