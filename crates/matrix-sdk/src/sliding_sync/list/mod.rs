@@ -652,11 +652,11 @@ pub enum SlidingSyncState {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..19`, `20..39`, 40..59` etc. assuming the `batch_size` is 20.
+    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
     #[serde(alias = "FullSync")]
     PagingFullSync,
     /// Fully sync all rooms in the background, with a growing window of
-    /// `batch_size`, like `0..19`, `0..39`, `0..59` etc. assuming the
+    /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
     /// `batch_size` is 20.
     GrowingFullSync,
     /// Only sync the specific defined windows/ranges.

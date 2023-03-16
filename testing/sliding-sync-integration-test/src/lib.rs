@@ -559,7 +559,7 @@ mod tests {
         pin_mut!(stream);
 
         // Exactly one poll!
-        // Ranges are 0-10 for selective list, and 0-9 for growing list.
+        // Ranges are 0..=9 for selective list, and 0..=9 for growing list.
         let room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(full_list.state(), SlidingSyncState::PartiallyLoaded, "full isn't preloading");
 
         // Another poll!
-        // Ranges are 0-10 for selective list, and 0-19 for growing list.
+        // Ranges are 0..=10 for selective list, and 0..=19 for growing list.
         let _room_summary =
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
