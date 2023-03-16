@@ -622,7 +622,7 @@ fn room_ops(
 
 /// The state the [`SlidingSyncList`] is in.
 ///
-/// The lifetime of a `SlidingSyncList` ususally starts at `NotLoaded` or
+/// The lifetime of a `SlidingSyncList` usually starts at `NotLoaded` or
 /// `Preloaded` (if it is restored from a cache). When loading rooms in a list,
 /// depending of the [`SlidingSyncMode`], it moves to `PartiallyLoaded` or
 /// `FullyLoaded`. The lifetime of a `SlidingSync` usually starts at a
