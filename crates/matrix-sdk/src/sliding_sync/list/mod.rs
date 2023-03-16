@@ -842,6 +842,32 @@ mod tests {
     }
 
     #[test]
+    fn test_sliding_sync_list_ranges() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(vec![(uint!(0), uint!(1)), (uint!(2), uint!(3))])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &[(uint!(0), uint!(1)), (uint!(2), uint!(3))]);
+        }
+
+        list.ranges(vec![(uint!(4), uint!(5)), (uint!(6), uint!(7))]);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &[(uint!(4), uint!(5)), (uint!(6), uint!(7))]);
+        }
+    }
+
+    #[test]
     fn test_room_list_entry_is_empty_or_invalidated() {
         let room_id = room_id!("!foo:bar.org");
 
