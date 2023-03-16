@@ -726,7 +726,7 @@ mod tests {
 
     use im::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
+    use ruma::{assign, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint};
     use serde_json::json;
 
     use super::*;
@@ -746,6 +746,90 @@ mod tests {
             let json = serde_json::to_string(&$to_string).unwrap();
             assert_eq!(json, $to_json);
         };
+    }
+
+    macro_rules! assert_fields_eq {
+        ($left:ident == $right:ident on fields { $( $field:ident $( with $accessor:expr )? ),+ $(,)* } ) => {
+            $(
+                let left = {
+                    let $field = $left . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+                let right = {
+                    let $field = $right . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+
+                assert_eq!(
+                    left,
+                    right,
+                    concat!(
+                        "`",
+                        stringify!($left),
+                        ".",
+                        stringify!($field),
+                        "` doesn't match with `",
+                        stringify!($right),
+                        ".",
+                        stringify!($field),
+                        "`."
+                    )
+                );
+            )*
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_new_builder() {
+        let list = SlidingSyncList {
+            sync_mode: SlidingSyncMode::GrowingFullSync,
+            sort: vec!["foo".to_string(), "bar".to_string()],
+            required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
+            full_sync_batch_size: 42,
+            full_sync_maximum_number_of_rooms_to_fetch: Some(153),
+            send_updates_for_items: true,
+            filters: Some(assign!(v4::SyncRequestListFilters::default(), {
+                is_dm: Some(true),
+            })),
+            timeline_limit: Arc::new(StdRwLock::new(Observable::new(Some(uint!(7))))),
+            name: "qux".to_string(),
+            state: Arc::new(StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded))),
+            maximum_number_of_rooms: Arc::new(StdRwLock::new(Observable::new(Some(11)))),
+            rooms_list: Arc::new(StdRwLock::new(ObservableVector::from(vector![
+                RoomListEntry::Empty
+            ]))),
+            ranges: Arc::new(StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))]))),
+            rooms_updated_broadcast: Arc::new(StdRwLock::new(Observable::new(()))),
+            is_cold: Arc::new(AtomicBool::new(true)),
+        };
+
+        let new_list = list.new_builder().build().unwrap();
+
+        assert_fields_eq!(
+            list == new_list on fields {
+                sync_mode,
+                sort,
+                required_state,
+                full_sync_batch_size,
+                full_sync_maximum_number_of_rooms_to_fetch,
+                send_updates_for_items,
+                filters with filters.unwrap().is_dm,
+                timeline_limit with timeline_limit.read().unwrap().clone(),
+                name,
+                ranges with ranges.read().unwrap().clone(),
+            }
+        );
+
+        assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
+        assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
+        assert!(new_list.rooms_list.read().unwrap().deref().is_empty());
+        assert_eq!(new_list.is_cold.load(Ordering::SeqCst), false);
     }
 
     #[test]
