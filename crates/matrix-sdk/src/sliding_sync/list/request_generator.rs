@@ -441,6 +441,7 @@ mod tests {
 
             $(
                 {
+                    // Generate a new request.
                     let request = $generator.next().unwrap();
 
                     assert_eq!(request.ranges, [ $( (uint!( $range_start ), uint!( $range_end )) ),* ]);
@@ -448,7 +449,6 @@ mod tests {
                     // Fake a response.
                     let _ = $generator.handle_response($maximum_number_of_rooms, &vec![], &vec![]);
 
-                    // Now, Sliding Sync has started to load rooms.
                     assert_eq!($generator.is_fully_loaded(), $is_fully_loaded);
                     assert_eq!($list.state(), SlidingSyncState::$list_state);
                 }
