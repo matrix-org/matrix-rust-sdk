@@ -757,8 +757,8 @@ impl Account {
     /// # Arguments
     ///
     /// * `room_id` - The room id of the DM room.
-    /// * `user_id` - The user id of the invitee for the DM room.
-    pub async fn mark_as_dm(&self, room_id: &RoomId, user_id: &OwnedUserId) -> Result<()> {
+    /// * `user_ids` - The user ids of the invitees for the DM room.
+    pub(crate) async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
@@ -771,8 +771,10 @@ impl Account {
             .transpose()?
             .unwrap_or_default();
 
-        content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
-
+        for user_id in user_ids {
+            content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
+        }
+        
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.

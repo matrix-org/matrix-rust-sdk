@@ -268,7 +268,7 @@ impl Client {
 
         let room = self.create_room(request).await?;
 
-        self.account().mark_as_dm(room.room_id(), &user_id).await?;
+        self.account().mark_as_dm(room.room_id(), &[user_id]).await?;
 
         Ok(room)
     }

@@ -1701,10 +1701,11 @@ impl Client {
 
         let joined_room = room::Joined::new(self, base_room).unwrap();
 
-        // supporting just the DM chat with another person (no group dm chat)
-        if is_direct_room && invite.len() == 1 {
+        if is_direct_room {
             if let Some(user) = invite.first() {
-                if let Err(error) = self.account().mark_as_dm(joined_room.room_id(), user).await {
+                if let Err(error) =
+                    self.account().mark_as_dm(joined_room.room_id(), &[user.to_owned()]).await
+                {
                     // FIXME: Retry in the background
                     error!("Failed to mark room as DM: {error}");
                 }
