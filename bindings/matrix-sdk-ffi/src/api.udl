@@ -220,6 +220,7 @@ dictionary RoomMember {
     boolean is_name_ambiguous;
     i64 power_level;
     i64 normalized_power_level;
+    boolean is_ignored;
 };
 
 interface Room {

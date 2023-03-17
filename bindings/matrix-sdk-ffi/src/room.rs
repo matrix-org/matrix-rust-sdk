@@ -67,6 +67,7 @@ pub struct RoomMember {
     pub is_name_ambiguous: bool,
     pub power_level: i64,
     pub normalized_power_level: i64,
+    pub is_ignored: bool,
 }
 
 impl From<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
@@ -213,6 +214,7 @@ impl Room {
                     is_name_ambiguous: m.name_ambiguous(),
                     power_level: m.power_level(),
                     normalized_power_level: m.normalized_power_level(),
+                    is_ignored: m.is_ignored(),
                 })
                 .collect();
             Ok(members)

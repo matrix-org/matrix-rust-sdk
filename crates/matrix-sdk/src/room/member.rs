@@ -64,4 +64,15 @@ impl RoomMember {
         let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
         Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
+
+    pub async fn ignore(&self) -> Result<()> {
+        self.client.ignore_user(&self.inner.user_id().to_owned()).await
+    }
+
+    pub fn is_account_user(&self) -> bool {
+        match self.client.user_id() {
+            Some(id) => id == self.inner.user_id(),
+            None => false,
+        }
+    }
 }

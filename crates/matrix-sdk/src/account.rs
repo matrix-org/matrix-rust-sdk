@@ -34,12 +34,13 @@ use ruma::{
     },
     assign,
     events::{
-        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        ignored_user_list::IgnoredUserListEventContent, room::MediaSource,
+        AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
     },
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, SessionId, UInt,
 };
 use serde::Deserialize;
 
@@ -746,6 +747,27 @@ impl Account {
             set_global_account_data::v3::Request::new_raw(own_user.to_owned(), event_type, content);
 
         Ok(self.client.send(request, None).await?)
+    }
+
+    pub(crate) async fn ignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
+        let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
+        ignored_user_list.ignored_users.insert(user_id.clone(), Default::default());
+
+        // Updating the account data
+        self.set_account_data(ignored_user_list).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here
+        Ok(())
+    }
+
+    async fn get_ignored_user_list_event_content(&self) -> Result<IgnoredUserListEventContent> {
+        let ignored_user_list = self
+            .account_data::<IgnoredUserListEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+        Ok(ignored_user_list)
     }
 }
 
