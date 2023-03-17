@@ -1699,14 +1699,12 @@ impl Client {
 
         let joined_room = room::Joined::new(self, base_room).unwrap();
 
-        if is_direct_room {
-            if let Some(user) = invite.first() {
-                if let Err(error) =
-                    self.account().mark_as_dm(joined_room.room_id(), &[user.to_owned()]).await
-                {
-                    // FIXME: Retry in the background
-                    error!("Failed to mark room as DM: {error}");
-                }
+        if is_direct_room && !invite.is_empty() {
+            if let Err(error) =
+                self.account().mark_as_dm(joined_room.room_id(), invite.as_slice()).await
+            {
+                // FIXME: Retry in the background
+                error!("Failed to mark room as DM: {error}");
             }
         }
 
