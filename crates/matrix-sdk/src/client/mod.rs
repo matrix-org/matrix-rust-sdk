@@ -71,9 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-#[cfg(feature = "e2e-encryption")]
-use tracing::error;
-use tracing::{debug, field::display, info, instrument, trace, Instrument, Span};
+use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
