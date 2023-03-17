@@ -1704,7 +1704,10 @@ impl Client {
         // supporting just the DM chat with another person (no group dm chat)
         if is_direct_room && invite.len() == 1 {
             if let Some(user) = invite.first() {
-                self.account().mark_as_dm(joined_room.room_id(), user).await?;
+                if let Err(error) = self.account().mark_as_dm(joined_room.room_id(), user).await {
+                    // FIXME: Retry in the background
+                    error!("Failed to mark room as DM: {error}");
+                }
             }
         }
 
