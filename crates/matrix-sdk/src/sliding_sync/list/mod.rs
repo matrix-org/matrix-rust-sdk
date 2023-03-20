@@ -1198,6 +1198,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_sliding_sync_list_timeline_limit() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)])
+            .timeline_limit(7u32)
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &Some(uint!(7)));
+        }
+
+        list.set_timeline_limit(Some(42u32));
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &Some(uint!(42)));
+        }
+
+        list.set_timeline_limit::<UInt>(None);
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &None);
+        }
+    }
+
     /*
     #[test]
     fn check_find_room_in_list() -> Result<()> {
