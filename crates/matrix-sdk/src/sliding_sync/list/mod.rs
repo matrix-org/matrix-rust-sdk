@@ -236,6 +236,21 @@ impl SlidingSyncList {
         Observable::subscribe(&self.inner.state.read().unwrap())
     }
 
+    /// Get the timeline limit.
+    pub fn timeline_limit(&self) -> Option<UInt> {
+        self.inner.timeline_limit.read().unwrap().clone()
+    }
+
+    /// Set timeline limit.
+    pub fn set_timeline_limit<U>(&self, timeline: Option<U>)
+    where
+        U: Into<UInt>,
+    {
+        let timeline = timeline.map(Into::into);
+
+        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
+    }
+
     /// Get the current rooms list.
     pub fn rooms_list<R>(&self) -> Vec<R>
     where
@@ -258,6 +273,11 @@ impl SlidingSyncList {
     /// Get a stream of rooms count.
     pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
+    }
+
+    /// Get a stream of `room_updated_broadcast`.
+    pub fn rooms_updated_broadcast_stream(&self) -> impl Stream<Item = ()> {
+        Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap())
     }
 
     /// Find the current valid position of the room in the list `room_list`.

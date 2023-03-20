@@ -1,7 +1,6 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use eyeball::unique::Observable;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
@@ -540,8 +539,8 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomItemsObserver>,
     ) -> Arc<TaskHandle> {
-        let mut rooms_updated =
-            Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
+        let mut rooms_updated = self.inner.rooms_updated_broadcast_stream();
+
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
                 if rooms_updated.next().await.is_some() {
@@ -602,19 +601,17 @@ impl SlidingSyncList {
 
     /// The current timeline limit
     pub fn get_timeline_limit(&self) -> Option<u32> {
-        (**self.inner.timeline_limit.read().unwrap())
-            .map(|limit| u32::try_from(limit).unwrap_or_default())
+        self.inner.timeline_limit().map(|limit| u32::try_from(limit).unwrap_or_default())
     }
 
     /// The current timeline limit
     pub fn set_timeline_limit(&self, value: u32) {
-        let value = Some(UInt::try_from(value).unwrap());
-        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), value);
+        self.inner.set_timeline_limit(Some(value))
     }
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), None);
+        self.inner.set_timeline_limit::<UInt>(None)
     }
 }
 
