@@ -79,7 +79,7 @@ eyre = { version = "0.6.8", optional = true }
 futures-core = "0.3.21"
 futures-util = { workspace = true }
 http = { workspace = true }
-im = { version = "15.1.0", features = ["serde"] }
+imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "1.9.1"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }

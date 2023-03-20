@@ -9,7 +9,7 @@ use std::{
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
-use im::Vector;
+use imbl::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::{v4, UnreadNotificationsCount},
@@ -355,7 +355,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 
 #[cfg(test)]
 mod tests {
-    use im::vector;
+    use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use ruma::{events::room::message::RoomMessageEventContent, RoomId};
     use serde_json::json;

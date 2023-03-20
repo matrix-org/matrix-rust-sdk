@@ -12,7 +12,6 @@ mod error;
 mod logger;
 mod machine;
 mod responses;
-mod uniffi_api;
 mod users;
 mod verification;
 
@@ -47,7 +46,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
-use uniffi_api::*;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
@@ -848,6 +846,8 @@ fn version() -> String {
 fn vodozemac_version() -> String {
     vodozemac::VERSION.to_owned()
 }
+
+uniffi::include_scaffolding!("olm");
 
 mod uniffi_types {
     pub use crate::{
