@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use im::Vector;
+use imbl::Vector;
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     locks::Mutex,

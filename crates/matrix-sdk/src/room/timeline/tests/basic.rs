@@ -1,7 +1,7 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use im::vector;
+use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::{

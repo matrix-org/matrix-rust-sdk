@@ -7,7 +7,7 @@ use std::{
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
-use im::Vector;
+use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
 
 use super::{Error, RoomListEntry, SlidingSyncList, SlidingSyncMode, SlidingSyncState};

@@ -15,7 +15,7 @@ pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
-use im::Vector;
+use imbl::Vector;
 pub(super) use request_generator::*;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId, RoomId, UInt};
 use serde::{Deserialize, Serialize};
