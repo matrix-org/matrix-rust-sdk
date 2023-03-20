@@ -28,6 +28,7 @@ pub mod client_builder;
 mod helpers;
 pub mod notification_service;
 pub mod room;
+pub mod room_member;
 pub mod session_verification;
 pub mod sliding_sync;
 pub mod timeline;
@@ -109,7 +110,8 @@ mod uniffi_types {
             PusherKind, Session,
         },
         client_builder::ClientBuilder,
-        room::{Membership, MembershipState, Room, RoomMember},
+        room::{Membership, Room},
+        room_member::{MembershipState, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
             RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
