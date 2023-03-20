@@ -748,11 +748,11 @@ impl Account {
         Ok(self.client.send(request, None).await?)
     }
 
-    /// Marks the given room with `room_id` as "direct chat" with the given
-    /// `user_id`.
+    /// Marks the given room with `room_id` as "direct chat" with with any
+    /// user in `user_ids`.
     ///
     /// This is done adding new the `room_id` to the list of DM
-    /// chats with the user having id `user_id`.
+    /// chats for any user id in `user_ids`.
     ///
     /// # Arguments
     ///
