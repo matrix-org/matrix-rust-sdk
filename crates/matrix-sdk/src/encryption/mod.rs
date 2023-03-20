@@ -339,7 +339,14 @@ impl Client {
         Ok(())
     }
 
-    fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
+    /// Get the existing DM with the given user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user.
+    ///
+    /// Returns a `Room` we share with the user if one is found.
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
 
         // Find the room we share with the `user_id` and only with `user_id`
