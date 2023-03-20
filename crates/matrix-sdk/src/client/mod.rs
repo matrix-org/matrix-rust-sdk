@@ -1662,17 +1662,17 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Create a room using the `RoomBuilder` and send the request.
+    /// Create a room with the given parameters.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
-    /// `create_room::Response`, this is an empty response.
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns the created
+    /// room as a [`room::Joined`] object.
     ///
-    /// # Arguments
-    ///
-    /// * `room` - The easiest way to create this request is using the
-    /// `create_room::Request` itself.
+    /// If you want to create a direct message with one specific user, you can
+    /// use [`create_dm`][Self::create_dm], which is more convenient than
+    /// assembling the [`create_room::v3::Request`] yourself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::api::client::room::{
