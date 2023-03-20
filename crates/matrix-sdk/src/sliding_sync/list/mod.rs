@@ -971,8 +971,7 @@ mod tests {
 
     #[test]
     fn check_find_room_in_list() -> Result<()> {
-        let list =
-            SlidingSyncList::builder().name("testlist").add_range(0u32, 9u32).build().unwrap();
+        let list = SlidingSyncList::builder().name("foo").add_range(0u32, 9u32).build().unwrap();
         let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
             "op": "SYNC",
             "range": [0, 9],
