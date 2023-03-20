@@ -254,23 +254,14 @@ impl Client {
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn create_dm_room(&self, user_id: OwnedUserId) -> Result<room::Joined> {
-        use ruma::api::client::room::create_room::v3::RoomPreset;
+        use ruma::api::client::room::create_room;
 
-        // First we create the DM room, where we invite the user and tell the
-        // invitee that the room should be a DM.
-        let invite = vec![user_id.clone()];
-
-        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
-            invite,
+        self.create_room(assign!(create_room::v3::Request::new(), {
+            invite: vec![user_id.clone()],
             is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        });
-
-        let room = self.create_room(request).await?;
-
-        self.account().mark_as_dm(room.room_id(), &[user_id]).await?;
-
-        Ok(room)
+            preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
+        }))
+        .await
     }
 
     /// Claim one-time keys creating new Olm sessions.
