@@ -749,6 +749,7 @@ impl Account {
         Ok(self.client.send(request, None).await?)
     }
 
+    /// Adds the user to the account's data ignore list
     pub(crate) async fn ignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
         ignored_user_list.ignored_users.insert(user_id.clone(), Default::default());
@@ -756,7 +757,19 @@ impl Account {
         // Updating the account data
         self.set_account_data(ignored_user_list).await?;
         // TODO: I think I should reset all the storage and perform a new local sync
-        // here
+        // here but I don't know how
+        Ok(())
+    }
+
+    /// Removes the user to the account's data ignore list
+    pub(crate) async fn unignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
+        let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
+        ignored_user_list.ignored_users.remove(user_id);
+
+        // Updating the account data
+        self.set_account_data(ignored_user_list).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here but I don't know how
         Ok(())
     }
 

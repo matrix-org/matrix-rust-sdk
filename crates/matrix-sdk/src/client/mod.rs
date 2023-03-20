@@ -2494,8 +2494,14 @@ impl Client {
         self.send(request, None).await
     }
 
+    /// Adds the specified user_id to the current account data's ignore_list
     pub async fn ignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
         self.account().ignore_user(user_id).await
+    }
+
+    /// Removes the specified user_id to the current account data's ignore_list
+    pub async fn unignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
+        self.account().unignore_user(user_id).await
     }
 }
 

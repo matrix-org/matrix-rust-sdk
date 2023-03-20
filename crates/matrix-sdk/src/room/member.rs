@@ -65,10 +65,17 @@ impl RoomMember {
         Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
-    pub async fn ignore(&self) -> Result<()> {
+    /// Adds the room member to the current account data's ignore list
+    pub async fn add_to_ignore_list(&self) -> Result<()> {
         self.client.ignore_user(&self.inner.user_id().to_owned()).await
     }
 
+    /// Adds the room member to the current account data's ignore list
+    pub async fn remove_from_ignore_list(&self) -> Result<()> {
+        self.client.unignore_user(&self.inner.user_id().to_owned()).await
+    }
+
+    /// Tells if the member of the room is the user of the account
     pub fn is_account_user(&self) -> bool {
         match self.client.user_id() {
             Some(id) => id == self.inner.user_id(),

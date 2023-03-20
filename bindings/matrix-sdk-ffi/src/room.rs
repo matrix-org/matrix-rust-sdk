@@ -148,10 +148,15 @@ impl Room {
         })
     }
 
-    pub fn members(&self) -> Result<Vec<RoomMember>> {
+    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>> {
         let room = self.room.clone();
         RUNTIME.block_on(async move {
-            let members = room.members().await?.iter().map(RoomMember::new).collect();
+            let members = room
+                .members()
+                .await?
+                .iter()
+                .map(|m| Arc::new(RoomMember::new(m.clone())))
+                .collect();
             Ok(members)
         })
     }

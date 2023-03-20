@@ -127,6 +127,7 @@ impl RoomMember {
         self.event.membership()
     }
 
+    /// Is the room member ignored by the current account user
     pub fn is_ignored(&self) -> bool {
         self.is_ignored
     }

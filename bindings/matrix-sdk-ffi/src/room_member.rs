@@ -49,16 +49,16 @@ impl RoomMember {
         self.inner.user_id().to_string()
     }
 
-    fn display_name(&self) -> String {
-        self.inner.display_name()
+    fn display_name(&self) -> Option<String> {
+        self.inner.display_name().map(|d| d.to_owned())
     }
 
-    fn avatar_url(&self) -> String {
-        self.inner.avatar_url().to_string()
+    fn avatar_url(&self) -> Option<String> {
+        self.inner.avatar_url().map(ToString::to_string)
     }
 
     fn membership(&self) -> MembershipState {
-        self.inner.membership().into()
+        self.inner.membership().to_owned().into()
     }
 
     fn is_name_ambiguous(&self) -> bool {
@@ -81,12 +81,5 @@ impl RoomMember {
 impl RoomMember {
     pub fn new(room_member: SdkRoomMember) -> Self {
         RoomMember { inner: room_member }
-    }
-}
-
-impl std::ops::Deref for RoomMember {
-    type Target = SdkRoomMember;
-    fn deref(&self) -> &SdkRoomMember {
-        &self.inner
     }
 }
