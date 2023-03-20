@@ -313,7 +313,7 @@ impl SlidingSyncList {
     }
 
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
-    pub(super) fn handle_response(
+    fn handle_response(
         &self,
         maximum_number_of_rooms: u32,
         ops: &Vec<v4::SyncOp>,
