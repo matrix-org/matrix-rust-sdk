@@ -330,6 +330,17 @@ impl SlidingSyncList {
             .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
     }
 
+    /// Update this `SlidingSyncList` from a response received and handled by
+    /// its [`SlidingSyncListRequestGenerator`]
+    ///
+    /// This method must not be called directly, except for testing purposes
+    /// etc.
+    ///
+    /// This method partially handles the response, and doesn't manage the
+    /// entire state of [`SlidingSyncList`]. For example, the
+    /// [`SlidingSyncList::state`] value is updated by
+    /// [`SlidingSyncListRequestGenerator::handle_response`], not by this
+    /// method.
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
     fn handle_response(
         &self,
