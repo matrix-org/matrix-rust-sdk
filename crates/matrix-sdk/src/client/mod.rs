@@ -71,9 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-#[cfg(feature = "e2e-encryption")]
-use tracing::error;
-use tracing::{debug, field::display, info, instrument, trace, Instrument, Span};
+use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -1691,12 +1689,26 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn create_room(&self, request: create_room::v3::Request) -> HttpResult<room::Joined> {
+    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Joined> {
+        let invite = request.invite.clone();
+        let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
         let base_room =
             self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
-        Ok(room::Joined::new(self, base_room).unwrap())
+
+        let joined_room = room::Joined::new(self, base_room).unwrap();
+
+        if is_direct_room && !invite.is_empty() {
+            if let Err(error) =
+                self.account().mark_as_dm(joined_room.room_id(), invite.as_slice()).await
+            {
+                // FIXME: Retry in the background
+                error!("Failed to mark room as DM: {error}");
+            }
+        }
+
+        Ok(joined_room)
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

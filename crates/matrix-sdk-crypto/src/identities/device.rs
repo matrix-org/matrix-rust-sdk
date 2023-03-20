@@ -928,6 +928,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn delete_a_device() {
         let device = get_device();
         assert!(!device.is_deleted());

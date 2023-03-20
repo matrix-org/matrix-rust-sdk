@@ -39,7 +39,7 @@ use ruma::{
     },
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, SessionId, UInt,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt,
 };
 use serde::Deserialize;
 
@@ -746,6 +746,45 @@ impl Account {
             set_global_account_data::v3::Request::new_raw(own_user.to_owned(), event_type, content);
 
         Ok(self.client.send(request, None).await?)
+    }
+
+    /// Marks the given room with `room_id` as "direct chat" with with any
+    /// user in `user_ids`.
+    ///
+    /// This is done adding new the `room_id` to the list of DM
+    /// chats for any user id in `user_ids`.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id of the DM room.
+    /// * `user_ids` - The user ids of the invitees for the DM room.
+    pub(crate) async fn mark_as_dm(
+        &self,
+        room_id: &RoomId,
+        user_ids: &[OwnedUserId],
+    ) -> Result<()> {
+        use ruma::events::direct::DirectEventContent;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .account_data::<DirectEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+
+        for user_id in user_ids {
+            content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
+        }
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.set_account_data(content).await?;
+
+        Ok(())
     }
 }
 
