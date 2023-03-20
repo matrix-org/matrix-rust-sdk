@@ -32,6 +32,7 @@ pub mod room_member;
 pub mod session_verification;
 pub mod sliding_sync;
 pub mod timeline;
+pub mod tracing;
 
 use client::Client;
 use client_builder::ClientBuilder;
@@ -128,6 +129,7 @@ mod uniffi_types {
             TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
             VirtualTimelineItem,
         },
+        tracing::{LogLevel, Span},
         ClientError,
     };
 }

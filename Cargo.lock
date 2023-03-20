@@ -2791,6 +2791,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-android",
+ "tracing-core",
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uniffi",
