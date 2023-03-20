@@ -1305,6 +1305,241 @@ mod tests {
     }
     */
 
+    macro_rules! assert_ranges {
+        (
+            list = $list:ident,
+            maximum_number_of_rooms = $maximum_number_of_rooms:expr,
+            $(
+                next => {
+                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),+ ,
+                    is_fully_loaded = $is_fully_loaded:expr,
+                    list_state = $list_state:ident,
+                }
+            ),*
+            $(,)*
+        ) => {
+            // That's the initial state.
+            assert_eq!($list.state(), SlidingSyncState::NotLoaded);
+
+            $(
+                {
+                    // Generate a new request.
+                    let request = $list.next_request().unwrap();
+
+                    assert_eq!(request.ranges, [ $( (uint!( $range_start ), uint!( $range_end )) ),* ]);
+
+                    // Fake a response.
+                    let _ = $list.handle_response($maximum_number_of_rooms, &vec![], &vec![]);
+
+                    assert_eq!($list.inner.request_generator.read().unwrap().is_fully_loaded(), $is_fully_loaded);
+                    assert_eq!($list.state(), SlidingSyncState::$list_state);
+                }
+            )*
+        };
+    }
+
+    #[test]
+    fn test_generator_paging_full_sync() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::PagingFullSync)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [10; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [20; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 24], // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_paging_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::PagingFullSync)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [10; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms to fetch is reached!
+            next => {
+                ranges = [20; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 21], // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_growing_full_sync() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::GrowingFullSync)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [0; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_growing_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::GrowingFullSync)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [0; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_selective() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Selective)
+            .name("testing")
+            .ranges(vec![(0u32, 10), (42, 153)])
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+    }
+
     #[test]
     fn test_room_list_entry_is_empty_or_invalidated() {
         let room_id = room_id!("!foo:bar.org");
