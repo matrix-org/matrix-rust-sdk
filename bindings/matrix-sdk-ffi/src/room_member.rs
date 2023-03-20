@@ -1,5 +1,8 @@
 use matrix_sdk::room::RoomMember as SdkRoomMember;
 
+use super::RUNTIME;
+use crate::ClientError;
+
 #[derive(Clone)]
 pub enum MembershipState {
     /// The user is banned.
@@ -45,36 +48,54 @@ pub struct RoomMember {
 
 #[uniffi::export]
 impl RoomMember {
-    fn user_id(&self) -> String {
+    pub fn user_id(&self) -> String {
         self.inner.user_id().to_string()
     }
 
-    fn display_name(&self) -> Option<String> {
+    pub fn display_name(&self) -> Option<String> {
         self.inner.display_name().map(|d| d.to_owned())
     }
 
-    fn avatar_url(&self) -> Option<String> {
+    pub fn avatar_url(&self) -> Option<String> {
         self.inner.avatar_url().map(ToString::to_string)
     }
 
-    fn membership(&self) -> MembershipState {
+    pub fn membership(&self) -> MembershipState {
         self.inner.membership().to_owned().into()
     }
 
-    fn is_name_ambiguous(&self) -> bool {
+    pub fn is_name_ambiguous(&self) -> bool {
         self.inner.name_ambiguous()
     }
 
-    fn power_level(&self) -> i64 {
+    pub fn power_level(&self) -> i64 {
         self.inner.power_level()
     }
 
-    fn normalized_power_level(&self) -> i64 {
+    pub fn normalized_power_level(&self) -> i64 {
         self.inner.normalized_power_level()
     }
 
-    fn is_ignored(&self) -> bool {
+    pub fn is_ignored(&self) -> bool {
         self.inner.is_ignored()
+    }
+
+    pub fn is_account_user(&self) -> bool {
+        self.inner.is_account_user()
+    }
+
+    pub fn add_to_ignore_list(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            self.inner.add_to_ignore_list().await?;
+            Ok(())
+        })
+    }
+
+    pub fn remove_from_ignore_list(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            self.inner.remove_from_ignore_list().await?;
+            Ok(())
+        })
     }
 }
 

@@ -212,9 +212,7 @@ enum MembershipState {
     "Leave",
 };
 
-interface RoomMember {
-    
-};
+interface RoomMember { };
 
 interface Room {
     [Throws=ClientError]
