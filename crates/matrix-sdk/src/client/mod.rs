@@ -1711,6 +1711,15 @@ impl Client {
         Ok(joined_room)
     }
 
+    pub(crate) async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
+        self.create_room(assign!(create_room::v3::Request::new(), {
+            invite: vec![user_id.to_owned()],
+            is_direct: true,
+            preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
+        }))
+        .await
+    }
+
     /// Search the homeserver's directory for public rooms with a filter.
     ///
     /// # Arguments
