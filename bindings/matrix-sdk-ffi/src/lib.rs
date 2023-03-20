@@ -31,14 +31,12 @@ pub mod room;
 pub mod session_verification;
 pub mod sliding_sync;
 pub mod timeline;
-mod uniffi_api;
 
 use client::Client;
 use client_builder::ClientBuilder;
 use matrix_sdk::{encryption::CryptoStoreError, HttpError, IdParseError};
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
-pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
@@ -96,6 +94,8 @@ impl From<serde_json::Error> for ClientError {
 }
 
 pub use platform::*;
+
+uniffi::include_scaffolding!("api");
 
 mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
