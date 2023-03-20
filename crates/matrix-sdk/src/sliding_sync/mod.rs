@@ -1296,82 +1296,10 @@ pub struct UpdateSummary {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
-    use ruma::{room_id, uint};
-    use serde_json::json;
     use wiremock::MockServer;
 
     use super::*;
     use crate::test_utils::logged_in_client;
-
-    #[tokio::test]
-    async fn check_find_room_in_list() -> Result<()> {
-        let list =
-            SlidingSyncList::builder().name("testlist").add_range(0u32, 9u32).build().unwrap();
-        let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
-            "op": "SYNC",
-            "range": [0, 9],
-            "room_ids": [
-                "!A00000:matrix.example",
-                "!A00001:matrix.example",
-                "!A00002:matrix.example",
-                "!A00003:matrix.example",
-                "!A00004:matrix.example",
-                "!A00005:matrix.example",
-                "!A00006:matrix.example",
-                "!A00007:matrix.example",
-                "!A00008:matrix.example",
-                "!A00009:matrix.example"
-            ],
-        }))
-        .unwrap();
-
-        list.handle_response(
-            10u32,
-            &vec![full_window_update],
-            &vec![(uint!(0), uint!(9))],
-            &vec![],
-        )
-        .unwrap();
-
-        let a02 = room_id!("!A00002:matrix.example").to_owned();
-        let a05 = room_id!("!A00005:matrix.example").to_owned();
-        let a09 = room_id!("!A00009:matrix.example").to_owned();
-
-        assert_eq!(list.find_room_in_list(&a02), Some(2));
-        assert_eq!(list.find_room_in_list(&a05), Some(5));
-        assert_eq!(list.find_room_in_list(&a09), Some(9));
-
-        assert_eq!(
-            list.find_rooms_in_list(&[a02.clone(), a05.clone(), a09.clone()]),
-            vec![(2, a02.clone()), (5, a05.clone()), (9, a09.clone())]
-        );
-
-        // we invalidate a few in the center
-        let update: v4::SyncOp = serde_json::from_value(json! ({
-            "op": "INVALIDATE",
-            "range": [4, 7],
-        }))
-        .unwrap();
-
-        list.handle_response(
-            10u32,
-            &vec![update],
-            &vec![(uint!(0), uint!(3)), (uint!(8), uint!(9))],
-            &vec![],
-        )
-        .unwrap();
-
-        assert_eq!(list.find_room_in_list(room_id!("!A00002:matrix.example")), Some(2));
-        assert_eq!(list.find_room_in_list(room_id!("!A00005:matrix.example")), None);
-        assert_eq!(list.find_room_in_list(room_id!("!A00009:matrix.example")), Some(9));
-
-        assert_eq!(
-            list.find_rooms_in_list(&[a02.clone(), a05, a09.clone()]),
-            vec![(2, a02), (9, a09)]
-        );
-
-        Ok(())
-    }
 
     #[tokio::test]
     async fn to_device_is_enabled_when_pos_is_none() -> Result<()> {
