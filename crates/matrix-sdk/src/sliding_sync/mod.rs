@@ -849,7 +849,7 @@ impl SlidingSync {
     /// stream created after this. The old stream will still continue to use the
     /// previous set of lists.
     pub fn add_list(&self, list: SlidingSyncList) -> Option<SlidingSyncList> {
-        self.inner.lists.write().unwrap().insert(list.name.clone(), list)
+        self.inner.lists.write().unwrap().insert(list.name().to_owned(), list)
     }
 
     /// Lookup a set of rooms
@@ -910,12 +910,12 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = list_generators.len()))]
+    #[instrument(skip_all, fields(lists = lists.len()))]
     fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
         mut sync_response: SyncResponse,
-        list_generators: &mut BTreeMap<String, SlidingSyncListRequestGenerator>,
+        lists: &mut BTreeMap<String, SlidingSyncList>,
     ) -> Result<UpdateSummary, crate::Error> {
         {
             debug!(
@@ -969,7 +969,7 @@ impl SlidingSync {
             let mut updated_lists = Vec::new();
 
             for (name, updates) in sliding_sync_response.lists {
-                let Some(list_generator) = list_generators.get_mut(&name) else {
+                let Some(list) = lists.get_mut(&name) else {
                     error!("Response for list `{name}` - unknown to us; skipping");
 
                     continue
@@ -978,11 +978,7 @@ impl SlidingSync {
                 let maximum_number_of_rooms: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
 
-                if list_generator.handle_response(
-                    maximum_number_of_rooms,
-                    &updates.ops,
-                    &updated_rooms,
-                )? {
+                if list.handle_response(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
                     updated_lists.push(name.clone());
                 }
             }
@@ -1001,28 +997,28 @@ impl SlidingSync {
     async fn sync_once(
         &self,
         stream_id: &str,
-        list_generators: Arc<Mutex<BTreeMap<String, SlidingSyncListRequestGenerator>>>,
+        lists: Arc<Mutex<BTreeMap<String, SlidingSyncList>>>,
     ) -> Result<Option<UpdateSummary>> {
-        let mut lists = BTreeMap::new();
+        let mut requests_lists = BTreeMap::new();
 
         {
-            let mut list_generators_lock = list_generators.lock().unwrap();
-            let list_generators = list_generators_lock.borrow_mut();
+            let mut lists_lock = lists.lock().unwrap();
+            let lists = lists_lock.borrow_mut();
             let mut lists_to_remove = Vec::new();
 
-            for (name, generator) in list_generators.iter_mut() {
-                if let Some(request) = generator.next() {
-                    lists.insert(name.clone(), request);
+            for (name, list) in lists.iter_mut() {
+                if let Some(list_request) = list.next_request() {
+                    requests_lists.insert(name.clone(), list_request);
                 } else {
                     lists_to_remove.push(name.clone());
                 }
             }
 
             for list_name in lists_to_remove {
-                list_generators.remove(&list_name);
+                lists.remove(&list_name);
             }
 
-            if list_generators.is_empty() {
+            if lists.is_empty() {
                 return Ok(None);
             }
         }
@@ -1053,7 +1049,7 @@ impl SlidingSync {
                 // request. We use the (optional) `txn_id` field for that.
                 txn_id: Some(stream_id.to_owned()),
                 timeout: Some(timeout),
-                lists,
+                lists: requests_lists,
                 room_subscriptions,
                 unsubscribe_rooms,
                 extensions,
@@ -1140,7 +1136,7 @@ impl SlidingSync {
 
             debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
-            let updates = this.handle_response(response, sync_response, list_generators.lock().unwrap().borrow_mut())?;
+            let updates = this.handle_response(response, sync_response, lists.lock().unwrap().borrow_mut())?;
 
             this.cache_to_storage().await?;
 
@@ -1160,24 +1156,15 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.inner.root_span)]
     pub fn stream<'a>(&'a self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + 'a {
-        // Collect all the lists that need to be updated.
-        let list_generators = {
-            let mut list_generators = BTreeMap::new();
-            let lock = self.inner.lists.read().unwrap();
+        // Copy all the lists.
+        let lists = Arc::new(Mutex::new(self.inner.lists.read().unwrap().clone()));
 
-            for (name, lists) in lock.iter() {
-                list_generators.insert(name.clone(), lists.request_generator());
-            }
-
-            list_generators
-        };
-
+        // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
 
         debug!(?self.inner.extensions, stream_id, "About to run the sync stream");
 
         let instrument_span = Span::current();
-        let list_generators = Arc::new(Mutex::new(list_generators));
 
         async_stream::stream! {
             loop {
@@ -1187,7 +1174,7 @@ impl SlidingSync {
                     debug!(?self.inner.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&stream_id, list_generators.clone()).instrument(sync_span.clone()).await {
+                match self.sync_once(&stream_id, lists.clone()).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.inner.reset_counter.store(0, Ordering::SeqCst);
 
