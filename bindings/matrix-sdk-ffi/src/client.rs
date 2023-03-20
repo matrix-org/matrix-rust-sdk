@@ -499,10 +499,11 @@ impl Client {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
-    pub fn get_dm_room(&self, user_id: String) -> Option<Arc<Room>> {
-        let user_id = UserId::parse(user_id).ok()?;
-        let dm = self.client.get_dm_room(&user_id).map(|room| SdkRoom::Joined(room))?;
-        Some(Arc::new(Room::new(dm)))
+    pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        let sdk_room = self.client.get_dm_room(&user_id).map(SdkRoom::Joined);
+        let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
+        Ok(dm)
     }
 }
 
