@@ -339,7 +339,7 @@ impl Client {
         Ok(())
     }
 
-    /// Get the existing DM with the given user, if any.
+    /// Get the existing DM room with the given user, if any.
     pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
 
