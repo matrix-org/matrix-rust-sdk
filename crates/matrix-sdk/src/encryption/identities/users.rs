@@ -477,7 +477,7 @@ impl OtherUserIdentity {
             }
             room.clone()
         } else {
-            self.client.create_dm_room(self.inner.user_id()).await?
+            self.client.create_dm(self.inner.user_id()).await?
         };
 
         let response = room

@@ -1711,7 +1711,12 @@ impl Client {
         Ok(joined_room)
     }
 
-    pub(crate) async fn create_dm_room(&self, user_id: &UserId) -> Result<room::Joined> {
+    /// Create a DM room.
+    ///
+    /// Convenience shorthand for [`create_room`][Self::create_room] with the
+    /// given user being invited, the room marked `is_direct` and both the
+    /// creator and invitee getting the default maximum power level.
+    pub async fn create_dm(&self, user_id: &UserId) -> Result<room::Joined> {
         self.create_room(assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
