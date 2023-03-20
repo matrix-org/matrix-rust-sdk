@@ -101,6 +101,24 @@ pub struct SlidingSyncList {
 }
 
 impl SlidingSyncList {
+    /// Generate a pre-configured [`SlidingSyncListRequestGenerator`] based on
+    /// the current [`Self::sync_mode`].
+    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
+        match &self.sync_mode {
+            SlidingSyncMode::PagingFullSync => {
+                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
+            }
+
+            SlidingSyncMode::GrowingFullSync => {
+                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
+            }
+
+            SlidingSyncMode::Selective => {
+                SlidingSyncListRequestGenerator::new_selective(self.clone())
+            }
+        }
+    }
+
     pub(crate) fn set_from_cold(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
@@ -416,22 +434,6 @@ impl SlidingSyncList {
         }
 
         Ok(changed)
-    }
-
-    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
-        match &self.sync_mode {
-            SlidingSyncMode::PagingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
-            }
-
-            SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
-            }
-
-            SlidingSyncMode::Selective => {
-                SlidingSyncListRequestGenerator::new_selective(self.clone())
-            }
-        }
     }
 }
 
