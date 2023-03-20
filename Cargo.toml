@@ -41,6 +41,7 @@ serde_json = "1.0.91"
 thiserror = "1.0.38"
 tokio = { version = "1.24", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
+tracing-core = "0.1.30"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
 uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
