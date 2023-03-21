@@ -17,6 +17,7 @@ const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(from = "OldVerificationStateHelper")]
 pub enum VerificationState {
     /// This message is guaranteed to be authentic as it is coming from a device
     /// belonging to a user that we have verified.
@@ -29,6 +30,34 @@ pub enum VerificationState {
     /// For more detailed information on why the message is considered
     /// unverified, refer to the VerificationLevel sub-enum.
     Unverified(VerificationLevel),
+}
+
+// TODO: Remove this once we're confident that everybody that serialized these
+// states uses the new enum.
+#[derive(Clone, Debug, Deserialize)]
+enum OldVerificationStateHelper {
+    Untrusted,
+    UnknownDevice,
+    #[serde(alias = "Trusted")]
+    Verified,
+    Unverified(VerificationLevel),
+}
+
+impl From<OldVerificationStateHelper> for VerificationState {
+    fn from(value: OldVerificationStateHelper) -> Self {
+        match value {
+            // This mapping isn't strictly correct but we don't know which part in the old
+            // `VerificationState` enum was unverified.
+            OldVerificationStateHelper::Untrusted => {
+                VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+            }
+            OldVerificationStateHelper::UnknownDevice => {
+                Self::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+            }
+            OldVerificationStateHelper::Verified => Self::Verified,
+            OldVerificationStateHelper::Unverified(l) => Self::Unverified(l),
+        }
+    }
 }
 
 impl VerificationState {
