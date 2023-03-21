@@ -544,7 +544,7 @@ pub struct SearchUsersResults {
 impl From<search_users::v3::Response> for SearchUsersResults {
     fn from(value: search_users::v3::Response) -> Self {
         let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
-        SearchUsersResults { results: results, limited: value.limited }
+        SearchUsersResults { results, limited: value.limited }
     }
 }
 
