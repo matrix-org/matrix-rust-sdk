@@ -241,8 +241,9 @@ impl VerificationCache {
     }
 
     pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
-        trace!(?request_id, "Marking a verification HTTP request as sent");
-        self.outgoing_requests.remove(request_id);
+        if let Some(request_id) = self.outgoing_requests.remove(request_id) {
+            trace!(?request_id, "Marking a verification HTTP request as sent");
+        }
 
         if let Some((user_id, flow_id)) =
             self.flow_ids_waiting_for_response.get(request_id).as_deref()
