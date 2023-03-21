@@ -13,7 +13,7 @@ pub static SEARCH_USERS_RESPONSE: Lazy<JsonValue> = Lazy::new(|| {
         "limited": false,
         "results": [
             {
-                "user_id": "@test:exmple.me",
+                "user_id": "@test:example.me",
                 "display_name": "Test",
                 "avatar_url": "mxc://example.me/someid"
             }

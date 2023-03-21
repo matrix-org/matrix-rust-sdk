@@ -2762,7 +2762,7 @@ pub(crate) mod tests {
 
         let response = client.search_users("test", 50).await.unwrap();
         let result = response.results.first().unwrap();
-        assert_eq!(result.user_id.to_string(), "@test:exmple.me");
+        assert_eq!(result.user_id.to_string(), "@test:example.me");
         assert_eq!(result.display_name.clone().unwrap(), "Test");
         assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
         assert_eq!(response.results.len(), 1);
