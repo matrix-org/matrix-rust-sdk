@@ -58,6 +58,7 @@ use ruma::{
             },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
+            user_directory::search_users,
         },
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -342,6 +343,20 @@ impl Client {
 
     fn session_meta(&self) -> Option<&SessionMeta> {
         self.base_client().session_meta()
+    }
+
+    pub async fn search_users(
+        &self,
+        search_term: &str,
+        limit: u64,
+    ) -> HttpResult<search_users::v3::Response> {
+        let mut request = search_users::v3::Request::new(search_term.to_owned());
+
+        if let Some(ulimit) = UInt::new(limit) {
+            request.limit = ulimit;
+        }
+
+        self.send(request, None).await
     }
 
     /// Get the user id of the current owner of the client.
