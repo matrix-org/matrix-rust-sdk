@@ -345,6 +345,15 @@ impl Client {
         self.base_client().session_meta()
     }
 
+    /// Performs a search for users.
+    /// The search is performed case-insensitively on user IDs and display names 
+    /// 
+    /// # Arguments
+    ///
+    /// * `search_term` - The search term for the search
+    /// * `limit` - The maximum number of results to return. Defaults to 10.
+    /// 
+    /// [user directory]: https://spec.matrix.org/v1.6/client-server-api/#user-directory
     pub async fn search_users(
         &self,
         search_term: &str,
