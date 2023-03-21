@@ -107,7 +107,7 @@ mod uniffi_types {
         },
         client::{
             Client, CreateRoomParameters, HttpPusherData, PushFormat, PusherIdentifiers,
-            PusherKind, Session,
+            PusherKind, Session, SearchUsersResults, UserProfile
         },
         client_builder::ClientBuilder,
         room::{Membership, Room},
