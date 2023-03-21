@@ -788,10 +788,10 @@ impl Account {
         Ok(())
     }
 
-    /// Adds the user to the account's data ignore list
-    pub(crate) async fn ignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
+    /// Adds the given user ID to the account's ignore list.
+    pub(crate) async fn ignore_user(&self, user_id: &UserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
-        ignored_user_list.ignored_users.insert(user_id.clone(), Default::default());
+        ignored_user_list.ignored_users.insert(user_id.clone(), IgnoredUser::new());
 
         // Updating the account data
         self.set_account_data(ignored_user_list).await?;
@@ -800,8 +800,8 @@ impl Account {
         Ok(())
     }
 
-    /// Removes the user to the account's data ignore list
-    pub(crate) async fn unignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
+    /// Removes the given user ID from the account's ignore list.
+    pub(crate) async fn unignore_user(&self, user_id: &UserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
         ignored_user_list.ignored_users.remove(user_id);
 

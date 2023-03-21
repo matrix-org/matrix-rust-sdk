@@ -24,7 +24,7 @@ use mime::Mime;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{uniffi_types::RoomMember, TimelineDiff, TimelineItem, TimelineListener};
+use crate::{RoomMember, TimelineDiff, TimelineItem, TimelineListener};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
