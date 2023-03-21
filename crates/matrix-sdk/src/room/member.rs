@@ -64,4 +64,24 @@ impl RoomMember {
         let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
         Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
+
+    /// Adds the room member to the current account data's ignore list
+    /// which will ignore the user across all rooms.
+    pub async fn ignore(&self) -> Result<()> {
+        self.client.account().ignore_user(self.inner.user_id()).await
+    }
+
+    /// Removes the room member from the current account data's ignore list
+    /// which will unignore the user across all rooms.
+    pub async fn unignore(&self) -> Result<()> {
+        self.client.account().unignore_user(self.inner.user_id()).await
+    }
+
+    /// Returns true if the member of the room is the user of the account
+    pub fn is_account_user(&self) -> bool {
+        match self.client.user_id() {
+            Some(id) => id == self.inner.user_id(),
+            None => false,
+        }
+    }
 }

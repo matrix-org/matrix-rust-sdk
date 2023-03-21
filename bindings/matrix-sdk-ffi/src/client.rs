@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
+    room::Room as SdkRoom,
     ruma::{
         api::client::{
             account::whoami,
@@ -251,7 +252,7 @@ impl Client {
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
     pub async fn authentication_issuer(&self) -> Option<String> {
-        self.client.authentication_issuer().await.map(|server| server.to_string())
+        self.client.authentication_issuer().await
     }
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
@@ -496,6 +497,29 @@ impl Client {
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    }
+
+    pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        let sdk_room = self.client.get_dm_room(&user_id).map(SdkRoom::Joined);
+        let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
+        Ok(dm)
+    }
+
+    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client.account().ignore_user(&user_id).await?;
+            Ok(())
+        })
+    }
+
+    pub fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client.account().unignore_user(&user_id).await?;
+            Ok(())
+        })
     }
 }
 

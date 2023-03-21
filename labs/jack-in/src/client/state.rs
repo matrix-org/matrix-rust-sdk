@@ -135,7 +135,7 @@ impl SlidingSyncState {
     }
 
     pub fn total_rooms_count(&self) -> Option<u32> {
-        self.view.rooms_count()
+        self.view.maximum_number_of_rooms()
     }
 
     pub fn set_first_render_now(&mut self) {

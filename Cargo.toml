@@ -28,7 +28,7 @@ byteorder = "1.4.3"
 ctor = "0.1.26"
 dashmap = "5.2.0"
 eyeball = "0.4.0"
-eyeball-im = "0.1.0"
+eyeball-im = "0.2.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 ruma = { git = "https://github.com/ruma/ruma", rev = "8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5", features = ["client-api-c"] }

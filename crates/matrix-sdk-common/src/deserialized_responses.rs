@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use ruma::{
     events::{AnySyncTimelineEvent, AnyTimelineEvent},
@@ -17,6 +17,7 @@ const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(from = "OldVerificationStateHelper")]
 pub enum VerificationState {
     /// This message is guaranteed to be authentic as it is coming from a device
     /// belonging to a user that we have verified.
@@ -29,6 +30,34 @@ pub enum VerificationState {
     /// For more detailed information on why the message is considered
     /// unverified, refer to the VerificationLevel sub-enum.
     Unverified(VerificationLevel),
+}
+
+// TODO: Remove this once we're confident that everybody that serialized these
+// states uses the new enum.
+#[derive(Clone, Debug, Deserialize)]
+enum OldVerificationStateHelper {
+    Untrusted,
+    UnknownDevice,
+    #[serde(alias = "Trusted")]
+    Verified,
+    Unverified(VerificationLevel),
+}
+
+impl From<OldVerificationStateHelper> for VerificationState {
+    fn from(value: OldVerificationStateHelper) -> Self {
+        match value {
+            // This mapping isn't strictly correct but we don't know which part in the old
+            // `VerificationState` enum was unverified.
+            OldVerificationStateHelper::Untrusted => {
+                VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+            }
+            OldVerificationStateHelper::UnknownDevice => {
+                Self::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+            }
+            OldVerificationStateHelper::Verified => Self::Verified,
+            OldVerificationStateHelper::Unverified(l) => Self::Unverified(l),
+        }
+    }
 }
 
 impl VerificationState {
@@ -180,7 +209,7 @@ pub struct EncryptionInfo {
 
 /// A customized version of a room event coming from a sync that holds optional
 /// encryption info.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct SyncTimelineEvent {
     /// The actual event.
     pub event: Raw<AnySyncTimelineEvent>,
@@ -193,10 +222,30 @@ pub struct SyncTimelineEvent {
 }
 
 impl SyncTimelineEvent {
+    /// Create a new `SyncTimelineEvent` from the given raw event.
+    ///
+    /// This is a convenience constructor for when you don't need to set
+    /// `encryption_info` or `push_action`, for example inside a test.
+    pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
+        Self { event, encryption_info: None, push_actions: vec![] }
+    }
+
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.event.get_field::<OwnedEventId>("event_id").ok().flatten()
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SyncTimelineEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let SyncTimelineEvent { event, encryption_info, push_actions } = self;
+        f.debug_struct("SyncTimelineEvent")
+            .field("event", &DebugRawEvent(event))
+            .field("encryption_info", encryption_info)
+            .field("push_actions", push_actions)
+            .finish()
     }
 }
 
@@ -220,7 +269,7 @@ impl From<TimelineEvent> for SyncTimelineEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TimelineEvent {
     /// The actual event.
     pub event: Raw<AnyTimelineEvent>,
@@ -241,28 +290,78 @@ impl TimelineEvent {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for TimelineEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let TimelineEvent { event, encryption_info, push_actions } = self;
+        f.debug_struct("TimelineEvent")
+            .field("event", &DebugRawEvent(event))
+            .field("encryption_info", encryption_info)
+            .field("push_actions", push_actions)
+            .finish()
+    }
+}
+
+struct DebugRawEvent<'a, T>(&'a Raw<T>);
+
+#[cfg(not(tarpaulin_include))]
+impl<T> fmt::Debug for DebugRawEvent<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RawEvent")
+            .field("event_id", &DebugEventId(self.0.get_field("event_id")))
+            .finish_non_exhaustive()
+    }
+}
+
+struct DebugEventId(serde_json::Result<Option<OwnedEventId>>);
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for DebugEventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Ok(Some(id)) => id.fmt(f),
+            Ok(None) => f.write_str("Missing"),
+            Err(e) => f.debug_tuple("Invalid").field(&e).finish(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ruma::{
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
         serde::Raw,
     };
+    use serde::Deserialize;
     use serde_json::json;
 
-    use super::{SyncTimelineEvent, TimelineEvent};
+    use super::{SyncTimelineEvent, TimelineEvent, VerificationState};
+    use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
-    #[test]
-    fn room_event_to_sync_room_event() {
-        let event = json!({
-            "content": RoomMessageEventContent::text_plain("foobar"),
+    fn example_event() -> serde_json::Value {
+        json!({
+            "content": RoomMessageEventContent::text_plain("secret"),
             "type": "m.room.message",
             "event_id": "$xxxxx:example.org",
             "room_id": "!someroom:example.com",
             "origin_server_ts": 2189,
             "sender": "@carl:example.com",
-        });
+        })
+    }
 
-        let room_event = TimelineEvent::new(Raw::new(&event).unwrap().cast());
+    #[test]
+    fn sync_timeline_debug_content() {
+        let room_event = SyncTimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
+        let debug_s = format!("{room_event:?}");
+        assert!(
+            !debug_s.contains("secret"),
+            "Debug representation contains event content!\n{debug_s}"
+        );
+    }
+
+    #[test]
+    fn room_event_to_sync_room_event() {
+        let room_event = TimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
         let converted_room_event: SyncTimelineEvent = room_event.into();
 
         let converted_event: AnySyncTimelineEvent =
@@ -270,5 +369,45 @@ mod tests {
 
         assert_eq!(converted_event.event_id(), "$xxxxx:example.org");
         assert_eq!(converted_event.sender(), "@carl:example.com");
+    }
+
+    #[test]
+    fn old_verification_state_to_new_migration() {
+        #[derive(Deserialize)]
+        struct State {
+            state: VerificationState,
+        }
+
+        let state = json!({
+            "state": "Trusted",
+        });
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old trusted value");
+        assert_eq!(deserialized.state, VerificationState::Verified);
+
+        let state = json!({
+            "state": "UnknownDevice",
+        });
+
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old unknown device value");
+
+        assert_eq!(
+            deserialized.state,
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice
+            ))
+        );
+
+        let state = json!({
+            "state": "Untrusted",
+        });
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old trusted value");
+
+        assert_eq!(
+            deserialized.state,
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+        );
     }
 }

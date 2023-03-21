@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[dependencies]
+[dev-dependencies]
 anyhow = { workspace = true }
+assert_matches = "1.5.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
+futures = { version = "0.3.25" }
 matrix-sdk-integration-testing = { path = "../matrix-sdk-integration-testing", features = ["helpers"] }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync", "testing"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
-futures = { version = "0.3.25" }
 uuid = { version = "1.2.2" }
-assert_matches = "1.5.0"

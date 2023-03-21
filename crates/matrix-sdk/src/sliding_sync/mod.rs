@@ -110,15 +110,15 @@
 //! copy can be retrieved by calling `SlidingSync::list()`, providing the name
 //! of the list. Next to the configuration settings (like name and
 //! `timeline_limit`), the list provides the stateful
-//! [`rooms_count`](SlidingSyncList::rooms_count),
+//! [`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms),
 //! [`rooms_list`](SlidingSyncList::rooms_list) and
 //! [`state`](SlidingSyncList::state):
 //!
-//!  - `rooms_count` is the number of rooms _total_ there were found matching
-//!    the filters given.
-//!  - `rooms_list` is a vector of `rooms_count` [`RoomListEntry`]'s at the
-//!    current state. `RoomListEntry`'s only hold `the room_id` if given, the
-//!    [Rooms API](#rooms) holds the actual information about each room
+//!  - `maximum_number_of_rooms` is the number of rooms _total_ there were found
+//!    matching the filters given.
+//!  - `rooms_list` is a vector of `maximum_number_of_rooms` [`RoomListEntry`]'s
+//!    at the current state. `RoomListEntry`'s only hold `the room_id` if given,
+//!    the [Rooms API](#rooms) holds the actual information about each room
 //!  - `state` is a [`SlidingSyncMode`] signalling meta information about the
 //!    list and its stateful data — whether this is the state loaded from local
 //!    cache, whether the [full sync](#helper-lists) is in progress or whether
@@ -171,11 +171,11 @@
 //!
 //! ### Room List Entries
 //!
-//! As the room list of each list is a vec of the `rooms_count` len but a room
-//! may only know of a subset of entries for sure at any given time, these
-//! entries are wrapped in [`RoomListEntry`][]. This type, in close proximity to
-//! the [specification][MSC], can be either `Empty`, `Filled` or `Invalidated`,
-//! signaling the state of each entry position.
+//! As the room list of each list is a vec of the `maximum_number_of_rooms` len
+//! but a room may only know of a subset of entries for sure at any given time,
+//! these entries are wrapped in [`RoomListEntry`][]. This type, in close
+//! proximity to the [specification][MSC], can be either `Empty`, `Filled` or
+//! `Invalidated`, signaling the state of each entry position.
 //! - `Empty` we don't know what sits here at this position in the list.
 //! - `Filled`: there is this `room_id` at this position.
 //! - `Invalidated` in that sense means that we _knew_ what was here before, but
@@ -429,8 +429,9 @@
 //! ## Caching
 //!
 //! All room data, for filled but also _invalidated_ rooms, including the entire
-//! timeline events as well as all list `room_lists` and `rooms_count` are held
-//! in memory (unless one `pop`s the list out).
+//! timeline events as well as all list `room_lists` and
+//! `maximum_number_of_rooms` are held in memory (unless one `pop`s the list
+//! out).
 //!
 //! This is a purely in-memory cache layer though. If one wants Sliding Sync to
 //! persist and load from cold (storage) cache, one needs to set its key with
@@ -511,8 +512,8 @@
 //!     .required_state(vec![
 //!         (StateEventType::RoomEncryption, "".to_owned())
 //!      ]) // only want to know if the room is encrypted
-//!     .batch_size(50)   // grow the window by 50 items at a time
-//!     .limit(500)      // only sync up the top 500 rooms
+//!     .full_sync_batch_size(50)   // grow the window by 50 items at a time
+//!     .full_sync_maximum_number_of_rooms_to_fetch(500)      // only sync up the top 500 rooms
 //!     .build()?;
 //!
 //! let active_list = SlidingSyncList::builder()
@@ -538,7 +539,7 @@
 //!
 //! let active_list = sliding_sync.list(&active_list_name).unwrap();
 //! let list_state_stream = active_list.state_stream();
-//! let list_count_stream = active_list.rooms_count_stream();
+//! let list_count_stream = active_list.maximum_number_of_rooms_stream();
 //! let list_stream = active_list.rooms_list_stream();
 //!
 //! tokio::spawn(async move {
@@ -584,7 +585,6 @@
 //! # anyhow::Ok(())
 //! # });
 //! ```
-//!
 //!
 //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
 //! [proxy]: https://github.com/matrix-org/sliding-sync
@@ -930,7 +930,7 @@ impl SlidingSync {
         }
 
         let update_summary = {
-            let mut rooms = Vec::new();
+            let mut updated_rooms = Vec::new();
             let mut rooms_map = self.inner.rooms.write().unwrap();
 
             for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
@@ -963,22 +963,26 @@ impl SlidingSync {
                     );
                 }
 
-                rooms.push(room_id);
+                updated_rooms.push(room_id);
             }
 
             let mut updated_lists = Vec::new();
 
             for (name, updates) in sliding_sync_response.lists {
-                let Some(generator) = list_generators.get_mut(&name) else {
+                let Some(list_generator) = list_generators.get_mut(&name) else {
                     error!("Response for list `{name}` - unknown to us; skipping");
 
                     continue
                 };
 
-                let count: u32 =
+                let maximum_number_of_rooms: u32 =
                     updates.count.try_into().expect("the list total count convertible into u32");
 
-                if generator.handle_response(count, &updates.ops, &rooms)? {
+                if list_generator.handle_response(
+                    maximum_number_of_rooms,
+                    &updates.ops,
+                    &updated_rooms,
+                )? {
                     updated_lists.push(name.clone());
                 }
             }
@@ -988,7 +992,7 @@ impl SlidingSync {
                 self.update_to_device_since(to_device.next_batch);
             }
 
-            UpdateSummary { lists: updated_lists, rooms }
+            UpdateSummary { lists: updated_lists, rooms: updated_rooms }
         };
 
         Ok(update_summary)
@@ -1292,7 +1296,7 @@ pub struct UpdateSummary {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
-    use ruma::room_id;
+    use ruma::{room_id, uint};
     use serde_json::json;
     use wiremock::MockServer;
 
@@ -1321,7 +1325,13 @@ mod test {
         }))
         .unwrap();
 
-        list.handle_response(10u32, &vec![full_window_update], &vec![(0, 9)], &vec![]).unwrap();
+        list.handle_response(
+            10u32,
+            &vec![full_window_update],
+            &vec![(uint!(0), uint!(9))],
+            &vec![],
+        )
+        .unwrap();
 
         let a02 = room_id!("!A00002:matrix.example").to_owned();
         let a05 = room_id!("!A00005:matrix.example").to_owned();
@@ -1343,7 +1353,13 @@ mod test {
         }))
         .unwrap();
 
-        list.handle_response(10u32, &vec![update], &vec![(0, 3), (8, 9)], &vec![]).unwrap();
+        list.handle_response(
+            10u32,
+            &vec![update],
+            &vec![(uint!(0), uint!(3)), (uint!(8), uint!(9))],
+            &vec![],
+        )
+        .unwrap();
 
         assert_eq!(list.find_room_in_list(room_id!("!A00002:matrix.example")), Some(2));
         assert_eq!(list.find_room_in_list(room_id!("!A00005:matrix.example")), None);

@@ -378,7 +378,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
-        let mut authentication_issuer: Option<Url> = None;
+        let mut authentication_issuer = None;
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
         let homeserver = match homeserver_cfg {
@@ -402,14 +402,16 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
-                if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
-                    authentication_issuer = Url::parse(&issuer).ok();
-                }
+                authentication_issuer = well_known.authentication.map(|auth| auth.issuer);
+
                 #[cfg(feature = "experimental-sliding-sync")]
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
                     sliding_sync_proxy = Url::parse(&proxy).ok();
                 }
-                debug!(homserver_url = well_known.homeserver.base_url, "Discovered the homeserver");
+                debug!(
+                    homeserver_url = well_known.homeserver.base_url,
+                    "Discovered the homeserver"
+                );
 
                 well_known.homeserver.base_url
             }

@@ -71,9 +71,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-#[cfg(feature = "e2e-encryption")]
-use tracing::error;
-use tracing::{debug, field::display, info, instrument, trace, Instrument, Span};
+use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -145,7 +143,7 @@ pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
     /// The OIDC Provider that is trusted by the homeserver.
-    authentication_issuer: Option<RwLock<Url>>,
+    authentication_issuer: Option<RwLock<String>>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: Option<RwLock<Url>>,
@@ -330,7 +328,7 @@ impl Client {
     }
 
     /// The OIDC Provider that is trusted by the homeserver.
-    pub async fn authentication_issuer(&self) -> Option<Url> {
+    pub async fn authentication_issuer(&self) -> Option<String> {
         let server = self.inner.authentication_issuer.as_ref()?;
         Some(server.read().await.clone())
     }
@@ -1664,17 +1662,17 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Create a room using the `RoomBuilder` and send the request.
+    /// Create a room with the given parameters.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
-    /// `create_room::Response`, this is an empty response.
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns the created
+    /// room as a [`room::Joined`] object.
     ///
-    /// # Arguments
-    ///
-    /// * `room` - The easiest way to create this request is using the
-    /// `create_room::Request` itself.
+    /// If you want to create a direct message with one specific user, you can
+    /// use [`create_dm`][Self::create_dm], which is more convenient than
+    /// assembling the [`create_room::v3::Request`] yourself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::api::client::room::{
@@ -1691,12 +1689,40 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn create_room(&self, request: create_room::v3::Request) -> HttpResult<room::Joined> {
+    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Joined> {
+        let invite = request.invite.clone();
+        let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
         let base_room =
             self.base_client().get_or_create_room(&response.room_id, RoomState::Joined).await;
-        Ok(room::Joined::new(self, base_room).unwrap())
+
+        let joined_room = room::Joined::new(self, base_room).unwrap();
+
+        if is_direct_room && !invite.is_empty() {
+            if let Err(error) =
+                self.account().mark_as_dm(joined_room.room_id(), invite.as_slice()).await
+            {
+                // FIXME: Retry in the background
+                error!("Failed to mark room as DM: {error}");
+            }
+        }
+
+        Ok(joined_room)
+    }
+
+    /// Create a DM room.
+    ///
+    /// Convenience shorthand for [`create_room`][Self::create_room] with the
+    /// given user being invited, the room marked `is_direct` and both the
+    /// creator and invitee getting the default maximum power level.
+    pub async fn create_dm(&self, user_id: &UserId) -> Result<room::Joined> {
+        self.create_room(assign!(create_room::v3::Request::new(), {
+            invite: vec![user_id.to_owned()],
+            is_direct: true,
+            preset: Some(create_room::v3::RoomPreset::TrustedPrivateChat),
+        }))
+        .await
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

@@ -21,6 +21,7 @@ use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
+        ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
@@ -457,6 +458,16 @@ impl Room {
             .len()
             > 1;
 
+        let is_ignored = self
+            .store
+            .get_account_data_event_static::<IgnoredUserListEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .map(|e| e.content)
+            .map(|l| l.ignored_users.contains_key(member_event.user_id()))
+            .unwrap_or(false);
+
         Ok(Some(RoomMember {
             event: Arc::new(member_event),
             profile: profile.into(),
@@ -465,6 +476,7 @@ impl Room {
             max_power_level,
             is_room_creator,
             display_name_ambiguous: ambiguous,
+            is_ignored,
         }))
     }
 

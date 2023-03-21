@@ -28,7 +28,7 @@ interface MigrationError {
 };
 
 callback interface Logger {
-    void log(string logLine);
+    void log(string log_line);
 };
 
 callback interface ProgressListener {

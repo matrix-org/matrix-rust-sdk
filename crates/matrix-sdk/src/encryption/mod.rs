@@ -38,8 +38,6 @@ pub use matrix_sdk_base::crypto::{
 use matrix_sdk_base::crypto::{
     CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::OwnedDeviceId;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -52,7 +50,7 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedUserId, TransactionId, UserId,
+    assign, DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -68,12 +66,10 @@ use crate::{
 };
 
 impl Client {
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
         self.base_client().olm_machine()
     }
 
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
@@ -93,7 +89,6 @@ impl Client {
     /// # Panics
     ///
     /// Panics if no key query needs to be done.
-    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip(self))]
     pub(crate) async fn keys_query(
         &self,
@@ -140,7 +135,6 @@ impl Client {
     /// room.send(CustomEventContent { encrypted_file }, None).await?;
     /// # anyhow::Ok(()) });
     /// ```
-    #[cfg(feature = "e2e-encryption")]
     pub async fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &self,
         content_type: &mime::Mime,
@@ -170,7 +164,6 @@ impl Client {
 
     /// Encrypt and upload the file to be read from `reader` and construct an
     /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
         body: &str,
@@ -252,51 +245,11 @@ impl Client {
         })
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn create_dm_room(&self, user_id: OwnedUserId) -> Result<room::Joined> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset, events::direct::DirectEventContent,
-        };
-
-        // First we create the DM room, where we invite the user and tell the
-        // invitee that the room should be a DM.
-        let invite = vec![user_id.clone()];
-
-        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
-            invite,
-            is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        });
-
-        let room = self.create_room(request).await?;
-
-        // Now we need to mark the room as a DM for ourselves, we fetch the
-        // existing `m.direct` event and append the room to the list of DMs we
-        // have with this user.
-        let mut content = self
-            .account()
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .unwrap_or_default();
-
-        content.entry(user_id.to_owned()).or_default().push(room.room_id().to_owned());
-
-        // TODO We should probably save the fact that we need to send this out
-        // because otherwise we might end up in a state where we have a DM that
-        // isn't marked as one.
-        self.account().set_account_data(content).await?;
-
-        Ok(room)
-    }
-
     /// Claim one-time keys creating new Olm sessions.
     ///
     /// # Arguments
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn claim_one_time_keys(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -325,7 +278,6 @@ impl Client {
     ///
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
-    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip(self, request))]
     pub(crate) async fn keys_upload(
         &self,
@@ -344,7 +296,6 @@ impl Client {
         Ok(response)
     }
 
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn room_send_helper(
         &self,
         request: &RoomMessageRequest,
@@ -359,7 +310,6 @@ impl Client {
             .await
     }
 
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn send_to_device(
         &self,
         request: &ToDeviceRequest,
@@ -373,7 +323,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn send_verification_request(
         &self,
         request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
@@ -390,8 +339,8 @@ impl Client {
         Ok(())
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
+    /// Get the existing DM room with the given user, if any.
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
 
         // Find the room we share with the `user_id` and only with `user_id`
@@ -483,14 +432,12 @@ impl Client {
 /// A high-level API to manage the client's encryption.
 ///
 /// To get this, use [`Client::encryption()`].
-#[cfg(feature = "e2e-encryption")]
 #[derive(Debug, Clone)]
 pub struct Encryption {
     /// The underlying client.
     client: Client,
 }
 
-#[cfg(feature = "e2e-encryption")]
 impl Encryption {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }

@@ -41,6 +41,7 @@ pub struct RoomMember {
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
     pub(crate) display_name_ambiguous: bool,
+    pub(crate) is_ignored: bool,
 }
 
 impl RoomMember {
@@ -124,5 +125,10 @@ impl RoomMember {
     /// Get the membership state of this member.
     pub fn membership(&self) -> &MembershipState {
         self.event.membership()
+    }
+
+    /// Is the room member ignored by the current account user
+    pub fn is_ignored(&self) -> bool {
+        self.is_ignored
     }
 }

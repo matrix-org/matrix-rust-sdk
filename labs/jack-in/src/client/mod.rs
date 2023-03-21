@@ -21,11 +21,12 @@ pub async fn run_client(
         .timeline_limit(10u32)
         .sync_mode(config.full_sync_mode.into());
     if let Some(size) = config.batch_size {
-        full_sync_view_builder = full_sync_view_builder.batch_size(size);
+        full_sync_view_builder = full_sync_view_builder.full_sync_batch_size(size);
     }
 
     if let Some(limit) = config.limit {
-        full_sync_view_builder = full_sync_view_builder.limit(limit);
+        full_sync_view_builder =
+            full_sync_view_builder.full_sync_maximum_number_of_rooms_to_fetch(limit);
     }
     if let Some(limit) = config.timeline_limit {
         full_sync_view_builder = full_sync_view_builder.timeline_limit(limit);
@@ -66,7 +67,7 @@ pub async fn run_client(
                 let state = view.state();
                 ssync_state.set_view_state(state.clone());
 
-                if state == SlidingSyncState::Live {
+                if state == SlidingSyncState::FullyLoaded {
                     info!("Reached live sync");
                     break;
                 }

@@ -18,7 +18,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
-use im::Vector;
+use imbl::Vector;
 use indexmap::{IndexMap, IndexSet};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::OlmMachine;

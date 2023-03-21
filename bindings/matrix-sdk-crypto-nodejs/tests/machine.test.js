@@ -14,8 +14,10 @@ const {
     VerificationState,
     CrossSigningStatus,
     MaybeSignature,
-    StoreType,
     ShieldColor,
+    StoreType,
+    Versions,
+    getVersions,
 } = require("../");
 const path = require("path");
 const os = require("os");
@@ -25,6 +27,16 @@ describe("StoreType", () => {
     test("has the correct variant values", () => {
         expect(StoreType.Sled).toStrictEqual(0);
         expect(StoreType.Sqlite).toStrictEqual(1);
+    });
+});
+
+describe("Versions", () => {
+    test("can find out the crate versions", async () => {
+        const versions = getVersions();
+
+        expect(versions).toBeInstanceOf(Versions);
+        expect(versions.vodozemac).toBeDefined();
+        expect(versions.matrixSdkCrypto).toBeDefined();
     });
 });
 

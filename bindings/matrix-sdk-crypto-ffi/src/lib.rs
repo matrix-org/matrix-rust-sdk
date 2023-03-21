@@ -12,7 +12,6 @@ mod error;
 mod logger;
 mod machine;
 mod responses;
-mod uniffi_api;
 mod users;
 mod verification;
 
@@ -47,7 +46,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
-use uniffi_api::*;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
@@ -838,6 +836,18 @@ impl From<RoomSettings> for RustRoomSettings {
 fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
+
+#[uniffi::export]
+fn version() -> String {
+    matrix_sdk_crypto::VERSION.to_owned()
+}
+
+#[uniffi::export]
+fn vodozemac_version() -> String {
+    vodozemac::VERSION.to_owned()
+}
+
+uniffi::include_scaffolding!("olm");
 
 mod uniffi_types {
     pub use crate::{

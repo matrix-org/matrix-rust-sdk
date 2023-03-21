@@ -20,7 +20,7 @@ use std::{pin::Pin, sync::Arc, task::Poll};
 
 use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
-use im::Vector;
+use imbl::Vector;
 use matrix_sdk_base::locks::Mutex;
 use pin_project_lite::pin_project;
 use ruma::{

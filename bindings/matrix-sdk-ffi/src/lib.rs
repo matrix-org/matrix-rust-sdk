@@ -28,17 +28,16 @@ pub mod client_builder;
 mod helpers;
 pub mod notification_service;
 pub mod room;
+pub mod room_member;
 pub mod session_verification;
 pub mod sliding_sync;
 pub mod timeline;
-mod uniffi_api;
 
 use client::Client;
 use client_builder::ClientBuilder;
 use matrix_sdk::{encryption::CryptoStoreError, HttpError, IdParseError};
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
-pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
@@ -49,7 +48,7 @@ pub use matrix_sdk::{
 };
 
 pub use self::{
-    authentication_service::*, client::*, notification_service::*, room::*,
+    authentication_service::*, client::*, notification_service::*, room::*, room_member::*,
     session_verification::*, sliding_sync::*, timeline::*,
 };
 
@@ -97,6 +96,8 @@ impl From<serde_json::Error> for ClientError {
 
 pub use platform::*;
 
+uniffi::include_scaffolding!("api");
+
 mod uniffi_types {
     pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
@@ -109,7 +110,8 @@ mod uniffi_types {
             PusherKind, Session,
         },
         client_builder::ClientBuilder,
-        room::{Membership, MembershipState, Room, RoomMember},
+        room::{Membership, Room},
+        room_member::{MembershipState, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
             RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
