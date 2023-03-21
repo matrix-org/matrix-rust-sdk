@@ -67,7 +67,7 @@ impl RoomMember {
 
     /// Adds the room member to the current account data's ignore list
     pub async fn add_to_ignore_list(&self) -> Result<()> {
-        self.client.account().ignore_user(&self.inner.user_id().to_owned()).await
+        self.client.account().ignore_user(&self.inner.user_id()).await
     }
 
     /// Adds the room member to the current account data's ignore list
