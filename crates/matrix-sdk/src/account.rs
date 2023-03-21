@@ -34,12 +34,14 @@ use ruma::{
     },
     assign,
     events::{
-        room::MediaSource, AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        room::MediaSource,
+        AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
     },
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
 
@@ -785,6 +787,40 @@ impl Account {
         self.set_account_data(content).await?;
 
         Ok(())
+    }
+
+    /// Adds the given user ID to the account's ignore list.
+    pub async fn ignore_user(&self, user_id: &UserId) -> Result<()> {
+        let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
+        ignored_user_list.ignored_users.insert(user_id.to_owned(), IgnoredUser::new());
+
+        // Updating the account data
+        self.set_account_data(ignored_user_list).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here but I don't know how
+        Ok(())
+    }
+
+    /// Removes the given user ID from the account's ignore list.
+    pub async fn unignore_user(&self, user_id: &UserId) -> Result<()> {
+        let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
+        ignored_user_list.ignored_users.remove(user_id);
+
+        // Updating the account data
+        self.set_account_data(ignored_user_list).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here but I don't know how
+        Ok(())
+    }
+
+    async fn get_ignored_user_list_event_content(&self) -> Result<IgnoredUserListEventContent> {
+        let ignored_user_list = self
+            .account_data::<IgnoredUserListEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .unwrap_or_default();
+        Ok(ignored_user_list)
     }
 }
 

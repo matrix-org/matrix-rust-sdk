@@ -212,15 +212,7 @@ enum MembershipState {
     "Leave",
 };
 
-dictionary RoomMember {
-    string user_id;
-    string? display_name;
-    string? avatar_url;
-    MembershipState membership;
-    boolean is_name_ambiguous;
-    i64 power_level;
-    i64 normalized_power_level;
-};
+interface RoomMember { };
 
 interface Room {
     [Throws=ClientError]

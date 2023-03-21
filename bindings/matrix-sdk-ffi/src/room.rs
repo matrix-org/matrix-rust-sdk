@@ -24,7 +24,7 @@ use mime::Mime;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{TimelineDiff, TimelineItem, TimelineListener};
+use crate::{RoomMember, TimelineDiff, TimelineItem, TimelineListener};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -38,56 +38,6 @@ pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 pub struct Room {
     room: SdkRoom,
     timeline: TimelineLock,
-}
-
-#[derive(Clone)]
-pub enum MembershipState {
-    /// The user is banned.
-    Ban,
-
-    /// The user has been invited.
-    Invite,
-
-    /// The user has joined.
-    Join,
-
-    /// The user has requested to join.
-    Knock,
-
-    /// The user has left.
-    Leave,
-}
-
-#[derive(uniffi::Object)]
-pub struct RoomMember {
-    pub user_id: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub membership: MembershipState,
-    pub is_name_ambiguous: bool,
-    pub power_level: i64,
-    pub normalized_power_level: i64,
-}
-
-impl From<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
-    fn from(m: matrix_sdk::ruma::events::room::member::MembershipState) -> Self {
-        match m {
-            matrix_sdk::ruma::events::room::member::MembershipState::Ban => MembershipState::Ban,
-            matrix_sdk::ruma::events::room::member::MembershipState::Invite => {
-                MembershipState::Invite
-            }
-            matrix_sdk::ruma::events::room::member::MembershipState::Join => MembershipState::Join,
-            matrix_sdk::ruma::events::room::member::MembershipState::Knock => {
-                MembershipState::Knock
-            }
-            matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
-                MembershipState::Leave
-            }
-            _ => todo!(
-                "Handle Custom case: https://github.com/matrix-org/matrix-rust-sdk/issues/1254"
-            ),
-        }
-    }
 }
 
 #[uniffi::export]
@@ -198,22 +148,14 @@ impl Room {
         })
     }
 
-    pub fn members(&self) -> Result<Vec<RoomMember>> {
+    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>> {
         let room = self.room.clone();
         RUNTIME.block_on(async move {
             let members = room
                 .members()
                 .await?
                 .iter()
-                .map(|m| RoomMember {
-                    user_id: m.user_id().to_string(),
-                    display_name: m.display_name().map(|d| d.to_owned()),
-                    avatar_url: m.avatar_url().map(|a| a.to_string()),
-                    membership: m.membership().to_owned().into(),
-                    is_name_ambiguous: m.name_ambiguous(),
-                    power_level: m.power_level(),
-                    normalized_power_level: m.normalized_power_level(),
-                })
+                .map(|m| Arc::new(RoomMember::new(m.clone())))
                 .collect();
             Ok(members)
         })

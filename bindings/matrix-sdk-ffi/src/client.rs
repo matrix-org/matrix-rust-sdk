@@ -505,6 +505,22 @@ impl Client {
         let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
         Ok(dm)
     }
+
+    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client.account().ignore_user(&user_id).await?;
+            Ok(())
+        })
+    }
+
+    pub fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client.account().unignore_user(&user_id).await?;
+            Ok(())
+        })
+    }
 }
 
 impl Client {
