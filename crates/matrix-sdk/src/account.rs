@@ -34,13 +34,14 @@ use ruma::{
     },
     assign,
     events::{
-        ignored_user_list::IgnoredUserListEventContent, room::MediaSource,
+        ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        room::MediaSource,
         AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
     },
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
 
@@ -789,9 +790,9 @@ impl Account {
     }
 
     /// Adds the given user ID to the account's ignore list.
-    pub(crate) async fn ignore_user(&self, user_id: &UserId) -> Result<()> {
+    pub async fn ignore_user(&self, user_id: &UserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
-        ignored_user_list.ignored_users.insert(user_id.clone(), IgnoredUser::new());
+        ignored_user_list.ignored_users.insert(user_id.to_owned(), IgnoredUser::new());
 
         // Updating the account data
         self.set_account_data(ignored_user_list).await?;
@@ -801,7 +802,7 @@ impl Account {
     }
 
     /// Removes the given user ID from the account's ignore list.
-    pub(crate) async fn unignore_user(&self, user_id: &UserId) -> Result<()> {
+    pub async fn unignore_user(&self, user_id: &UserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
         ignored_user_list.ignored_users.remove(user_id);
 

@@ -64,8 +64,8 @@ use ruma::{
     },
     assign,
     serde::JsonObject,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
@@ -2518,16 +2518,6 @@ impl Client {
     pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
         let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
-    }
-
-    /// Adds the specified user_id to the current account data's ignore_list
-    pub async fn ignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
-        self.account().ignore_user(user_id).await
-    }
-
-    /// Removes the specified user_id to the current account data's ignore_list
-    pub async fn unignore_user(&self, user_id: &OwnedUserId) -> Result<()> {
-        self.account().unignore_user(user_id).await
     }
 }
 
