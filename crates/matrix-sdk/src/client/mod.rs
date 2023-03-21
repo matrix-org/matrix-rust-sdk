@@ -346,13 +346,13 @@ impl Client {
     }
 
     /// Performs a search for users.
-    /// The search is performed case-insensitively on user IDs and display names 
-    /// 
+    /// The search is performed case-insensitively on user IDs and display names
+    ///
     /// # Arguments
     ///
     /// * `search_term` - The search term for the search
     /// * `limit` - The maximum number of results to return. Defaults to 10.
-    /// 
+    ///
     /// [user directory]: https://spec.matrix.org/v1.6/client-server-api/#user-directory
     pub async fn search_users(
         &self,
@@ -361,8 +361,8 @@ impl Client {
     ) -> HttpResult<search_users::v3::Response> {
         let mut request = search_users::v3::Request::new(search_term.to_owned());
 
-        if let Some(ulimit) = UInt::new(limit) {
-            request.limit = ulimit;
+        if let Some(limit) = UInt::new(limit) {
+            request.limit = limit;
         }
 
         self.send(request, None).await

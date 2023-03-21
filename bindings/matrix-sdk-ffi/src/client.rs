@@ -543,9 +543,7 @@ pub struct SearchUsersResults {
 
 impl From<search_users::v3::Response> for SearchUsersResults {
     fn from(value: search_users::v3::Response) -> Self {
-        let results: Vec<UserProfile> =
-            value.results.iter().map(|user| UserProfile::from(user)).collect();
-
+        let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
         SearchUsersResults { results: results, limited: value.limited }
     }
 }
@@ -559,13 +557,13 @@ pub struct UserProfile {
 
 impl From<&search_users::v3::User> for UserProfile {
     fn from(value: &search_users::v3::User) -> Self {
-        UserProfile { 
-            user_id: value.user_id.as_str().to_owned(), 
+        UserProfile {
+            user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: match &value.avatar_url {
                 Some(url) => Some(url.to_string()),
-                None => None
-            }
+                None => None,
+            },
         }
     }
 }
