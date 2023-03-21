@@ -648,11 +648,6 @@ impl GroupSessionManager {
             if !request.messages.is_empty() {
                 let txn_id = request.txn_id.to_owned();
                 group_session.add_request(txn_id.to_owned(), request.into(), share_info);
-                // TODO: We need some special handling for the `m.no_olm` case since that one
-                // should only be sent once to a particular device. We currently allow multiple
-                // outbound group sessions to race towards sending the `m.no_olm` code to a
-                // given device. The special handling should likely be done in the above filter
-                // phase.
                 self.sessions.sessions_being_shared.insert(txn_id, group_session.clone());
             }
         }
