@@ -332,9 +332,11 @@ mod tests {
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
         serde::Raw,
     };
+    use serde::Deserialize;
     use serde_json::json;
 
-    use super::{SyncTimelineEvent, TimelineEvent};
+    use super::{SyncTimelineEvent, TimelineEvent, VerificationState};
+    use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
     fn example_event() -> serde_json::Value {
         json!({
@@ -367,5 +369,45 @@ mod tests {
 
         assert_eq!(converted_event.event_id(), "$xxxxx:example.org");
         assert_eq!(converted_event.sender(), "@carl:example.com");
+    }
+
+    #[test]
+    fn old_verification_state_to_new_migration() {
+        #[derive(Deserialize)]
+        struct State {
+            state: VerificationState,
+        }
+
+        let state = json!({
+            "state": "Trusted",
+        });
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old trusted value");
+        assert_eq!(deserialized.state, VerificationState::Verified);
+
+        let state = json!({
+            "state": "UnknownDevice",
+        });
+
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old unknown device value");
+
+        assert_eq!(
+            deserialized.state,
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice
+            ))
+        );
+
+        let state = json!({
+            "state": "Untrusted",
+        });
+        let deserialized: State =
+            serde_json::from_value(state).expect("We can deserialize the old trusted value");
+
+        assert_eq!(
+            deserialized.state,
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+        );
     }
 }
