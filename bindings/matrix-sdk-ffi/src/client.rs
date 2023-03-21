@@ -560,10 +560,7 @@ impl From<&search_users::v3::User> for UserProfile {
         UserProfile {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
-            avatar_url: match &value.avatar_url {
-                Some(url) => Some(url.to_string()),
-                None => None,
-            },
+            avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
         }
     }
 }

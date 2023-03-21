@@ -2766,6 +2766,6 @@ pub(crate) mod tests {
         assert_eq!(result.display_name.clone().unwrap(), "Test");
         assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
         assert_eq!(response.results.len(), 1);
-        assert_eq!(response.limited, false);
+        assert!(!response.limited);
     }
 }
