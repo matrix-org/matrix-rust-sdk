@@ -84,16 +84,20 @@ impl RoomMember {
         self.inner.is_account_user()
     }
 
-    pub fn add_to_ignore_list(&self) -> Result<(), ClientError> {
+    /// Adds the room member to the current account data's ignore list
+    /// which will ignore the user across all rooms.
+    pub fn ignore(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            self.inner.add_to_ignore_list().await?;
+            self.inner.ignore().await?;
             Ok(())
         })
     }
 
-    pub fn remove_from_ignore_list(&self) -> Result<(), ClientError> {
+    /// Removes the room member from the current account data's ignore list
+    /// which will unignore the user across all rooms.
+    pub fn unignore(&self) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            self.inner.remove_from_ignore_list().await?;
+            self.inner.unignore().await?;
             Ok(())
         })
     }
