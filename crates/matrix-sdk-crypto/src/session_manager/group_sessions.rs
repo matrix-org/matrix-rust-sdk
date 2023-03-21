@@ -157,25 +157,29 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        if let Some((_, s)) = self.sessions.sessions_being_shared.remove(request_id) {
-            let no_olm = s.mark_request_as_sent(request_id);
+        if let Some((_, session)) = self.sessions.sessions_being_shared.remove(request_id) {
+            let no_olm = session.mark_request_as_sent(request_id);
 
             let mut changes = Changes::default();
 
-            for (u, d) in no_olm.iter() {
-                let device = self.store.get_device(u, d).await;
-                if let Ok(Some(device)) = device {
-                    device.set_no_olm_sent(true);
-                    changes.devices.changed.push(device.inner.clone());
-                } else {
-                    error!(
-                        request_id = request_id.to_string().as_str(),
-                        "Marking to-device no olm as sent but device not found, might have been deleted?"
-                    );
+            for (user_id, devices) in &no_olm {
+                for device_id in devices {
+                    let device = self.store.get_device(user_id, device_id).await;
+
+                    if let Ok(Some(device)) = device {
+                        device.set_no_olm_sent(true);
+                        changes.devices.changed.push(device.inner.clone());
+                    } else {
+                        error!(
+                            request_id = request_id.to_string().as_str(),
+                            "Marking to-device no olm as sent but device not found, might \
+                            have been deleted?"
+                        );
+                    }
                 }
             }
 
-            changes.outbound_group_sessions.push(s.clone());
+            changes.outbound_group_sessions.push(session.clone());
             self.store.save_changes(changes).await?;
         }
 
@@ -304,7 +308,6 @@ impl GroupSessionManager {
                 MaybeEncryptedRoomKey::Withheld { code } => {
                     withheld_devices.push((result.device, code));
                 }
-                MaybeEncryptedRoomKey::None => (),
             }
         }
 
@@ -545,6 +548,37 @@ impl GroupSessionManager {
         Ok(withheld_devices)
     }
 
+    fn is_withheld_to(
+        &self,
+        group_session: &OutboundGroupSession,
+        device: &Device,
+        code: &WithheldCode,
+    ) -> bool {
+        // The `m.no_olm` withheld code is special because it is supposed to be sent
+        // only once for a given device. The `Device` remembers the flag if we
+        // already sent a `m.no_olm` to this particular device so let's check
+        // that first.
+        //
+        // Keep in mind that any outbound group session might want to send this code to
+        // the device. So we need to check if any of our outbound group sessions
+        // is attempting to send the code to the device.
+        //
+        // This still has a slight race where some other thread might remove the
+        // outbound group session while a third is marking the device as having
+        // received the code.
+        //
+        // Since nothing terrible happens if we do end up sending the withheld code
+        // twice, and removing the race requires us to lock the store because the
+        // `OutboundGroupSession` and the `Device` both interact with the flag we'll
+        // leave it be.
+        if code == &WithheldCode::NoOlm {
+            device.is_no_olm_sent()
+                || self.sessions.sessions.iter().any(|s| s.is_withheld_to(device, code))
+        } else {
+            group_session.is_withheld_to(device, code)
+        }
+    }
+
     async fn handle_withheld_devices(
         &self,
         group_session: &OutboundGroupSession,
@@ -604,7 +638,7 @@ impl GroupSessionManager {
 
         let result: Vec<_> = withheld_devices
             .into_iter()
-            .filter(|(device, code)| !group_session.is_withheld_to(device, code))
+            .filter(|(device, code)| !self.is_withheld_to(group_session, device, code))
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .into_iter()
             .map(chunk_to_request)
@@ -614,6 +648,11 @@ impl GroupSessionManager {
             if !request.messages.is_empty() {
                 let txn_id = request.txn_id.to_owned();
                 group_session.add_request(txn_id.to_owned(), request.into(), share_info);
+                // TODO: We need some special handling for the `m.no_olm` case since that one
+                // should only be sent once to a particular device. We currently allow multiple
+                // outbound group sessions to race towards sending the `m.no_olm` code to a
+                // given device. The special handling should likely be done in the above filter
+                // phase.
                 self.sessions.sessions_being_shared.insert(txn_id, group_session.clone());
             }
         }
@@ -711,14 +750,18 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
-                BTreeMap::new();
+            let mut recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+            let mut withheld_recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
             // We're just collecting the recipients for logging reasons.
             for request in &requests {
                 for (user_id, device_map) in &request.messages {
                     let devices = device_map.keys();
-                    recipients.entry(user_id).or_default().extend(devices)
+                    if request.event_type == ToDeviceEventType::RoomEncrypted {
+                        recipients.entry(user_id).or_default().extend(devices)
+                    } else {
+                        withheld_recipients.entry(user_id).or_default().extend(devices)
+                    }
                 }
             }
 
@@ -730,6 +773,7 @@ impl GroupSessionManager {
                 request_count = requests.len(),
                 ?transaction_ids,
                 ?recipients,
+                ?withheld_recipients,
                 "Encrypted a room key and created to-device requests"
             );
         }
@@ -1224,5 +1268,62 @@ mod tests {
             });
 
         assert!(has_blacklist);
+    }
+
+    #[async_test]
+    async fn no_olm_withheld_only_sent_once() {
+        let keys_query = keys_query_response();
+        let txn_id = TransactionId::new();
+
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
+
+        let first_room = room_id!("!test:localhost");
+        let second_room = room_id!("!test2:localhost");
+        let bob_id = user_id!("@bob:localhost");
+
+        let settings = EncryptionSettings::default();
+        let users = [bob_id];
+
+        let requests = machine
+            .share_room_key(first_room, users.into_iter(), settings.to_owned())
+            .await
+            .unwrap();
+
+        // One withheld request should be sent.
+        let withheld_count =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+
+        assert_eq!(withheld_count, 1);
+        assert_eq!(requests.len(), 1);
+
+        // On the second room key share attempt we're not sending another `m.no_olm`
+        // code since the first one is taking care of this.
+        let second_requests =
+            machine.share_room_key(second_room, users.into_iter(), settings).await.unwrap();
+
+        let withheld_count =
+            second_requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+
+        assert_eq!(withheld_count, 0);
+        assert_eq!(second_requests.len(), 0);
+
+        let response = ToDeviceResponse::new();
+
+        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+
+        // The device should be marked as having the `m.no_olm` code received only after
+        // the request has been marked as sent.
+        assert!(!device.is_no_olm_sent());
+
+        for request in requests {
+            machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+        }
+
+        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+
+        assert!(device.is_no_olm_sent());
     }
 }

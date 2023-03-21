@@ -259,12 +259,14 @@ impl OutboundGroupSession {
     pub fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-    ) -> Vec<(OwnedUserId, OwnedDeviceId)> {
-        if let Some((_, (to_device, r))) = self.to_share_with_set.remove(request_id) {
-            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
-                r.iter().map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect())).collect();
+    ) -> BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>> {
+        let mut no_olm_devices = BTreeMap::new();
 
-            let mut no_olm_devices: Vec<(OwnedUserId, OwnedDeviceId)> = Vec::new();
+        if let Some((_, (to_device, request))) = self.to_share_with_set.remove(request_id) {
+            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
+                .iter()
+                .map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect()))
+                .collect();
 
             info!(
                 ?request_id,
@@ -273,13 +275,13 @@ impl OutboundGroupSession {
                 "Marking to-device request carrying a room key or a withheld as sent"
             );
 
-            for (user_id, info) in r {
-                let no_olms: Vec<(OwnedUserId, OwnedDeviceId)> = info
+            for (user_id, info) in request {
+                let no_olms: BTreeSet<OwnedDeviceId> = info
                     .iter()
                     .filter(|(_, info)| matches!(info, ShareInfo::Withheld(WithheldCode::NoOlm)))
-                    .map(|(d, _)| (user_id.to_owned(), d.to_owned()))
+                    .map(|(d, _)| (d.to_owned()))
                     .collect();
-                no_olm_devices.extend(no_olms);
+                no_olm_devices.insert(user_id.to_owned(), no_olms);
 
                 self.shared_with_set.entry(user_id).or_default().extend(info)
             }
@@ -291,21 +293,22 @@ impl OutboundGroupSession {
                     "All m.room_key and withheld to-device requests were sent out, marking \
                         session as shared.",
                 );
+
                 self.mark_as_shared();
             }
-            no_olm_devices
         } else {
             let request_ids: Vec<String> =
                 self.to_share_with_set.iter().map(|e| e.key().to_string()).collect();
 
             error!(
                 all_request_ids = ?request_ids,
-                request_id = request_id.to_string().as_str(),
+                request_id = %request_id,
                 "Marking to-device request carrying a room key as sent but no \
                     request found with the given id"
             );
-            Vec::default()
         }
+
+        no_olm_devices
     }
 
     /// Encrypt the given plaintext using this session.

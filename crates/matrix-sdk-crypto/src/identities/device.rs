@@ -67,7 +67,6 @@ pub enum MaybeEncryptedRoomKey {
     Withheld {
         code: WithheldCode,
     },
-    None,
 }
 
 /// A read-only version of a `Device`.
@@ -450,11 +449,7 @@ impl Device {
 
             Err(OlmError::MissingSession)
             | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
-                Ok(if self.is_no_olm_sent() {
-                    MaybeEncryptedRoomKey::None
-                } else {
-                    MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm }
-                })
+                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
             }
             Err(e) => Err(e),
         }
