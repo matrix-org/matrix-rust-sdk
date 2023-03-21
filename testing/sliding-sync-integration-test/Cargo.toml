@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[dependencies]
+[dev-dependencies]
 anyhow = { workspace = true }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
