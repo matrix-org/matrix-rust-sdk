@@ -2557,7 +2557,7 @@ pub(crate) mod tests {
     use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
-        matchers::{header, method, path},
+        matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -2743,5 +2743,29 @@ pub(crate) mod tests {
         let homeserver = Url::parse("http://example.com/").unwrap();
         client.set_homeserver(homeserver.clone()).await;
         assert_eq!(client.homeserver().await, homeserver);
+    }
+
+    #[async_test]
+    async fn search_user_request() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path("_matrix/client/r0/user_directory/search"))
+            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::search_users::SEARCH_USERS_RESPONSE),
+            )
+            .mount(&server)
+            .await;
+
+        let response = client.search_users("test", 50).await.unwrap();
+        let result = response.results.first().unwrap();
+        assert_eq!(result.user_id.to_string(), "@test:exmple.me");
+        assert_eq!(result.display_name.clone().unwrap(), "Test");
+        assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.limited, false);
     }
 }

@@ -10,6 +10,7 @@ use serde_json::{json, Value as JsonValue};
 pub mod api_responses;
 pub mod members;
 pub mod messages;
+pub mod search_users;
 pub mod sync;
 pub mod sync_events;
 
