@@ -75,7 +75,7 @@ impl RoomMember {
         self.client.unignore_user(&self.inner.user_id().to_owned()).await
     }
 
-    /// Tells if the member of the room is the user of the account
+    /// Returns true if the member of the room is the user of the account
     pub fn is_account_user(&self) -> bool {
         match self.client.user_id() {
             Some(id) => id == self.inner.user_id(),
