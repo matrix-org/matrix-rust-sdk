@@ -188,20 +188,22 @@ impl SlidingSyncRoom {
                 // If we come from a cold storage, we overwrite the timeline queue with the
                 // timeline updates.
 
-                let mut lock = self.timeline_queue.write().unwrap();
-                lock.clear();
+                let mut timeline_queue = self.timeline_queue.write().unwrap();
+                timeline_queue.clear();
+
                 for event in timeline_updates {
-                    lock.push_back(event);
+                    timeline_queue.push_back(event);
                 }
 
                 self.is_cold.store(false, Ordering::SeqCst);
             } else if limited {
                 // The server alerted us that we missed items in between.
 
-                let mut lock = self.timeline_queue.write().unwrap();
-                lock.clear();
+                let mut timeline_queue = self.timeline_queue.write().unwrap();
+                timeline_queue.clear();
+
                 for event in timeline_updates {
-                    lock.push_back(event);
+                    timeline_queue.push_back(event);
                 }
             } else {
                 // It's the hot path. We have new updates that must be added to the existing
