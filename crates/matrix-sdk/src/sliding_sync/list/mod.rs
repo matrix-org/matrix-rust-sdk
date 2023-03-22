@@ -231,8 +231,8 @@ impl SlidingSyncList {
     pub(super) fn handle_response(
         &mut self,
         maximum_number_of_rooms: u32,
-        ops: &Vec<v4::SyncOp>,
-        updated_rooms: &Vec<OwnedRoomId>,
+        ops: &[v4::SyncOp],
+        updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         let response = self.inner.update_state(
             maximum_number_of_rooms,
@@ -410,9 +410,9 @@ impl SlidingSyncListInner {
     fn update_state(
         &self,
         maximum_number_of_rooms: u32,
-        ops: &Vec<v4::SyncOp>,
+        ops: &[v4::SyncOp],
         ranges: &[(UInt, UInt)],
-        updated_rooms: &Vec<OwnedRoomId>,
+        updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         let ranges = ranges
             .iter()
@@ -673,7 +673,7 @@ impl FrozenSlidingSyncList {
 #[instrument(skip(operations))]
 fn room_ops(
     rooms_list: &mut ObservableVector<RoomListEntry>,
-    operations: &Vec<v4::SyncOp>,
+    operations: &[v4::SyncOp],
     room_ranges: &Vec<(usize, usize)>,
 ) -> Result<(), Error> {
     let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
