@@ -326,14 +326,15 @@
 //! ### Quick refreshing
 //!
 //! A main purpose of [Sliding Sync][MSC] is to provide an API for snappy end
-//! user applications. Long-polling on the other side means that we wait for the
-//! server to respond and that can take quite some time, before sending the next
-//! request with our updates, for example an update in a list's `range`.
+//! user applications. Long-polling on the other side means that the client has
+//! to wait for the server to respond and that can take quite some time, before
+//! sending the next request with updates, for example an update in a list's
+//! `range`.
 //!
-//! That is a bit unfortunate and leaks through the `stream` API as well. We are
-//! waiting for a `stream.next().await` call before the next request is sent.
-//! The [specification][MSC] on long polling also states, however, that if an
-//! new request is found coming in, the previous one shall be sent out. In
+//! That is a bit unfortunate and leaks through the `stream` API as well. The
+//! client is waiting for a `stream.next().await` call before the next request
+//! is sent. The [specification][MSC] on long-polling also states, however, that
+//! if an new request is found coming in, the previous one shall be sent out. In
 //! practice that means one can just start a new stream and the old connection
 //! will return immediately — with a proper response though. One just needs to
 //! make sure to not call that stream any further. Additionally, as both
@@ -342,74 +343,16 @@
 //! the [`SlidingSync`][] will only process new data and skip the processing
 //! even across restarts.
 //!
-//! To support this, in practice one should usually wrap its `loop` in a
-//! spawn with an atomic flag that tells it to stop, which one can set upon
-//! restart. Something along the lines of:
-//!
-//! ```no_run
-//! # use futures::executor::block_on;
-//! # use futures::{pin_mut, StreamExt};
-//! # use matrix_sdk::{
-//! #    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder, SlidingSync, Error},
-//! #    Client,
-//! # };
-//! # use ruma::{
-//! #    api::client::sync::sync_events::v4, assign,
-//! # };
-//! # use tracing::{debug, error, info, warn};
-//! # use url::Url;
-//! # block_on(async {
-//! # let homeserver = Url::parse("http://example.com")?;
-//! # let client = Client::new(homeserver).await?;
-//! # let sliding_sync = client
-//! #    .sliding_sync()
-//! #    .await
-//! #    // any lists you want are added here.
-//! #    .build()
-//! #    .await?;
-//! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-//!
-//! struct MyRunner { lock: Arc<AtomicBool>, sliding_sync: SlidingSync };
-//!
-//! impl MyRunner {
-//!   pub fn restart_sync(&mut self) {
-//!     self.lock.store(false, Ordering::SeqCst);
-//!     // create a new lock
-//!     self.lock = Arc::new(AtomicBool::new(false));
-//!
-//!     let stream_lock = self.lock.clone();
-//!     let sliding_sync = self.sliding_sync.clone();
-//!
-//!     // continuously poll for updates
-//!     tokio::spawn(async move {
-//!         let stream = sliding_sync.stream();
-//!         pin_mut!(stream);
-//!         loop {
-//!             match stream.next().await {
-//!                 Some(Ok(u)) => {
-//!                     info!("Received an update. Summary: {u:?}");
-//!                 }
-//!                 Some(Err(e)) => {
-//!                     error!("loop was stopped by client error processing: {e}");
-//!                 }
-//!                 None => {
-//!                     error!("Streaming loop ended unexpectedly");
-//!                     break;
-//!                 }
-//!            };
-//!             if !stream_lock.load(Ordering::SeqCst) {
-//!                 info!("Asked to stop");
-//!                 break
-//!             }
-//!         };
-//!     });
-//!   }
-//! }
-//!
-//! # anyhow::Ok(())
-//! # });
-//! ```
-//!
+//! To support this, in practice, one can spawn a `Future` that runs
+//! [`SlidingStream::stream`]. The spawned `Future` can be cancelled safely. If
+//! the client was waiting on a response, it's cancelled without any issue. If
+//! a response was just received, it
+//! will be fully handled by `SlidingSync`. This _response is always
+//! handled_ process isn't blocking. The cancellation of the spawned `Future`
+//! will be as immediate as possible, and the response handling (if necessary)
+//! will be done in a “detached mode”. However, any further responses handling
+//! will have to wait. It is not possible for `SlidingSync` to handle responses
+//! concurrently.
 //!
 //! ## Reactive API
 //!
