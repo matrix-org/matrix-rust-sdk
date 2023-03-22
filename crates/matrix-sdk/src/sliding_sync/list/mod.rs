@@ -1179,6 +1179,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_sliding_sync_get_room_id() {
+        let mut list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 1)
+            .build()
+            .unwrap();
+
+        let room0 = room_id!("!room0:bar.org");
+        let room1 = room_id!("!room1:bar.org");
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync0: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [0, 1],
+            "room_ids": [room0, room1],
+        }))
+        .unwrap();
+
+        list.handle_response(6, &[sync0], &[room0.to_owned(), room1.to_owned()]).unwrap();
+
+        assert_eq!(list.get_room_id(0), Some(room0.to_owned()));
+        assert_eq!(list.get_room_id(1), Some(room1.to_owned()));
+        assert_eq!(list.get_room_id(2), None);
+    }
+
     macro_rules! assert_ranges {
         (
             list = $list:ident,
