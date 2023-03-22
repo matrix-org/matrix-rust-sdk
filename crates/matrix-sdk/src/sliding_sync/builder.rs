@@ -104,7 +104,7 @@ impl SlidingSyncBuilder {
     ///
     /// Replace any list with the name.
     pub fn add_list(mut self, list: SlidingSyncList) -> Self {
-        self.lists.insert(list.name.clone(), list);
+        self.lists.insert(list.name().to_owned(), list);
 
         self
     }
