@@ -174,7 +174,7 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<UInt> {
-        self.inner.timeline_limit.read().unwrap().clone()
+        **self.inner.timeline_limit.read().unwrap()
     }
 
     /// Set timeline limit.
@@ -373,7 +373,7 @@ impl SlidingSyncListInner {
                         range_start,
                         range_desired_size,
                         maximum_number_of_rooms_to_fetch,
-                        self.maximum_number_of_rooms.read().unwrap().clone(),
+                        **self.maximum_number_of_rooms.read().unwrap(),
                     )?];
                 }
 
@@ -393,7 +393,7 @@ impl SlidingSyncListInner {
                         range_start,
                         range_desired_size,
                         maximum_number_of_rooms_to_fetch,
-                        self.maximum_number_of_rooms.read().unwrap().clone(),
+                        **self.maximum_number_of_rooms.read().unwrap(),
                     )?];
                 }
             }
@@ -429,7 +429,7 @@ impl SlidingSyncListInner {
         &self,
         maximum_number_of_rooms: u32,
         ops: &Vec<v4::SyncOp>,
-        ranges: &Vec<(UInt, UInt)>,
+        ranges: &[(UInt, UInt)],
         updated_rooms: &Vec<OwnedRoomId>,
     ) -> Result<bool, Error> {
         let ranges = ranges
