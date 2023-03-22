@@ -50,70 +50,6 @@ pub struct SlidingSyncList {
     inner: Arc<SlidingSyncListInner>,
 }
 
-#[derive(Debug)]
-pub(super) struct SlidingSyncListInner {
-    /// Which [`SlidingSyncMode`] to start this list under.
-    sync_mode: SlidingSyncMode,
-
-    /// Sort the rooms list by this.
-    sort: Vec<String>,
-
-    /// Required states to return per room.
-    required_state: Vec<(StateEventType, String)>,
-
-    /// When doing a full-sync, the ranges of rooms to load are extended by this
-    /// `full_sync_batch_size` size.
-    full_sync_batch_size: u32,
-
-    /// When doing a full-sync, it is possible to limit the total number of
-    /// rooms to load by using this field.
-    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
-
-    /// Whether the list should send `UpdatedAt`-Diff signals for rooms
-    /// that have changed.
-    send_updates_for_items: bool,
-
-    /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
-
-    /// The maximum number of timeline events to query for.
-    pub timeline_limit: StdRwLock<Observable<Option<UInt>>>,
-
-    /// Name of this list to easily recognize them.
-    pub name: String,
-
-    /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncState>>,
-
-    /// The total number of rooms that is possible to interact with for the
-    /// given list.
-    ///
-    /// It's not the total rooms that have been fetched. The server tells the
-    /// client that it's possible to fetch this amount of rooms maximum.
-    /// Since this number can change according to the list filters, it's
-    /// observable.
-    maximum_number_of_rooms: StdRwLock<Observable<Option<u32>>>,
-
-    /// The rooms in order.
-    rooms_list: StdRwLock<ObservableVector<RoomListEntry>>,
-
-    /// The ranges windows of the list.
-    #[allow(clippy::type_complexity)] // temporarily
-    ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
-
-    /// Get informed if anything in the room changed.
-    ///
-    /// If you only care to know about changes once all of them have applied
-    /// (including the total), subscribe to this observable.
-    pub rooms_updated_broadcast: StdRwLock<Observable<()>>,
-
-    is_cold: AtomicBool,
-
-    /// The request generator, i.e. a type that yields the appropriate list
-    /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
-    request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
-}
-
 impl SlidingSyncList {
     /// Get the name of the list.
     pub fn name(&self) -> &str {
@@ -327,6 +263,70 @@ impl SlidingSyncList {
 
         Ok(response)
     }
+}
+
+#[derive(Debug)]
+pub(super) struct SlidingSyncListInner {
+    /// Which [`SlidingSyncMode`] to start this list under.
+    sync_mode: SlidingSyncMode,
+
+    /// Sort the rooms list by this.
+    sort: Vec<String>,
+
+    /// Required states to return per room.
+    required_state: Vec<(StateEventType, String)>,
+
+    /// When doing a full-sync, the ranges of rooms to load are extended by this
+    /// `full_sync_batch_size` size.
+    full_sync_batch_size: u32,
+
+    /// When doing a full-sync, it is possible to limit the total number of
+    /// rooms to load by using this field.
+    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
+
+    /// Whether the list should send `UpdatedAt`-Diff signals for rooms
+    /// that have changed.
+    send_updates_for_items: bool,
+
+    /// Any filters to apply to the query.
+    filters: Option<v4::SyncRequestListFilters>,
+
+    /// The maximum number of timeline events to query for.
+    timeline_limit: StdRwLock<Observable<Option<UInt>>>,
+
+    /// Name of this list to easily recognize them.
+    name: String,
+
+    /// The state this list is in.
+    state: StdRwLock<Observable<SlidingSyncState>>,
+
+    /// The total number of rooms that is possible to interact with for the
+    /// given list.
+    ///
+    /// It's not the total rooms that have been fetched. The server tells the
+    /// client that it's possible to fetch this amount of rooms maximum.
+    /// Since this number can change according to the list filters, it's
+    /// observable.
+    maximum_number_of_rooms: StdRwLock<Observable<Option<u32>>>,
+
+    /// The rooms in order.
+    rooms_list: StdRwLock<ObservableVector<RoomListEntry>>,
+
+    /// The ranges windows of the list.
+    #[allow(clippy::type_complexity)] // temporarily
+    ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
+
+    /// Get informed if anything in the room changed.
+    ///
+    /// If you only care to know about changes once all of them have applied
+    /// (including the total), subscribe to this observable.
+    rooms_updated_broadcast: StdRwLock<Observable<()>>,
+
+    is_cold: AtomicBool,
+
+    /// The request generator, i.e. a type that yields the appropriate list
+    /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
+    request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
 }
 
 impl SlidingSyncListInner {
