@@ -167,7 +167,7 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn ranges<U>(&self, ranges: Vec<(U, U)>) -> &Self
+    pub fn set_ranges<U>(&self, ranges: Vec<(U, U)>) -> &Self
     where
         U: Into<UInt>,
     {
@@ -698,7 +698,8 @@ pub enum SlidingSyncMode {
 }
 
 /// The Entry in the Sliding Sync room list per Sliding Sync list.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`.
     #[default]
@@ -754,19 +755,19 @@ mod tests {
     use super::*;
 
     macro_rules! assert_json_roundtrip {
-        (from $type:ty: $to_string:expr => $to_json:expr) => {
-            let json = serde_json::to_string(&$to_string).unwrap();
-            assert_eq!(json, $to_json);
+        (from $type:ty: $rust_value:expr => $json_value:expr) => {
+            let json = serde_json::to_value(&$rust_value).unwrap();
+            assert_eq!(json, $json_value);
 
-            let rust: $type = serde_json::from_str(&json).unwrap();
-            assert_eq!(rust, $to_string);
+            let rust: $type = serde_json::from_value(json).unwrap();
+            assert_eq!(rust, $rust_value);
         };
     }
 
     macro_rules! assert_json_eq {
-        (from $type:ty: $to_string:expr => $to_json:expr) => {
-            let json = serde_json::to_string(&$to_string).unwrap();
-            assert_eq!(json, $to_json);
+        (from $type:ty: $rust_value:expr => $json_value:expr) => {
+            let json = serde_json::to_value(&$rust_value).unwrap();
+            assert_eq!(json, $json_value);
         };
     }
 
@@ -866,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_list_ranges() {
+    fn test_sliding_sync_list_set_ranges() {
         let list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
@@ -881,7 +882,7 @@ mod tests {
             assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
         }
 
-        list.ranges(ranges![(4, 5), (6, 7)]);
+        list.set_ranges(ranges![(4, 5), (6, 7)]);
 
         {
             let lock = list.ranges.read().unwrap();
@@ -972,7 +973,7 @@ mod tests {
     #[test]
     fn check_find_room_in_list() -> Result<()> {
         let list = SlidingSyncList::builder().name("foo").add_range(0u32, 9u32).build().unwrap();
-        let full_window_update: v4::SyncOp = serde_json::from_value(json! ({
+        let full_window_update: v4::SyncOp = serde_json::from_value(json!({
             "op": "SYNC",
             "range": [0, 9],
             "room_ids": [
@@ -1012,7 +1013,7 @@ mod tests {
         );
 
         // we invalidate a few in the center
-        let update: v4::SyncOp = serde_json::from_value(json! ({
+        let update: v4::SyncOp = serde_json::from_value(json!({
             "op": "INVALIDATE",
             "range": [4, 7],
         }))
@@ -1075,28 +1076,28 @@ mod tests {
     fn test_room_list_entry_serialization() {
         let room_id = room_id!("!foo:bar.org");
 
-        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Empty => r#""Empty""#);
-        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Invalidated(room_id.to_owned()) => r#"{"Invalidated":"!foo:bar.org"}"#);
-        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Filled(room_id.to_owned()) => r#"{"Filled":"!foo:bar.org"}"#);
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Empty => json!("Empty"));
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Invalidated(room_id.to_owned()) => json!({"Invalidated": "!foo:bar.org"}));
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Filled(room_id.to_owned()) => json!({"Filled": "!foo:bar.org"}));
     }
 
     #[test]
     fn test_sliding_sync_mode_serialization() {
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => r#""PagingFullSync""#);
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => r#""GrowingFullSync""#);
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => r#""Selective""#);
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => json!("PagingFullSync"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => json!("GrowingFullSync"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => json!("Selective"));
 
         // Specificity: `PagingFullSync` has a serde alias.
-        let alias: SlidingSyncMode = serde_json::from_str(r#""FullSync""#).unwrap();
+        let alias: SlidingSyncMode = serde_json::from_value(json!("FullSync")).unwrap();
         assert_eq!(alias, SlidingSyncMode::PagingFullSync);
     }
 
     #[test]
     fn test_sliding_sync_state_serialization() {
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => r#""Cold""#);
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => r#""Preload""#);
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => r#""CatchingUp""#);
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded=> r#""Live""#);
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("Cold"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preload"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("CatchingUp"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("Live"));
     }
 
     #[test]
@@ -1137,7 +1138,33 @@ mod tests {
                 },
             }
             =>
-            r#"{"rooms_count":42,"rooms_list":["Empty"],"rooms":{"!foo:bar.org":{"room_id":"!foo:bar.org","inner":{},"prev_batch":"let it go!","timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}}}"#
+            json!({
+                "rooms_count": 42,
+                "rooms_list": ["Empty"],
+                "rooms": {
+                    "!foo:bar.org": {
+                        "room_id": "!foo:bar.org",
+                        "inner": {},
+                        "prev_batch": "let it go!",
+                        "timeline": [
+                            {
+                                "event": {
+                                    "content": {
+                                        "body": "let it gooo!",
+                                        "msgtype": "m.text",
+                                    },
+                                    "event_id": "$xxxxx:example.org",
+                                    "origin_server_ts": 2189,
+                                    "room_id": "!someroom:example.com",
+                                    "sender": "@bob:example.com",
+                                    "type": "m.room.message",
+                                },
+                                "encryption_info": null,
+                            }
+                        ],
+                    },
+                },
+            })
         );
     }
 }
