@@ -22,7 +22,7 @@ use ruma::{
     api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, RoomId, UInt,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
@@ -259,7 +259,7 @@ impl SlidingSyncList {
             &self.inner.request_generator.read().unwrap().ranges,
             updated_rooms,
         )?;
-        self.inner.update_request_generator_state(maximum_number_of_rooms);
+        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(response)
     }
@@ -531,14 +531,14 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state of the [`SlidingSyncListRequestGenerator`].
-    fn update_request_generator_state(&self, maximum_number_of_rooms: u32) {
+    fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
 
-        let Some(range_end) = request_generator.ranges.first().map(|(_start, end)| u32::try_from(*end).unwrap()) else {
-            error!(name = self.name, "The request generator must have a range.");
-
-            return;
-        };
+        let range_end: u32 = request_generator
+            .ranges
+            .first()
+            .map(|(_start, end)| u32::try_from(*end).unwrap())
+            .ok_or_else(|| Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned()))?;
 
         match &mut request_generator.kind {
             SlidingSyncListRequestGeneratorKind::PagingFullSync {
