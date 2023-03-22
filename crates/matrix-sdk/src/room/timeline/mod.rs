@@ -269,7 +269,7 @@ impl Timeline {
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    #[instrument(skip(self, content), parent = &self.inner.room().client.inner.root_span, fields(room_id = ?self.room().room_id()))]
+    #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
     pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
@@ -337,7 +337,7 @@ impl Timeline {
     /// only keeps track of read receipts received from the homeserver, this
     /// keeps also track of implicit read receipts in this timeline, i.e.
     /// when a room member sends an event.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn latest_user_read_receipt(
         &self,
         user_id: &UserId,
@@ -350,7 +350,7 @@ impl Timeline {
     /// This uses [`Joined::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -373,7 +373,7 @@ impl Timeline {
     /// This uses [`Joined::send_multiple_receipts`] internally, but checks
     /// first if the receipts point to events in this timeline that are more
     /// recent than the current ones, to avoid unnecessary requests.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {
             if !self
