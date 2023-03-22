@@ -12,6 +12,7 @@ use matrix_sdk::{
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
+            user_directory::search_users,
         },
         events::{
             room::{
@@ -520,6 +521,47 @@ impl Client {
             self.client.account().unignore_user(&user_id).await?;
             Ok(())
         })
+    }
+
+    pub fn search_users(
+        &self,
+        search_term: String,
+        limit: u64,
+    ) -> Result<SearchUsersResults, ClientError> {
+        RUNTIME.block_on(async move {
+            let response = self.client.search_users(&search_term, limit).await?;
+            Ok(SearchUsersResults::from(response))
+        })
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct SearchUsersResults {
+    pub results: Vec<UserProfile>,
+    pub limited: bool,
+}
+
+impl From<search_users::v3::Response> for SearchUsersResults {
+    fn from(value: search_users::v3::Response) -> Self {
+        let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
+        SearchUsersResults { results, limited: value.limited }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+impl From<&search_users::v3::User> for UserProfile {
+    fn from(value: &search_users::v3::User) -> Self {
+        UserProfile {
+            user_id: value.user_id.to_string(),
+            display_name: value.display_name.clone(),
+            avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
+        }
     }
 }
 

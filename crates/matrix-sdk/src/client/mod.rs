@@ -58,6 +58,7 @@ use ruma::{
             },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
+            user_directory::search_users,
         },
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -342,6 +343,29 @@ impl Client {
 
     fn session_meta(&self) -> Option<&SessionMeta> {
         self.base_client().session_meta()
+    }
+
+    /// Performs a search for users.
+    /// The search is performed case-insensitively on user IDs and display names
+    ///
+    /// # Arguments
+    ///
+    /// * `search_term` - The search term for the search
+    /// * `limit` - The maximum number of results to return. Defaults to 10.
+    ///
+    /// [user directory]: https://spec.matrix.org/v1.6/client-server-api/#user-directory
+    pub async fn search_users(
+        &self,
+        search_term: &str,
+        limit: u64,
+    ) -> HttpResult<search_users::v3::Response> {
+        let mut request = search_users::v3::Request::new(search_term.to_owned());
+
+        if let Some(limit) = UInt::new(limit) {
+            request.limit = limit;
+        }
+
+        self.send(request, None).await
     }
 
     /// Get the user id of the current owner of the client.
@@ -2533,7 +2557,7 @@ pub(crate) mod tests {
     use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
-        matchers::{header, method, path},
+        matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -2719,5 +2743,29 @@ pub(crate) mod tests {
         let homeserver = Url::parse("http://example.com/").unwrap();
         client.set_homeserver(homeserver.clone()).await;
         assert_eq!(client.homeserver().await, homeserver);
+    }
+
+    #[async_test]
+    async fn search_user_request() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path("_matrix/client/r0/user_directory/search"))
+            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::search_users::SEARCH_USERS_RESPONSE),
+            )
+            .mount(&server)
+            .await;
+
+        let response = client.search_users("test", 50).await.unwrap();
+        let result = response.results.first().unwrap();
+        assert_eq!(result.user_id.to_string(), "@test:example.me");
+        assert_eq!(result.display_name.clone().unwrap(), "Test");
+        assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
+        assert_eq!(response.results.len(), 1);
+        assert!(!response.limited);
     }
 }
