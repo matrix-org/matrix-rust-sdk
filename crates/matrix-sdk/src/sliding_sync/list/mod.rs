@@ -101,6 +101,24 @@ pub struct SlidingSyncList {
 }
 
 impl SlidingSyncList {
+    /// Generate a pre-configured [`SlidingSyncListRequestGenerator`] based on
+    /// the current [`Self::sync_mode`].
+    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
+        match &self.sync_mode {
+            SlidingSyncMode::PagingFullSync => {
+                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
+            }
+
+            SlidingSyncMode::GrowingFullSync => {
+                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
+            }
+
+            SlidingSyncMode::Selective => {
+                SlidingSyncListRequestGenerator::new_selective(self.clone())
+            }
+        }
+    }
+
     pub(crate) fn set_from_cold(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
@@ -125,22 +143,36 @@ impl SlidingSyncList {
 
     /// Return a builder with the same settings as before
     pub fn new_builder(&self) -> SlidingSyncListBuilder {
-        Self::builder()
+        let mut builder = Self::builder()
             .name(&self.name)
             .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())
             .full_sync_batch_size(self.full_sync_batch_size)
-            .ranges(self.ranges.read().unwrap().clone())
+            .full_sync_maximum_number_of_rooms_to_fetch(
+                self.full_sync_maximum_number_of_rooms_to_fetch,
+            )
+            .send_updates_for_items(self.send_updates_for_items)
+            .filters(self.filters.clone())
+            .ranges(self.ranges.read().unwrap().clone());
+
+        if let Some(timeline_limit) = Observable::get(&self.timeline_limit.read().unwrap()) {
+            builder = builder.timeline_limit(*timeline_limit);
+        }
+
+        builder
     }
 
     /// Set the ranges to fetch.
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
-        let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
-        Observable::set(&mut self.ranges.write().unwrap(), value);
+    pub fn set_ranges<U>(&self, ranges: Vec<(U, U)>) -> &Self
+    where
+        U: Into<UInt>,
+    {
+        let ranges = ranges.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        Observable::set(&mut self.ranges.write().unwrap(), ranges);
 
         self
     }
@@ -149,7 +181,10 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> &Self {
+    pub fn set_range<U>(&self, start: U, end: U) -> &Self
+    where
+        U: Into<UInt>,
+    {
         let value = vec![(start.into(), end.into())];
         Observable::set(&mut self.ranges.write().unwrap(), value);
 
@@ -160,7 +195,10 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> &Self {
+    pub fn add_range<U>(&self, start: U, end: U) -> &Self
+    where
+        U: Into<UInt>,
+    {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push((start.into(), end.into()));
         });
@@ -292,8 +330,19 @@ impl SlidingSyncList {
             .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
     }
 
+    /// Update this `SlidingSyncList` from a response received and handled by
+    /// its [`SlidingSyncListRequestGenerator`]
+    ///
+    /// This method must not be called directly, except for testing purposes
+    /// etc.
+    ///
+    /// This method partially handles the response, and doesn't manage the
+    /// entire state of [`SlidingSyncList`]. For example, the
+    /// [`SlidingSyncList::state`] value is updated by
+    /// [`SlidingSyncListRequestGenerator::handle_response`], not by this
+    /// method.
     #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
-    pub(super) fn handle_response(
+    fn handle_response(
         &self,
         maximum_number_of_rooms: u32,
         ops: &Vec<v4::SyncOp>,
@@ -397,25 +446,9 @@ impl SlidingSyncList {
 
         Ok(changed)
     }
-
-    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
-        match &self.sync_mode {
-            SlidingSyncMode::PagingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
-            }
-
-            SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
-            }
-
-            SlidingSyncMode::Selective => {
-                SlidingSyncListRequestGenerator::new_selective(self.clone())
-            }
-        }
-    }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct FrozenSlidingSyncList {
     #[serde(default, rename = "rooms_count", skip_serializing_if = "Option::is_none")]
     pub(super) maximum_number_of_rooms: Option<u32>,
@@ -445,7 +478,7 @@ impl FrozenSlidingSyncList {
                 _ => {}
             };
 
-            rooms_list.push_back(room_list_entry.freeze());
+            rooms_list.push_back(room_list_entry.freeze_by_ref());
         }
 
         FrozenSlidingSyncList {
@@ -666,6 +699,7 @@ pub enum SlidingSyncMode {
 
 /// The Entry in the Sliding Sync room list per Sliding Sync list.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`.
     #[default]
@@ -693,7 +727,7 @@ impl RoomListEntry {
 
     /// Clone this entry, but freeze it, i.e. if the entry is empty, it remains
     /// empty, otherwise it is invalidated.
-    fn freeze(&self) -> Self {
+    fn freeze_by_ref(&self) -> Self {
         match &self {
             Self::Empty => Self::Empty,
             Self::Invalidated(room_id) | Self::Filled(room_id) => {
@@ -706,5 +740,431 @@ impl RoomListEntry {
 impl<'a> From<&'a RoomListEntry> for RoomListEntry {
     fn from(value: &'a RoomListEntry) -> Self {
         value.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::{Deref, Not};
+
+    use imbl::vector;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use ruma::{assign, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint};
+    use serde_json::json;
+
+    use super::*;
+
+    macro_rules! assert_json_roundtrip {
+        (from $type:ty: $rust_value:expr => $json_value:expr) => {
+            let json = serde_json::to_value(&$rust_value).unwrap();
+            assert_eq!(json, $json_value);
+
+            let rust: $type = serde_json::from_value(json).unwrap();
+            assert_eq!(rust, $rust_value);
+        };
+    }
+
+    macro_rules! assert_json_eq {
+        (from $type:ty: $rust_value:expr => $json_value:expr) => {
+            let json = serde_json::to_value(&$rust_value).unwrap();
+            assert_eq!(json, $json_value);
+        };
+    }
+
+    macro_rules! assert_fields_eq {
+        ($left:ident == $right:ident on fields { $( $field:ident $( with $accessor:expr )? ),+ $(,)* } ) => {
+            $(
+                let left = {
+                    let $field = $left . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+                let right = {
+                    let $field = $right . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+
+                assert_eq!(
+                    left,
+                    right,
+                    concat!(
+                        "`",
+                        stringify!($left),
+                        ".",
+                        stringify!($field),
+                        "` doesn't match with `",
+                        stringify!($right),
+                        ".",
+                        stringify!($field),
+                        "`."
+                    )
+                );
+            )*
+        }
+    }
+
+    macro_rules! ranges {
+        ( $( ( $start:literal, $end:literal ) ),* $(,)* ) => {
+            vec![$(
+                (
+                    uint!($start),
+                    uint!($end),
+                )
+            ),+]
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_new_builder() {
+        let list = SlidingSyncList {
+            sync_mode: SlidingSyncMode::GrowingFullSync,
+            sort: vec!["foo".to_string(), "bar".to_string()],
+            required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
+            full_sync_batch_size: 42,
+            full_sync_maximum_number_of_rooms_to_fetch: Some(153),
+            send_updates_for_items: true,
+            filters: Some(assign!(v4::SyncRequestListFilters::default(), {
+                is_dm: Some(true),
+            })),
+            timeline_limit: Arc::new(StdRwLock::new(Observable::new(Some(uint!(7))))),
+            name: "qux".to_string(),
+            state: Arc::new(StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded))),
+            maximum_number_of_rooms: Arc::new(StdRwLock::new(Observable::new(Some(11)))),
+            rooms_list: Arc::new(StdRwLock::new(ObservableVector::from(vector![
+                RoomListEntry::Empty
+            ]))),
+            ranges: Arc::new(StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))]))),
+            rooms_updated_broadcast: Arc::new(StdRwLock::new(Observable::new(()))),
+            is_cold: Arc::new(AtomicBool::new(true)),
+        };
+
+        let new_list = list.new_builder().build().unwrap();
+
+        assert_fields_eq!(
+            list == new_list on fields {
+                sync_mode,
+                sort,
+                required_state,
+                full_sync_batch_size,
+                full_sync_maximum_number_of_rooms_to_fetch,
+                send_updates_for_items,
+                filters with filters.unwrap().is_dm,
+                timeline_limit with **timeline_limit.read().unwrap(),
+                name,
+                ranges with ranges.read().unwrap().clone(),
+            }
+        );
+
+        assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
+        assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
+        assert!(new_list.rooms_list.read().unwrap().deref().is_empty());
+        assert!(new_list.is_cold.load(Ordering::SeqCst).not());
+    }
+
+    #[test]
+    fn test_sliding_sync_list_set_ranges() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1), (2, 3)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+
+        list.set_ranges(ranges![(4, 5), (6, 7)]);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(4, 5), (6, 7)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_set_range() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1), (2, 3)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+
+        list.set_range(4u32, 5);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(4, 5)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_add_range() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1)]);
+        }
+
+        list.add_range(2u32, 3);
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_reset_ranges() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)])
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1)]);
+        }
+
+        list.reset_ranges();
+
+        {
+            let lock = list.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert!(ranges.is_empty());
+        }
+    }
+
+    #[test]
+    fn check_find_room_in_list() -> Result<()> {
+        let list = SlidingSyncList::builder().name("foo").add_range(0u32, 9u32).build().unwrap();
+        let full_window_update: v4::SyncOp = serde_json::from_value(json!({
+            "op": "SYNC",
+            "range": [0, 9],
+            "room_ids": [
+                "!A00000:matrix.example",
+                "!A00001:matrix.example",
+                "!A00002:matrix.example",
+                "!A00003:matrix.example",
+                "!A00004:matrix.example",
+                "!A00005:matrix.example",
+                "!A00006:matrix.example",
+                "!A00007:matrix.example",
+                "!A00008:matrix.example",
+                "!A00009:matrix.example"
+            ],
+        }))
+        .unwrap();
+
+        list.handle_response(
+            10u32,
+            &vec![full_window_update],
+            &vec![(uint!(0), uint!(9))],
+            &vec![],
+        )
+        .unwrap();
+
+        let a02 = room_id!("!A00002:matrix.example").to_owned();
+        let a05 = room_id!("!A00005:matrix.example").to_owned();
+        let a09 = room_id!("!A00009:matrix.example").to_owned();
+
+        assert_eq!(list.find_room_in_list(&a02), Some(2));
+        assert_eq!(list.find_room_in_list(&a05), Some(5));
+        assert_eq!(list.find_room_in_list(&a09), Some(9));
+
+        assert_eq!(
+            list.find_rooms_in_list(&[a02.clone(), a05.clone(), a09.clone()]),
+            vec![(2, a02.clone()), (5, a05.clone()), (9, a09.clone())]
+        );
+
+        // we invalidate a few in the center
+        let update: v4::SyncOp = serde_json::from_value(json!({
+            "op": "INVALIDATE",
+            "range": [4, 7],
+        }))
+        .unwrap();
+
+        list.handle_response(
+            10u32,
+            &vec![update],
+            &vec![(uint!(0), uint!(3)), (uint!(8), uint!(9))],
+            &vec![],
+        )
+        .unwrap();
+
+        assert_eq!(list.find_room_in_list(room_id!("!A00002:matrix.example")), Some(2));
+        assert_eq!(list.find_room_in_list(room_id!("!A00005:matrix.example")), None);
+        assert_eq!(list.find_room_in_list(room_id!("!A00009:matrix.example")), Some(9));
+
+        assert_eq!(
+            list.find_rooms_in_list(&[a02.clone(), a05, a09.clone()]),
+            vec![(2, a02), (9, a09)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_room_list_entry_is_empty_or_invalidated() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert!(RoomListEntry::Empty.is_empty_or_invalidated());
+        assert!(RoomListEntry::Invalidated(room_id.to_owned()).is_empty_or_invalidated());
+        assert!(RoomListEntry::Filled(room_id.to_owned()).is_empty_or_invalidated().not());
+    }
+
+    #[test]
+    fn test_room_list_entry_as_room_id() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_eq!(RoomListEntry::Empty.as_room_id(), None);
+        assert_eq!(RoomListEntry::Invalidated(room_id.to_owned()).as_room_id(), Some(room_id));
+        assert_eq!(RoomListEntry::Filled(room_id.to_owned()).as_room_id(), Some(room_id));
+    }
+
+    #[test]
+    fn test_room_list_entry_freeze() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_eq!(RoomListEntry::Empty.freeze_by_ref(), RoomListEntry::Empty);
+        assert_eq!(
+            RoomListEntry::Invalidated(room_id.to_owned()).freeze_by_ref(),
+            RoomListEntry::Invalidated(room_id.to_owned())
+        );
+        assert_eq!(
+            RoomListEntry::Filled(room_id.to_owned()).freeze_by_ref(),
+            RoomListEntry::Invalidated(room_id.to_owned())
+        );
+    }
+
+    #[test]
+    fn test_room_list_entry_serialization() {
+        let room_id = room_id!("!foo:bar.org");
+
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Empty => json!("Empty"));
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Invalidated(room_id.to_owned()) => json!({"Invalidated": "!foo:bar.org"}));
+        assert_json_roundtrip!(from RoomListEntry: RoomListEntry::Filled(room_id.to_owned()) => json!({"Filled": "!foo:bar.org"}));
+    }
+
+    #[test]
+    fn test_sliding_sync_mode_serialization() {
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => json!("PagingFullSync"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => json!("GrowingFullSync"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => json!("Selective"));
+
+        // Specificity: `PagingFullSync` has a serde alias.
+        let alias: SlidingSyncMode = serde_json::from_value(json!("FullSync")).unwrap();
+        assert_eq!(alias, SlidingSyncMode::PagingFullSync);
+    }
+
+    #[test]
+    fn test_sliding_sync_state_serialization() {
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("Cold"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preload"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("CatchingUp"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("Live"));
+    }
+
+    #[test]
+    fn test_frozen_sliding_sync_list_serialization() {
+        // Doing a roundtrip isn't possible because `v4::SlidingSyncRoom` doesn't
+        // implement `PartialEq`.
+        assert_json_eq!(
+            from FrozenSlidingSyncList:
+
+            FrozenSlidingSyncList {
+                maximum_number_of_rooms: Some(42),
+                rooms_list: vector![RoomListEntry::Empty],
+                rooms: {
+                    let mut rooms = BTreeMap::new();
+                    rooms.insert(
+                        room_id!("!foo:bar.org").to_owned(),
+                        FrozenSlidingSyncRoom {
+                            room_id: room_id!("!foo:bar.org").to_owned(),
+                            inner: v4::SlidingSyncRoom::default(),
+                            prev_batch: Some("let it go!".to_owned()),
+                            timeline_queue: vector![TimelineEvent::new(
+                                Raw::new(&json!({
+                                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
+                                    "type": "m.room.message",
+                                    "event_id": "$xxxxx:example.org",
+                                    "room_id": "!someroom:example.com",
+                                    "origin_server_ts": 2189,
+                                    "sender": "@bob:example.com",
+                                }))
+                                .unwrap()
+                                .cast(),
+                            )
+                            .into()],
+                        },
+                    );
+
+                    rooms
+                },
+            }
+            =>
+            json!({
+                "rooms_count": 42,
+                "rooms_list": ["Empty"],
+                "rooms": {
+                    "!foo:bar.org": {
+                        "room_id": "!foo:bar.org",
+                        "inner": {},
+                        "prev_batch": "let it go!",
+                        "timeline": [
+                            {
+                                "event": {
+                                    "content": {
+                                        "body": "let it gooo!",
+                                        "msgtype": "m.text",
+                                    },
+                                    "event_id": "$xxxxx:example.org",
+                                    "origin_server_ts": 2189,
+                                    "room_id": "!someroom:example.com",
+                                    "sender": "@bob:example.com",
+                                    "type": "m.room.message",
+                                },
+                                "encryption_info": null,
+                            }
+                        ],
+                    },
+                },
+            })
+        );
     }
 }

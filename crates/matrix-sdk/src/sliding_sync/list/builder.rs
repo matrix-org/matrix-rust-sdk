@@ -7,10 +7,9 @@ use std::{
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
-use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
 
-use super::{Error, RoomListEntry, SlidingSyncList, SlidingSyncMode, SlidingSyncState};
+use super::{Error, SlidingSyncList, SlidingSyncMode, SlidingSyncState};
 use crate::Result;
 
 /// The default name for the full sync list.
@@ -28,8 +27,6 @@ pub struct SlidingSyncListBuilder {
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<UInt>,
     name: Option<String>,
-    state: SlidingSyncState,
-    rooms_list: Vector<RoomListEntry>,
     ranges: Vec<(UInt, UInt)>,
 }
 
@@ -48,8 +45,6 @@ impl SlidingSyncListBuilder {
             filters: None,
             timeline_limit: None,
             name: None,
-            state: SlidingSyncState::default(),
-            rooms_list: Vector::new(),
             ranges: Vec::new(),
         }
     }
@@ -152,24 +147,26 @@ impl SlidingSyncListBuilder {
 
     /// Build the list.
     pub fn build(self) -> Result<SlidingSyncList> {
-        let mut rooms_list = ObservableVector::new();
-        rooms_list.append(self.rooms_list);
-
         Ok(SlidingSyncList {
+            //
+            // From the builder
             sync_mode: self.sync_mode,
             sort: self.sort,
             required_state: self.required_state,
             full_sync_batch_size: self.full_sync_batch_size,
-            send_updates_for_items: self.send_updates_for_items,
             full_sync_maximum_number_of_rooms_to_fetch: self
                 .full_sync_maximum_number_of_rooms_to_fetch,
+            send_updates_for_items: self.send_updates_for_items,
             filters: self.filters,
             timeline_limit: Arc::new(StdRwLock::new(Observable::new(self.timeline_limit))),
             name: self.name.ok_or(Error::BuildMissingField("name"))?,
-            state: Arc::new(StdRwLock::new(Observable::new(self.state))),
-            maximum_number_of_rooms: Arc::new(StdRwLock::new(Observable::new(None))),
-            rooms_list: Arc::new(StdRwLock::new(rooms_list)),
             ranges: Arc::new(StdRwLock::new(Observable::new(self.ranges))),
+
+            //
+            // Default values for the type we are building.
+            state: Arc::new(StdRwLock::new(Observable::new(SlidingSyncState::default()))),
+            maximum_number_of_rooms: Arc::new(StdRwLock::new(Observable::new(None))),
+            rooms_list: Arc::new(StdRwLock::new(ObservableVector::new())),
             is_cold: Arc::new(AtomicBool::new(false)),
             rooms_updated_broadcast: Arc::new(StdRwLock::new(Observable::new(()))),
         })
