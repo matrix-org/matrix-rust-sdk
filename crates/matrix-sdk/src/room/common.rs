@@ -283,19 +283,15 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(_),
+        ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                SyncMessageLikeEvent::Original(_),
-            ))) = event.deserialize_as::<AnySyncTimelineEvent>()
-            {
-                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                    return Ok(event);
-                }
+            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                return Ok(event);
             }
-            Ok(TimelineEvent::new(event))
         }
 
-        #[cfg(not(feature = "e2e-encryption"))]
         Ok(TimelineEvent::new(event))
     }
 
