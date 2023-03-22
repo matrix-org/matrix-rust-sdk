@@ -579,7 +579,7 @@ impl SlidingSyncListInner {
                     *fully_loaded = false;
 
                     // Update the _list range_ to cover from 0 to `range_end`.
-                    // The list range is different from the request generator (this) range.
+                    // The list' range is different from the request generator (this) range.
                     self.set_range(0, range_end);
 
                     // Finally, let's update the list' state.

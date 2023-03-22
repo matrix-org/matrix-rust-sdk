@@ -170,7 +170,6 @@ impl SlidingSyncListBuilder {
 
         Ok(SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
-                //
                 // From the builder
                 sync_mode: self.sync_mode,
                 sort: self.sort,
@@ -184,11 +183,9 @@ impl SlidingSyncListBuilder {
                 name: self.name.ok_or(Error::BuildMissingField("name"))?,
                 ranges: StdRwLock::new(Observable::new(self.ranges)),
 
-                //
                 // Computed from the builder.
                 request_generator: StdRwLock::new(request_generator),
 
-                //
                 // Default values for the type we are building.
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
