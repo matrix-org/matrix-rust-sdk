@@ -83,8 +83,13 @@ fn get_or_init_metadata(
     })
 }
 
-#[derive(uniffi::Object)]
 pub struct Span(tracing::Span);
+
+impl Span {
+    pub fn current() -> Self {
+        Self(tracing::Span::current())
+    }
+}
 
 #[uniffi::export]
 impl Span {

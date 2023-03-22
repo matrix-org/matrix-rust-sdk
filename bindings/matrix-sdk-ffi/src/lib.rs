@@ -50,7 +50,7 @@ pub use matrix_sdk::{
 
 pub use self::{
     authentication_service::*, client::*, notification_service::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*,
+    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
 
 #[derive(thiserror::Error, Debug)]

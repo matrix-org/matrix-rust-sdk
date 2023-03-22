@@ -355,3 +355,8 @@ interface SessionVerificationController {
     [Throws=ClientError]
     void cancel_verification();
 };
+
+interface Span {
+    [Name=current]
+    constructor();
+};
