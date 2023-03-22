@@ -930,7 +930,10 @@ mod tests {
 
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{assign, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint};
+    use ruma::{
+        api::client::sync::sync_events::v4::SlidingOp, assign,
+        events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint,
+    };
     use serde_json::json;
 
     use super::*;
@@ -1192,77 +1195,6 @@ mod tests {
         }
     }
 
-    /*
-    #[test]
-    fn check_find_room_in_list() -> Result<()> {
-        let list = SlidingSyncList::builder().name("foo").add_range(0u32, 9u32).build().unwrap();
-        let full_window_update: v4::SyncOp = serde_json::from_value(json!({
-            "op": "SYNC",
-            "range": [0, 9],
-            "room_ids": [
-                "!A00000:matrix.example",
-                "!A00001:matrix.example",
-                "!A00002:matrix.example",
-                "!A00003:matrix.example",
-                "!A00004:matrix.example",
-                "!A00005:matrix.example",
-                "!A00006:matrix.example",
-                "!A00007:matrix.example",
-                "!A00008:matrix.example",
-                "!A00009:matrix.example"
-            ],
-        }))
-        .unwrap();
-
-        list.handle_response(
-            10u32,
-            &vec![full_window_update],
-            &vec![(uint!(0), uint!(9))],
-            &vec![],
-        )
-        .unwrap();
-
-        let a02 = room_id!("!A00002:matrix.example").to_owned();
-        let a05 = room_id!("!A00005:matrix.example").to_owned();
-        let a09 = room_id!("!A00009:matrix.example").to_owned();
-
-        assert_eq!(list.find_room_in_list(&a02), Some(2));
-        assert_eq!(list.find_room_in_list(&a05), Some(5));
-        assert_eq!(list.find_room_in_list(&a09), Some(9));
-
-        assert_eq!(
-            list.find_rooms_in_list(&[a02.clone(), a05.clone(), a09.clone()]),
-            vec![(2, a02.clone()), (5, a05.clone()), (9, a09.clone())]
-        );
-
-        // we invalidate a few in the center
-        let update: v4::SyncOp = serde_json::from_value(json!({
-            "op": "INVALIDATE",
-            "range": [4, 7],
-        }))
-        .unwrap();
-
-        list.handle_response(
-            10u32,
-            &vec![update],
-            // &vec![(uint!(0), uint!(3)), (uint!(8), uint!(9))],
-            &vec![],
-        )
-        .unwrap();
-
-        assert_eq!(list.find_room_in_list(room_id!("!A00002:matrix.example")), Some(2));
-        assert_eq!(list.find_room_in_list(room_id!("!A00005:matrix.example")), None);
-        assert_eq!(list.find_room_in_list(room_id!("!A00009:matrix.example")), Some(9));
-
-        assert_eq!(
-            list.find_rooms_in_list(&[a02.clone(), a05, a09.clone()]),
-            vec![(2, a02), (9, a09)]
-        );
-
-        Ok(())
-    }
-    */
-
     macro_rules! assert_ranges {
         (
             list = $list:ident,
@@ -1496,6 +1428,120 @@ mod tests {
                 list_state = FullyLoaded,
             }
         };
+    }
+
+    #[test]
+    fn test_sliding_sync_inner_find_rooms_in_lists() {
+        let mut list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 2)
+            .add_range(5u32, 7)
+            .build()
+            .unwrap();
+
+        let room0 = room_id!("!room0:bar.org");
+        let room1 = room_id!("!room1:bar.org");
+        let room2 = room_id!("!room2:bar.org");
+        let room5 = room_id!("!room5:bar.org");
+        let room6 = room_id!("!room6:bar.org");
+        let room7 = room_id!("!room7:bar.org");
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync0: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [0, 2],
+            "room_ids": [
+                room0,
+                room1,
+                room2,
+            ],
+        }))
+        .unwrap();
+        let sync1: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [5, 7],
+            "room_ids": [
+                room5,
+                room6,
+                room7,
+            ],
+        }))
+        .unwrap();
+
+        list.handle_response(
+            6,
+            &[sync0, sync1],
+            &[
+                room0.to_owned(),
+                room1.to_owned(),
+                room2.to_owned(),
+                room5.to_owned(),
+                room6.to_owned(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            list.inner.find_rooms_in_list(&[
+                room0.to_owned(),
+                room1.to_owned(),
+                room2.to_owned(),
+                room5.to_owned(),
+                room6.to_owned(),
+                room7.to_owned(),
+            ]),
+            [
+                (0, room0.to_owned()),
+                (1, room1.to_owned()),
+                (2, room2.to_owned()),
+                (5, room5.to_owned()),
+                (6, room6.to_owned()),
+                (7, room7.to_owned()),
+            ]
+        );
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync2: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Invalidate,
+            "range": [1, 2],
+            "rooms_id": [
+                room1,
+                room2,
+            ]
+        }))
+        .unwrap();
+        let sync3: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Delete,
+            "index": 6,
+            "room_id": room6,
+        }))
+        .unwrap();
+
+        list.handle_response(
+            6,
+            &[sync2, sync3],
+            &[room1.to_owned(), room2.to_owned(), room6.to_owned()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            list.inner.find_rooms_in_list(&[
+                room0.to_owned(),
+                room1.to_owned(),
+                room2.to_owned(),
+                room5.to_owned(),
+                room6.to_owned(),
+                room7.to_owned()
+            ]),
+            [(0, room0.to_owned()), (5, room5.to_owned()), (7, room7.to_owned()),]
+        );
     }
 
     #[test]
