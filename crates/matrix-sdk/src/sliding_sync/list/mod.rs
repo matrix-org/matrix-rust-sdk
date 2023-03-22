@@ -854,7 +854,7 @@ mod tests {
                 full_sync_maximum_number_of_rooms_to_fetch,
                 send_updates_for_items,
                 filters with filters.unwrap().is_dm,
-                timeline_limit with timeline_limit.read().unwrap().clone(),
+                timeline_limit with **timeline_limit.read().unwrap(),
                 name,
                 ranges with ranges.read().unwrap().clone(),
             }
@@ -863,7 +863,7 @@ mod tests {
         assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
         assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
         assert!(new_list.rooms_list.read().unwrap().deref().is_empty());
-        assert_eq!(new_list.is_cold.load(Ordering::SeqCst), false);
+        assert!(new_list.is_cold.load(Ordering::SeqCst).not());
     }
 
     #[test]
