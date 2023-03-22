@@ -311,6 +311,7 @@ pub(super) struct SlidingSyncListInner {
 }
 
 impl SlidingSyncListInner {
+    /// Reset and add a new range.
     fn set_range<U>(&self, start: U, end: U)
     where
         U: Into<UInt>,
