@@ -535,21 +535,6 @@ impl SlidingSyncList {
         })))
     }
 
-    pub fn observe_room_items(
-        &self,
-        observer: Box<dyn SlidingSyncListRoomItemsObserver>,
-    ) -> Arc<TaskHandle> {
-        let mut rooms_updated = self.inner.rooms_updated_broadcast_stream();
-
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            loop {
-                if rooms_updated.next().await.is_some() {
-                    observer.did_receive_update();
-                }
-            }
-        })))
-    }
-
     pub fn observe_rooms_count(
         &self,
         observer: Box<dyn SlidingSyncListRoomsCountObserver>,

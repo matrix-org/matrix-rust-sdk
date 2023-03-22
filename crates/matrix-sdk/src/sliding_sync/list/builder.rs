@@ -191,7 +191,6 @@ impl SlidingSyncListBuilder {
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 rooms_list: StdRwLock::new(ObservableVector::new()),
                 is_cold: AtomicBool::new(false),
-                rooms_updated_broadcast: StdRwLock::new(Observable::new(())),
             }),
         })
     }

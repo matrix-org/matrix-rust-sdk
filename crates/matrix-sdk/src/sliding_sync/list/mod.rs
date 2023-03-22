@@ -211,11 +211,6 @@ impl SlidingSyncList {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
     }
 
-    /// Get a stream of `room_updated_broadcast`.
-    pub fn rooms_updated_broadcast_stream(&self) -> impl Stream<Item = ()> {
-        Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap())
-    }
-
     /// Return the `room_id` at the given index.
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
         self.inner
@@ -296,12 +291,6 @@ pub(super) struct SlidingSyncListInner {
     /// The ranges windows of the list.
     #[allow(clippy::type_complexity)] // temporarily
     ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
-
-    /// Get informed if anything in the room changed.
-    ///
-    /// If you only care to know about changes once all of them have applied
-    /// (including the total), subscribe to this observable.
-    rooms_updated_broadcast: StdRwLock<Observable<()>>,
 
     is_cold: AtomicBool,
 
@@ -503,10 +492,6 @@ impl SlidingSyncListInner {
                     changed = true;
                 }
             }
-        }
-
-        if changed {
-            Observable::set(&mut self.rooms_updated_broadcast.write().unwrap(), ());
         }
 
         Ok(changed)
@@ -1022,7 +1007,6 @@ mod tests {
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
                 rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
                 ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
-                rooms_updated_broadcast: StdRwLock::new(Observable::new(())),
                 is_cold: AtomicBool::new(true),
                 request_generator: StdRwLock::new(
                     SlidingSyncListRequestGenerator::new_growing_full_sync(42, Some(153)),
