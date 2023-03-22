@@ -28,7 +28,6 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
-        push_rules::PushRulesEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
@@ -41,7 +40,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
-    push::{PushConditionRoomCtx, Ruleset},
+    push::PushConditionRoomCtx,
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
     UInt, UserId,
@@ -240,13 +239,7 @@ impl Common {
         }
 
         if let Some(push_context) = self.push_context().await? {
-            let push_rules = self
-                .client()
-                .account()
-                .account_data::<PushRulesEventContent>()
-                .await?
-                .and_then(|r| r.deserialize().ok().map(|r| r.global))
-                .unwrap_or_else(|| Ruleset::server_default(self.own_user_id()));
+            let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
                 event.push_actions = push_rules.get_actions(&event.event, &push_context).to_owned();
