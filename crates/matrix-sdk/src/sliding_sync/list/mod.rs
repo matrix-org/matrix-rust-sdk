@@ -216,25 +216,6 @@ impl SlidingSyncList {
         Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap())
     }
 
-    /// Find the current valid position of the room in the list `room_list`.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the item was
-    /// found in the room_list, return None otherwise.
-    pub fn find_room_in_list(&self, room_id: &RoomId) -> Option<usize> {
-        self.inner.find_room_in_list(room_id)
-    }
-
-    /// Find the current valid position of the rooms in the lists `room_list`.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the items that were
-    /// found in the `room_list`, will skip any room not found in the
-    /// `rooms_list`.
-    pub fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
-        self.inner.find_rooms_in_list(room_ids)
-    }
-
     /// Return the `room_id` at the given index.
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
         self.inner
@@ -613,35 +594,16 @@ impl SlidingSyncListInner {
                 });
             }
         }
+
+        Ok(())
     }
 
-    fn find_room_in_list(&self, room_id: &RoomId) -> Option<usize> {
-        let ranges = self.ranges.read().unwrap();
-        let listing = self.rooms_list.read().unwrap();
-
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut current_position: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let room_list_entries = listing.iter().skip(current_position);
-
-            for room_list_entry in room_list_entries {
-                if let RoomListEntry::Filled(this_room_id) = room_list_entry {
-                    if room_id == this_room_id {
-                        return Some(current_position);
-                    }
-                }
-
-                if current_position == end {
-                    break;
-                }
-
-                current_position += 1;
-            }
-        }
-
-        None
-    }
-
+    /// Find the current valid position of the rooms in the lists `room_list`.
+    ///
+    /// Only matches against the current ranges and only against filled items.
+    /// Invalid items are ignored. Return the total position of the items that
+    /// were found in the `room_list`, will skip any room not found in the
+    /// `rooms_list`.
     fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
         let ranges = self.ranges.read().unwrap();
         let listing = self.rooms_list.read().unwrap();
