@@ -157,7 +157,7 @@ impl SlidingSyncList {
             .ranges(self.ranges.read().unwrap().clone());
 
         if let Some(timeline_limit) = Observable::get(&self.timeline_limit.read().unwrap()) {
-            builder = builder.timeline_limit(timeline_limit.clone());
+            builder = builder.timeline_limit(*timeline_limit);
         }
 
         builder
