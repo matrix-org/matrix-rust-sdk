@@ -607,26 +607,21 @@ impl SlidingSyncListInner {
     /// `rooms_list`.
     fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
         let ranges = self.ranges.read().unwrap();
-        let listing = self.rooms_list.read().unwrap();
+        let rooms_list = self.rooms_list.read().unwrap();
         let mut rooms_found = Vec::new();
 
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut current_position: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let room_list_entries = listing.iter().skip(current_position);
-
-            for room_list_entry in room_list_entries {
+        for (start, end) in ranges
+            .iter()
+            .map(|(start, end)| (usize::try_from(*start).unwrap(), usize::try_from(*end).unwrap()))
+        {
+            for (position, room_list_entry) in
+                rooms_list.iter().enumerate().skip(start).take(end.saturating_add(1))
+            {
                 if let RoomListEntry::Filled(room_id) = room_list_entry {
                     if room_ids.contains(room_id) {
-                        rooms_found.push((current_position, room_id.clone()));
+                        rooms_found.push((position, room_id.clone()));
                     }
                 }
-
-                if current_position == end {
-                    break;
-                }
-
-                current_position += 1;
             }
         }
 
