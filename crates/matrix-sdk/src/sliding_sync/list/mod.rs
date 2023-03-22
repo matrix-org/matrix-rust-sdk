@@ -747,7 +747,7 @@ impl<'a> From<&'a RoomListEntry> for RoomListEntry {
 mod tests {
     use std::ops::{Deref, Not};
 
-    use im::vector;
+    use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use ruma::{assign, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint};
     use serde_json::json;
