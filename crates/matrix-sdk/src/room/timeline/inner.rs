@@ -36,7 +36,7 @@ use ruma::{
         relation::Annotation,
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    push::Action,
+    push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
@@ -359,6 +359,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         use super::EncryptedMessage;
 
         trace!("Retrying decryption");
+
+        let push_rules_context = self.room_data_provider.push_rules_and_context().await;
+
         let should_retry = |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -422,10 +425,17 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 continue;
             };
 
+            let push_actions = push_rules_context
+                .as_ref()
+                .map(|(push_rules, push_context)| {
+                    push_rules.get_actions(&event.event, push_context).to_owned()
+                })
+                .unwrap_or_default();
+
             let result = handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
-                event.push_actions,
+                push_actions,
                 TimelineItemPosition::Update(idx),
                 &mut state,
                 &self.room_data_provider,
@@ -710,6 +720,7 @@ pub(super) trait RoomDataProvider {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
 
 #[async_trait]
@@ -744,6 +755,26 @@ impl RoomDataProvider for room::Common {
             Err(e) => {
                 error!(?event_id, "Failed to get read receipts for event: {e}");
                 IndexMap::new()
+            }
+        }
+    }
+
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
+        match self.push_context().await {
+            Ok(Some(push_context)) => match self.client().account().push_rules().await {
+                Ok(push_rules) => Some((push_rules, push_context)),
+                Err(e) => {
+                    error!("Could not get push rules: {e}");
+                    None
+                }
+            },
+            Ok(None) => {
+                debug!("Could not aggregate push context");
+                None
+            }
+            Err(e) => {
+                error!("Could not get push context: {e}");
+                None
             }
         }
     }

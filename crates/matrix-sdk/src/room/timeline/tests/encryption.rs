@@ -101,6 +101,7 @@ async fn retry_message_decryption() {
     assert_matches!(event.encryption_info(), Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
+    assert!(!event.is_highlighted());
 }
 
 #[async_test]
@@ -309,4 +310,88 @@ async fn retry_edit_and_more() {
         timeline_items[2].as_event().unwrap().content().as_message().unwrap().body(),
         "Another message"
     );
+}
+
+#[async_test]
+async fn retry_message_decryption_highlighted() {
+    const SESSION_ID: &str = "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY";
+    const SESSION_KEY: &[u8] = b"\
+        -----BEGIN MEGOLM SESSION DATA-----\n\
+        AUBvCG7VHqpYOpNJoIVxsTS1Qyu83w6xFDw67qDe1edSAAAACrnzwQzFMw//BB9iNKTviUfGPEKD9XlL9f8N\
+        svGCe971WnKLqWJjtrc42UfyDXH0fz4HXeCN1b104GlzWVFp0r+9RuQpPsP3IZ1DxWPm/xsotr3N4BY3pdgK\
+        wpbCq3oD9bQ0jcYqajrWfmEagSInobo9jd6CPyj6kz7mU/SXwva+aoYB8fVJptdYbIXQbvD8t9vS5SC6ZGlP\
+        CpcJBscXIq79HpWgDjnfvUNZiITlazFcgPB8zI78MwISm4FX/4KAwxjWf0eGNwKPiTP8fjXpxKurgnMQEET/\
+        nVb/r4yIO1Z8rM6vmzoTcQvUc5pXmAGhcLGWN6Q06D3hBuWw0etCKRW5bqcMRit5wmawvBV6j+QNKSPKy7xQ\
+        zQhzx9TFfgGZ7rRsl9EPxn0FB/EJNHOkbqYqOmKix9jbh820jRG9i4vD+x+U6iXGpRPyb2S8w+1f9n3uH3yI\
+        0XWypoX/eEh7cJv9YChq4Wst4UkP2l6ztP8H/dWXfDYHddkMMKnveeb3sjWRjJep7Ih3W5PyMmxfge85DryB\
+        Sgvx6TKvtiC4zOKp1VStbXNgrpipWixhXP2F8BkDmJJvDYO1idWU2NbDJZY6AkKockUscnovpmV1yhovm83Y\
+        sAZRyV3W2MlFpA5qAgdXWlBA4WZ/jus/Mey0dqFZtvDS6fC1S4cx5p6hXBwADLRjIiqq2dpn49+aUwqPMn/b\
+        FM8H2PpVkKgrA+tx8LNQD+FWDfp6MyhmEJEvk9r5vU9LtTXtZl4toYvNY0UHUBbZj2xF9U9Z9A\n\
+        -----END MEGOLM SESSION DATA-----";
+
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            RoomEncryptedEventContent::new(
+                EncryptedEventScheme::MegolmV1AesSha2(
+                    MegolmV1AesSha2ContentInit {
+                        ciphertext: "\
+                            AwgAEpABNOd7Rxpc/98gaaOanApQ/h40uNyYE/aiFd8PKeQPH65bwuxBy/glodmteryH\
+                            4t5d0cKSPjb+996yK90+A8YUevQKBuC+/+4iRF2CSqMNvArdOCnFHJdZBuCyRP6W82DZ\
+                            sR1w5X/tKGs/A9egJdxomLCzMRZarayTXUlgMT8Kj7E9zKOgyLEZGki6Y9IPybfrU3+S\
+                            b4VbF7RKY395/lIZFiLvJ5hUT+Ao1k13opeTE9GHtdOK0GzQPVFLnN61pRa3K/vV9Otk\
+                            D0QbVS/4mE3C29+yIC1lEkwA"
+                            .to_owned(),
+                        sender_key: "peI8cfSKqZvTOAfY0Od2e7doDpJ1cxdBsOhSceTLU3E".to_owned(),
+                        device_id: "KDCTEHOVSS".into(),
+                        session_id: SESSION_ID.into(),
+                    }
+                    .into(),
+                ),
+                None,
+            ),
+        )
+        .await;
+
+    assert_eq!(timeline.inner.items().await.len(), 2);
+
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let event = item.as_event().unwrap();
+    let session_id = assert_matches!(
+        event.content(),
+        TimelineItemContent::UnableToDecrypt(
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. },
+        ) => session_id
+    );
+    assert_eq!(session_id, SESSION_ID);
+
+    let own_user_id = user_id!("@example:matrix.org");
+    let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
+
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    olm_machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+
+    timeline
+        .inner
+        .retry_event_decryption(
+            room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
+            &olm_machine,
+            Some(iter::once(SESSION_ID).collect()),
+        )
+        .await;
+
+    assert_eq!(timeline.inner.items().await.len(), 2);
+
+    let item =
+        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    let event = item.as_event().unwrap().as_remote().unwrap();
+    assert_matches!(event.encryption_info(), Some(_));
+    let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
+    assert_eq!(text, "A secret to everybody but Alice");
+    assert!(event.is_highlighted());
 }

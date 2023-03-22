@@ -1027,7 +1027,7 @@ impl Common {
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
-    async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
+    pub(crate) async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
