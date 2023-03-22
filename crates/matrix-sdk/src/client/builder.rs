@@ -22,11 +22,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock};
-use tracing::{
-    debug,
-    field::{self, debug},
-    instrument, span, Level, Span,
-};
+use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
@@ -86,19 +82,10 @@ pub struct ClientBuilder {
     appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
-    root_span: Span,
 }
 
 impl ClientBuilder {
     pub(crate) fn new() -> Self {
-        let root_span = span!(
-            Level::INFO,
-            "matrix-sdk",
-            user_id = field::Empty,
-            device_id = field::Empty,
-            ed25519_key = field::Empty
-        );
-
         Self {
             homeserver_cfg: None,
             http_cfg: None,
@@ -108,7 +95,6 @@ impl ClientBuilder {
             appservice_mode: false,
             server_versions: None,
             handle_refresh_tokens: false,
-            root_span,
         }
     }
 
@@ -334,7 +320,7 @@ impl ClientBuilder {
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
-    #[instrument(skip_all, parent = &self.root_span, target = "matrix_sdk::client", fields(homeserver))]
+    #[instrument(skip_all, target = "matrix_sdk::client", fields(homeserver))]
     pub async fn build(self) -> Result<Client, ClientBuildError> {
         debug!("Starting to build the Client");
 
@@ -440,7 +426,6 @@ impl ClientBuilder {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             unknown_token_error_sender,
-            root_span: self.root_span,
         });
 
         debug!("Done building the Client");
