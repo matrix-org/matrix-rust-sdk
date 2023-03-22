@@ -403,11 +403,6 @@ impl SlidingSyncListInner {
         ranges: &[(UInt, UInt)],
         updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        let ranges = ranges
-            .iter()
-            .map(|(start, end)| ((*start).try_into().unwrap(), (*end).try_into().unwrap()))
-            .collect::<Vec<(usize, usize)>>();
-
         let current_maximum_number_of_rooms = **self.maximum_number_of_rooms.read().unwrap();
 
         if current_maximum_number_of_rooms.is_none()
@@ -659,8 +654,12 @@ impl FrozenSlidingSyncList {
 fn room_ops(
     rooms_list: &mut ObservableVector<RoomListEntry>,
     operations: &[v4::SyncOp],
-    room_ranges: &Vec<(usize, usize)>,
+    room_ranges: &[(UInt, UInt)],
 ) -> Result<(), Error> {
+    let room_ranges = room_ranges
+        .iter()
+        .map(|(start, end)| ((*start).try_into().unwrap(), (*end).try_into().unwrap()))
+        .collect::<Vec<(usize, usize)>>();
     let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
 
     for operation in operations {
