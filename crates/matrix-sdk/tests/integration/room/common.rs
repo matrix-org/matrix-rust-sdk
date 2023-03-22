@@ -1,12 +1,17 @@
 use std::time::Duration;
 
+use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName};
 use matrix_sdk_test::{
-    async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, TimelineTestEvent,
+    async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent,
+    TimelineTestEvent,
 };
 use ruma::{
     event_id,
-    events::{room::member::MembershipState, AnySyncStateEvent, StateEventType},
+    events::{
+        room::member::MembershipState, AnyStateEvent, AnySyncStateEvent, AnyTimelineEvent,
+        StateEventType,
+    },
     room_id,
 };
 use serde_json::json;
@@ -491,4 +496,58 @@ async fn room_event_permalink() {
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),
         "matrix:roomid/test_room:127.0.0.1/e/15139375512JaHAW?via=notarealhs&via=localhost"
     );
+}
+
+#[async_test]
+async fn event() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$foun39djjod0f");
+
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+
+    let response_json = json!({
+        "content": {
+            "body": "This room has been replaced",
+            "replacement_room": "!newroom:localhost",
+        },
+        "event_id": event_id,
+        "origin_server_ts": 152039280,
+        "sender": "@bob:localhost",
+        "state_key": "",
+        "type": "m.room.tombstone",
+        "room_id": room_id,
+    });
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .expect(1)
+        .named("event_1")
+        .mount(&server)
+        .await;
+
+    let timeline_event = room.event(event_id).await.unwrap();
+    let event = assert_matches!(
+        timeline_event.event.deserialize().unwrap(),
+        AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) => event
+    );
+    assert_eq!(event.event_id(), event_id);
+    assert!(timeline_event.push_actions.iter().any(|a| a.is_highlight()));
+    assert!(timeline_event.push_actions.iter().any(|a| a.should_notify()));
 }

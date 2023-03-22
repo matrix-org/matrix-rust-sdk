@@ -40,12 +40,13 @@ use ruma::{
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
-    push::PushConditionRoomCtx,
+    push::{Action, PushConditionRoomCtx},
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tracing::debug;
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
@@ -292,7 +293,9 @@ impl Common {
             }
         }
 
-        Ok(TimelineEvent::new(event))
+        let push_actions = self.event_push_actions(&event).await?;
+
+        Ok(TimelineEvent { event, encryption_info: None, push_actions })
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -831,7 +834,12 @@ impl Common {
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
         if let Some(machine) = self.client.olm_machine() {
-            Ok(machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?)
+            let mut event =
+                machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
+
+            event.push_actions = self.event_push_actions(&event.event).await?;
+
+            Ok(event)
         } else {
             Err(Error::NoOlmMachine)
         }
@@ -1050,6 +1058,21 @@ impl Common {
             default_power_level: room_power_levels.users_default,
             notification_power_levels: room_power_levels.notifications,
         }))
+    }
+
+    /// Get the push actions for the given event with the current room state.
+    ///
+    /// Note that it is possible that no push action is returned because the
+    /// current room state does not have all the required state events.
+    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Vec<Action>> {
+        let Some(push_context) = self.push_context().await? else {
+            debug!("Could not aggregate push context");
+            return Ok(Vec::default());
+        };
+
+        let push_rules = self.client().account().push_rules().await?;
+
+        Ok(push_rules.get_actions(event, &push_context).to_owned())
     }
 }
 
