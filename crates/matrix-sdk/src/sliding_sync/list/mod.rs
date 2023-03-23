@@ -1,9 +1,9 @@
 mod builder;
+mod frozen;
 mod request_generator;
 
 use std::{
     cmp::min,
-    collections::BTreeMap,
     fmt::Debug,
     iter,
     sync::{
@@ -15,6 +15,7 @@ use std::{
 pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
+pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
@@ -595,47 +596,6 @@ impl SlidingSyncListInner {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub(super) struct FrozenSlidingSyncList {
-    #[serde(default, rename = "rooms_count", skip_serializing_if = "Option::is_none")]
-    pub(super) maximum_number_of_rooms: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vector::is_empty")]
-    pub(super) rooms_list: Vector<RoomListEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
-}
-
-impl FrozenSlidingSyncList {
-    pub(super) fn freeze(
-        source_list: &SlidingSyncList,
-        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    ) -> Self {
-        let mut rooms = BTreeMap::new();
-        let mut rooms_list = Vector::new();
-
-        for room_list_entry in source_list.inner.rooms_list.read().unwrap().iter() {
-            match room_list_entry {
-                RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
-                    rooms.insert(
-                        room_id.clone(),
-                        rooms_map.get(room_id).expect("room doesn't exist").into(),
-                    );
-                }
-
-                _ => {}
-            };
-
-            rooms_list.push_back(room_list_entry.freeze_by_ref());
-        }
-
-        FrozenSlidingSyncList {
-            maximum_number_of_rooms: source_list.maximum_number_of_rooms(),
-            rooms_list,
-            rooms,
-        }
-    }
-}
-
 #[instrument(skip(operations))]
 fn room_ops(
     rooms_list: &mut ObservableVector<RoomListEntry>,
@@ -899,11 +859,7 @@ mod tests {
     use std::ops::{Deref, Not};
 
     use imbl::vector;
-    use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{
-        api::client::sync::sync_events::v4::SlidingOp, assign,
-        events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint,
-    };
+    use ruma::{api::client::sync::sync_events::v4::SlidingOp, assign, room_id, uint};
     use serde_json::json;
 
     use super::*;
@@ -915,13 +871,6 @@ mod tests {
 
             let rust: $type = serde_json::from_value(json).unwrap();
             assert_eq!(rust, $rust_value);
-        };
-    }
-
-    macro_rules! assert_json_eq {
-        (from $type:ty: $rust_value:expr => $json_value:expr) => {
-            let json = serde_json::to_value(&$rust_value).unwrap();
-            assert_eq!(json, $json_value);
         };
     }
 
@@ -1607,73 +1556,5 @@ mod tests {
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preload"));
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("CatchingUp"));
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("Live"));
-    }
-
-    #[test]
-    fn test_frozen_sliding_sync_list_serialization() {
-        // Doing a roundtrip isn't possible because `v4::SlidingSyncRoom` doesn't
-        // implement `PartialEq`.
-        assert_json_eq!(
-            from FrozenSlidingSyncList:
-
-            FrozenSlidingSyncList {
-                maximum_number_of_rooms: Some(42),
-                rooms_list: vector![RoomListEntry::Empty],
-                rooms: {
-                    let mut rooms = BTreeMap::new();
-                    rooms.insert(
-                        room_id!("!foo:bar.org").to_owned(),
-                        FrozenSlidingSyncRoom {
-                            room_id: room_id!("!foo:bar.org").to_owned(),
-                            inner: v4::SlidingSyncRoom::default(),
-                            prev_batch: Some("let it go!".to_owned()),
-                            timeline_queue: vector![TimelineEvent::new(
-                                Raw::new(&json!({
-                                    "content": RoomMessageEventContent::text_plain("let it gooo!"),
-                                    "type": "m.room.message",
-                                    "event_id": "$xxxxx:example.org",
-                                    "room_id": "!someroom:example.com",
-                                    "origin_server_ts": 2189,
-                                    "sender": "@bob:example.com",
-                                }))
-                                .unwrap()
-                                .cast(),
-                            )
-                            .into()],
-                        },
-                    );
-
-                    rooms
-                },
-            }
-            =>
-            json!({
-                "rooms_count": 42,
-                "rooms_list": ["Empty"],
-                "rooms": {
-                    "!foo:bar.org": {
-                        "room_id": "!foo:bar.org",
-                        "inner": {},
-                        "prev_batch": "let it go!",
-                        "timeline": [
-                            {
-                                "event": {
-                                    "content": {
-                                        "body": "let it gooo!",
-                                        "msgtype": "m.text",
-                                    },
-                                    "event_id": "$xxxxx:example.org",
-                                    "origin_server_ts": 2189,
-                                    "room_id": "!someroom:example.com",
-                                    "sender": "@bob:example.com",
-                                    "type": "m.room.message",
-                                },
-                                "encryption_info": null,
-                            }
-                        ],
-                    },
-                },
-            })
-        );
     }
 }
