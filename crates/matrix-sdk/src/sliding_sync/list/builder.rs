@@ -165,9 +165,6 @@ impl SlidingSyncListBuilder {
                 sync_mode: self.sync_mode,
                 sort: self.sort,
                 required_state: self.required_state,
-                full_sync_batch_size: self.full_sync_batch_size,
-                full_sync_maximum_number_of_rooms_to_fetch: self
-                    .full_sync_maximum_number_of_rooms_to_fetch,
                 filters: self.filters,
                 timeline_limit: StdRwLock::new(Observable::new(self.timeline_limit)),
                 name: self.name.ok_or(Error::BuildMissingField("name"))?,

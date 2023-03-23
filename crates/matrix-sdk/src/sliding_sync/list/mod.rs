@@ -49,10 +49,6 @@ impl SlidingSyncList {
             .sync_mode(self.inner.sync_mode.clone())
             .sort(self.inner.sort.clone())
             .required_state(self.inner.required_state.clone())
-            .full_sync_batch_size(self.inner.full_sync_batch_size)
-            .full_sync_maximum_number_of_rooms_to_fetch(
-                self.inner.full_sync_maximum_number_of_rooms_to_fetch,
-            )
             .filters(self.inner.filters.clone())
             .ranges(self.inner.ranges.read().unwrap().clone());
 
@@ -236,14 +232,6 @@ pub(super) struct SlidingSyncListInner {
 
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
-
-    /// When doing a full-sync, the ranges of rooms to load are extended by this
-    /// `full_sync_batch_size` size.
-    full_sync_batch_size: u32,
-
-    /// When doing a full-sync, it is possible to limit the total number of
-    /// rooms to load by using this field.
-    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
 
     /// Any filters to apply to the query.
     filters: Option<v4::SyncRequestListFilters>,
@@ -872,8 +860,6 @@ mod tests {
                 sync_mode: SlidingSyncMode::GrowingFullSync,
                 sort: vec!["foo".to_string(), "bar".to_string()],
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
-                full_sync_batch_size: 42,
-                full_sync_maximum_number_of_rooms_to_fetch: Some(153),
                 filters: Some(assign!(v4::SyncRequestListFilters::default(), {
                     is_dm: Some(true),
                 })),
@@ -899,8 +885,6 @@ mod tests {
                 sync_mode,
                 sort,
                 required_state,
-                full_sync_batch_size,
-                full_sync_maximum_number_of_rooms_to_fetch,
                 filters with filters.as_ref().unwrap().is_dm,
                 timeline_limit with **timeline_limit.read().unwrap(),
                 name,
