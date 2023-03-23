@@ -37,7 +37,7 @@ use ruma::UInt;
 #[derive(Debug)]
 pub(super) enum SlidingSyncListRequestGeneratorKind {
     /// Growing-mode (see [`SlidingSyncMode`]).
-    GrowingFullSync {
+    Growing {
         /// Size of the batch, used to grow the range to fetch more rooms.
         batch_size: u32,
         /// Maximum number of rooms to fetch (see
@@ -50,7 +50,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
     },
 
     /// Paging-mode (see [`SlidingSyncMode`]).
-    PagingFullSync {
+    Paging {
         /// Size of the batch, used to grow the range to fetch more rooms.
         batch_size: u32,
         /// Maximum number of rooms to fetch (see
@@ -77,13 +77,13 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 
 impl SlidingSyncListRequestGenerator {
     /// Create a new request generator configured for paging-mode.
-    pub(super) fn new_paging_full_sync(
+    pub(super) fn new_paging(
         batch_size: u32,
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Self {
         Self {
             ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::PagingFullSync {
+            kind: SlidingSyncListRequestGeneratorKind::Paging {
                 batch_size,
                 maximum_number_of_rooms_to_fetch,
                 number_of_fetched_rooms: 0,
@@ -93,13 +93,13 @@ impl SlidingSyncListRequestGenerator {
     }
 
     /// Create a new request generator configured for growing-mode.
-    pub(super) fn new_growing_full_sync(
+    pub(super) fn new_growing(
         batch_size: u32,
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Self {
         Self {
             ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::GrowingFullSync {
+            kind: SlidingSyncListRequestGeneratorKind::Growing {
                 batch_size,
                 maximum_number_of_rooms_to_fetch,
                 number_of_fetched_rooms: 0,
@@ -116,10 +116,8 @@ impl SlidingSyncListRequestGenerator {
     #[cfg(test)]
     pub(super) fn is_fully_loaded(&self) -> bool {
         match self.kind {
-            SlidingSyncListRequestGeneratorKind::PagingFullSync { fully_loaded, .. }
-            | SlidingSyncListRequestGeneratorKind::GrowingFullSync { fully_loaded, .. } => {
-                fully_loaded
-            }
+            SlidingSyncListRequestGeneratorKind::Paging { fully_loaded, .. }
+            | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded, .. } => fully_loaded,
             SlidingSyncListRequestGeneratorKind::Selective => true,
         }
     }

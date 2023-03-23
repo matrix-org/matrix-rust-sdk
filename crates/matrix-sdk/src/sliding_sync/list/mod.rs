@@ -284,18 +284,14 @@ impl SlidingSyncListInner {
 
             match request_generator.kind {
                 // Cases where all rooms have been fully loaded.
-                SlidingSyncListRequestGeneratorKind::PagingFullSync {
-                    fully_loaded: true, ..
-                }
-                | SlidingSyncListRequestGeneratorKind::GrowingFullSync {
-                    fully_loaded: true, ..
-                }
+                SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
+                | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
                 | SlidingSyncListRequestGeneratorKind::Selective => {
                     // Let's copy all the ranges from `SlidingSyncList`.
                     request_generator.ranges = self.ranges.read().unwrap().clone();
                 }
 
-                SlidingSyncListRequestGeneratorKind::PagingFullSync {
+                SlidingSyncListRequestGeneratorKind::Paging {
                     number_of_fetched_rooms,
                     batch_size,
                     maximum_number_of_rooms_to_fetch,
@@ -316,7 +312,7 @@ impl SlidingSyncListInner {
                     )?];
                 }
 
-                SlidingSyncListRequestGeneratorKind::GrowingFullSync {
+                SlidingSyncListRequestGeneratorKind::Growing {
                     number_of_fetched_rooms,
                     batch_size,
                     maximum_number_of_rooms_to_fetch,
@@ -471,13 +467,13 @@ impl SlidingSyncListInner {
             .ok_or_else(|| Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned()))?;
 
         match &mut request_generator.kind {
-            SlidingSyncListRequestGeneratorKind::PagingFullSync {
+            SlidingSyncListRequestGeneratorKind::Paging {
                 number_of_fetched_rooms,
                 fully_loaded,
                 maximum_number_of_rooms_to_fetch,
                 ..
             }
-            | SlidingSyncListRequestGeneratorKind::GrowingFullSync {
+            | SlidingSyncListRequestGeneratorKind::Growing {
                 number_of_fetched_rooms,
                 fully_loaded,
                 maximum_number_of_rooms_to_fetch,
@@ -772,17 +768,18 @@ pub enum SlidingSyncState {
 /// How a [`SlidingSyncList`] fetches the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
-    /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
-    #[serde(alias = "FullSync")]
-    PagingFullSync,
-    /// Fully sync all rooms in the background, with a growing window of
-    /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
-    /// `batch_size` is 20.
-    GrowingFullSync,
     /// Only sync the specific defined windows/ranges.
     #[default]
     Selective,
+
+    /// Fully sync all rooms in the background, page by page of `batch_size`,
+    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
+    Paging,
+
+    /// Fully sync all rooms in the background, with a growing window of
+    /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
+    /// `batch_size` is 20.
+    Growing,
 }
 
 #[cfg(test)]
@@ -857,7 +854,7 @@ mod tests {
     fn test_sliding_sync_list_new_builder() {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
-                sync_mode: SlidingSyncMode::GrowingFullSync,
+                sync_mode: SlidingSyncMode::Growing,
                 sort: vec!["foo".to_string(), "bar".to_string()],
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
                 filters: Some(assign!(v4::SyncRequestListFilters::default(), {
@@ -870,9 +867,10 @@ mod tests {
                 rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
                 ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
                 is_cold: AtomicBool::new(true),
-                request_generator: StdRwLock::new(
-                    SlidingSyncListRequestGenerator::new_growing_full_sync(42, Some(153)),
-                ),
+                request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new_growing(
+                    42,
+                    Some(153),
+                )),
             }),
         };
 
@@ -1104,7 +1102,7 @@ mod tests {
     #[test]
     fn test_generator_paging_full_sync() {
         let mut list = SlidingSyncList::builder()
-            .sync_mode(crate::SlidingSyncMode::PagingFullSync)
+            .sync_mode(crate::SlidingSyncMode::Paging)
             .name("testing")
             .full_sync_batch_size(10)
             .build()
@@ -1147,7 +1145,7 @@ mod tests {
     #[test]
     fn test_generator_paging_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
         let mut list = SlidingSyncList::builder()
-            .sync_mode(crate::SlidingSyncMode::PagingFullSync)
+            .sync_mode(crate::SlidingSyncMode::Paging)
             .name("testing")
             .full_sync_batch_size(10)
             .full_sync_maximum_number_of_rooms_to_fetch(22)
@@ -1191,7 +1189,7 @@ mod tests {
     #[test]
     fn test_generator_growing_full_sync() {
         let mut list = SlidingSyncList::builder()
-            .sync_mode(crate::SlidingSyncMode::GrowingFullSync)
+            .sync_mode(crate::SlidingSyncMode::Growing)
             .name("testing")
             .full_sync_batch_size(10)
             .build()
@@ -1234,7 +1232,7 @@ mod tests {
     #[test]
     fn test_generator_growing_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
         let mut list = SlidingSyncList::builder()
-            .sync_mode(crate::SlidingSyncMode::GrowingFullSync)
+            .sync_mode(crate::SlidingSyncMode::Growing)
             .name("testing")
             .full_sync_batch_size(10)
             .full_sync_maximum_number_of_rooms_to_fetch(22)
@@ -1424,13 +1422,9 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_mode_serialization() {
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::PagingFullSync => json!("PagingFullSync"));
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::GrowingFullSync => json!("GrowingFullSync"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Paging => json!("Paging"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Growing => json!("Growing"));
         assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => json!("Selective"));
-
-        // Specificity: `PagingFullSync` has a serde alias.
-        let alias: SlidingSyncMode = serde_json::from_value(json!("FullSync")).unwrap();
-        assert_eq!(alias, SlidingSyncMode::PagingFullSync);
     }
 
     #[test]

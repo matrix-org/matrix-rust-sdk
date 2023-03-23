@@ -52,7 +52,7 @@ impl SlidingSyncListBuilder {
 
     /// Create a Builder set up for full sync.
     pub fn default_with_fullsync() -> Self {
-        Self::new().name(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::PagingFullSync)
+        Self::new().name(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::Paging)
     }
 
     /// Which SlidingSyncMode to start this list under.
@@ -142,19 +142,15 @@ impl SlidingSyncListBuilder {
     /// Build the list.
     pub fn build(self) -> Result<SlidingSyncList> {
         let request_generator = match &self.sync_mode {
-            SlidingSyncMode::PagingFullSync => {
-                SlidingSyncListRequestGenerator::new_paging_full_sync(
-                    self.full_sync_batch_size,
-                    self.full_sync_maximum_number_of_rooms_to_fetch,
-                )
-            }
+            SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
+                self.full_sync_batch_size,
+                self.full_sync_maximum_number_of_rooms_to_fetch,
+            ),
 
-            SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncListRequestGenerator::new_growing_full_sync(
-                    self.full_sync_batch_size,
-                    self.full_sync_maximum_number_of_rooms_to_fetch,
-                )
-            }
+            SlidingSyncMode::Growing => SlidingSyncListRequestGenerator::new_growing(
+                self.full_sync_batch_size,
+                self.full_sync_maximum_number_of_rooms_to_fetch,
+            ),
 
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_selective(),
         };
