@@ -1513,7 +1513,7 @@ mod tests {
                 room6.to_owned(),
                 room7.to_owned()
             ]),
-            [(0, room0.to_owned()), (5, room5.to_owned()), (7, room7.to_owned()),]
+            [(0, room0.to_owned()), (5, room5.to_owned()), (7, room7.to_owned())]
         );
     }
 
