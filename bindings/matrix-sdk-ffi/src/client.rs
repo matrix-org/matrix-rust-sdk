@@ -589,7 +589,7 @@ impl Client {
 }
 
 pub struct CreateRoomParameters {
-    pub name: String,
+    pub name: Option<String>,
     pub topic: Option<String>,
     pub is_encrypted: bool,
     pub is_direct: bool,
@@ -602,7 +602,7 @@ pub struct CreateRoomParameters {
 impl From<CreateRoomParameters> for create_room::v3::Request {
     fn from(value: CreateRoomParameters) -> create_room::v3::Request {
         let mut request = create_room::v3::Request::new();
-        request.name = Some(value.name);
+        request.name = value.name;
         request.topic = value.topic;
         request.is_direct = value.is_direct;
         request.visibility = value.visibility.into();
