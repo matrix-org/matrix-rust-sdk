@@ -29,7 +29,6 @@ use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered list within the concept of sliding sync.
-/// Main entrypoint to the `SlidingSync`:
 ///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
 #[derive(Clone, Debug)]
@@ -777,18 +776,14 @@ fn room_ops(
 pub enum SlidingSyncState {
     /// Sliding Sync has not started to load anything yet.
     #[default]
-    #[serde(rename = "Cold")]
     NotLoaded,
     /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
-    #[serde(rename = "Preload")]
     Preloaded,
     /// Updates are received from the loaded rooms, and new rooms are being
     /// fetched in the background.
-    #[serde(rename = "CatchingUp")]
     PartiallyLoaded,
     /// Updates are received for all the loaded rooms, and all rooms have been
     /// loaded!
-    #[serde(rename = "Live")]
     FullyLoaded,
 }
 
@@ -1464,9 +1459,9 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_state_serialization() {
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("Cold"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preload"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("CatchingUp"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("Live"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("NotLoaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preloaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("PartiallyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("FullyLoaded"));
     }
 }
