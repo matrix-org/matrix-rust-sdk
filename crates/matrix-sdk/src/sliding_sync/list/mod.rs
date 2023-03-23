@@ -224,6 +224,12 @@ impl SlidingSyncList {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncListInner {
+    /// Name of this list to easily recognize them.
+    name: String,
+
+    /// The state this list is in.
+    state: StdRwLock<Observable<SlidingSyncState>>,
+
     /// Which [`SlidingSyncMode`] to start this list under.
     sync_mode: SlidingSyncMode,
 
@@ -238,12 +244,6 @@ pub(super) struct SlidingSyncListInner {
 
     /// The maximum number of timeline events to query for.
     timeline_limit: StdRwLock<Observable<Option<UInt>>>,
-
-    /// Name of this list to easily recognize them.
-    name: String,
-
-    /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncState>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
