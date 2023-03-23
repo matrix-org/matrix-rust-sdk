@@ -119,7 +119,7 @@ impl SlidingSyncList {
         self
     }
 
-    /// Reset the ranges to a particular set
+    /// Reset the ranges to a particular set.
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
@@ -1211,6 +1211,7 @@ mod tests {
     macro_rules! assert_ranges {
         (
             list = $list:ident,
+            list_state = $first_list_state:ident,
             maximum_number_of_rooms = $maximum_number_of_rooms:expr,
             $(
                 next => {
@@ -1221,8 +1222,7 @@ mod tests {
             ),*
             $(,)*
         ) => {
-            // That's the initial state.
-            assert_eq!($list.state(), SlidingSyncState::NotLoaded);
+            assert_eq!($list.state(), SlidingSyncState::$first_list_state);
 
             $(
                 {
@@ -1252,6 +1252,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
+            list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [0; 9],
@@ -1295,6 +1296,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
+            list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [0; 9],
@@ -1337,6 +1339,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
+            list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [0; 9],
@@ -1380,6 +1383,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
+            list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [0; 9],
@@ -1416,12 +1420,13 @@ mod tests {
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Selective)
             .name("testing")
-            .ranges(vec![(0u32, 10), (42, 153)])
+            .ranges(ranges![(0, 10), (42, 153)])
             .build()
             .unwrap();
 
         assert_ranges! {
             list = list,
+            list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
