@@ -100,6 +100,10 @@ impl Span {
     fn exit(&self) {
         self.0.with_subscriber(|(id, dispatch)| dispatch.exit(id));
     }
+
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
 }
 
 #[derive(uniffi::Enum)]
