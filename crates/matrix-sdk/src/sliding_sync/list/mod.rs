@@ -404,7 +404,7 @@ impl SlidingSyncListInner {
             );
 
             // then we apply it
-            room_ops(&mut rooms_list, ops, &ranges)?;
+            room_ops(&mut rooms_list, ops, ranges)?;
 
             {
                 let mut lock = self.rooms_list.write().unwrap();
@@ -444,7 +444,7 @@ impl SlidingSyncListInner {
             let mut rooms_list = self.rooms_list.write().unwrap();
 
             if !ops.is_empty() {
-                room_ops(&mut rooms_list, ops, &ranges)?;
+                room_ops(&mut rooms_list, ops, ranges)?;
                 changed = true;
             } else {
                 debug!("no rooms operations found");
