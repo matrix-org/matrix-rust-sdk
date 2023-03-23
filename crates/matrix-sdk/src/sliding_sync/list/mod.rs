@@ -53,7 +53,6 @@ impl SlidingSyncList {
             .full_sync_maximum_number_of_rooms_to_fetch(
                 self.inner.full_sync_maximum_number_of_rooms_to_fetch,
             )
-            .send_updates_for_items(self.inner.send_updates_for_items)
             .filters(self.inner.filters.clone())
             .ranges(self.inner.ranges.read().unwrap().clone());
 
@@ -246,10 +245,6 @@ pub(super) struct SlidingSyncListInner {
     /// rooms to load by using this field.
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
 
-    /// Whether the list should send `UpdatedAt`-Diff signals for rooms
-    /// that have changed.
-    send_updates_for_items: bool,
-
     /// Any filters to apply to the query.
     filters: Option<v4::SyncRequestListFilters>,
 
@@ -275,7 +270,6 @@ pub(super) struct SlidingSyncListInner {
     rooms_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
     /// The ranges windows of the list.
-    #[allow(clippy::type_complexity)] // temporarily
     ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
 
     is_cold: AtomicBool,
@@ -460,7 +454,7 @@ impl SlidingSyncListInner {
             }
         }
 
-        if self.send_updates_for_items && !updated_rooms.is_empty() {
+        if !updated_rooms.is_empty() {
             let found_lists = self.find_rooms_in_list(updated_rooms);
 
             if !found_lists.is_empty() {
@@ -880,7 +874,6 @@ mod tests {
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
                 full_sync_batch_size: 42,
                 full_sync_maximum_number_of_rooms_to_fetch: Some(153),
-                send_updates_for_items: true,
                 filters: Some(assign!(v4::SyncRequestListFilters::default(), {
                     is_dm: Some(true),
                 })),
@@ -908,7 +901,6 @@ mod tests {
                 required_state,
                 full_sync_batch_size,
                 full_sync_maximum_number_of_rooms_to_fetch,
-                send_updates_for_items,
                 filters with filters.as_ref().unwrap().is_dm,
                 timeline_limit with **timeline_limit.read().unwrap(),
                 name,

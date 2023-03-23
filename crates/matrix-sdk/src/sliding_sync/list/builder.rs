@@ -26,7 +26,6 @@ pub struct SlidingSyncListBuilder {
     required_state: Vec<(StateEventType, String)>,
     full_sync_batch_size: u32,
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
-    send_updates_for_items: bool,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<UInt>,
     name: Option<String>,
@@ -44,7 +43,6 @@ impl SlidingSyncListBuilder {
             ],
             full_sync_batch_size: 20,
             full_sync_maximum_number_of_rooms_to_fetch: None,
-            send_updates_for_items: false,
             filters: None,
             timeline_limit: None,
             name: None,
@@ -89,13 +87,6 @@ impl SlidingSyncListBuilder {
         value: impl Into<Option<u32>>,
     ) -> Self {
         self.full_sync_maximum_number_of_rooms_to_fetch = value.into();
-        self
-    }
-
-    /// Whether the list should send `UpdatedAt`-Diff signals for rooms that
-    /// have changed.
-    pub fn send_updates_for_items(mut self, value: bool) -> Self {
-        self.send_updates_for_items = value;
         self
     }
 
@@ -177,7 +168,6 @@ impl SlidingSyncListBuilder {
                 full_sync_batch_size: self.full_sync_batch_size,
                 full_sync_maximum_number_of_rooms_to_fetch: self
                     .full_sync_maximum_number_of_rooms_to_fetch,
-                send_updates_for_items: self.send_updates_for_items,
                 filters: self.filters,
                 timeline_limit: StdRwLock::new(Observable::new(self.timeline_limit)),
                 name: self.name.ok_or(Error::BuildMissingField("name"))?,
