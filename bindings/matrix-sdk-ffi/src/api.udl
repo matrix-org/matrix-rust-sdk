@@ -108,7 +108,6 @@ interface SlidingSyncList {
     TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
     TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
     TaskHandle observe_state(SlidingSyncListStateObserver observer);
-    TaskHandle observe_room_items(SlidingSyncListRoomItemsObserver observer);
 };
 
 interface SlidingSyncRoom {

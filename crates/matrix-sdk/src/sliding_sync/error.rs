@@ -15,4 +15,9 @@ pub enum Error {
     /// missing.
     #[error("Required field missing: `{0}`")]
     BuildMissingField(&'static str),
+    /// A `SlidingSyncListRequestGenerator` has been used without having been
+    /// initialized. It happens when a response is handled before a request has
+    /// been sent. It usually happens when testing.
+    #[error("The sliding sync list `{0}` is handling a response, but its request generator has not been initialized")]
+    RequestGeneratorHasNotBeenInitialized(String),
 }
