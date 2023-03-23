@@ -7,6 +7,7 @@ use std::{
     cmp::min,
     fmt::Debug,
     iter,
+    ops::Not,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock as StdRwLock,
@@ -82,60 +83,61 @@ impl SlidingSyncList {
     }
 
     /// Set the ranges to fetch.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_ranges<U>(&self, ranges: Vec<(U, U)>) -> &Self
+    pub fn set_ranges<U>(&self, ranges: &[(U, U)]) -> Result<(), Error>
     where
-        U: Into<UInt>,
+        U: Into<UInt> + Copy,
     {
-        let ranges = ranges.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
-        Observable::set(&mut self.inner.ranges.write().unwrap(), ranges);
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
 
-        self
+        self.inner.set_ranges(&ranges);
+
+        Ok(())
     }
 
     /// Reset the ranges to a particular set.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_range<U>(&self, start: U, end: U) -> &Self
+    pub fn set_range<U>(&self, start: U, end: U) -> Result<(), Error>
+    where
+        U: Into<UInt> + Copy,
+    {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
+
+        self.inner.set_ranges(&[(start, end)]);
+
+        Ok(())
+    }
+
+    /// Set the ranges to fetch.
+    pub fn add_range<U>(&self, (start, end): (U, U)) -> Result<(), Error>
     where
         U: Into<UInt>,
     {
-        self.inner.set_range(start, end);
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
 
-        self
+        self.inner.add_range((start, end));
+
+        Ok(())
     }
 
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn add_range<U>(&self, start: U, end: U) -> &Self
-    where
-        U: Into<UInt>,
-    {
-        Observable::update(&mut self.inner.ranges.write().unwrap(), |ranges| {
-            ranges.push((start.into(), end.into()));
-        });
-
-        self
-    }
-
-    /// Set the ranges to fetch
+    /// Reset the ranges to fetch.
     ///
     /// Note: sending an empty list of ranges is, according to the spec, to be
     /// understood that the consumer doesn't care about changes of the room
     /// order but you will only receive updates when for rooms entering or
     /// leaving the set.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn reset_ranges(&self) -> &Self {
-        Observable::set(&mut self.inner.ranges.write().unwrap(), Vec::new());
+    pub fn reset_ranges(&self) -> Result<(), Error> {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
 
-        self
+        self.inner.set_ranges::<UInt>(&[]);
+
+        Ok(())
     }
 
     /// Get the current state.
@@ -268,13 +270,23 @@ pub(super) struct SlidingSyncListInner {
 }
 
 impl SlidingSyncListInner {
-    /// Reset and add a new range.
-    fn set_range<U>(&self, start: U, end: U)
+    /// Reset and add new ranges.
+    fn set_ranges<U>(&self, ranges: &[(U, U)])
+    where
+        U: Into<UInt> + Copy,
+    {
+        let ranges = ranges.iter().map(|(start, end)| ((*start).into(), (*end).into())).collect();
+        Observable::set(&mut self.ranges.write().unwrap(), ranges);
+    }
+
+    /// Add a new range.
+    fn add_range<U>(&self, (start, end): (U, U))
     where
         U: Into<UInt>,
     {
-        let value = vec![(start.into(), end.into())];
-        Observable::set(&mut self.ranges.write().unwrap(), value);
+        Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
+            ranges.push((start.into(), end.into()));
+        });
     }
 
     fn next_request(&self) -> Option<v4::SyncRequestList> {
@@ -506,7 +518,7 @@ impl SlidingSyncListInner {
 
                     // Update the _list range_ to cover from 0 to `range_end`.
                     // The list's range is different from the request generator (this) range.
-                    self.set_range(0, range_end);
+                    self.set_ranges(&[(0, range_end)]);
 
                     // Finally, let's update the list' state.
                     Observable::update_eq(&mut self.state.write().unwrap(), |state| {
@@ -523,7 +535,7 @@ impl SlidingSyncListInner {
                     *fully_loaded = true;
 
                     // The range is covering the entire list, from 0 to its maximum.
-                    self.set_range(0, range_maximum);
+                    self.set_ranges(&[(0, range_maximum)]);
 
                     // Finally, let's update the list' state.
                     Observable::update_eq(&mut self.state.write().unwrap(), |state| {
@@ -782,6 +794,16 @@ pub enum SlidingSyncMode {
     Growing,
 }
 
+impl SlidingSyncMode {
+    /// Return whether an external caller can modify the sync mode's ranges.
+    fn ranges_can_be_modified_by_user(&self) -> bool {
+        match self {
+            Self::Selective => true,
+            Self::Paging | Self::Growing => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::{Deref, Not};
@@ -841,7 +863,7 @@ mod tests {
 
     macro_rules! ranges {
         ( $( ( $start:literal, $end:literal ) ),* $(,)* ) => {
-            vec![$(
+            &[$(
                 (
                     uint!($start),
                     uint!($end),
@@ -901,7 +923,7 @@ mod tests {
         let list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .ranges(ranges![(0, 1), (2, 3)])
+            .ranges(ranges![(0, 1), (2, 3)].to_vec())
             .build()
             .unwrap();
 
@@ -912,7 +934,7 @@ mod tests {
             assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
         }
 
-        list.set_ranges(ranges![(4, 5), (6, 7)]);
+        list.set_ranges(ranges![(4, 5), (6, 7)]).unwrap();
 
         {
             let lock = list.inner.ranges.read().unwrap();
@@ -924,79 +946,154 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_set_range() {
-        let list = SlidingSyncList::builder()
-            .name("foo")
-            .sync_mode(SlidingSyncMode::Selective)
-            .ranges(ranges![(0, 1), (2, 3)])
-            .build()
-            .unwrap();
-
+        // Set range on `Selective`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1), (2, 3)].to_vec())
+                .build()
+                .unwrap();
 
-            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            }
+
+            list.set_range(4u32, 5).unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(4, 5)]);
+            }
         }
 
-        list.set_range(4u32, 5);
-
+        // Set range on `Growing`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
 
-            assert_eq!(ranges, &ranges![(4, 5)]);
+            assert!(list.set_range(4u32, 5).is_err());
+        }
+
+        // Set range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.set_range(4u32, 5).is_err());
         }
     }
 
     #[test]
     fn test_sliding_sync_list_add_range() {
-        let list = SlidingSyncList::builder()
-            .name("foo")
-            .sync_mode(SlidingSyncMode::Selective)
-            .ranges(ranges![(0, 1)])
-            .build()
-            .unwrap();
-
+        // Add range on `Selective`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1)].to_vec())
+                .build()
+                .unwrap();
 
-            assert_eq!(ranges, &ranges![(0, 1)]);
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1)]);
+            }
+
+            list.add_range((2u32, 3)).unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            }
         }
 
-        list.add_range(2u32, 3);
-
+        // Add range on `Growing`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
 
-            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            assert!(list.add_range((2u32, 3)).is_err());
+        }
+
+        // Add range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.add_range((2u32, 3)).is_err());
         }
     }
 
     #[test]
     fn test_sliding_sync_list_reset_ranges() {
-        let list = SlidingSyncList::builder()
-            .name("foo")
-            .sync_mode(SlidingSyncMode::Selective)
-            .ranges(ranges![(0, 1)])
-            .build()
-            .unwrap();
-
+        // Reset ranges on `Selective`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1)].to_vec())
+                .build()
+                .unwrap();
 
-            assert_eq!(ranges, &ranges![(0, 1)]);
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1)]);
+            }
+
+            list.reset_ranges().unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert!(ranges.is_empty());
+            }
         }
 
-        list.reset_ranges();
-
+        // Reset range on `Growing`.
         {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
 
-            assert!(ranges.is_empty());
+            assert!(list.reset_ranges().is_err());
+        }
+
+        // Reset range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.reset_ranges().is_err());
         }
     }
 
@@ -1005,7 +1102,7 @@ mod tests {
         let list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .ranges(ranges![(0, 1)])
+            .ranges(ranges![(0, 1)].to_vec())
             .timeline_limit(7u32)
             .build()
             .unwrap();
@@ -1278,7 +1375,7 @@ mod tests {
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Selective)
             .name("testing")
-            .ranges(ranges![(0, 10), (42, 153)])
+            .ranges(ranges![(0, 10), (42, 153)].to_vec())
             .build()
             .unwrap();
 

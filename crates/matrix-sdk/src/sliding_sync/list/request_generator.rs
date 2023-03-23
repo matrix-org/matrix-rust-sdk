@@ -69,7 +69,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 /// A request generator for [`SlidingSyncList`].
 #[derive(Debug)]
 pub(in super::super) struct SlidingSyncListRequestGenerator {
-    /// The current range used by this request generator.
+    /// The current ranges used by this request generator.
     pub(super) ranges: Vec<(UInt, UInt)>,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
