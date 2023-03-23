@@ -113,6 +113,28 @@ impl SlidingSyncListRequestGenerator {
         Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
     }
 
+    pub(super) fn reset(&mut self) {
+        self.ranges.clear();
+
+        match &mut self.kind {
+            SlidingSyncListRequestGeneratorKind::Paging {
+                number_of_fetched_rooms,
+                fully_loaded,
+                ..
+            }
+            | SlidingSyncListRequestGeneratorKind::Growing {
+                number_of_fetched_rooms,
+                fully_loaded,
+                ..
+            } => {
+                *number_of_fetched_rooms = 0;
+                *fully_loaded = false;
+            }
+
+            SlidingSyncListRequestGeneratorKind::Selective => {}
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn is_fully_loaded(&self) -> bool {
         match self.kind {

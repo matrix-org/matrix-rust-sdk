@@ -92,6 +92,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(&ranges);
+        self.inner.reset();
 
         Ok(())
     }
@@ -106,6 +107,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(&[(start, end)]);
+        self.inner.reset();
 
         Ok(())
     }
@@ -120,6 +122,7 @@ impl SlidingSyncList {
         }
 
         self.inner.add_range((start, end));
+        self.inner.reset();
 
         Ok(())
     }
@@ -136,6 +139,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges::<UInt>(&[]);
+        self.inner.reset();
 
         Ok(())
     }
@@ -287,6 +291,12 @@ impl SlidingSyncListInner {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push((start.into(), end.into()));
         });
+    }
+
+    /// Call this method when it's necessary to reset `Self`.
+    fn reset(&self) {
+        self.request_generator.write().unwrap().reset();
+        Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::NotLoaded);
     }
 
     fn next_request(&self) -> Option<v4::SyncRequestList> {
@@ -1170,27 +1180,41 @@ mod tests {
             maximum_number_of_rooms = $maximum_number_of_rooms:expr,
             $(
                 next => {
-                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),+ ,
+                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),* ,
                     is_fully_loaded = $is_fully_loaded:expr,
                     list_state = $list_state:ident,
                 }
             ),*
             $(,)*
         ) => {
-            assert_eq!($list.state(), SlidingSyncState::$first_list_state);
+            assert_eq!($list.state(), SlidingSyncState::$first_list_state, "first state");
 
             $(
                 {
                     // Generate a new request.
                     let request = $list.next_request().unwrap();
 
-                    assert_eq!(request.ranges, [ $( (uint!( $range_start ), uint!( $range_end )) ),* ]);
+                    assert_eq!(
+                        request.ranges,
+                        [
+                            $( (uint!( $range_start ), uint!( $range_end )) ),*
+                        ],
+                        "ranges",
+                    );
 
                     // Fake a response.
                     let _ = $list.handle_response($maximum_number_of_rooms, &[], &[]);
 
-                    assert_eq!($list.inner.request_generator.read().unwrap().is_fully_loaded(), $is_fully_loaded);
-                    assert_eq!($list.state(), SlidingSyncState::$list_state);
+                    assert_eq!(
+                        $list.inner.request_generator.read().unwrap().is_fully_loaded(),
+                        $is_fully_loaded,
+                        "is fully loaded",
+                    );
+                    assert_eq!(
+                        $list.state(),
+                        SlidingSyncState::$list_state,
+                        "state",
+                    );
                 }
             )*
         };
@@ -1400,6 +1424,91 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             }
+        };
+    }
+
+    #[test]
+    fn test_generator_selective_with_modifying_ranges_on_the_fly() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Selective)
+            .name("testing")
+            .ranges(ranges![(0, 10), (42, 153)].to_vec())
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+
+        list.set_ranges(&[(3u32, 7)]).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [3; 7],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.add_range((10u32, 23)).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [3; 7], [10; 23],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.set_range(42u32, 77).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [42; 77],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.reset_ranges().unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = ,
+                is_fully_loaded = true,
+                list_state = NotLoaded, // Is this correct?
+            },
         };
     }
 
