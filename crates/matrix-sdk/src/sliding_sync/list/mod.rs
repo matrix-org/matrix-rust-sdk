@@ -1167,7 +1167,7 @@ mod tests {
                     assert_eq!(request.ranges, [ $( (uint!( $range_start ), uint!( $range_end )) ),* ]);
 
                     // Fake a response.
-                    let _ = $list.handle_response($maximum_number_of_rooms, &vec![], &vec![]);
+                    let _ = $list.handle_response($maximum_number_of_rooms, &[], &[]);
 
                     assert_eq!($list.inner.request_generator.read().unwrap().is_fully_loaded(), $is_fully_loaded);
                     assert_eq!($list.state(), SlidingSyncState::$list_state);
