@@ -92,7 +92,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(&ranges);
-        self.inner.reset();
+        self.reset();
 
         Ok(())
     }
@@ -107,7 +107,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(&[(start, end)]);
-        self.inner.reset();
+        self.reset();
 
         Ok(())
     }
@@ -122,7 +122,7 @@ impl SlidingSyncList {
         }
 
         self.inner.add_range((start, end));
-        self.inner.reset();
+        self.reset();
 
         Ok(())
     }
@@ -139,7 +139,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges::<UInt>(&[]);
-        self.inner.reset();
+        self.reset();
 
         Ok(())
     }
@@ -225,6 +225,11 @@ impl SlidingSyncList {
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(response)
+    }
+
+    // Reset `Self`.
+    pub(super) fn reset(&self) {
+        self.inner.reset();
     }
 }
 
