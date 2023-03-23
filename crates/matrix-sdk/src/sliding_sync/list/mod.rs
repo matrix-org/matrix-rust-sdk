@@ -30,20 +30,6 @@ use crate::Result;
 /// Holding a specific filtered list within the concept of sliding sync.
 /// Main entrypoint to the `SlidingSync`:
 ///
-/// ```no_run
-/// # use futures::executor::block_on;
-/// # use matrix_sdk::Client;
-/// # use url::Url;
-/// # block_on(async {
-/// # let homeserver = Url::parse("http://example.com")?;
-/// let client = Client::new(homeserver).await?;
-/// let sliding_sync =
-///     client.sliding_sync().await.add_fullsync_list().build().await?;
-///
-/// # anyhow::Ok(())
-/// # });
-/// ```
-///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
 #[derive(Clone, Debug)]
 pub struct SlidingSyncList {
@@ -51,33 +37,6 @@ pub struct SlidingSyncList {
 }
 
 impl SlidingSyncList {
-    /// Get the name of the list.
-    pub fn name(&self) -> &str {
-        self.inner.name.as_str()
-    }
-
-    /// Calculate the next request and return it.
-    pub(super) fn next_request(&mut self) -> Option<v4::SyncRequestList> {
-        self.inner.next_request()
-    }
-
-    pub(crate) fn set_from_cold(
-        &mut self,
-        maximum_number_of_rooms: Option<u32>,
-        rooms_list: Vector<RoomListEntry>,
-    ) {
-        Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
-        self.inner.is_cold.store(true, Ordering::SeqCst);
-        Observable::set(
-            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
-            maximum_number_of_rooms,
-        );
-
-        let mut lock = self.inner.rooms_list.write().unwrap();
-        lock.clear();
-        lock.append(rooms_list);
-    }
-
     /// Create a new [`SlidingSyncListBuilder`].
     pub fn builder() -> SlidingSyncListBuilder {
         SlidingSyncListBuilder::new()
@@ -103,6 +62,28 @@ impl SlidingSyncList {
         }
 
         builder
+    }
+
+    pub(crate) fn set_from_cold(
+        &mut self,
+        maximum_number_of_rooms: Option<u32>,
+        rooms_list: Vector<RoomListEntry>,
+    ) {
+        Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
+        self.inner.is_cold.store(true, Ordering::SeqCst);
+        Observable::set(
+            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
+            maximum_number_of_rooms,
+        );
+
+        let mut lock = self.inner.rooms_list.write().unwrap();
+        lock.clear();
+        lock.append(rooms_list);
+    }
+
+    /// Get the name of the list.
+    pub fn name(&self) -> &str {
+        self.inner.name.as_str()
     }
 
     /// Set the ranges to fetch.
@@ -219,6 +200,11 @@ impl SlidingSyncList {
             .unwrap()
             .get(index)
             .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
+    }
+
+    /// Calculate the next request and return it.
+    pub(super) fn next_request(&mut self) -> Option<v4::SyncRequestList> {
+        self.inner.next_request()
     }
 
     // Handle the response from the server.
