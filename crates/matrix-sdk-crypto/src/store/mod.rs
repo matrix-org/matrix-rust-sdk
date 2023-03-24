@@ -55,6 +55,8 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -118,6 +120,10 @@ pub struct Store {
 
     tracked_user_loading_lock: Arc<Mutex<()>>,
     tracked_users_loaded: Arc<AtomicBool>,
+
+    /// The sender side of a broadcast stream that is notified whenever we get
+    /// an update to an inbound group session.
+    inbound_group_sessions_sender: Arc<broadcast::Sender<InboundGroupSession>>,
 }
 
 #[derive(Default, Debug)]
@@ -332,6 +338,7 @@ impl Store {
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
+        let (inbound_group_sessions_sender, _) = broadcast::channel(10);
         Self {
             user_id,
             identity,
@@ -342,6 +349,7 @@ impl Store {
             users_for_key_query_condvar: Condvar::new().into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
+            inbound_group_sessions_sender: inbound_group_sessions_sender.into(),
         }
     }
 
@@ -376,6 +384,20 @@ impl Store {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
+    }
+
+    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // if we have any listeners on the inbound_group_sessions stream, broadcast any
+        // updates to them
+        if self.inbound_group_sessions_sender.receiver_count() > 0 {
+            for s in changes.inbound_group_sessions.iter() {
+                // ignore the result. It can only fail if there are no listeners (ie, we raced
+                // with the removal of the last one), which isn't a big deal.
+                let _ = self.inbound_group_sessions_sender.send(s.clone());
+            }
+        }
+
+        self.inner.save_changes(changes).await
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
@@ -886,6 +908,11 @@ impl Store {
         let deserialized =
             rmp_serde::from_slice(value).map_err(|e| CryptoStoreError::Backend(e.into()))?;
         Ok(deserialized)
+    }
+
+    /// Get a stream of updates to inbound group sessions
+    pub fn inbound_group_session_stream(&self) -> BroadcastStream<InboundGroupSession> {
+        BroadcastStream::new(self.inbound_group_sessions_sender.subscribe())
     }
 }
 
