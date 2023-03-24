@@ -37,6 +37,7 @@ tracing = ["dep:tracing"]
 [dependencies]
 anyhow = { workspace = true }
 console_error_panic_hook = "0.1.7"
+futures-util = "0.3.27"
 http = { workspace = true }
 js-sys = "0.3.49"
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
@@ -51,3 +52,6 @@ vodozemac = { workspace = true, features = ["js"] }
 wasm-bindgen = "0.2.83"
 wasm-bindgen-futures = "0.4.33"
 zeroize = { workspace = true }
+tokio = {version = "1.26.0", features = ["sync"]}
+tokio-stream = {version ="0.1.12", features=["sync"]}
+tracing = { workspace = true }
