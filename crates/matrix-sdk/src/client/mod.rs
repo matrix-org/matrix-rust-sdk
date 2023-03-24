@@ -215,6 +215,10 @@ impl Client {
             .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
+    pub fn get_ignore_user_list_broadcast_tx(&self) -> &broadcast::Sender<()> {
+        self.inner.base_client.get_ignore_user_list_broadcast_tx()
+    }
+
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()

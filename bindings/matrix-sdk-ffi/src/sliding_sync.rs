@@ -213,11 +213,17 @@ impl SlidingSyncRoom {
                 .await;
         };
 
+        let mut ignore_user_list_rx = self.client.get_ignore_user_list_broadcast_tx().subscribe();
         let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
         let timeline = timeline.to_owned();
         let handle_sliding_sync_reset = async move {
             loop {
                 match reset_broadcast_rx.recv().await {
+                    Err(RecvError::Closed) => break,
+                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
+                }
+
+                match ignore_user_list_rx.recv().await {
                     Err(RecvError::Closed) => break,
                     Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
                 }
