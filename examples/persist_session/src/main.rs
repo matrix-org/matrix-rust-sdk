@@ -7,7 +7,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::{
-        api::client::filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+        api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
     Client, Error, LoopCtrl, Session,
