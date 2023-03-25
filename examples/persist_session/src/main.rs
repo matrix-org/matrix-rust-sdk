@@ -7,7 +7,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::{
-        api::client::filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+        api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
     Client, Error, LoopCtrl, Session,
@@ -221,12 +221,7 @@ async fn sync(
     // Enable room members lazy-loading, it will speed up the initial sync a lot
     // with accounts in lots of rooms.
     // See <https://spec.matrix.org/v1.6/client-server-api/#lazy-loading-room-members>.
-    let mut state_filter = RoomEventFilter::empty();
-    state_filter.lazy_load_options = LazyLoadOptions::Enabled { include_redundant_members: false };
-    let mut room_filter = RoomFilter::empty();
-    room_filter.state = state_filter;
-    let mut filter = FilterDefinition::empty();
-    filter.room = room_filter;
+    let filter = FilterDefinition::with_lazy_loading();
 
     let mut sync_settings = SyncSettings::default().filter(filter.into());
 
