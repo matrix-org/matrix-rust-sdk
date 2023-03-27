@@ -896,7 +896,7 @@ impl BaseClient {
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            eyeball::shared::Observable::set(&self.ignore_user_list_changes_tx, ());
+            self.ignore_user_list_changes_tx.set(());
         }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
