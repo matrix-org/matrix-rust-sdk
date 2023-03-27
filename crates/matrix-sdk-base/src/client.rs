@@ -88,7 +88,7 @@ pub struct BaseClient {
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
-    pub(crate) ignore_user_list_broadcast_tx: Arc<eyeball::shared::Observable<()>>,
+    pub(crate) ignore_user_list_changes_tx: Arc<eyeball::shared::Observable<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -120,7 +120,7 @@ impl BaseClient {
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
-            ignore_user_list_broadcast_tx: Default::default(),
+            ignore_user_list_changes_tx: Default::default(),
         }
     }
 
@@ -896,7 +896,7 @@ impl BaseClient {
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            eyeball::shared::Observable::set(&self.ignore_user_list_broadcast_tx, ());
+            eyeball::shared::Observable::set(&self.ignore_user_list_changes_tx, ());
         }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
@@ -1232,9 +1232,10 @@ impl BaseClient {
         }
     }
 
-    /// Returns a subscriber that publishes an event every time the ignore user list changes
+    /// Returns a subscriber that publishes an event every time the ignore user
+    /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
-        self.ignore_user_list_broadcast_tx.subscribe()
+        self.ignore_user_list_changes_tx.subscribe()
     }
 }
 
