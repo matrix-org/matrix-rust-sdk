@@ -13,9 +13,13 @@
 // limitations under the License.
 
 //! Types for the `m.room_key.withheld` events.
-use std::{collections::BTreeMap, ops::Deref};
+use std::collections::BTreeMap;
 
-use ruma::{serde::StringEnum, JsOption, OwnedDeviceId, OwnedRoomId};
+use ruma::{
+    exports::ruma_macros::AsStrAsRefStr,
+    serde::{AsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, SerializeAsRefStr},
+    JsOption, OwnedDeviceId, OwnedRoomId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -48,16 +52,6 @@ pub enum RoomKeyWithheldContent {
 }
 
 impl RoomKeyWithheldContent {
-    /// Get the algorithm of the room key withheld.
-    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
-        match &self {
-            RoomKeyWithheldContent::MegolmV1AesSha2(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
-            #[cfg(feature = "experimental-algorithms")]
-            RoomKeyWithheldContent::MegolmV2AesSha2(_) => EventEncryptionAlgorithm::MegolmV2AesSha2,
-            RoomKeyWithheldContent::Unknown(c) => c.algorithm.to_owned(),
-        }
-    }
-
     /// Creates a withheld content from the given info
     pub fn create(
         algorithm: EventEncryptionAlgorithm,
@@ -73,7 +67,7 @@ impl RoomKeyWithheldContent {
                     WithheldCode::NoOlm => {
                         let content = NoOlmWithheldContent {
                             sender_key,
-                            reason: JsOption::Some(code.to_human_readable()),
+                            reason: JsOption::Some(code.to_string()),
                             from_device: JsOption::from_implicit_option(from_device),
                             other: Default::default(),
                         };
@@ -86,7 +80,7 @@ impl RoomKeyWithheldContent {
                             session_id,
                             sender_key,
                             // code: code.clone(),
-                            reason: JsOption::Some(code.to_human_readable()),
+                            reason: JsOption::Some(code.to_string()),
                             from_device: JsOption::from_implicit_option(from_device),
                             other: Default::default(),
                         };
@@ -108,7 +102,7 @@ impl RoomKeyWithheldContent {
                     WithheldCode::NoOlm => {
                         let content = NoOlmWithheldContent {
                             sender_key,
-                            reason: JsOption::Some(code.to_human_readable()),
+                            reason: JsOption::Some(code.to_string()),
                             from_device: JsOption::from_implicit_option(from_device),
                             other: Default::default(),
                         };
@@ -120,8 +114,7 @@ impl RoomKeyWithheldContent {
                             room_id,
                             session_id,
                             sender_key,
-                            // code: code.clone(),
-                            reason: JsOption::Some(code.to_human_readable()),
+                            reason: JsOption::Some(code.to_string()),
                             from_device: JsOption::from_implicit_option(from_device),
                             other: Default::default(),
                         };
@@ -144,6 +137,16 @@ impl RoomKeyWithheldContent {
             }),
         }
     }
+
+    /// Get the algorithm of the room key withheld.
+    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
+        match &self {
+            RoomKeyWithheldContent::MegolmV1AesSha2(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(_) => EventEncryptionAlgorithm::MegolmV2AesSha2,
+            RoomKeyWithheldContent::Unknown(c) => c.algorithm.to_owned(),
+        }
+    }
 }
 
 impl EventType for RoomKeyWithheldContent {
@@ -151,8 +154,18 @@ impl EventType for RoomKeyWithheldContent {
 }
 
 /// A machine-readable code for why the megolm key was not sent.
-#[derive(Eq, Hash, PartialEq, Clone, StringEnum)]
-//#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[derive(
+    Eq,
+    Hash,
+    PartialEq,
+    Clone,
+    AsStrAsRefStr,
+    AsRefStr,
+    FromString,
+    DebugAsRefStr,
+    SerializeAsRefStr,
+    DeserializeFromCowStr,
+)]
 #[non_exhaustive]
 pub enum WithheldCode {
     /// the user/device was blacklisted.
@@ -184,19 +197,18 @@ pub enum WithheldCode {
     _Custom(PrivOwnedStr),
 }
 
-impl WithheldCode {
-    /// A human-readable reason for why the key was not sent.
-    pub fn to_human_readable(&self) -> String {
-        match self {
-            WithheldCode::Blacklisted => "The sender has blocked you.".to_owned(),
-            WithheldCode::Unverified => {
-                "The sender has disabled encrypting to unverified devices.".to_owned()
-            }
-            WithheldCode::Unauthorised => "You are not authorised to read the message.".to_owned(),
-            WithheldCode::Unavailable => "The requested key was not found.".to_owned(),
-            WithheldCode::NoOlm => "Unable to establish a secure channel.".to_owned(),
-            WithheldCode::_Custom(str) => str.0.deref().to_owned(),
-        }
+impl std::fmt::Display for WithheldCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let string = match self {
+            WithheldCode::Blacklisted => "The sender has blocked you.",
+            WithheldCode::Unverified => "The sender has disabled encrypting to unverified devices.",
+            WithheldCode::Unauthorised => "You are not authorised to read the message.",
+            WithheldCode::Unavailable => "The requested key was not found.",
+            WithheldCode::NoOlm => "Unable to establish a secure channel.",
+            _ => self.as_str(),
+        };
+
+        write!(f, "{string}")
     }
 }
 
@@ -420,7 +432,7 @@ pub(super) mod test {
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "sender_key": "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
                 "code": code.to_owned(),
-                "reason": code.to_human_readable(),
+                "reason": code.to_string(),
                 "org.matrix.msgid": "8836f2f0-635d-4f0e-9228-446c63ba3ea3"
             },
             "type": "m.room_key.withheld",
@@ -503,7 +515,7 @@ pub(super) mod test {
                 MegolmV1AesSha2WithheldContent::AnyContent((_, content)),
             ) = &event.content
             {
-                assert_eq!(content.reason, ruma::JsOption::Some(code.to_human_readable()))
+                assert_eq!(content.reason, ruma::JsOption::Some(code.to_string()))
             } else {
                 panic!()
             }
