@@ -21,7 +21,7 @@ use std::{
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
-use eyeball::Subscriber;
+use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use matrix_sdk_common::{instant::Instant, locks::RwLock};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -88,7 +88,7 @@ pub struct BaseClient {
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
-    pub(crate) ignore_user_list_changes_tx: Arc<eyeball::shared::Observable<()>>,
+    pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
