@@ -429,22 +429,13 @@ impl SlidingSync {
         {
             let mut lists_lock = lists.lock().unwrap();
             let lists = lists_lock.borrow_mut();
-            let mut lists_to_remove = Vec::new();
-
-            for (name, list) in lists.iter_mut() {
-                if let Some(list_request) = list.next_request() {
-                    requests_lists.insert(name.clone(), list_request);
-                } else {
-                    lists_to_remove.push(name.clone());
-                }
-            }
-
-            for list_name in lists_to_remove {
-                lists.remove(&list_name);
-            }
 
             if lists.is_empty() {
                 return Ok(None);
+            }
+
+            for (name, list) in lists.iter_mut() {
+                requests_lists.insert(name.clone(), list.next_request()?);
             }
         }
 

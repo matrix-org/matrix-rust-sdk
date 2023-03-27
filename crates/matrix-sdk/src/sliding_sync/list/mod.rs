@@ -204,7 +204,7 @@ impl SlidingSyncList {
     }
 
     /// Calculate the next request and return it.
-    pub(super) fn next_request(&mut self) -> Option<v4::SyncRequestList> {
+    pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
     }
 
@@ -304,7 +304,7 @@ impl SlidingSyncListInner {
         Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::NotLoaded);
     }
 
-    fn next_request(&self) -> Option<v4::SyncRequestList> {
+    fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
         {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -362,7 +362,7 @@ impl SlidingSyncListInner {
         }
 
         // Here we go.
-        Some(self.request())
+        Ok(self.request())
     }
 
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
