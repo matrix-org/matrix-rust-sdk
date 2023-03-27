@@ -53,7 +53,6 @@ use ruma::{
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
-use tokio::sync::broadcast;
 use tracing::{debug, info, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
@@ -89,7 +88,7 @@ pub struct BaseClient {
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
-    pub(crate) ignore_user_list_broadcast_tx: broadcast::Sender<()>,
+    pub(crate) ignore_user_list_broadcast_tx: Arc<eyeball::shared::Observable<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -115,14 +114,13 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let (ignore_user_list_broadcast_tx, _) = broadcast::channel(1);
         BaseClient {
             store: Store::new(config.state_store),
             #[cfg(feature = "e2e-encryption")]
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
-            ignore_user_list_broadcast_tx,
+            ignore_user_list_broadcast_tx: Default::default(),
         }
     }
 
@@ -898,7 +896,7 @@ impl BaseClient {
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            let _ = self.ignore_user_list_broadcast_tx.send(());
+            eyeball::shared::Observable::set(&self.ignore_user_list_broadcast_tx, ());
         }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
@@ -1234,8 +1232,9 @@ impl BaseClient {
         }
     }
 
-    pub fn get_ignore_user_list_broadcast_tx(&self) -> &broadcast::Sender<()> {
-        &self.ignore_user_list_broadcast_tx
+    /// Returns a subscriber that publishes an event every time the ignore user list changes
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+        self.ignore_user_list_broadcast_tx.subscribe()
     }
 }
 

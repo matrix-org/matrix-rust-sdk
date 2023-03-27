@@ -25,6 +25,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
+use eyeball::Subscriber;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
@@ -215,8 +216,9 @@ impl Client {
             .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
-    pub fn get_ignore_user_list_broadcast_tx(&self) -> &broadcast::Sender<()> {
-        self.inner.base_client.get_ignore_user_list_broadcast_tx()
+    /// Returns a subscriber that publishes an event every time the ignore user list changes
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+        self.inner.base_client.subscribe_to_ignore_user_list_changes()
     }
 
     /// Create a new [`ClientBuilder`].

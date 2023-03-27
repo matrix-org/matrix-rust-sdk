@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join, pin_mut, StreamExt};
+use futures_util::{future::join3, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -213,7 +213,6 @@ impl SlidingSyncRoom {
                 .await;
         };
 
-        let mut ignore_user_list_rx = self.client.get_ignore_user_list_broadcast_tx().subscribe();
         let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
         let timeline = timeline.to_owned();
         let handle_sliding_sync_reset = async move {
@@ -222,17 +221,25 @@ impl SlidingSyncRoom {
                     Err(RecvError::Closed) => break,
                     Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
                 }
+            }
+        };
 
-                match ignore_user_list_rx.recv().await {
-                    Err(RecvError::Closed) => break,
-                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
+        let mut ignore_user_list_rx = self.client.subscribe_to_ignore_user_list_changes();
+        let broadcast = self.client.sliding_sync_reset_broadcast_tx.clone();
+        let handle_user_list_changes = async move {
+            loop {
+                match ignore_user_list_rx.next().await {
+                    None => break,
+                    Some(_) => {
+                        let _ = broadcast.send(());
+                    }
                 }
             }
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join(handle_events, handle_sliding_sync_reset).await;
+            join3(handle_events, handle_sliding_sync_reset, handle_user_list_changes).await;
         }));
 
         Ok((items, task_handle))

@@ -47,9 +47,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["sync"] }
-
 [dev-dependencies]
 assert_matches = "1.5.0"
 assign = "1.1.1"
