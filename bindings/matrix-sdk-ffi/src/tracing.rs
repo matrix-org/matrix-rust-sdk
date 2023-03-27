@@ -1,12 +1,21 @@
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeMap, sync::Mutex};
 
 use once_cell::sync::OnceCell;
 use tracing::{callsite::DefaultCallsite, field::FieldSet, Callsite};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
+/// Log an event at the given callsite (file, line and column).
+///
+/// The target should be something like a module path, and can be referenced in
+/// the filter string given to `setup_tracing`. `level` and `target` for a
+/// callsite are fixed at the first `log_event` call for that callsite and can
+/// not be changed afterwards, i.e. the level and target passed for second and
+/// following `log_event`s with the same callsite will be ignored.
+///
+/// This function leaks a little bit of memory for each unique callsite it is
+/// called with. Please make sure that the number of different
+/// `(file, line, column)` tuples that this can be called with is fixed in the
+/// final executable.
 #[uniffi::export]
 fn log_event(
     file: String,
@@ -37,34 +46,6 @@ fn log_event(
         let values = fields.value_set(&values);
         tracing::Event::dispatch(metadata, &values);
     }
-}
-
-#[uniffi::export]
-fn make_span(
-    file: String,
-    line: u32,
-    column: u32,
-    level: LogLevel,
-    target: String,
-    name: String,
-) -> Arc<Span> {
-    static CALLSITES: Mutex<BTreeMap<Location, &'static DefaultCallsite>> =
-        Mutex::new(BTreeMap::new());
-    let loc = Location::new(file, line, column);
-    let callsite = get_or_init_metadata(&CALLSITES, loc, level, target, |_loc| {
-        (name, &[], MetadataKind::SPAN)
-    });
-    let metadata = callsite.metadata();
-
-    let span = if span_or_event_enabled(callsite) {
-        // This function is hidden from docs, but we have to use it (see above).
-        let values = metadata.fields().value_set(&[]);
-        tracing::Span::new(metadata, &values)
-    } else {
-        tracing::Span::none()
-    };
-
-    Arc::new(Span(span))
 }
 
 type FieldNames = &'static [&'static str];
@@ -114,6 +95,57 @@ fn span_or_event_enabled(callsite: &'static DefaultCallsite) -> bool {
 pub struct Span(tracing::Span);
 
 impl Span {
+    /// Create a span originating at the given callsite (file, line and column).
+    ///
+    /// The target should be something like a module path, and can be referenced
+    /// in the filter string given to `setup_tracing`. `level` and `target`
+    /// for a callsite are fixed at the first creation of a span for that
+    /// callsite and can not be changed afterwards, i.e. the level and
+    /// target passed for second and following creation of a span with the same
+    /// callsite will be ignored.
+    ///
+    /// This function leaks a little bit of memory for each unique callsite it
+    /// is called with. Please make sure that the number of different
+    /// `(file, line, column)` tuples that this can be called with is fixed in
+    /// the final executable.
+    ///
+    /// For a span to have an effect, you must `.enter()` it at the start of a
+    /// logical unit of work and `.exit()` it at the end of the same (including
+    /// on failure). Entering registers the span in thread-local storage, so
+    /// future calls to `log_event` on the same thread are able to attach the
+    /// events they create to the span, exiting unregisters it. For this to
+    /// work, exiting a span must be done on the same thread where it was
+    /// entered. It is possible to enter a span on multiple threads, in which
+    /// case it should also be exited on all of them individually; that is,
+    /// unless you *want* the span to be attached to all further events created
+    /// on that thread.
+    pub fn new(
+        file: String,
+        line: u32,
+        column: u32,
+        level: LogLevel,
+        target: String,
+        name: String,
+    ) -> Self {
+        static CALLSITES: Mutex<BTreeMap<Location, &'static DefaultCallsite>> =
+            Mutex::new(BTreeMap::new());
+        let loc = Location::new(file, line, column);
+        let callsite = get_or_init_metadata(&CALLSITES, loc, level, target, |_loc| {
+            (name, &[], MetadataKind::SPAN)
+        });
+        let metadata = callsite.metadata();
+
+        let span = if span_or_event_enabled(callsite) {
+            // This function is hidden from docs, but we have to use it (see above).
+            let values = metadata.fields().value_set(&[]);
+            tracing::Span::new(metadata, &values)
+        } else {
+            tracing::Span::none()
+        };
+
+        Span(span)
+    }
+
     pub fn current() -> Self {
         Self(tracing::Span::current())
     }
@@ -134,7 +166,6 @@ impl Span {
     }
 }
 
-#[derive(uniffi::Enum)]
 pub enum LogLevel {
     Error,
     Warn,
