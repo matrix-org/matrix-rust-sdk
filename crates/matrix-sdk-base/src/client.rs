@@ -22,7 +22,7 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use eyeball::Subscriber;
-use matrix_sdk_common::{instant::Instant, locks::RwLock};
+use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
@@ -53,6 +53,7 @@ use ruma::{
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
+use tokio::sync::RwLock;
 use tracing::{debug, info, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]

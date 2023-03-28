@@ -23,7 +23,6 @@ use std::{
 };
 
 use atomic::Atomic;
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
@@ -31,6 +30,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+use tokio::sync::Mutex;
 use tracing::{trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 

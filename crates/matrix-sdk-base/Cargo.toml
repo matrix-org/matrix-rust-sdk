@@ -43,6 +43,7 @@ once_cell = { workspace = true }
 ruma = { workspace = true, features = ["canonical-json"] }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
+tokio = { version = "1.24", default-features = false, features = ["sync"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }

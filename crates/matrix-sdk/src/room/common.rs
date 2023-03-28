@@ -5,7 +5,6 @@ use matrix_sdk_base::{
     store::StateStoreExt,
     StateChanges,
 };
-use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -46,6 +45,7 @@ use ruma::{
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::Mutex;
 use tracing::debug;
 
 #[cfg(feature = "experimental-timeline")]

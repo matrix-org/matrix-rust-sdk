@@ -22,10 +22,7 @@ use imbl::Vector;
 use indexmap::{IndexMap, IndexSet};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::OlmMachine;
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
-    locks::{Mutex, MutexGuard},
-};
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent};
 #[cfg(feature = "e2e-encryption")]
 use ruma::RoomId;
 use ruma::{
@@ -41,6 +38,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
 };
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, field::debug, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{field, info, info_span, Instrument as _};

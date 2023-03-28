@@ -20,7 +20,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -41,6 +40,7 @@ use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Batch, Config, Db, IVec, Transactional, Tree,
 };
+use tokio::sync::Mutex;
 use tracing::debug;
 
 use super::OpenStoreError;

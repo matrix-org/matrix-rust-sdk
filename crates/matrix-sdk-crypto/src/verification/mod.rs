@@ -24,7 +24,6 @@ use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
-use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
 pub use qrcode::{QrVerification, QrVerificationState, ScanError};
 pub use requests::{VerificationRequest, VerificationRequestState};
@@ -46,6 +45,7 @@ use ruma::{
     UserId,
 };
 pub use sas::{AcceptSettings, AcceptedProtocols, EmojiShortAuthString, Sas, SasState};
+use tokio::sync::Mutex;
 use tracing::{error, info, trace, warn};
 
 use crate::{
@@ -812,8 +812,8 @@ pub(crate) mod tests {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::locks::Mutex;
     use ruma::{device_id, user_id, DeviceId, UserId};
+    use tokio::sync::Mutex;
 
     use super::VerificationStore;
     use crate::{

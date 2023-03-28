@@ -19,12 +19,9 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
-        VerificationState,
-    },
-    locks::Mutex,
+use matrix_sdk_common::deserialized_responses::{
+    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
+    VerificationState,
 };
 use ruma::{
     api::client::{
@@ -45,6 +42,7 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
+use tokio::sync::Mutex;
 use tracing::{
     debug, error,
     field::{debug, display},

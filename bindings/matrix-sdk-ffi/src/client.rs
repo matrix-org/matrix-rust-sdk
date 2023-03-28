@@ -109,7 +109,7 @@ pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
-        Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+        Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
     /// The sliding sync proxy that the client is configured to use by default.
     /// If this value is `Some`, it will be automatically added to the builder
     /// when calling `sliding_sync()`.
@@ -120,7 +120,7 @@ pub struct Client {
 impl Client {
     pub fn new(client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
-            matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
+            tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
         let ctrl = session_verification_controller.clone();
 
