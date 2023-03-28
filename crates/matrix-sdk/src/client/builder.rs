@@ -15,8 +15,6 @@
 
 use std::{fmt, sync::Arc};
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
 use matrix_sdk_base::{
     locks::{Mutex, RwLock},
     store::StoreConfig,
@@ -27,9 +25,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, OnceCell};
 use tracing::{
     debug,
     field::{self, debug},

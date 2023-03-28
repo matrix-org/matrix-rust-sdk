@@ -124,7 +124,6 @@ features = [
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-async-once-cell = "0.4.2"
 gloo-timers = { version = "0.2.6", features = ["futures"] }
 tokio = { version = "1.24.2", default-features = false, features = ["sync"] }
 
