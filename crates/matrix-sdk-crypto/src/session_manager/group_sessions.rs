@@ -167,7 +167,7 @@ impl GroupSessionManager {
                     let device = self.store.get_device(user_id, device_id).await;
 
                     if let Ok(Some(device)) = device {
-                        device.set_no_olm_sent(true);
+                        device.mark_withheld_code_as_sent();
                         changes.devices.changed.push(device.inner.clone());
                     } else {
                         error!(
@@ -572,7 +572,7 @@ impl GroupSessionManager {
         // `OutboundGroupSession` and the `Device` both interact with the flag we'll
         // leave it be.
         if code == &WithheldCode::NoOlm {
-            device.is_no_olm_sent()
+            device.was_withheld_code_sent()
                 || self.sessions.sessions.iter().any(|s| s.is_withheld_to(device, code))
         } else {
             group_session.is_withheld_to(device, code)
@@ -1311,7 +1311,7 @@ mod tests {
 
         // The device should be marked as having the `m.no_olm` code received only after
         // the request has been marked as sent.
-        assert!(!device.is_no_olm_sent());
+        assert!(!device.was_withheld_code_sent());
 
         for request in requests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
@@ -1319,6 +1319,6 @@ mod tests {
 
         let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
 
-        assert!(device.is_no_olm_sent());
+        assert!(device.was_withheld_code_sent());
     }
 }

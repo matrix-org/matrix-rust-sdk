@@ -1046,12 +1046,6 @@ impl OlmMachine {
                 match decrypted.session {
                     SessionType::New(s) => {
                         changes.account = Some(self.account.inner.clone());
-                        // We have a new session with this device, clear the set_no_olm flag
-                        let device = self.store.get_device(&s.user_id, &s.device_id).await;
-                        if let Ok(Some(device)) = device {
-                            device.inner.set_no_olm_sent(false);
-                            changes.devices.changed.push(device.inner);
-                        }
                         changes.sessions.push(s);
                     }
                     SessionType::Existing(s) => {

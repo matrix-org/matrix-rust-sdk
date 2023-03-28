@@ -369,9 +369,6 @@ impl SessionManager {
                 };
 
                 changes.sessions.push(session);
-                device.set_no_olm_sent(false);
-                // We have a new session for that device, clear previous no_olm_sent
-                changes.devices.changed.push(device.clone());
                 new_sessions.entry(user_id).or_default().insert(device_id, session_info);
             }
         }
