@@ -293,12 +293,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-once-cell"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "390a110411bbc7c93b77a736cbd694f64cb06dfa2702173f63169d7a1e1b5298"
-
-[[package]]
 name = "async-process"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2730,7 +2724,6 @@ dependencies = [
  "anyhow",
  "anymap2",
  "assert_matches",
- "async-once-cell",
  "async-stream",
  "async-trait",
  "backoff",

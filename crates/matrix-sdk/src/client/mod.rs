@@ -22,8 +22,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -69,9 +67,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, OnceCell};
 use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -1969,11 +1965,6 @@ impl Client {
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        #[cfg(target_arch = "wasm32")]
-        let server_versions =
-            self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
-
-        #[cfg(not(target_arch = "wasm32"))]
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
