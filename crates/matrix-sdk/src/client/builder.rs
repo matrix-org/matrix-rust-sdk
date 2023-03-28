@@ -433,6 +433,7 @@ impl ClientBuilder {
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
+            sync_gap_broadcast_txs: Default::default(),
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,
             sync_beat: event_listener::Event::new(),

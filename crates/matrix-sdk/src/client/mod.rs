@@ -19,10 +19,11 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 
 use dashmap::DashMap;
+use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
@@ -162,6 +163,7 @@ pub(crate) struct ClientInner {
     pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
@@ -2527,6 +2529,16 @@ impl Client {
     pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
         let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
+    }
+
+    /// Subscribe to sync gaps for the given room.
+    ///
+    /// This method is meant to be removed in favor of making event handlers
+    /// more general in the future.
+    pub fn subscribe_sync_gap(&self, room_id: &RoomId) -> Subscriber<()> {
+        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
+        let observable = lock.entry(room_id.to_owned()).or_default();
+        Observable::subscribe(observable)
     }
 }
 

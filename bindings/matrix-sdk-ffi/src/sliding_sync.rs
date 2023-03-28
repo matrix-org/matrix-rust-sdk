@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join, pin_mut, StreamExt};
+use futures_util::{future::join3, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -213,15 +213,25 @@ impl SlidingSyncRoom {
                 .await;
         };
 
-        let reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
-        let timeline = timeline.to_owned();
-        let handle_sliding_sync_reset = async move {
-            reset_broadcast_rx.for_each(|_| timeline.clear()).await;
+        let handle_sliding_sync_reset = {
+            let reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
+            let timeline = timeline.to_owned();
+            async move {
+                reset_broadcast_rx.for_each(|_| timeline.clear()).await;
+            }
+        };
+
+        let handle_sync_gap = {
+            let gap_broadcast_rx = self.client.client.subscribe_sync_gap(self.inner.room_id());
+            let timeline = timeline.to_owned();
+            async move {
+                gap_broadcast_rx.for_each(|_| timeline.clear()).await;
+            }
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join(handle_events, handle_sliding_sync_reset).await;
+            join3(handle_events, handle_sliding_sync_reset, handle_sync_gap).await;
         }));
 
         Ok((items, task_handle))
