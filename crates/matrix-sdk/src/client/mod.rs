@@ -29,10 +29,7 @@ use matrix_sdk_base::{
     store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, SyncOutsideWasm,
 };
-use matrix_sdk_common::{
-    instant::Instant,
-    locks::{Mutex, RwLock, RwLockReadGuard},
-};
+use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
@@ -67,7 +64,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, OnceCell};
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -1419,12 +1416,9 @@ impl Client {
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let lock = self.inner.refresh_token_lock.try_lock().ok();
-        #[cfg(target_arch = "wasm32")]
         let lock = self.inner.refresh_token_lock.try_lock();
 
-        if let Some(mut guard) = lock {
+        if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
                 return Err(RefreshTokenError::RefreshTokenRequired.into());

@@ -15,17 +15,13 @@
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_base::{
-    locks::{Mutex, RwLock},
-    store::StoreConfig,
-    BaseClient,
-};
+use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, OnceCell};
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock};
 use tracing::{
     debug,
     field::{self, debug},

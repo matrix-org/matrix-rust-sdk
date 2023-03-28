@@ -19,7 +19,6 @@ use std::sync::{
     Arc,
 };
 
-use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
@@ -28,6 +27,7 @@ use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use vodozemac::Ed25519Signature;
 
 use crate::{

@@ -5,7 +5,6 @@ pub use instant;
 
 pub mod deserialized_responses;
 pub mod executor;
-pub mod locks;
 pub mod timeout;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on

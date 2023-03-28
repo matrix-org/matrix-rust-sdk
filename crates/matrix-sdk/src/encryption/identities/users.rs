@@ -14,12 +14,8 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_base::{
-    crypto::{
-        types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
-        UserIdentity as InnerUserIdentity,
-    },
-    locks::RwLock,
+use matrix_sdk_base::crypto::{
+    types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity, UserIdentity as InnerUserIdentity,
 };
 use ruma::{
     events::{
@@ -28,6 +24,7 @@ use ruma::{
     },
     UserId,
 };
+use tokio::sync::RwLock;
 
 use super::{ManualVerifyError, RequestVerificationError};
 use crate::{encryption::verification::VerificationRequest, room::Joined, Client};

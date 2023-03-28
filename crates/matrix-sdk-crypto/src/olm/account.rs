@@ -22,7 +22,6 @@ use std::{
     },
 };
 
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -36,6 +35,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
+use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn, Span};
 use vodozemac::{
     olm::{

@@ -847,10 +847,10 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
+    use tokio::sync::Mutex;
 
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
