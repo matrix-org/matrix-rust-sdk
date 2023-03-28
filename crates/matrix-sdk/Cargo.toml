@@ -125,11 +125,11 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.2.6", features = ["futures"] }
-tokio = { version = "1.24.2", default-features = false, features = ["sync"] }
+tokio = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-tokio = { version = "1.24.2", default-features = false, features = ["fs", "rt"] }
+tokio = { workspace = true, features = ["fs", "rt"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -146,5 +146,5 @@ wasm-bindgen-test = "0.3.33"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = { workspace = true }
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
