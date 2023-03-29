@@ -398,15 +398,6 @@ impl SlidingSyncListInner {
             }
         }
 
-        // Run the sync operations.
-        if !sync_operations.is_empty() {
-            let mut rooms_list = self.rooms_list.write().unwrap();
-
-            apply_sync_operations(sync_operations, &mut rooms_list)?;
-
-            new_changes = true;
-        }
-
         // Update the `maximum_number_of_rooms` if it has changed.
         // Again, it should happened only once at the beginning, as the value of
         // `maximum_number_of_rooms` should not change over time.
@@ -418,6 +409,15 @@ impl SlidingSyncListInner {
 
                 new_changes = true;
             }
+        }
+
+        // Run the sync operations.
+        if !sync_operations.is_empty() {
+            let mut rooms_list = self.rooms_list.write().unwrap();
+
+            apply_sync_operations(sync_operations, &mut rooms_list)?;
+
+            new_changes = true;
         }
 
         Ok(new_changes)
