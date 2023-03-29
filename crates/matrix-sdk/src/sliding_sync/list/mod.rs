@@ -210,17 +210,15 @@ impl SlidingSyncList {
         &mut self,
         maximum_number_of_rooms: u32,
         ops: &[v4::SyncOp],
-        updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        let response = self.inner.update_state(
+        let result = self.inner.update_state(
             maximum_number_of_rooms,
             ops,
             &self.inner.request_generator.read().unwrap().ranges,
-            updated_rooms,
         )?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
-        Ok(response)
+        Ok(result)
     }
 
     // Reset `Self`.
@@ -386,7 +384,6 @@ impl SlidingSyncListInner {
         maximum_number_of_rooms: u32,
         ops: &[v4::SyncOp],
         ranges: &[(UInt, UInt)],
-        updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
@@ -423,20 +420,6 @@ impl SlidingSyncListInner {
 
             if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms) {
                 Observable::set(&mut maximum_number_of_rooms_lock, Some(maximum_number_of_rooms));
-                new_changes = true;
-            }
-        }
-
-        if !updated_rooms.is_empty() {
-            let found_lists = self.find_rooms_in_list(updated_rooms);
-
-            if !found_lists.is_empty() {
-                let mut rooms_list = self.rooms_list.write().unwrap();
-
-                for (pos, room_id) in found_lists {
-                    rooms_list.set(pos, RoomListEntry::Filled(room_id));
-                }
-
                 new_changes = true;
             }
         }
@@ -529,35 +512,6 @@ impl SlidingSyncListInner {
         }
 
         Ok(())
-    }
-
-    /// Find the current valid position of the rooms in the lists `room_list`.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignored. Return the total position of the items that
-    /// were found in the `room_list`, will skip any room not found in the
-    /// `rooms_list`.
-    fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
-        let ranges = self.ranges.read().unwrap();
-        let rooms_list = self.rooms_list.read().unwrap();
-        let mut rooms_found = Vec::new();
-
-        for (start, end) in ranges
-            .iter()
-            .map(|(start, end)| (usize::try_from(*start).unwrap(), usize::try_from(*end).unwrap()))
-        {
-            for (position, room_list_entry) in
-                rooms_list.iter().enumerate().skip(start).take(end.saturating_add(1))
-            {
-                if let RoomListEntry::Filled(room_id) = room_list_entry {
-                    if room_ids.contains(room_id) {
-                        rooms_found.push((position, room_id.clone()));
-                    }
-                }
-            }
-        }
-
-        rooms_found
     }
 }
 
@@ -1130,7 +1084,7 @@ mod tests {
         }))
         .unwrap();
 
-        list.handle_response(6, &[sync0], &[room0.to_owned(), room1.to_owned()]).unwrap();
+        list.handle_response(6, &[sync0]).unwrap();
 
         assert_eq!(list.get_room_id(0), Some(room0.to_owned()));
         assert_eq!(list.get_room_id(1), Some(room1.to_owned()));
@@ -1167,7 +1121,7 @@ mod tests {
                     );
 
                     // Fake a response.
-                    let _ = $list.handle_response($maximum_number_of_rooms, &[], &[]);
+                    let _ = $list.handle_response($maximum_number_of_rooms, &[]);
 
                     assert_eq!(
                         $list.inner.request_generator.read().unwrap().is_fully_loaded(),
@@ -1477,117 +1431,94 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_inner_find_rooms_in_lists() {
+    fn test_sliding_sync_inner_update_state_room_lists_and_maximum_number_of_rooms() {
         let mut list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .add_range(0u32, 2)
-            .add_range(5u32, 7)
+            .add_range(0u32, 3)
             .build()
             .unwrap();
+
+        assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
+        assert_eq!(list.inner.rooms_list.read().unwrap().len(), 0);
 
         let room0 = room_id!("!room0:bar.org");
         let room1 = room_id!("!room1:bar.org");
         let room2 = room_id!("!room2:bar.org");
-        let room5 = room_id!("!room5:bar.org");
-        let room6 = room_id!("!room6:bar.org");
-        let room7 = room_id!("!room7:bar.org");
+        let room3 = room_id!("!room3:bar.org");
+        let room4 = room_id!("!room4:bar.org");
 
-        // Simulate a request.
-        let _ = list.next_request();
+        // Initial range.
+        for _ in 0..=1 {
+            // Simulate a request.
+            let _ = list.next_request();
 
-        // A new response.
-        let sync0: v4::SyncOp = serde_json::from_value(json!({
-            "op": SlidingOp::Sync,
-            "range": [0, 2],
-            "room_ids": [
-                room0,
-                room1,
-                room2,
-            ],
-        }))
-        .unwrap();
-        let sync1: v4::SyncOp = serde_json::from_value(json!({
-            "op": SlidingOp::Sync,
-            "range": [5, 7],
-            "room_ids": [
-                room5,
-                room6,
-                room7,
-            ],
-        }))
-        .unwrap();
+            // A new response.
+            let sync: v4::SyncOp = serde_json::from_value(json!({
+                "op": SlidingOp::Sync,
+                "range": [0, 2],
+                "room_ids": [room0, room1, room2],
+            }))
+            .unwrap();
 
-        list.handle_response(
-            6,
-            &[sync0, sync1],
-            &[
-                room0.to_owned(),
-                room1.to_owned(),
-                room2.to_owned(),
-                room5.to_owned(),
-                room6.to_owned(),
-            ],
-        )
-        .unwrap();
+            let new_changes = list.handle_response(5, &[sync]).unwrap();
 
-        assert_eq!(
-            list.inner.find_rooms_in_list(&[
-                room0.to_owned(),
-                room1.to_owned(),
-                room2.to_owned(),
-                room5.to_owned(),
-                room6.to_owned(),
-                room7.to_owned(),
-            ]),
-            [
-                (0, room0.to_owned()),
-                (1, room1.to_owned()),
-                (2, room2.to_owned()),
-                (5, room5.to_owned()),
-                (6, room6.to_owned()),
-                (7, room7.to_owned()),
-            ]
-        );
+            assert!(new_changes);
 
-        // Simulate a request.
-        let _ = list.next_request();
+            // The `maximum_number_of_rooms` has been updated as expected.
+            assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
 
-        // A new response.
-        let sync2: v4::SyncOp = serde_json::from_value(json!({
-            "op": SlidingOp::Invalidate,
-            "range": [1, 2],
-            "rooms_id": [
-                room1,
-                room2,
-            ]
-        }))
-        .unwrap();
-        let sync3: v4::SyncOp = serde_json::from_value(json!({
-            "op": SlidingOp::Delete,
-            "index": 6,
-            "room_id": room6,
-        }))
-        .unwrap();
+            // The `rooms_list` has the correct size and contains expected room entries.
+            let rooms_list = list.inner.rooms_list.read().unwrap();
 
-        list.handle_response(
-            6,
-            &[sync2, sync3],
-            &[room1.to_owned(), room2.to_owned(), room6.to_owned()],
-        )
-        .unwrap();
+            assert_eq!(rooms_list.len(), 5);
+            assert_eq!(
+                **rooms_list,
+                vector![
+                    RoomListEntry::Filled(room0.to_owned()),
+                    RoomListEntry::Filled(room1.to_owned()),
+                    RoomListEntry::Filled(room2.to_owned()),
+                    RoomListEntry::Empty,
+                    RoomListEntry::Empty,
+                ]
+            );
+        }
 
-        assert_eq!(
-            list.inner.find_rooms_in_list(&[
-                room0.to_owned(),
-                room1.to_owned(),
-                room2.to_owned(),
-                room5.to_owned(),
-                room6.to_owned(),
-                room7.to_owned()
-            ]),
-            [(0, room0.to_owned()), (5, room5.to_owned()), (7, room7.to_owned())]
-        );
+        // Update the range.
+        for _ in 0..=1 {
+            // Simulate a request.
+            let _ = list.next_request();
+
+            // A new response.
+            let sync: v4::SyncOp = serde_json::from_value(json!({
+                "op": SlidingOp::Sync,
+                "range": [3, 4],
+                "room_ids": [room3, room4],
+            }))
+            .unwrap();
+
+            let new_changes = list.handle_response(5, &[sync]).unwrap();
+
+            assert!(new_changes);
+
+            // The `maximum_number_of_rooms` has been updated as expected.
+            assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
+
+            // The `rooms_list` has the correct size and contains expected room entries.
+            let rooms_list = list.inner.rooms_list.read().unwrap();
+
+            assert_eq!(rooms_list.len(), 5);
+            assert_eq!(
+                **rooms_list,
+                vector![
+                    RoomListEntry::Filled(room0.to_owned()),
+                    RoomListEntry::Filled(room1.to_owned()),
+                    RoomListEntry::Filled(room2.to_owned()),
+                    RoomListEntry::Filled(room3.to_owned()),
+                    RoomListEntry::Filled(room4.to_owned()),
+                ]
+            );
+        }
     }
 
     #[test]
