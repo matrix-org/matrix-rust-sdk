@@ -543,20 +543,38 @@ fn apply_sync_operations(
                         )
                     })
                     .map(|(start, end)| {
-                        (usize::try_from(start).unwrap(), usize::try_from(end).unwrap())
+                        (
+                            usize::try_from(start).unwrap(),
+                            usize::try_from(end).unwrap().saturating_add(1),
+                        )
                     })?;
 
+                // Range is too big.
                 if end > rooms_list.len() {
                     return Err(Error::BadResponse(
                         "`range` is out of the `rooms_list`' bounds".to_string(),
                     ));
                 }
 
+                let room_entry_range = start..end;
+                let room_ids = operation.room_ids.iter();
+
+                // Mismatch between the `range` and `room_ids`.
+                if room_entry_range.len() != room_ids.len() {
+                    return Err(Error::BadResponse(
+                        format!(
+                            "There is a mismatch between the number of items in `range` and `room_ids` ({} != {})",
+                            room_entry_range.len(),
+                            room_ids.len(),
+                        )
+                    ));
+                }
+
                 // Update `rooms_list`.
                 //
-                // The room entry index is given by the `start..=end` bounds.
-                // The room ID is given by the `operation.room_ids`.
-                for (room_entry_index, room_id) in (start..=end).zip(operation.room_ids.iter()) {
+                // The room entry index is given by the `room_entry_range` bounds.
+                // The room ID is given by the `room_ids`.
+                for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
                     rooms_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
                 }
             }
@@ -1564,7 +1582,7 @@ mod tests {
     macro_rules! assert_sync_operations {
         (
             rooms_list = [ $( $room_list_entries:tt )* ],
-            ranges = [ $( $ranges:tt )* ],
+            requested_ranges = [ $( $requested_ranges:tt )* ],
             operations = [
                 $(
                     { $( $operation:tt )+ }
@@ -1578,7 +1596,7 @@ mod tests {
             $(,)?
         ) => {
             let mut rooms_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
-            let ranges = ranges![ $( $ranges )* ];
+            let requested_ranges = ranges![ $( $requested_ranges )* ];
             let operations: &[v4::SyncOp] = &[
                 $(
                     serde_json::from_value(json!({
@@ -1587,7 +1605,7 @@ mod tests {
                 ),*
             ];
 
-            let result = apply_sync_operations(operations, &mut rooms_list, ranges);
+            let result = apply_sync_operations(operations, &mut rooms_list, requested_ranges);
 
             assert!(result.$result());
             assert_eq!(*rooms_list, entries![ $( $expected_room_list_entries )* ]);
@@ -1599,7 +1617,7 @@ mod tests {
         // All rooms list is updated.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            ranges = [(0, 2)],
+            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1615,7 +1633,7 @@ mod tests {
         // Partial update.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            ranges = [(0, 1)],
+            requested_ranges = [(0, 1)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1629,7 +1647,7 @@ mod tests {
         };
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            ranges = [(1, 2)],
+            requested_ranges = [(1, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1645,7 +1663,7 @@ mod tests {
         // Out of bounds operation.
         assert_sync_operations! {
             rooms_list = [E, F("!r1:x.y"), E],
-            ranges = [(0, 2)],
+            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1656,6 +1674,40 @@ mod tests {
             =>
             result = is_err,
             rooms_list = [E, F("!r1:x.y"), E],
+        };
+
+        // The server replies with a particular range, but some room IDs are
+        // missing.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                    "room_ids": ["!r0:x.y" /* items are missing here! */],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, E, E],
+        };
+
+        // The server replies with a particular range, but there is too much
+        // room IDs.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 1],
+                    "room_ids": ["!r0:x.y", "!r1:x.y", "!extra:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, E, E],
         };
     }
 }
