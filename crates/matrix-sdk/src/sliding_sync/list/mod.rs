@@ -91,7 +91,7 @@ impl SlidingSyncList {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
-        self.inner.set_ranges(&ranges);
+        self.inner.set_ranges(ranges);
         self.reset();
 
         Ok(())
