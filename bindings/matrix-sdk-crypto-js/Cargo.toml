@@ -32,7 +32,7 @@ crate-type = ["cdylib"]
 [features]
 default = ["tracing", "qrcode"]
 qrcode = ["matrix-sdk-crypto/qrcode", "dep:matrix-sdk-qrcode"]
-tracing = ["dep:tracing"]
+tracing = []
 
 [dependencies]
 anyhow = { workspace = true }
@@ -52,5 +52,3 @@ vodozemac = { workspace = true, features = ["js"] }
 wasm-bindgen = "0.2.83"
 wasm-bindgen-futures = "0.4.33"
 zeroize = { workspace = true }
-tokio = { version = "1.26.0", features = ["sync"] }
-tokio-stream = { version ="0.1.12", features=["sync"] }
