@@ -927,7 +927,7 @@ mod tests {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 sync_mode: SlidingSyncMode::GrowingFullSync,
-                sort: vec!["foo".to_string(), "bar".to_string()],
+                sort: vec!["foo".to_owned(), "bar".to_owned()],
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
                 full_sync_batch_size: 42,
                 full_sync_maximum_number_of_rooms_to_fetch: Some(153),
@@ -936,7 +936,7 @@ mod tests {
                     is_dm: Some(true),
                 })),
                 timeline_limit: StdRwLock::new(Observable::new(Some(uint!(7)))),
-                name: "qux".to_string(),
+                name: "qux".to_owned(),
                 state: StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded)),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
                 rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
