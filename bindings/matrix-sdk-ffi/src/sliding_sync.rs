@@ -15,7 +15,7 @@ pub use matrix_sdk::{
     Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
-use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 use url::Url;
 
@@ -213,15 +213,10 @@ impl SlidingSyncRoom {
                 .await;
         };
 
-        let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
+        let reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
         let timeline = timeline.to_owned();
         let handle_sliding_sync_reset = async move {
-            loop {
-                match reset_broadcast_rx.recv().await {
-                    Err(RecvError::Closed) => break,
-                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
-                }
-            }
+            reset_broadcast_rx.for_each(|_| timeline.clear()).await;
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
