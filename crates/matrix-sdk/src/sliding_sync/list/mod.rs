@@ -533,6 +533,10 @@ fn apply_sync_operations(
 
     for operation in operations {
         match &operation.op {
+            // Specification says:
+            //
+            // > Sets a range of entries. Clients SHOULD discard what they previous
+            // > knew about entries in this range.
             v4::SlidingOp::Sync => {
                 // Extract `start` and `end` from the operation's range.
                 let (start, end) = operation
@@ -551,9 +555,11 @@ fn apply_sync_operations(
 
                 // Range is too big.
                 if end > rooms_list.len() {
-                    return Err(Error::BadResponse(
-                        "`range` is out of the `rooms_list`' bounds".to_string(),
-                    ));
+                    return Err(Error::BadResponse(format!(
+                        "`range` is out of the `rooms_list`' bounds ({} > {})",
+                        end,
+                        rooms_list.len(),
+                    )));
                 }
 
                 let room_entry_range = start..end;
@@ -579,19 +585,31 @@ fn apply_sync_operations(
                 }
             }
 
+            // Specification says:
+            //
+            // > Remove a single entry. Often comes before an INSERT to allow entries
+            // > to move places.
             v4::SlidingOp::Delete => {
-                let position: u32 = operation
+                let index = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for DELETE operation".to_owned(),
+                            "`index` must be present for `DELETE` operation".to_string(),
                         )
                     })?
                     .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`index` not a valid int for DELETE: {error}"))
-                    })?;
-                rooms_list.set(position as usize, RoomListEntry::Empty);
+                    .unwrap();
+
+                // Index is out of bounds.
+                if index >= rooms_list.len() {
+                    return Err(Error::BadResponse(format!(
+                        "`index` is out of the `rooms_list`' bounds ({} > {})",
+                        index,
+                        rooms_list.len(),
+                    )));
+                }
+
+                rooms_list.set(index, RoomListEntry::Empty);
             }
 
             v4::SlidingOp::Insert => {
@@ -1667,7 +1685,7 @@ mod tests {
             operations = [
                 {
                     "op": SlidingOp::Sync,
-                    "range": [10, 12],
+                    "range": [2, 3],
                     "room_ids": ["!r1:x.y", "!r2:x.y"],
                 }
             ]
@@ -1708,6 +1726,69 @@ mod tests {
             =>
             result = is_err,
             rooms_list = [E, E, E],
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_delete() {
+        // Delete an empty room entry.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 1,
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, E, E],
+        };
+
+        // Delete a filled room entry.
+        assert_sync_operations! {
+            rooms_list = [E, F("!r1:x.y"), E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 1,
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, E, E],
+        };
+
+        // Delete an invalidated room entry.
+        assert_sync_operations! {
+            rooms_list = [E, I("!r1:x.y"), E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 1,
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, E, E],
+        };
+
+        // Delete an out of bounds room entry.
+        assert_sync_operations! {
+            rooms_list = [E, F("!r1:x.y"), E],
+            requested_ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 3,
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, F("!r1:x.y"), E],
         };
     }
 }
