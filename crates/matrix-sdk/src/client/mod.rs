@@ -19,22 +19,18 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
 use dashmap::DashMap;
+use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
     store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, SyncOutsideWasm,
 };
-use matrix_sdk_common::{
-    instant::Instant,
-    locks::{Mutex, RwLock, RwLockReadGuard},
-};
+use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
@@ -69,9 +65,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -169,6 +163,7 @@ pub(crate) struct ClientInner {
     pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
@@ -1423,12 +1418,9 @@ impl Client {
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let lock = self.inner.refresh_token_lock.try_lock().ok();
-        #[cfg(target_arch = "wasm32")]
         let lock = self.inner.refresh_token_lock.try_lock();
 
-        if let Some(mut guard) = lock {
+        if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
                 return Err(RefreshTokenError::RefreshTokenRequired.into());
@@ -1969,11 +1961,6 @@ impl Client {
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        #[cfg(target_arch = "wasm32")]
-        let server_versions =
-            self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
-
-        #[cfg(not(target_arch = "wasm32"))]
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
@@ -2542,6 +2529,16 @@ impl Client {
     pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
         let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
+    }
+
+    /// Subscribe to sync gaps for the given room.
+    ///
+    /// This method is meant to be removed in favor of making event handlers
+    /// more general in the future.
+    pub fn subscribe_sync_gap(&self, room_id: &RoomId) -> Subscriber<()> {
+        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
+        let observable = lock.entry(room_id.to_owned()).or_default();
+        Observable::subscribe(observable)
     }
 }
 

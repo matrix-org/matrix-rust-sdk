@@ -152,7 +152,7 @@ interface SlidingSyncBuilder {
 };
 
 dictionary CreateRoomParameters {
-    string name;
+    string? name;
     string? topic = null;
     boolean is_encrypted;
     boolean is_direct = false;

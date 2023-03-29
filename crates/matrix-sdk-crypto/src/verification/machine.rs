@@ -18,7 +18,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -28,6 +27,7 @@ use ruma::{
     uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
+use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn};
 
 use super::{
@@ -527,9 +527,9 @@ impl VerificationMachine {
 mod tests {
     use std::sync::Arc;
 
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::TransactionId;
+    use tokio::sync::Mutex;
 
     use super::{Sas, VerificationMachine};
     use crate::{

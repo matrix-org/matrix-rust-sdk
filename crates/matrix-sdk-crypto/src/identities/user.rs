@@ -702,10 +702,10 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::user_id;
     use serde_json::{json, Value};
+    use tokio::sync::Mutex;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},

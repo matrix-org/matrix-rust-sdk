@@ -5,7 +5,6 @@ use matrix_sdk_base::{
     store::StateStoreExt,
     StateChanges,
 };
-use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -28,7 +27,6 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
-        push_rules::PushRulesEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
@@ -41,12 +39,14 @@ use ruma::{
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
-    push::{PushConditionRoomCtx, Ruleset},
+    push::{Action, PushConditionRoomCtx},
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, OwnedUserId, RoomId,
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::Mutex;
+use tracing::debug;
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
@@ -240,13 +240,7 @@ impl Common {
         }
 
         if let Some(push_context) = self.push_context().await? {
-            let push_rules = self
-                .client()
-                .account()
-                .account_data::<PushRulesEventContent>()
-                .await?
-                .and_then(|r| r.deserialize().ok().map(|r| r.global))
-                .unwrap_or_else(|| Ruleset::server_default(self.own_user_id()));
+            let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
                 event.push_actions = push_rules.get_actions(&event.event, &push_context).to_owned();
@@ -290,20 +284,18 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(_),
+        ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                SyncMessageLikeEvent::Original(_),
-            ))) = event.deserialize_as::<AnySyncTimelineEvent>()
-            {
-                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                    return Ok(event);
-                }
+            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                return Ok(event);
             }
-            Ok(TimelineEvent::new(event))
         }
 
-        #[cfg(not(feature = "e2e-encryption"))]
-        Ok(TimelineEvent::new(event))
+        let push_actions = self.event_push_actions(&event).await?;
+
+        Ok(TimelineEvent { event, encryption_info: None, push_actions })
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -842,7 +834,12 @@ impl Common {
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
         if let Some(machine) = self.client.olm_machine() {
-            Ok(machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?)
+            let mut event =
+                machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
+
+            event.push_actions = self.event_push_actions(&event.event).await?;
+
+            Ok(event)
         } else {
             Err(Error::NoOlmMachine)
         }
@@ -1030,7 +1027,7 @@ impl Common {
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
-    async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
+    pub(crate) async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
@@ -1061,6 +1058,21 @@ impl Common {
             default_power_level: room_power_levels.users_default,
             notification_power_levels: room_power_levels.notifications,
         }))
+    }
+
+    /// Get the push actions for the given event with the current room state.
+    ///
+    /// Note that it is possible that no push action is returned because the
+    /// current room state does not have all the required state events.
+    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Vec<Action>> {
+        let Some(push_context) = self.push_context().await? else {
+            debug!("Could not aggregate push context");
+            return Ok(Vec::default());
+        };
+
+        let push_rules = self.client().account().push_rules().await?;
+
+        Ok(push_rules.get_actions(event, &push_context).to_owned())
     }
 }
 

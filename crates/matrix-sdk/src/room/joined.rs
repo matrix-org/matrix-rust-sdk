@@ -5,8 +5,6 @@ use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
 use matrix_sdk_common::instant::{Duration, Instant};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
     api::client::{
@@ -38,6 +36,8 @@ use ruma::{
     EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::Mutex;
 use tracing::{debug, instrument};
 
 use super::Left;

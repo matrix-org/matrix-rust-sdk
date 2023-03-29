@@ -39,7 +39,6 @@ pub mod integration_tests;
 mod traits;
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::RwLock;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
@@ -58,6 +57,7 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+use tokio::sync::RwLock;
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;

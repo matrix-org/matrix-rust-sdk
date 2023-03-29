@@ -832,7 +832,7 @@ mod tests {
                     is_dm: Some(true),
                 })),
                 timeline_limit: StdRwLock::new(Observable::new(Some(uint!(7)))),
-                name: "qux".to_string(),
+                name: "qux".to_owned(),
                 state: StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded)),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
                 rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),

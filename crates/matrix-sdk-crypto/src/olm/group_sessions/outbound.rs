@@ -24,7 +24,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
@@ -33,6 +32,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
 pub use vodozemac::{

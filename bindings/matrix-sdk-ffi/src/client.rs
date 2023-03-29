@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
+use eyeball::shared::Observable as SharedObservable;
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     room::Room as SdkRoom,
@@ -27,7 +28,7 @@ use matrix_sdk::{
 };
 use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
 use serde_json::Value;
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
@@ -109,18 +110,18 @@ pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
-        Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+        Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
     /// The sliding sync proxy that the client is configured to use by default.
     /// If this value is `Some`, it will be automatically added to the builder
     /// when calling `sliding_sync()`.
     pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
-    pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
+    pub(crate) sliding_sync_reset_broadcast_tx: Arc<SharedObservable<()>>,
 }
 
 impl Client {
     pub fn new(client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
-            matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
+            tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
         let ctrl = session_verification_controller.clone();
 
@@ -135,14 +136,12 @@ impl Client {
             }
         });
 
-        let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
-
         let client = Client {
             client,
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
-            sliding_sync_reset_broadcast_tx,
+            sliding_sync_reset_broadcast_tx: Default::default(),
         };
 
         let mut unknown_token_error_receiver = client.subscribe_to_unknown_token_errors();
@@ -571,7 +570,7 @@ impl Client {
         let client_api_error_kind = sync_error.client_api_error_kind();
         match client_api_error_kind {
             Some(ErrorKind::UnknownPos) => {
-                let _ = self.sliding_sync_reset_broadcast_tx.send(());
+                self.sliding_sync_reset_broadcast_tx.set(());
                 LoopCtrl::Continue
             }
             _ => {
@@ -589,7 +588,7 @@ impl Client {
 }
 
 pub struct CreateRoomParameters {
-    pub name: String,
+    pub name: Option<String>,
     pub topic: Option<String>,
     pub is_encrypted: bool,
     pub is_direct: bool,
@@ -602,7 +601,7 @@ pub struct CreateRoomParameters {
 impl From<CreateRoomParameters> for create_room::v3::Request {
     fn from(value: CreateRoomParameters) -> create_room::v3::Request {
         let mut request = create_room::v3::Request::new();
-        request.name = Some(value.name);
+        request.name = value.name;
         request.topic = value.topic;
         request.is_direct = value.is_direct;
         request.visibility = value.visibility.into();

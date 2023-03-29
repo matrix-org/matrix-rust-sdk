@@ -26,13 +26,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-async-lock = "2.5.0"
 futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { version = "0.2.6", features = ["futures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["rt", "sync", "time"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 
 [dev-dependencies]
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}

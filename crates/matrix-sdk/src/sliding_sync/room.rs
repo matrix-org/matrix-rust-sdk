@@ -188,20 +188,22 @@ impl SlidingSyncRoom {
                 // If we come from a cold storage, we overwrite the timeline queue with the
                 // timeline updates.
 
-                let mut lock = self.timeline_queue.write().unwrap();
-                lock.clear();
+                let mut timeline_queue = self.timeline_queue.write().unwrap();
+                timeline_queue.clear();
+
                 for event in timeline_updates {
-                    lock.push_back(event);
+                    timeline_queue.push_back(event);
                 }
 
                 self.is_cold.store(false, Ordering::SeqCst);
             } else if limited {
                 // The server alerted us that we missed items in between.
 
-                let mut lock = self.timeline_queue.write().unwrap();
-                lock.clear();
+                let mut timeline_queue = self.timeline_queue.write().unwrap();
+                timeline_queue.clear();
+
                 for event in timeline_updates {
-                    lock.push_back(event);
+                    timeline_queue.push_back(event);
                 }
             } else {
                 // It's the hot path. We have new updates that must be added to the existing
@@ -209,85 +211,8 @@ impl SlidingSyncRoom {
 
                 let mut timeline_queue = self.timeline_queue.write().unwrap();
 
-                // If the `timeline_queue` contains:
-                //     [D, E, F]
-                // and if the `timeline_updates` contains:
-                //     [A, B, C, D, E, F]
-                // the resulting `timeline_queue` must be:
-                //     [A, B, C, D, E, F]
-                //
-                // To do that, we find the longest suffix between `timeline_queue` and
-                // `timeline_updates`, in this case:
-                //     [D, E, F]
-                // Remove the suffix from `timeline_updates`, we get `[A, B, C]` that is
-                // prepended to `timeline_queue`.
-                //
-                // If the `timeline_queue` contains:
-                //     [A, B, C, D, E, F]
-                // and if the `timeline_updates` contains:
-                //     [D, E, F]
-                // the resulting `timeline_queue` must be:
-                //     [A, B, C, D, E, F]
-                //
-                // To do that, we continue with the longest suffix. In this case, it is:
-                //     [D, E, F]
-                // Remove the suffix from `timeline_updates`, we get `[]`. It's empty, we don't
-                // touch at `timeline_queue`.
-
-                {
-                    let timeline_queue_len = timeline_queue.len();
-                    let timeline_updates_len = timeline_updates.len();
-
-                    let position = match timeline_queue
-                        .iter()
-                        .rev()
-                        .zip(timeline_updates.iter().rev())
-                        .position(|(queue, update)| queue.event_id() != update.event_id())
-                    {
-                        // We have found a suffix that equals the size of `timeline_queue` or
-                        // `timeline_update`, typically:
-                        //     timeline_queue = [D, E, F]
-                        //     timeline_update = [A, B, C, D, E, F]
-                        // or
-                        //     timeline_queue = [A, B, C, D, E, F]
-                        //     timeline_update = [D, E, F]
-                        // in both case, `position` will return `None` because we are looking for
-                        // (from the end) an item that is different.
-                        None => std::cmp::min(timeline_queue_len, timeline_updates_len),
-
-                        // We may have found a suffix.
-                        //
-                        // If we have `Some(0)`, it means we don't have found a suffix. That's the
-                        // hot path, `timeline_updates` will just be appended to `timeline_queue`.
-                        //
-                        // If we have `Some(n)` with `n > 0`, it means we have a prefix but it
-                        // doesn't cover all `timeline_queue` or `timeline_update`, typically:
-                        //     timeline_queue = [B, D, E, F]
-                        //     timeline_update = [A, B, C, D, E, F]
-                        // in this case, `position` will return `Some(3)`.
-                        // That's annoying because it means we have an invalid `timeline_queue` or
-                        // `timeline_update`, but let's try to do our best.
-                        Some(position) => position,
-                    };
-
-                    if position == 0 {
-                        // No prefix found.
-
-                        for event in timeline_updates {
-                            timeline_queue.push_back(event);
-                        }
-                    } else {
-                        // Prefix found.
-
-                        let new_timeline_updates =
-                            &timeline_updates[..timeline_updates_len - position];
-
-                        if !new_timeline_updates.is_empty() {
-                            for (at, update) in new_timeline_updates.iter().cloned().enumerate() {
-                                timeline_queue.insert(at, update);
-                            }
-                        }
-                    }
+                for event in timeline_updates {
+                    timeline_queue.push_back(event);
                 }
             }
         } else if limited {

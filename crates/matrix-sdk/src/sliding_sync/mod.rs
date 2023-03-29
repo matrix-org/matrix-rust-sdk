@@ -40,7 +40,6 @@ use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
 use matrix_sdk_base::sync::SyncResponse;
-use matrix_sdk_common::locks::Mutex as AsyncMutex;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -52,7 +51,7 @@ use ruma::{
     assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use tokio::spawn;
+use tokio::{spawn, sync::Mutex as AsyncMutex};
 use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
 use url::Url;
 use uuid::Uuid;
