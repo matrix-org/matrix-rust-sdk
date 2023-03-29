@@ -211,7 +211,7 @@ impl SlidingSyncList {
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
     ) -> Result<bool, Error> {
-        let result = self.inner.update_state(maximum_number_of_rooms, sync_operations)?;
+        let result = self.inner.update_rooms_list(maximum_number_of_rooms, sync_operations)?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(result)
@@ -375,7 +375,7 @@ impl SlidingSyncListInner {
     }
 
     // Update the [`SlidingSyncListInner`]'s state.
-    fn update_state(
+    fn update_rooms_list(
         &self,
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
@@ -538,6 +538,14 @@ fn apply_sync_operations(
                         )
                     })?;
 
+                // Range is invalid.
+                if start > end {
+                    return Err(Error::BadResponse(format!(
+                        "`range` bounds are invalid ({} > {})",
+                        start, end,
+                    )));
+                }
+
                 // Range is too big.
                 if end > rooms_list.len() {
                     return Err(Error::BadResponse(format!(
@@ -561,7 +569,7 @@ fn apply_sync_operations(
                     ));
                 }
 
-                // Update `rooms_list`.
+                // Update parts `rooms_list`.
                 //
                 // The room entry index is given by the `room_entry_range` bounds.
                 // The room ID is given by the `room_ids`.
@@ -634,49 +642,52 @@ fn apply_sync_operations(
             }
 
             v4::SlidingOp::Invalidate => {
-                let max_len = rooms_list.len();
-                let (mut position, end): (usize, usize) = if let Some(range) = operation.range {
-                    (
-                        range.0.try_into().map_err(|error| {
-                            Error::BadResponse(format!("`range.0` not a valid int: {error}"))
-                        })?,
-                        range.1.try_into().map_err(|error| {
-                            Error::BadResponse(format!("`range.1` not a valid int: {error}"))
-                        })?,
-                    )
-                } else {
-                    return Err(Error::BadResponse(
-                        "`range` must be given on `Invalidate` operation".to_owned(),
-                    ));
-                };
+                // Extract `start` and `end` from the operation's range.
+                let (start, end) = operation
+                    .range
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`range` must be present for `INVALIDATE` operation".to_string(),
+                        )
+                    })
+                    .map(|(start, end)| {
+                        (
+                            usize::try_from(start).unwrap(),
+                            usize::try_from(end).unwrap().saturating_add(1),
+                        )
+                    })?;
 
-                if position > end {
-                    return Err(Error::BadResponse(
-                        "Invalid invalidation, end smaller than start".to_owned(),
-                    ));
+                // Range is invalid.
+                if start > end {
+                    return Err(Error::BadResponse(format!(
+                        "`range` bounds are invalid ({} > {})",
+                        start, end,
+                    )));
                 }
 
-                // Ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
-                // ensure we pick them all up.
-                while position <= end {
-                    if position >= max_len {
-                        break; // how does this happen?
+                // Range is too big.
+                if end > rooms_list.len() {
+                    return Err(Error::BadResponse(format!(
+                        "`range` is out of the `rooms_list`' bounds ({} > {})",
+                        end,
+                        rooms_list.len(),
+                    )));
+                }
+
+                let room_entry_range = start..end;
+
+                // Invalidate parts of `rooms_list`.
+                //
+                // The room entry index is given by the `room_entry_range` bounds.
+                for room_entry_index in room_entry_range {
+                    // Invalidating = updating the room list to `Invalidate`.
+                    //
+                    // If the previous room list entry is `Filled`, it becomes `Invalidated`.
+                    // Otherwise, for `Empty` or `Invalidated`, it stays as is.
+                    if let Some(RoomListEntry::Filled(room_id)) = rooms_list.get(room_entry_index) {
+                        rooms_list
+                            .set(room_entry_index, RoomListEntry::Invalidated(room_id.clone()));
                     }
-
-                    let room_id =
-                        if let Some(RoomListEntry::Filled(room_id)) = rooms_list.get(position) {
-                            Some(room_id.clone())
-                        } else {
-                            None
-                        };
-
-                    if let Some(room_id) = room_id {
-                        rooms_list.set(position, RoomListEntry::Invalidated(room_id));
-                    } else {
-                        rooms_list.set(position, RoomListEntry::Empty);
-                    }
-
-                    position += 1;
                 }
             }
 
@@ -1551,7 +1562,7 @@ mod tests {
             entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Filled(room_id!( $room_id ).to_owned()), ] )
         };
 
-        ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )+ ] ) => {
+        ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
             entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
         };
 
@@ -1639,6 +1650,49 @@ mod tests {
             =>
             result = is_ok,
             rooms_list = [E, F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Missing `range`.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, E, E],
+        };
+
+        // Invalid `range`.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [2, 0],
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, E, E],
+        };
+
+        // Missing `room_ids`.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, E, E],
         };
 
         // Out of bounds operation.
@@ -1777,6 +1831,132 @@ mod tests {
             =>
             result = is_err,
             rooms_list = [E, F("!r1:x.y"), E],
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_invalidate() {
+        // Invalidating an empty room.
+        assert_sync_operations! {
+            rooms_list = [E],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E],
+        };
+
+        // Invalidating a filled room.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [I("!r0:x.y")],
+        };
+
+        // Invalidating an invalidated room.
+        assert_sync_operations! {
+            rooms_list = [I("!r0:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [I("!r0:x.y")],
+        };
+
+        // Partial update.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 1],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [I("!r0:x.y"), I("!r1:x.y"), F("!r2:x.y")],
+        };
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [1, 2],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [F("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+        };
+
+        // Full update.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 2],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+        };
+
+        // Missing `range`.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Invalid `range`.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "range": [12, 0],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Out of bounds operation.
+        assert_sync_operations! {
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "range": [2, 3],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
 }
