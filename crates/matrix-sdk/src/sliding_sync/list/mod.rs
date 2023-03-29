@@ -211,11 +211,7 @@ impl SlidingSyncList {
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
     ) -> Result<bool, Error> {
-        let result = self.inner.update_state(
-            maximum_number_of_rooms,
-            sync_operations,
-            &self.inner.request_generator.read().unwrap().ranges,
-        )?;
+        let result = self.inner.update_state(maximum_number_of_rooms, sync_operations)?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(result)
@@ -383,7 +379,6 @@ impl SlidingSyncListInner {
         &self,
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
-        requested_ranges: &[(UInt, UInt)],
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
@@ -407,7 +402,7 @@ impl SlidingSyncListInner {
         if !sync_operations.is_empty() {
             let mut rooms_list = self.rooms_list.write().unwrap();
 
-            apply_sync_operations(sync_operations, &mut rooms_list, requested_ranges)?;
+            apply_sync_operations(sync_operations, &mut rooms_list)?;
 
             new_changes = true;
         }
@@ -520,17 +515,7 @@ impl SlidingSyncListInner {
 fn apply_sync_operations(
     operations: &[v4::SyncOp],
     rooms_list: &mut ObservableVector<RoomListEntry>,
-    requested_ranges: &[(UInt, UInt)],
 ) -> Result<(), Error> {
-    // TODO: remove?
-    let room_ranges = requested_ranges
-        .iter()
-        .map(|(start, end)| ((*start).try_into().unwrap(), (*end).try_into().unwrap()))
-        .collect::<Vec<(usize, usize)>>();
-
-    // TODO: remove?
-    let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
-
     for operation in operations {
         match &operation.op {
             // Specification says:
@@ -581,6 +566,7 @@ fn apply_sync_operations(
                 // The room entry index is given by the `room_entry_range` bounds.
                 // The room ID is given by the `room_ids`.
                 for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
+                    // Syncing = updating the room list to `Filled`.
                     rooms_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
                 }
             }
@@ -609,60 +595,42 @@ fn apply_sync_operations(
                     )));
                 }
 
+                // Removing = updating the room list to `Empty`.
                 rooms_list.set(index, RoomListEntry::Empty);
             }
 
+            // Specification says:
+            //
+            // > Sets a single entry. If the position is not empty then clients MUST
+            // > move entries to the left or the right depending on where the closest
+            // > empty space is.
             v4::SlidingOp::Insert => {
-                let position: usize = operation
+                let index: usize = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for INSERT operation".to_owned(),
+                            "`index` must be present for `INSERT` operation".to_string(),
                         )
                     })?
                     .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`index` not a valid int for INSERT: {error}"))
-                    })?;
+                    .unwrap();
+                let room_id = operation.room_id.clone().ok_or_else(|| {
+                    Error::BadResponse(
+                        "`room_id` must be present for `INSERT` operation".to_string(),
+                    )
+                })?;
 
-                let room = RoomListEntry::Filled(operation.room_id.clone().ok_or_else(|| {
-                    Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
-                })?);
-                let mut offset = 0usize;
-
-                loop {
-                    // Find the next empty slot and drop it.
-                    let (previous_position, overflow) = position.overflowing_sub(offset);
-                    let check_previous = !overflow && index_in_range(previous_position);
-
-                    let (next_position, overflow) = position.overflowing_add(offset);
-                    let check_next = !overflow
-                        && next_position < rooms_list.len()
-                        && index_in_range(next_position);
-
-                    if !check_previous && !check_next {
-                        return Err(Error::BadResponse(
-                            "We were asked to insert but could not find any direction to shift to"
-                                .to_owned(),
-                        ));
-                    }
-
-                    if check_previous && rooms_list[previous_position].is_empty_or_invalidated() {
-                        // we only check for previous, if there are items left
-                        rooms_list.remove(previous_position);
-
-                        break;
-                    } else if check_next && rooms_list[next_position].is_empty_or_invalidated() {
-                        rooms_list.remove(next_position);
-
-                        break;
-                    } else {
-                        // Let's check the next position.
-                        offset += 1;
-                    }
+                // Index is out of bounds.
+                if index >= rooms_list.len() {
+                    return Err(Error::BadResponse(format!(
+                        "`index` is out of the `rooms_list`' bounds ({} > {})",
+                        index,
+                        rooms_list.len(),
+                    )));
                 }
 
-                rooms_list.insert(position, room);
+                // Insert = updating the room list to `Filled`.
+                rooms_list.set(index, RoomListEntry::Filled(room_id));
             }
 
             v4::SlidingOp::Invalidate => {
@@ -1600,7 +1568,6 @@ mod tests {
     macro_rules! assert_sync_operations {
         (
             rooms_list = [ $( $room_list_entries:tt )* ],
-            requested_ranges = [ $( $requested_ranges:tt )* ],
             operations = [
                 $(
                     { $( $operation:tt )+ }
@@ -1614,7 +1581,6 @@ mod tests {
             $(,)?
         ) => {
             let mut rooms_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
-            let requested_ranges = ranges![ $( $requested_ranges )* ];
             let operations: &[v4::SyncOp] = &[
                 $(
                     serde_json::from_value(json!({
@@ -1623,7 +1589,7 @@ mod tests {
                 ),*
             ];
 
-            let result = apply_sync_operations(operations, &mut rooms_list, requested_ranges);
+            let result = apply_sync_operations(operations, &mut rooms_list);
 
             assert!(result.$result());
             assert_eq!(*rooms_list, entries![ $( $expected_room_list_entries )* ]);
@@ -1635,7 +1601,6 @@ mod tests {
         // All rooms list is updated.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1651,7 +1616,6 @@ mod tests {
         // Partial update.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(0, 1)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1665,7 +1629,6 @@ mod tests {
         };
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(1, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1681,7 +1644,6 @@ mod tests {
         // Out of bounds operation.
         assert_sync_operations! {
             rooms_list = [E, F("!r1:x.y"), E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1698,7 +1660,6 @@ mod tests {
         // missing.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1715,7 +1676,6 @@ mod tests {
         // room IDs.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1734,7 +1694,6 @@ mod tests {
         // Delete an empty room entry.
         assert_sync_operations! {
             rooms_list = [E, E, E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1749,7 +1708,6 @@ mod tests {
         // Delete a filled room entry.
         assert_sync_operations! {
             rooms_list = [E, F("!r1:x.y"), E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1764,7 +1722,6 @@ mod tests {
         // Delete an invalidated room entry.
         assert_sync_operations! {
             rooms_list = [E, I("!r1:x.y"), E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1779,10 +1736,41 @@ mod tests {
         // Delete an out of bounds room entry.
         assert_sync_operations! {
             rooms_list = [E, F("!r1:x.y"), E],
-            requested_ranges = [(0, 2)],
             operations = [
                 {
                     "op": SlidingOp::Delete,
+                    "index": 3,
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, F("!r1:x.y"), E],
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_insert() {
+        // Insert a room entry.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 0,
+                    "room_id": "!r0:x.y",
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [F("!r0:x.y"), E, E],
+        };
+
+        // Insert an out of bounds room entry.
+        assert_sync_operations! {
+            rooms_list = [E, F("!r1:x.y"), E],
+            operations = [
+                {
+                    "op": SlidingOp::Insert,
                     "index": 3,
                 }
             ]
