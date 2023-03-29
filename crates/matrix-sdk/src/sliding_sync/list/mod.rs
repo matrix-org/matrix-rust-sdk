@@ -433,8 +433,7 @@ impl SlidingSyncListInner {
         // Create missing room list entries.
         {
             let mut missing = maximum_number_of_rooms
-                .hecked_sub(self.rooms_list.read().unwrap().len() as u32)
-                .unwrap_or_default();
+                .saturating_sub(self.rooms_list.read().unwrap().len() as u32);
 
             if missing > 0 {
                 let mut list = self.rooms_list.write().unwrap();
