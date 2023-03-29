@@ -586,15 +586,7 @@ impl GroupSessionManager {
     ) -> OlmResult<()> {
         // Convert a withheld code for the group session into a to-device event content.
         let to_content = |code| {
-            let content = RoomKeyWithheldContent::create(
-                group_session.settings().algorithm.to_owned(),
-                code,
-                group_session.room_id().to_owned(),
-                group_session.session_id().to_owned(),
-                group_session.sender_key(),
-                Some(self.account.device_id().to_owned()),
-            );
-
+            let content = group_session.withheld_code(code);
             Raw::new(&content).expect("We can always serialize a withheld content info").cast()
         };
 

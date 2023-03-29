@@ -8,7 +8,7 @@ macro_rules! cryptostore_integration_tests {
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, encryption::SignedKey, room_id, serde::Base64, user_id, DeviceId,
-                OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+                JsOption, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
             };
             use $crate::{
                 olm::{
@@ -22,7 +22,8 @@ macro_rules! cryptostore_integration_tests {
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
                     events::{
-                        room_key_request::MegolmV1AesSha2Content, room_key_withheld::WithheldCode,
+                        room_key_request::MegolmV1AesSha2Content,
+                        room_key_withheld::{CommonWithheldCodeContent, WithheldCode},
                     },
                     EventEncryptionAlgorithm,
                 },
@@ -629,30 +630,28 @@ macro_rules! cryptostore_integration_tests {
                 let session_id_1 = "GBnDxGP9i3IkPsz3/ihNr6P7qjIXxSRVWZ1MYmSn09w";
                 let session_id_2 = "IDLtnNCH2kIr3xIf1B7JFkGpQmTjyMca2jww+X6zeOE";
 
-                let info = DirectWithheldInfo {
+                let content = CommonWithheldCodeContent {
                     room_id: room_id.to_owned(),
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
                     session_id: session_id_1.into(),
-                    claimed_sender_key: Curve25519PublicKey::from_base64(
+                    from_device: JsOption::Undefined,
+                    other: Default::default(),
+                    sender_key: Curve25519PublicKey::from_base64(
                         "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
                     )
                     .unwrap(),
-                    withheld_code: WithheldCode::Unverified,
                 };
 
+                let info = DirectWithheldInfo::new(
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    WithheldCode::Unverified,
+                    content.to_owned(),
+                );
                 info_list.push(info);
-
-                let info = DirectWithheldInfo {
-                    room_id: room_id.to_owned(),
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    session_id: session_id_2.into(),
-                    claimed_sender_key: Curve25519PublicKey::from_base64(
-                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
-                    )
-                    .unwrap(),
-                    withheld_code: WithheldCode::Blacklisted,
-                };
-
+                let info = DirectWithheldInfo::new(
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    WithheldCode::Blacklisted,
+                    content,
+                );
                 info_list.push(info);
 
                 let changes = Changes { withheld_session_info: info_list, ..Default::default() };
@@ -662,9 +661,9 @@ macro_rules! cryptostore_integration_tests {
                 let is_withheld = store.get_withheld_info(room_id, session_id_1).await.unwrap();
 
                 if let Some(info) = is_withheld {
-                    let actual_code = info.withheld_code;
-                    assert_eq!(EventEncryptionAlgorithm::MegolmV1AesSha2, info.algorithm);
-                    assert_eq!(room_id, info.room_id);
+                    let actual_code = info.withheld_code();
+                    assert_eq!(EventEncryptionAlgorithm::MegolmV1AesSha2, info.algorithm());
+                    assert_eq!(room_id, info.room_id());
                     assert_eq!(WithheldCode::Unverified, actual_code);
                 } else {
                     panic!();
@@ -673,7 +672,7 @@ macro_rules! cryptostore_integration_tests {
                 let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
 
                 if let Some(info) = is_withheld {
-                    let actual_code = info.withheld_code;
+                    let actual_code = info.withheld_code();
                     assert_eq!(WithheldCode::Blacklisted, actual_code);
                 } else {
                     panic!();

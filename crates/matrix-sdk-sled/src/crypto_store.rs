@@ -671,12 +671,11 @@ impl SledCryptoStore {
                     }
 
                     for info in &changes.withheld_session_info {
-                        let session_id = info.session_id.to_owned();
-                        let room_id = info.room_id.to_owned();
-                        let key = self.encode_key(
-                            DIRECT_WITHHELD_INFO_TABLE,
-                            (session_id.as_str(), room_id.as_str()),
-                        );
+                        let session_id = info.session_id();
+                        let room_id = info.room_id();
+
+                        let key =
+                            self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id));
                         direct_withheld_info.insert(
                             key,
                             self.serialize_value(info)

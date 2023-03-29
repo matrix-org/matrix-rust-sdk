@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //! Types for the `m.room_key.withheld` events.
+
 use std::collections::BTreeMap;
 
 use ruma::{
@@ -44,97 +45,78 @@ pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;
 pub enum RoomKeyWithheldContent {
     /// The `m.megolm.v1.aes-sha2` variant of the `m.room_key.withheld` content.
     MegolmV1AesSha2(MegolmV1AesSha2WithheldContent),
-    /// The `m.megolm.v2.aes-sha2` variant of the `m.room_key.withheld` content.
+    // The `m.megolm.v2.aes-sha2` variant of the `m.room_key.withheld` content.
     #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(MegolmV2AesSha2WithheldContent),
     /// An unknown and unsupported variant of the `m.room_key.withheld` content.
     Unknown(UnknownRoomKeyWithHeld),
 }
 
+macro_rules! construct_withheld_content {
+    ($algorithm:ident, $code:ident, $room_id:ident, $session_id:ident, $sender_key:ident, $from_device:ident) => {
+        match $code {
+            WithheldCode::Blacklisted
+            | WithheldCode::Unverified
+            | WithheldCode::Unauthorised
+            | WithheldCode::Unavailable => {
+                let content = CommonWithheldCodeContent {
+                    $room_id,
+                    $session_id,
+                    $sender_key,
+                    $from_device,
+                    other: Default::default(),
+                };
+
+                RoomKeyWithheldContent::$algorithm(
+                    MegolmV1AesSha2WithheldContent::from_code_and_content($code, content),
+                )
+            }
+            WithheldCode::NoOlm => {
+                RoomKeyWithheldContent::$algorithm(MegolmV1AesSha2WithheldContent::NoOlm(
+                    NoOlmWithheldContent { $sender_key, $from_device, other: Default::default() }
+                        .into(),
+                ))
+            }
+            _ => unreachable!("Can't create an unknown withheld code content"),
+        }
+    };
+}
+
 impl RoomKeyWithheldContent {
     /// Creates a withheld content from the given info
-    pub fn create(
+    pub fn new(
         algorithm: EventEncryptionAlgorithm,
         code: WithheldCode,
         room_id: OwnedRoomId,
         session_id: String,
         sender_key: Curve25519PublicKey,
-        from_device: Option<OwnedDeviceId>,
+        from_device: OwnedDeviceId,
     ) -> Self {
+        let from_device = JsOption::Some(from_device);
+
         match algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                let other = match code {
-                    WithheldCode::NoOlm => {
-                        let content = NoOlmWithheldContent {
-                            sender_key,
-                            reason: JsOption::Some(code.to_string()),
-                            from_device: JsOption::from_implicit_option(from_device),
-                            other: Default::default(),
-                        };
-                        serde_json::to_value(content)
-                            .expect("We can always serialize this construction")
-                    }
-                    _ => {
-                        let content = AnyWithheldContent {
-                            room_id,
-                            session_id,
-                            sender_key,
-                            // code: code.clone(),
-                            reason: JsOption::Some(code.to_string()),
-                            from_device: JsOption::from_implicit_option(from_device),
-                            other: Default::default(),
-                        };
-                        serde_json::to_value(content)
-                            .expect("We can always serialize this construction")
-                    }
-                };
-                let helper = WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                construct_withheld_content!(
+                    MegolmV1AesSha2,
                     code,
-                    other,
-                };
-                RoomKeyWithheldContent::try_from(helper)
-                    .expect("We can always serialize this construction")
+                    room_id,
+                    session_id,
+                    sender_key,
+                    from_device
+                )
             }
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => {
-                let other = match code {
-                    WithheldCode::NoOlm => {
-                        let content = NoOlmWithheldContent {
-                            sender_key,
-                            reason: JsOption::Some(code.to_string()),
-                            from_device: JsOption::from_implicit_option(from_device),
-                            other: Default::default(),
-                        };
-                        serde_json::to_value(content)
-                            .expect("We can always serialize this construction")
-                    }
-                    _ => {
-                        let content = AnyWithheldContent {
-                            room_id,
-                            session_id,
-                            sender_key,
-                            reason: JsOption::Some(code.to_string()),
-                            from_device: JsOption::from_implicit_option(from_device),
-                            other: Default::default(),
-                        };
-                        serde_json::to_value(content)
-                            .expect("We can always serialize this construction")
-                    }
-                };
-                let helper = WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                construct_withheld_content!(
+                    MegolmV2AesSha2,
                     code,
-                    other,
-                };
-                RoomKeyWithheldContent::try_from(helper)
-                    .expect("We can always serialize this construction")
+                    room_id,
+                    session_id,
+                    sender_key,
+                    from_device
+                )
             }
-            _ => RoomKeyWithheldContent::Unknown(UnknownRoomKeyWithHeld {
-                algorithm,
-                code,
-                other: Default::default(),
-            }),
+            _ => todo!(),
         }
     }
 
@@ -215,70 +197,74 @@ impl std::fmt::Display for WithheldCode {
 #[derive(Deserialize, Serialize, Debug)]
 struct WithheldHelper {
     pub algorithm: EventEncryptionAlgorithm,
+    pub reason: JsOption<String>,
     pub code: WithheldCode,
     #[serde(flatten)]
     other: Value,
 }
 
-/// The content of a withheld event depends on the
-/// value of the code. This enum reflect that for better type safety
 #[derive(Clone, Debug)]
 pub enum MegolmV1AesSha2WithheldContent {
-    /// Content for regular withheld content
-    AnyContent((WithheldCode, Box<AnyWithheldContent>)),
-    /// Content for no_olm withheld content
-    NoOlmContent(Box<NoOlmWithheldContent>),
+    BlackListed(Box<CommonWithheldCodeContent>),
+    Unverified(Box<CommonWithheldCodeContent>),
+    Unauthorised(Box<CommonWithheldCodeContent>),
+    Unavailable(Box<CommonWithheldCodeContent>),
+    NoOlm(Box<NoOlmWithheldContent>),
+}
+
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CommonWithheldCodeContent {
+    /// The room where the key is used.
+    pub room_id: OwnedRoomId,
+
+    /// The ID of the session.
+    pub session_id: String,
+
+    /// The device curve25519 key of the session creator.
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
+
+    /// The device ID of the device sending the m.room_key.withheld message
+    /// MSC3735.
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
+    pub from_device: JsOption<OwnedDeviceId>,
+
+    #[serde(flatten)]
+    pub other: BTreeMap<String, Value>,
 }
 
 impl MegolmV1AesSha2WithheldContent {
     /// Get the withheld code for this content
     pub fn withheld_code(&self) -> WithheldCode {
         match self {
-            MegolmV1AesSha2WithheldContent::AnyContent((code, _)) => code.clone(),
-            MegolmV1AesSha2WithheldContent::NoOlmContent(_) => WithheldCode::NoOlm,
+            MegolmV1AesSha2WithheldContent::BlackListed(_) => WithheldCode::Blacklisted,
+            MegolmV1AesSha2WithheldContent::Unverified(_) => WithheldCode::Unverified,
+            MegolmV1AesSha2WithheldContent::Unauthorised(_) => WithheldCode::Unauthorised,
+            MegolmV1AesSha2WithheldContent::Unavailable(_) => WithheldCode::Unavailable,
+            MegolmV1AesSha2WithheldContent::NoOlm(_) => WithheldCode::NoOlm,
+        }
+    }
+
+    fn from_code_and_content(code: WithheldCode, content: CommonWithheldCodeContent) -> Self {
+        let content = content.into();
+
+        match code {
+            WithheldCode::Blacklisted => Self::BlackListed(content),
+            WithheldCode::Unverified => Self::Unverified(content),
+            WithheldCode::Unauthorised => Self::Unauthorised(content),
+            WithheldCode::Unavailable => Self::Unavailable(content),
+            _ => unreachable!("This constructor requires one of the common withheld codes"),
         }
     }
 }
 
-/// Devices that purposely do not send megolm keys to a device may instead send
-/// an m.room_key.withheld event as a to-device message to the device to
-/// indicate that it should not expect to receive keys for the message.
-#[derive(Clone, Deserialize, Serialize)]
-pub struct AnyWithheldContent {
-    /// The room where the key is used.
-    pub room_id: OwnedRoomId,
-    /// The ID of the session.
-    pub session_id: String,
-    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
-    /// The device curve25519 key of the session creator.
-    pub sender_key: Curve25519PublicKey,
-
-    /// A human-readable reason for why the key was not sent. The receiving
-    /// client should only use this string if it does not understand the code
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub reason: JsOption<String>,
-
-    /// The device ID of the device sending the m.room_key.withheld message
-    /// MSC3735.
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub from_device: JsOption<OwnedDeviceId>,
-
-    #[serde(flatten)]
-    other: BTreeMap<String, Value>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
 /// No olm content (no room_id nor session_id)
+#[derive(Clone, Deserialize, Serialize)]
 pub struct NoOlmWithheldContent {
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     /// The device curve25519 key of the session creator.
     pub sender_key: Curve25519PublicKey,
 
-    /// A human-readable reason for why the key was not sent. The receiving
-    /// client should only use this string if it does not understand the code
-    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
-    pub reason: JsOption<String>,
-
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
     #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
@@ -288,7 +274,7 @@ pub struct NoOlmWithheldContent {
     other: BTreeMap<String, Value>,
 }
 
-impl std::fmt::Debug for AnyWithheldContent {
+impl std::fmt::Debug for CommonWithheldCodeContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyWithheldContent")
             .field("room_id", &self.room_id)
@@ -318,6 +304,8 @@ pub struct UnknownRoomKeyWithHeld {
     pub algorithm: EventEncryptionAlgorithm,
     /// The withheld code
     pub code: WithheldCode,
+
+    pub reason: JsOption<String>,
     /// The other data of the unknown room key.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -327,39 +315,52 @@ impl TryFrom<WithheldHelper> for RoomKeyWithheldContent {
     type Error = serde_json::Error;
 
     fn try_from(value: WithheldHelper) -> Result<Self, Self::Error> {
-        Ok(match value.algorithm {
-            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                let content = match value.code {
-                    WithheldCode::NoOlm => {
-                        let content: NoOlmWithheldContent = serde_json::from_value(value.other)?;
-                        MegolmV1AesSha2WithheldContent::NoOlmContent(content.into())
-                    }
-                    _ => {
-                        let content: AnyWithheldContent = serde_json::from_value(value.other)?;
-                        MegolmV1AesSha2WithheldContent::AnyContent((value.code, content.into()))
-                    }
-                };
-                Self::MegolmV1AesSha2(content)
-            }
-            #[cfg(feature = "experimental-algorithms")]
-            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
-                let content = match value.code {
-                    WithheldCode::NoOlm => {
-                        let content: NoOlmWithheldContent = serde_json::from_value(value.other)?;
-                        MegolmV1AesSha2WithheldContent::NoOlmContent(content.into())
-                    }
-                    _ => {
-                        let content: AnyWithheldContent = serde_json::from_value(value.other)?;
-                        MegolmV1AesSha2WithheldContent::AnyContent((value.code, content.into()))
-                    }
-                };
-                Self::MegolmV2AesSha2(content)
-            }
-            _ => Self::Unknown(UnknownRoomKeyWithHeld {
+        let unknown = |value: WithheldHelper| -> Result<RoomKeyWithheldContent, _> {
+            Ok(Self::Unknown(UnknownRoomKeyWithHeld {
                 algorithm: value.algorithm,
                 code: value.code,
+                reason: value.reason,
                 other: serde_json::from_value(value.other)?,
-            }),
+            }))
+        };
+
+        Ok(match value.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => match value.code {
+                WithheldCode::NoOlm => {
+                    let content: NoOlmWithheldContent = serde_json::from_value(value.other)?;
+                    Self::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(content.into()))
+                }
+                WithheldCode::Blacklisted
+                | WithheldCode::Unverified
+                | WithheldCode::Unauthorised
+                | WithheldCode::Unavailable => {
+                    let content: CommonWithheldCodeContent = serde_json::from_value(value.other)?;
+
+                    Self::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::from_code_and_content(
+                        value.code, content,
+                    ))
+                }
+                _ => unknown(value)?,
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => match value.code {
+                WithheldCode::NoOlm => {
+                    let content: NoOlmWithheldContent = serde_json::from_value(value.other)?;
+                    Self::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(content.into()))
+                }
+                WithheldCode::Blacklisted
+                | WithheldCode::Unverified
+                | WithheldCode::Unauthorised
+                | WithheldCode::Unavailable => {
+                    let content: CommonWithheldCodeContent = serde_json::from_value(value.other)?;
+
+                    Self::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::from_code_and_content(
+                        value.code, content,
+                    ))
+                }
+                _ => unknown(value)?,
+            },
+            _ => unknown(value)?,
         })
     }
 }
@@ -369,35 +370,58 @@ impl Serialize for RoomKeyWithheldContent {
     where
         S: serde::Serializer,
     {
+        let algorithm = self.algorithm();
+
         let helper = match self {
-            Self::MegolmV1AesSha2(r) => match r {
-                MegolmV2AesSha2WithheldContent::AnyContent((code, content)) => WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    code: code.clone(),
-                    other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
-                },
-                MegolmV2AesSha2WithheldContent::NoOlmContent(content) => WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    code: WithheldCode::NoOlm,
-                    other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
-                },
-            },
+            Self::MegolmV1AesSha2(r) => {
+                let code = r.withheld_code();
+                let reason = JsOption::Some(code.to_string());
+
+                match r {
+                    MegolmV1AesSha2WithheldContent::BlackListed(content)
+                    | MegolmV1AesSha2WithheldContent::Unverified(content)
+                    | MegolmV1AesSha2WithheldContent::Unauthorised(content)
+                    | MegolmV1AesSha2WithheldContent::Unavailable(content) => WithheldHelper {
+                        algorithm,
+                        code,
+                        reason,
+                        other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
+                    },
+                    MegolmV1AesSha2WithheldContent::NoOlm(content) => WithheldHelper {
+                        algorithm,
+                        code,
+                        reason,
+                        other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
+                    },
+                }
+            }
             #[cfg(feature = "experimental-algorithms")]
-            Self::MegolmV2AesSha2(r) => match r {
-                MegolmV2AesSha2WithheldContent::AnyContent((code, content)) => WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    code: code.clone(),
-                    other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
-                },
-                MegolmV2AesSha2WithheldContent::NoOlmContent(content) => WithheldHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    code: WithheldCode::NoOlm,
-                    other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
-                },
-            },
+            Self::MegolmV2AesSha2(r) => {
+                let code = r.withheld_code();
+                let reason = JsOption::Some(code.to_string());
+
+                match r {
+                    MegolmV1AesSha2WithheldContent::BlackListed(content)
+                    | MegolmV1AesSha2WithheldContent::Unverified(content)
+                    | MegolmV1AesSha2WithheldContent::Unauthorised(content)
+                    | MegolmV1AesSha2WithheldContent::Unavailable(content) => WithheldHelper {
+                        algorithm,
+                        code,
+                        reason,
+                        other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
+                    },
+                    MegolmV1AesSha2WithheldContent::NoOlm(content) => WithheldHelper {
+                        algorithm,
+                        code,
+                        reason,
+                        other: serde_json::to_value(content).map_err(serde::ser::Error::custom)?,
+                    },
+                }
+            }
             Self::Unknown(r) => WithheldHelper {
-                algorithm: r.algorithm.clone(),
-                code: r.code.clone(),
+                algorithm: r.algorithm.to_owned(),
+                code: r.code.to_owned(),
+                reason: r.reason.to_owned(),
                 other: serde_json::to_value(r.other.clone()).map_err(serde::ser::Error::custom)?,
             },
         };
@@ -498,32 +522,10 @@ pub(super) mod test {
         for code in codes {
             let json = json(&code);
             let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
-            assert_matches!(
-                event.content,
-                RoomKeyWithheldContent::MegolmV1AesSha2(
-                    MegolmV1AesSha2WithheldContent::AnyContent(_)
-                )
-            );
 
-            if let RoomKeyWithheldContent::MegolmV1AesSha2(content) = &event.content {
-                assert_eq!(content.withheld_code().to_owned(), code)
-            } else {
-                panic!()
-            }
+            assert_matches!(&event.content, RoomKeyWithheldContent::MegolmV1AesSha2(content) if code == content.withheld_code());
 
-            if let RoomKeyWithheldContent::MegolmV1AesSha2(
-                MegolmV1AesSha2WithheldContent::AnyContent((_, content)),
-            ) = &event.content
-            {
-                assert_eq!(content.reason, ruma::JsOption::Some(code.to_string()))
-            } else {
-                panic!()
-            }
-
-            assert_eq!(
-                event.content.algorithm().to_owned(),
-                EventEncryptionAlgorithm::MegolmV1AesSha2
-            );
+            assert_eq!(event.content.algorithm(), EventEncryptionAlgorithm::MegolmV1AesSha2);
             let serialized = serde_json::to_value(event)?;
             assert_eq!(json, serialized);
         }
@@ -536,9 +538,7 @@ pub(super) mod test {
         let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
         assert_matches!(
             event.content,
-            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlmContent(
-                _
-            ))
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(_))
         );
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
@@ -550,19 +550,14 @@ pub(super) mod test {
     fn deserialization_unknown_code() -> Result<(), serde_json::Error> {
         let json = unknown_code_json();
         let event: RoomKeyWithheldEvent = serde_json::from_value(json.clone())?;
+        assert_matches!(event.content, RoomKeyWithheldContent::Unknown(_));
+
         assert_matches!(
-            event.content,
-            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::AnyContent((
-                _,
-                _
-            )))
+            &event.content,
+            RoomKeyWithheldContent::Unknown(content)
+            if content.code.as_str() == "org.mscXXX.new_code"
         );
 
-        if let RoomKeyWithheldContent::MegolmV1AesSha2(content) = &event.content {
-            assert_matches!(content.withheld_code(), WithheldCode::_Custom(_));
-        } else {
-            panic!()
-        }
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 
@@ -597,13 +592,13 @@ pub(super) mod test {
             Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
                 .unwrap();
 
-        let content = RoomKeyWithheldContent::create(
+        let content = RoomKeyWithheldContent::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             WithheldCode::Unverified,
             room_id.to_owned(),
             "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
             sender_key,
-            Some(device_id.to_owned()),
+            device_id.to_owned(),
         );
         let content: Raw<RoomKeyWithheldContent> =
             Raw::new(&content).expect("We can always serialize a withheld content info").cast();
@@ -617,15 +612,15 @@ pub(super) mod test {
 
         let expected: Value = json!({
             "@alice:example.org":{
-                  "DEV001":{
-                     "algorithm":"m.megolm.v1.aes-sha2",
-                     "code":"m.unverified",
-                     "from_device":"DEV001",
-                     "reason":"The sender has disabled encrypting to unverified devices.",
-                     "room_id":"!DwLygpkclUAfQNnfva:localhost:8481",
-                     "sender_key":"9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
-                     "session_id":"0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs"
-                  }
+                "DEV001":{
+                    "algorithm":"m.megolm.v1.aes-sha2",
+                    "code":"m.unverified",
+                    "from_device":"DEV001",
+                    "reason":"The sender has disabled encrypting to unverified devices.",
+                    "room_id":"!DwLygpkclUAfQNnfva:localhost:8481",
+                    "sender_key":"9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                    "session_id":"0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs"
+                }
             }
         });
         assert_eq!(serialized, expected);
@@ -639,49 +634,34 @@ pub(super) mod test {
             Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
                 .unwrap();
 
-        let content = RoomKeyWithheldContent::create(
+        let content = RoomKeyWithheldContent::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             WithheldCode::NoOlm,
             room_id.to_owned(),
             "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
             sender_key,
-            Some(device_id.to_owned()),
+            device_id.to_owned(),
         );
 
-        assert_matches!(content, RoomKeyWithheldContent::MegolmV1AesSha2(_));
+        assert_matches!(
+            content,
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::NoOlm(content))
+            if content.sender_key == sender_key
+        );
 
-        match content {
-            RoomKeyWithheldContent::MegolmV1AesSha2(content) => match content {
-                MegolmV1AesSha2WithheldContent::AnyContent(_) => panic!(),
-                MegolmV1AesSha2WithheldContent::NoOlmContent(no_olm_content) => {
-                    assert_eq!(sender_key, no_olm_content.sender_key);
-                }
-            },
-            _ => panic!(),
-        }
-
-        let content = RoomKeyWithheldContent::create(
+        let content = RoomKeyWithheldContent::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             WithheldCode::Unverified,
             room_id.to_owned(),
             "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs".to_owned(),
             sender_key,
-            Some(device_id.to_owned()),
+            device_id.to_owned(),
         );
 
-        assert_matches!(content, RoomKeyWithheldContent::MegolmV1AesSha2(_));
-
-        match content {
-            RoomKeyWithheldContent::MegolmV1AesSha2(content) => match content {
-                MegolmV1AesSha2WithheldContent::NoOlmContent(_) => panic!(),
-                MegolmV1AesSha2WithheldContent::AnyContent((code, content)) => {
-                    assert_eq!(sender_key, content.sender_key);
-                    assert_eq!(code, WithheldCode::Unverified);
-                    assert_eq!("0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs", content.session_id);
-                    assert_eq!(room_id, content.room_id);
-                }
-            },
-            _ => panic!(),
-        }
+        assert_matches!(
+            content,
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::Unverified(content))
+            if content.session_id == "0ZcULv8j1nqVWx6orFjD6OW9JQHydDPXfaanA+uRyfs"
+        );
     }
 }

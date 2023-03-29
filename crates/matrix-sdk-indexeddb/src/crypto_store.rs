@@ -570,8 +570,9 @@ impl_crypto_store! {
             let withhelds = tx.object_store(keys::DIRECT_WITHHELD_INFO)?;
 
             for info in withheld_session_info {
-                let room_id = info.room_id.to_owned();
-                let session_id = info.session_id.to_owned();
+                let room_id = info.room_id();
+                let session_id = info.session_id();
+
                 let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
                 withhelds.put_key_val(&key, &self.serialize_value(&info)?)?;
             }

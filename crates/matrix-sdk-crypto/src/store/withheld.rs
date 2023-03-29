@@ -16,33 +16,126 @@
 //! to all devices present in the room. Sometimes this may be inadvertent (for
 //! example, if the sending device is not aware of some devices that have
 //! joined), but some times, this may be purposeful.
-use ruma::OwnedRoomId;
+
+use ruma::RoomId;
 use serde::{Deserialize, Serialize};
-use vodozemac::Curve25519PublicKey;
 
 use crate::types::{
-    events::room_key_withheld::{MegolmV1AesSha2WithheldContent, WithheldCode},
+    events::room_key_withheld::{
+        CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent, WithheldCode,
+    },
     EventEncryptionAlgorithm,
 };
 
-///
 /// We want to store when the owner of the group session sent us a withheld
 /// code. It's not storing withheld code that can be sent in a
 /// `m.forwarded_room_key`, it's another sort of relation as the same key can be
 /// withheld for several reasons by different devices.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct DirectWithheldInfo {
-    /// The room of the group key.
-    pub room_id: OwnedRoomId,
-    /// The key algorithm
-    pub algorithm: EventEncryptionAlgorithm,
-    /// The group session id.
-    pub session_id: String,
-    /// The session creator device identity.
-    /// Claimed because withheld codes message are sent in clear
-    pub claimed_sender_key: Curve25519PublicKey,
-    /// The reason why the key was not distributed
-    pub withheld_code: WithheldCode,
+pub enum DirectWithheldInfo {
+    MegolmV1(MegolmV1WithheldInfo),
+    #[cfg(feature = "experimental-algorithms")]
+    MegolmV2(MegolmV2WithheldInfo),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub enum MegolmV1WithheldInfo {
+    BlackListed(Box<CommonWithheldCodeContent>),
+    Unverified(Box<CommonWithheldCodeContent>),
+}
+
+#[cfg(feature = "experimental-algorithms")]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub enum MegolmV2WithheldInfo {
+    BlackListed(Box<CommonWithheldCodeContent>),
+    Unverified(Box<CommonWithheldCodeContent>),
+}
+
+impl DirectWithheldInfo {
+    pub fn new(
+        algorithm: EventEncryptionAlgorithm,
+        code: WithheldCode,
+        content: CommonWithheldCodeContent,
+    ) -> Self {
+        let content = content.into();
+
+        match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => match code {
+                WithheldCode::Blacklisted => {
+                    Self::MegolmV1(MegolmV1WithheldInfo::BlackListed(content))
+                }
+                WithheldCode::Unverified => {
+                    Self::MegolmV1(MegolmV1WithheldInfo::Unverified(content))
+                }
+                _ => panic!("Unsupported direct withheld code"),
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => match code {
+                WithheldCode::Blacklisted => {
+                    Self::MegolmV2(MegolmV2WithheldInfo::BlackListed(content))
+                }
+                WithheldCode::Unverified => {
+                    Self::MegolmV2(MegolmV2WithheldInfo::Unverified(content))
+                }
+                _ => panic!("Unsupported direct withheld code"),
+            },
+            _ => todo!(),
+        }
+    }
+
+    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
+        match self {
+            DirectWithheldInfo::MegolmV1(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
+            #[cfg(feature = "experimental-algorithms")]
+            DirectWithheldInfo::MegolmV2(_) => EventEncryptionAlgorithm::MegolmV2AesSha2,
+        }
+    }
+
+    pub fn withheld_code(&self) -> WithheldCode {
+        match self {
+            DirectWithheldInfo::MegolmV1(c) => match c {
+                MegolmV1WithheldInfo::BlackListed(_) => WithheldCode::Blacklisted,
+                MegolmV1WithheldInfo::Unverified(_) => WithheldCode::Unverified,
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            DirectWithheldInfo::MegolmV2(c) => match c {
+                MegolmV2WithheldInfo::BlackListed(_) => WithheldCode::Blacklisted,
+                MegolmV2WithheldInfo::Unverified(_) => WithheldCode::Unverified,
+            },
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            DirectWithheldInfo::MegolmV1(c) => match c {
+                MegolmV1WithheldInfo::BlackListed(c) | MegolmV1WithheldInfo::Unverified(c) => {
+                    &c.room_id
+                }
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            DirectWithheldInfo::MegolmV2(c) => match c {
+                MegolmV2WithheldInfo::BlackListed(c) | MegolmV2WithheldInfo::Unverified(c) => {
+                    &c.room_id
+                }
+            },
+        }
+    }
+
+    pub fn session_id(&self) -> &str {
+        match self {
+            DirectWithheldInfo::MegolmV1(c) => match c {
+                MegolmV1WithheldInfo::BlackListed(c) | MegolmV1WithheldInfo::Unverified(c) => {
+                    &c.session_id
+                }
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            DirectWithheldInfo::MegolmV2(c) => match c {
+                MegolmV2WithheldInfo::BlackListed(c) | MegolmV2WithheldInfo::Unverified(c) => {
+                    &c.session_id
+                }
+            },
+        }
+    }
 }
 
 impl TryFrom<&MegolmV1AesSha2WithheldContent> for DirectWithheldInfo {
@@ -50,16 +143,15 @@ impl TryFrom<&MegolmV1AesSha2WithheldContent> for DirectWithheldInfo {
 
     fn try_from(value: &MegolmV1AesSha2WithheldContent) -> Result<Self, Self::Error> {
         match value {
-            MegolmV1AesSha2WithheldContent::AnyContent((code, content)) => Ok(DirectWithheldInfo {
-                room_id: content.room_id.to_owned(),
-                algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-                session_id: content.session_id.to_owned(),
-                claimed_sender_key: content.sender_key,
-                withheld_code: code.clone(),
-            }),
-            MegolmV1AesSha2WithheldContent::NoOlmContent(_) => {
-                Err("No Olm can't be converted to direct info")
+            MegolmV1AesSha2WithheldContent::BlackListed(c) => {
+                Ok(Self::MegolmV1(MegolmV1WithheldInfo::BlackListed(c.to_owned())))
             }
+            MegolmV1AesSha2WithheldContent::Unverified(c) => {
+                Ok(Self::MegolmV1(MegolmV1WithheldInfo::Unverified(c.to_owned())))
+            }
+            MegolmV1AesSha2WithheldContent::Unauthorised(_) => todo!(),
+            MegolmV1AesSha2WithheldContent::Unavailable(_) => todo!(),
+            MegolmV1AesSha2WithheldContent::NoOlm(_) => todo!(),
         }
     }
 }

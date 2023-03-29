@@ -1289,15 +1289,15 @@ impl OlmMachine {
                     if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
                         error
                     {
-                        let withheld_info = self
+                        let withheld_code = self
                             .store
                             .get_withheld_info(room_id, content.session_id())
                             .await?
-                            .map(|i| i.withheld_code);
+                            .map(|i| i.withheld_code());
 
-                        if withheld_info.is_some() {
+                        if withheld_code.is_some() {
                             // Partially withheld, report with a withheld code if we have one.
-                            MegolmError::MissingRoomKey(withheld_info)
+                            MegolmError::MissingRoomKey(withheld_code)
                         } else {
                             error
                         }
@@ -1307,12 +1307,13 @@ impl OlmMachine {
                 ),
             }
         } else {
-            let withheld_info = self
+            let withheld_code = self
                 .store
                 .get_withheld_info(room_id, content.session_id())
                 .await?
-                .map(|i| i.withheld_code);
-            Err(MegolmError::MissingRoomKey(withheld_info))
+                .map(|i| i.withheld_code());
+
+            Err(MegolmError::MissingRoomKey(withheld_code))
         }
     }
 

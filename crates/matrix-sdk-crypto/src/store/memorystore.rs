@@ -150,7 +150,7 @@ impl CryptoStore for MemoryStore {
         }
 
         for info in changes.withheld_session_info {
-            self.direct_withheld_info.insert(info.session_id.to_owned(), info.to_owned());
+            self.direct_withheld_info.insert(info.session_id().to_owned(), info);
         }
 
         Ok(())
@@ -285,19 +285,11 @@ impl CryptoStore for MemoryStore {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<DirectWithheldInfo>> {
-        let entry = self.direct_withheld_info.entry(session_id.to_owned());
-
-        match entry {
-            Entry::Occupied(e) => {
-                let found = e.get();
-                if found.room_id == room_id {
-                    Ok(Some(found.to_owned()))
-                } else {
-                    Ok(None)
-                }
-            }
-            Entry::Vacant(_) => Ok(None),
-        }
+        Ok(self
+            .direct_withheld_info
+            .get(session_id)
+            .filter(|e| e.value().room_id() == room_id)
+            .map(|e| e.value().to_owned()))
     }
 
     async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {

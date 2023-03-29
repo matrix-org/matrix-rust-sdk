@@ -51,7 +51,7 @@ use crate::{
                 MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
             },
             room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
-            room_key_withheld::WithheldCode,
+            room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
         },
         EventEncryptionAlgorithm,
     },
@@ -240,6 +240,19 @@ impl OutboundGroupSession {
         share_infos: ShareInfoSet,
     ) {
         self.to_share_with_set.insert(request_id, (request, share_infos));
+    }
+
+    /// Create a new `m.room_key.withheld` event content with the given code for
+    /// this outbound group session.
+    pub fn withheld_code(&self, code: WithheldCode) -> RoomKeyWithheldContent {
+        RoomKeyWithheldContent::new(
+            self.settings().algorithm.to_owned(),
+            code,
+            self.room_id().to_owned(),
+            self.session_id().to_owned(),
+            self.sender_key().to_owned(),
+            (*self.device_id).to_owned(),
+        )
     }
 
     /// This should be called if an the user wishes to rotate this session.
