@@ -397,7 +397,7 @@ impl SlidingSync {
                 let Some(list) = lists.get_mut(&name) else {
                     error!("Response for list `{name}` - unknown to us; skipping");
 
-                    continue
+                    continue;
                 };
 
                 let maximum_number_of_rooms: u32 =

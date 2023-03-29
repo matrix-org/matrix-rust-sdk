@@ -396,13 +396,13 @@ impl SlidingSyncListInner {
     ) -> Result<bool, Error> {
         let current_maximum_number_of_rooms = **self.maximum_number_of_rooms.read().unwrap();
 
+        // first response, we do that slightly differently
         if current_maximum_number_of_rooms.is_none()
             || current_maximum_number_of_rooms == Some(0)
             || self.is_cold.load(Ordering::SeqCst)
         {
             debug!("first run, replacing rooms list");
 
-            // first response, we do that slightly differently
             let mut rooms_list = ObservableVector::new();
             rooms_list.append(
                 iter::repeat(RoomListEntry::Empty).take(maximum_number_of_rooms as usize).collect(),
@@ -428,22 +428,27 @@ impl SlidingSyncListInner {
 
         debug!("regular update");
 
-        let mut missing = maximum_number_of_rooms
-            .checked_sub(self.rooms_list.read().unwrap().len() as u32)
-            .unwrap_or_default();
         let mut changed = false;
 
-        if missing > 0 {
-            let mut list = self.rooms_list.write().unwrap();
+        // Create missing room list entries.
+        {
+            let mut missing = maximum_number_of_rooms
+                .hecked_sub(self.rooms_list.read().unwrap().len() as u32)
+                .unwrap_or_default();
 
-            while missing > 0 {
-                list.push_back(RoomListEntry::Empty);
-                missing -= 1;
+            if missing > 0 {
+                let mut list = self.rooms_list.write().unwrap();
+
+                while missing > 0 {
+                    list.push_back(RoomListEntry::Empty);
+                    missing -= 1;
+                }
+
+                changed = true;
             }
-
-            changed = true;
         }
 
+        // Run the operations.
         {
             // keep the lock scoped so that the later `find_rooms_in_list` doesn't deadlock
             let mut rooms_list = self.rooms_list.write().unwrap();
@@ -456,6 +461,7 @@ impl SlidingSyncListInner {
             }
         }
 
+        // Update the `maximum_number_of_rooms`.
         {
             let mut lock = self.maximum_number_of_rooms.write().unwrap();
 
