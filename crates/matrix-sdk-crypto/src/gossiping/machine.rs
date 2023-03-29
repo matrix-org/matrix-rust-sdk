@@ -1039,7 +1039,6 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     use assert_matches::assert_matches;
     use dashmap::DashMap;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
@@ -1054,6 +1053,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     use serde::{de::DeserializeOwned, Serialize};
     use serde_json::json;
+    use tokio::sync::Mutex;
 
     use super::GossipMachine;
     #[cfg(feature = "automatic-room-key-forwarding")]

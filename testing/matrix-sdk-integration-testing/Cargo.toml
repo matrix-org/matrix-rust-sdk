@@ -16,6 +16,6 @@ ctor = { workspace = true }
 matrix-sdk = { path = "../../crates/matrix-sdk" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }

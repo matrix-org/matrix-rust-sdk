@@ -25,8 +25,8 @@ use std::{
 
 use atomic::Ordering;
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
+use tokio::sync::Mutex;
 use tracing::{field::display, instrument, trace, Span};
 
 use crate::{

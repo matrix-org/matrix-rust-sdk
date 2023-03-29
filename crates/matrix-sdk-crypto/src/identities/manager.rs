@@ -20,12 +20,13 @@ use std::{
 
 use futures_util::future::join_all;
 use itertools::Itertools;
-use matrix_sdk_common::{executor::spawn, locks::Mutex};
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
     OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
     UserId,
 };
+use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
@@ -718,12 +719,12 @@ pub(crate) mod testing {
     #![allow(dead_code)]
     use std::sync::Arc;
 
-    use matrix_sdk_common::locks::Mutex;
     use ruma::{
         api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
+    use tokio::sync::Mutex;
 
     use crate::{
         identities::IdentityManager,

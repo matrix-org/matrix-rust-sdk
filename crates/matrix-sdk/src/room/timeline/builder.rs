@@ -15,14 +15,12 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    locks::Mutex,
-};
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
 use ruma::{
     events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
     push::Action,
 };
+use tokio::sync::Mutex;
 use tracing::error;
 
 #[cfg(feature = "e2e-encryption")]

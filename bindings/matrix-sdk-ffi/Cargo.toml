@@ -23,6 +23,8 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
+matrix-sdk-sqlite = { path = "../../crates/matrix-sdk-sqlite", features = ["crypto-store"] }
+matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled" }
 mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
@@ -59,7 +61,6 @@ features = [
     "experimental-timeline",
     "e2e-encryption",
     "markdown", 
-    "sled",
     "socks",
     "rustls-tls",
 ]
@@ -74,6 +75,5 @@ features = [
     "e2e-encryption",
     "markdown",
     "native-tls",
-    "sled",
     "socks",
 ]

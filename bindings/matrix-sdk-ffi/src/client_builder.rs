@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use matrix_sdk::{
+    config::StoreConfig,
     ruma::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
@@ -102,7 +103,24 @@ impl ClientBuilder {
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
 
-            inner_builder = inner_builder.sled_store(data_path, builder.passphrase.as_deref());
+            let mut state_store =
+                matrix_sdk_sled::SledStateStore::builder().path(data_path.to_owned());
+
+            if let Some(passphrase) = builder.passphrase.as_deref() {
+                state_store = state_store.passphrase(passphrase.to_owned());
+            }
+
+            let state_store = state_store.build()?;
+
+            let crypto_store = RUNTIME.block_on(matrix_sdk_sqlite::SqliteCryptoStore::open(
+                &data_path,
+                builder.passphrase.as_deref(),
+            ))?;
+
+            let store_config =
+                StoreConfig::new().state_store(state_store).crypto_store(crypto_store);
+
+            inner_builder = inner_builder.store_config(store_config)
         }
 
         // Determine server either from URL, server name or user ID.

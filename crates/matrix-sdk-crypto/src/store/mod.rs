@@ -51,13 +51,12 @@ use atomic::Ordering;
 use dashmap::DashSet;
 use futures_core::Stream;
 use futures_util::stream::StreamExt;
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};

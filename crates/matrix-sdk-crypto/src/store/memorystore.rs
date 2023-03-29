@@ -16,10 +16,10 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
+use tokio::sync::Mutex;
 use tracing::warn;
 
 use super::{
