@@ -21,7 +21,6 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
-use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -35,7 +34,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::fs;
+use tokio::{fs, sync::Mutex};
 use tracing::{debug, error, instrument, warn};
 
 use crate::{

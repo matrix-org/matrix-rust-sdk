@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
+use eyeball::unique::Observable;
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChanges, instant::Instant,
@@ -14,7 +15,7 @@ use ruma::{
     },
     events::{AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, OwnedRoomId,
+    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};
 
@@ -105,6 +106,10 @@ impl Client {
         self.handle_sync_events(HandlerKind::ToDevice, &None, to_device_events).await?;
 
         for (room_id, room_info) in &rooms.join {
+            if room_info.timeline.limited {
+                self.notify_sync_gap(room_id);
+            }
+
             let room = self.get_room(room_id);
             if room.is_none() {
                 error!(?room_id, "Can't call event handler, room not found");
@@ -122,6 +127,10 @@ impl Client {
         }
 
         for (room_id, room_info) in &rooms.leave {
+            if room_info.timeline.limited {
+                self.notify_sync_gap(room_id);
+            }
+
             let room = self.get_room(room_id);
             if room.is_none() {
                 error!(?room_id, "Can't call event handler, room not found");
@@ -221,5 +230,12 @@ impl Client {
         }
 
         *last_sync_time = Some(now);
+    }
+
+    fn notify_sync_gap(&self, room_id: &RoomId) {
+        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
+        if let Some(tx) = lock.get_mut(room_id) {
+            Observable::set(tx, ());
+        }
     }
 }

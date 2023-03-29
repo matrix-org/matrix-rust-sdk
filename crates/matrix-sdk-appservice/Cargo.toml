@@ -42,7 +42,7 @@ serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9.4"
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 thiserror = { workspace = true }
 tower = { version = "0.4.13", default-features = false }
 tracing = { workspace = true }
@@ -50,6 +50,6 @@ url = "2.2.2"
 
 [dev-dependencies]
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", features = ["appservice"] }
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3.11"
 wiremock = "0.5.13"

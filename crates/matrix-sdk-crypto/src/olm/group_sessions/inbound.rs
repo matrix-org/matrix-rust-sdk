@@ -21,7 +21,6 @@ use std::{
     },
 };
 
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
@@ -29,6 +28,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::Mutex;
 use vodozemac::{
     megolm::{
         DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,

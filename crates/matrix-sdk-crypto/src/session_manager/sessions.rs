@@ -397,7 +397,6 @@ mod tests {
     use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use dashmap::DashMap;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
@@ -410,6 +409,7 @@ mod tests {
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
+    use tokio::sync::Mutex;
     use tracing::info;
 
     use super::SessionManager;

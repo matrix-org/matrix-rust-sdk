@@ -15,8 +15,9 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
+use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use tokio::sync::Mutex;
 
 use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
 use crate::{

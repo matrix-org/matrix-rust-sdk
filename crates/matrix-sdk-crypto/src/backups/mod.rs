@@ -28,11 +28,11 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
     OwnedRoomId, OwnedTransactionId, TransactionId,
 };
+use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
