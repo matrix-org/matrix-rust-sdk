@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     events::room_key_withheld::{
-        CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent, WithheldCode,
+        CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent,
+        RoomKeyWithheldEvent, WithheldCode,
     },
     EventEncryptionAlgorithm,
 };
@@ -83,6 +84,28 @@ impl DirectWithheldInfo {
         }
     }
 
+    pub fn from_event(event: &RoomKeyWithheldEvent) -> Option<Self> {
+        match &event.content {
+            RoomKeyWithheldContent::MegolmV1AesSha2(c) => match c {
+                MegolmV1AesSha2WithheldContent::BlackListed(c) => {
+                    Some(Self::MegolmV1(MegolmV1WithheldInfo::BlackListed(c.to_owned())))
+                }
+                MegolmV1AesSha2WithheldContent::Unverified(c) => {
+                    Some(Self::MegolmV1(MegolmV1WithheldInfo::Unverified(c.to_owned())))
+                }
+                MegolmV1AesSha2WithheldContent::NoOlm(_) => todo!(),
+                _ => None,
+            },
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(c) => match c {
+                MegolmV2AesSha2WithheldContent::BlackListed(_) => todo!(),
+                MegolmV2AesSha2WithheldContent::Unverified(_) => todo!(),
+                MegolmV2AesSha2WithheldContent::NoOlm(_) => todo!(),
+            },
+            RoomKeyWithheldContent::Unknown(_) => None,
+        }
+    }
+
     pub fn algorithm(&self) -> EventEncryptionAlgorithm {
         match self {
             DirectWithheldInfo::MegolmV1(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
@@ -134,24 +157,6 @@ impl DirectWithheldInfo {
                     &c.session_id
                 }
             },
-        }
-    }
-}
-
-impl TryFrom<&MegolmV1AesSha2WithheldContent> for DirectWithheldInfo {
-    type Error = &'static str;
-
-    fn try_from(value: &MegolmV1AesSha2WithheldContent) -> Result<Self, Self::Error> {
-        match value {
-            MegolmV1AesSha2WithheldContent::BlackListed(c) => {
-                Ok(Self::MegolmV1(MegolmV1WithheldInfo::BlackListed(c.to_owned())))
-            }
-            MegolmV1AesSha2WithheldContent::Unverified(c) => {
-                Ok(Self::MegolmV1(MegolmV1WithheldInfo::Unverified(c.to_owned())))
-            }
-            MegolmV1AesSha2WithheldContent::Unauthorised(_) => todo!(),
-            MegolmV1AesSha2WithheldContent::Unavailable(_) => todo!(),
-            MegolmV1AesSha2WithheldContent::NoOlm(_) => todo!(),
         }
     }
 }

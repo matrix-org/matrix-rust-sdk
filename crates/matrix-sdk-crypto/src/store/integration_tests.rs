@@ -640,13 +640,24 @@ macro_rules! cryptostore_integration_tests {
                     )
                     .unwrap(),
                 };
-
                 let info = DirectWithheldInfo::new(
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     WithheldCode::Unverified,
                     content.to_owned(),
                 );
                 info_list.push(info);
+
+                let content = CommonWithheldCodeContent {
+                    room_id: room_id.to_owned(),
+                    session_id: session_id_2.into(),
+                    from_device: JsOption::Undefined,
+                    other: Default::default(),
+                    sender_key: Curve25519PublicKey::from_base64(
+                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                    )
+                    .unwrap(),
+                };
+
                 let info = DirectWithheldInfo::new(
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     WithheldCode::Blacklisted,

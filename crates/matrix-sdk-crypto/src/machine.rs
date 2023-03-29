@@ -80,10 +80,7 @@ use crate::{
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
-            room_key_withheld::{
-                MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
-                WithheldCode,
-            },
+            room_key_withheld::RoomKeyWithheldEvent,
             ToDeviceEvents,
         },
         Signatures,
@@ -674,46 +671,16 @@ impl OlmMachine {
         }
     }
 
-    // help: What should I do regarding the #instrument?
     async fn add_withheld_info(
         &self,
+        changes: &mut Changes,
         event: &RoomKeyWithheldEvent,
-    ) -> OlmResult<Option<DirectWithheldInfo>> {
-        match &event.content {
-            RoomKeyWithheldContent::MegolmV1AesSha2(content) => {
-                self.handle_withheld_room_key(content).await
-            }
-            #[cfg(feature = "experimental-algorithms")]
-            RoomKeyWithheldContent::MegolmV2AesSha2(_content) => {
-                // TODO
-                Ok(None)
-            }
-            RoomKeyWithheldContent::Unknown(_) => {
-                warn!("Received a room key withheld event with an unsupported algorithm");
-                Ok(None)
-            }
+    ) -> OlmResult<()> {
+        if let Some(info) = DirectWithheldInfo::from_event(event) {
+            changes.withheld_session_info.push(info)
         }
-    }
 
-    async fn handle_withheld_room_key(
-        &self,
-        content: &MegolmV1AesSha2WithheldContent,
-    ) -> OlmResult<Option<DirectWithheldInfo>> {
-        let code = content.withheld_code();
-        match code {
-            WithheldCode::NoOlm => {
-                // NoOlm is special as it's not attached to a room or session
-                // TODO
-                Ok(None)
-            }
-            _ => match DirectWithheldInfo::try_from(content) {
-                Ok(info) => Ok(Some(info)),
-                Err(m) => {
-                    warn!("Received a malformed room key withheld event: <{}>", m);
-                    Ok(None)
-                }
-            },
-        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -949,18 +916,17 @@ impl OlmMachine {
         self.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
-    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
+    async fn handle_to_device_event(
+        &self,
+        changes: &mut Changes,
+        event: &ToDeviceEvents,
+    ) -> OlmResult<()> {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
             RoomKeyRequest(e) => self.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.key_request_machine.receive_incoming_secret_request(e),
-            RoomKeyWithheld(e) => {
-                let result = self.add_withheld_info(e).await;
-                if let Ok(Some(info)) = result {
-                    changes.withheld_session_info.push(info);
-                }
-            }
+            RoomKeyWithheld(e) => self.add_withheld_info(changes, e).await?,
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
             | KeyVerificationKey(..)
@@ -974,6 +940,8 @@ impl OlmMachine {
             Dummy(_) | RoomKey(_) | ForwardedRoomKey(_) | RoomEncrypted(_) => {}
             _ => {}
         }
+
+        Ok(())
     }
 
     fn record_message_id(event: &Raw<AnyToDeviceEvent>) {
@@ -1061,7 +1029,7 @@ impl OlmMachine {
 
                 match decrypted.result.raw_event.deserialize_as() {
                     Ok(event) => {
-                        self.handle_to_device_event(changes, &event).await;
+                        self.handle_to_device_event(changes, &event).await?;
 
                         raw_event = event
                             .serialize_zeroized()
@@ -1075,7 +1043,7 @@ impl OlmMachine {
                 }
             }
 
-            e => self.handle_to_device_event(changes, &e).await,
+            e => self.handle_to_device_event(changes, &e).await?,
         }
 
         Ok(raw_event)
