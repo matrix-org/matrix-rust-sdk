@@ -2155,8 +2155,9 @@ pub(crate) mod tests {
         // when we decrypt the room key, the
         // inbound_group_session_streamroom_keys_received_stream should tell us
         // about it.
-        let room_key = room_keys_received_stream.next().await;
-        assert_eq!(room_key.unwrap().session_id, group_session.session_id());
+        let room_keys = room_keys_received_stream.next().await.unwrap();
+        assert_eq!(room_keys.len(), 1);
+        assert_eq!(room_keys[0].session_id, group_session.session_id());
 
         let plaintext = "It is a secret to everybody";
 

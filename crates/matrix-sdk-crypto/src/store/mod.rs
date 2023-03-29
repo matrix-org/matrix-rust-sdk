@@ -125,7 +125,7 @@ pub struct Store {
 
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
-    room_keys_received_sender: Arc<broadcast::Sender<RoomKeyInfo>>,
+    room_keys_received_sender: Arc<broadcast::Sender<Vec<RoomKeyInfo>>>,
 }
 
 #[derive(Default, Debug)]
@@ -422,11 +422,10 @@ impl Store {
         // if we have any listeners on the room_keys_received stream, broadcast any
         // updates to them
         if self.room_keys_received_sender.receiver_count() > 0 {
-            for s in changes.inbound_group_sessions.iter() {
-                // ignore the result. It can only fail if there are no listeners (ie, we raced
-                // with the removal of the last one), which isn't a big deal.
-                let _ = self.room_keys_received_sender.send(s.into());
-            }
+            let updates = changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+            // ignore the result. It can only fail if there are no listeners (ie, we raced
+            // with the removal of the last one), which isn't a big deal.
+            let _ = self.room_keys_received_sender.send(updates);
         }
 
         self.inner.save_changes(changes).await
@@ -945,11 +944,12 @@ impl Store {
     /// Receive notifications of room keys being received as a [`Stream`].
     ///
     /// Each time a room key is updated in any way, an update will be sent to
-    /// the stream.
+    /// the stream. Updates that happen at the same time are batched into a
+    /// [`Vec`].
     ///
     /// If the reader of the stream lags too far behind, a warning will be
     /// logged and items will be dropped.
-    pub fn room_keys_received_stream(&self) -> impl Stream<Item = RoomKeyInfo> {
+    pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
 
         // the raw BroadcastStream gives us Results which can fail with

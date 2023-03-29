@@ -776,8 +776,8 @@ impl OlmMachine {
     /// Register a callback which will be called whenever there is an update to
     /// a room key.
     ///
-    /// `callback` should be a function that takes a single argument (a
-    /// {@link RoomKeyInfo}) and returns a Promise.
+    /// `callback` should be a function that takes a single argument (an array
+    /// of {@link RoomKeyInfo}) and returns a Promise.
     #[wasm_bindgen(js_name = "registerRoomKeyUpdatedCallback")]
     pub async fn register_room_key_updated_callback(&self, callback: Function) {
         let stream = self.inner.store().room_keys_received_stream();
@@ -806,10 +806,10 @@ impl OlmMachine {
 // function
 async fn send_room_key_info_to_callback(
     callback: &Function,
-    room_key_info: matrix_sdk_crypto::store::RoomKeyInfo,
+    room_key_info: Vec<matrix_sdk_crypto::store::RoomKeyInfo>,
 ) {
-    let rki = RoomKeyInfo::from(room_key_info);
-    match promise_result_to_future(callback.call1(&JsValue::NULL, &JsValue::from(rki))).await {
+    let rki: Array = room_key_info.into_iter().map(RoomKeyInfo::from).map(JsValue::from).collect();
+    match promise_result_to_future(callback.call1(&JsValue::NULL, &rki)).await {
         Ok(_) => (),
         Err(e) => {
             warn!("Error calling room-key-received callback: {:?}", e);

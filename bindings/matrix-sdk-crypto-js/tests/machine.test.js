@@ -680,6 +680,10 @@ describe(OlmMachine.name, () => {
             let m = await machine();
             m.registerRoomKeyUpdatedCallback(callback);
             await m.importRoomKeys(exportedRoomKeys, (_, _1) => {});
+            expect(callback).toHaveBeenCalledTimes(1);
+            let keyInfoList = callback.mock.calls[0][0];
+            expect(keyInfoList.length).toEqual(1);
+            expect(keyInfoList[0].roomId.toString()).toStrictEqual(room.toString());
         });
     });
 
