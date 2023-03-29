@@ -13,14 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
-    ops::Deref,
-    sync::Arc,
 };
+#[cfg(feature = "e2e-encryption")]
+use std::{ops::Deref, sync::Arc};
 
 use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use matrix_sdk_common::instant::Instant;
