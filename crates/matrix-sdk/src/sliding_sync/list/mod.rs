@@ -292,6 +292,7 @@ impl SlidingSyncListInner {
         Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::NotLoaded);
     }
 
+    // Update the state to the next request, and return it.
     fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
         {
             // Use a dedicated scope to ensure the lock is released before continuing.
@@ -374,7 +375,8 @@ impl SlidingSyncListInner {
         })
     }
 
-    // Update the [`SlidingSyncListInner`]'s state.
+    // Update the [`Self::rooms_list`]. It also updates
+    // `[Self::maximum_number_of_rooms]`.
     fn update_rooms_list(
         &self,
         maximum_number_of_rooms: u32,
