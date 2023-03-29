@@ -420,7 +420,9 @@ impl Store {
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         // if we have any listeners on the room_keys_received stream, broadcast any
         // updates to them
-        if self.room_keys_received_sender.receiver_count() > 0 {
+        if self.room_keys_received_sender.receiver_count() > 0
+            && !changes.inbound_group_sessions.is_empty()
+        {
             let updates = changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
             // ignore the result. It can only fail if there are no listeners (ie, we raced
             // with the removal of the last one), which isn't a big deal.
