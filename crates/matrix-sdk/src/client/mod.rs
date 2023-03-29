@@ -210,7 +210,8 @@ impl Client {
             .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
-    /// Returns a subscriber that publishes an event every time the ignore user list changes.
+    /// Returns a subscriber that publishes an event every time the ignore user
+    /// list changes.
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
         self.inner.base_client.subscribe_to_ignore_user_list_changes()
     }
