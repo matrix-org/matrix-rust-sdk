@@ -778,7 +778,7 @@ impl OlmMachine {
     /// `InboundGroupSession`) and returns a Promise.
     #[wasm_bindgen(js_name = "registerRoomKeyUpdatedCallback")]
     pub async fn register_room_key_updated_callback(&self, callback: Function) {
-        let stream = self.inner.inbound_group_session_stream();
+        let stream = self.inner.store().inbound_group_session_stream();
 
         // fire up a promise chain which will call `cb` on each result from the stream
         spawn_local(async move {

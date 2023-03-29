@@ -19,8 +19,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use futures_core::Stream;
-use futures_util::stream::StreamExt;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
@@ -47,7 +45,6 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{
     debug, error,
     field::{debug, display},
@@ -1654,30 +1651,6 @@ impl OlmMachine {
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.backup_machine
     }
-
-    /// Receive notifications of room keys being received as a [`Stream`].
-    ///
-    /// Each time a room key is updated in any way, an update will be sent to
-    /// the stream.
-    ///
-    /// If the reader of the stream lags too far behind, a warning will be
-    /// logged and items will be dropped.
-    pub fn inbound_group_session_stream(&self) -> impl Stream<Item = InboundGroupSession> {
-        let stream = self.store.inbound_group_session_stream();
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("inbound_group_session_stream missed {} updates", lag);
-                    None
-                }
-            }
-        })
-    }
 }
 
 #[cfg(any(feature = "testing", test))]
@@ -2173,7 +2146,7 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
-        let mut inbound_group_session_stream = Box::pin(bob.inbound_group_session_stream());
+        let mut inbound_group_session_stream = Box::pin(bob.store().inbound_group_session_stream());
 
         let group_session =
             bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session.unwrap();

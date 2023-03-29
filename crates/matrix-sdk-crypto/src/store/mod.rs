@@ -49,6 +49,8 @@ use std::{
 use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
+use futures_core::Stream;
+use futures_util::stream::StreamExt;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
@@ -56,7 +58,7 @@ use ruma::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -910,9 +912,28 @@ impl Store {
         Ok(deserialized)
     }
 
-    /// Get a stream of updates to inbound group sessions
-    pub fn inbound_group_session_stream(&self) -> BroadcastStream<InboundGroupSession> {
-        BroadcastStream::new(self.inbound_group_sessions_sender.subscribe())
+    /// Receive notifications of room keys being received as a [`Stream`].
+    ///
+    /// Each time a room key is updated in any way, an update will be sent to
+    /// the stream.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn inbound_group_session_stream(&self) -> impl Stream<Item = InboundGroupSession> {
+        let stream = BroadcastStream::new(self.inbound_group_sessions_sender.subscribe());
+
+        // the raw BroadcastStream gives us Results which can fail with
+        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
+        // with, so here we just drop the errors.
+        stream.filter_map(|result| async move {
+            match result {
+                Ok(r) => Some(r),
+                Err(BroadcastStreamRecvError::Lagged(lag)) => {
+                    warn!("inbound_group_session_stream missed {} updates", lag);
+                    None
+                }
+            }
+        })
     }
 }
 
