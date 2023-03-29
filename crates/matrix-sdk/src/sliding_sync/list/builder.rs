@@ -2,7 +2,7 @@
 
 use std::{
     fmt::Debug,
-    sync::{atomic::AtomicBool, Arc, RwLock as StdRwLock},
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 use eyeball::unique::Observable;
@@ -173,7 +173,6 @@ impl SlidingSyncListBuilder {
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 rooms_list: StdRwLock::new(ObservableVector::new()),
-                is_cold: AtomicBool::new(false),
             }),
         })
     }

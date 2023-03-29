@@ -8,10 +8,7 @@ use std::{
     fmt::Debug,
     iter,
     ops::Not,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, RwLock as StdRwLock,
-    },
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 pub use builder::*;
@@ -66,7 +63,6 @@ impl SlidingSyncList {
         rooms_list: Vector<RoomListEntry>,
     ) {
         Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
-        self.inner.is_cold.store(true, Ordering::SeqCst);
         Observable::set(
             &mut self.inner.maximum_number_of_rooms.write().unwrap(),
             maximum_number_of_rooms,
@@ -271,8 +267,6 @@ pub(super) struct SlidingSyncListInner {
     /// The ranges windows of the list.
     ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
 
-    is_cold: AtomicBool,
-
     /// The request generator, i.e. a type that yields the appropriate list
     /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
     request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
@@ -394,56 +388,19 @@ impl SlidingSyncListInner {
         ranges: &[(UInt, UInt)],
         updated_rooms: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        let current_maximum_number_of_rooms = **self.maximum_number_of_rooms.read().unwrap();
-
-        // first response, we do that slightly differently
-        if current_maximum_number_of_rooms.is_none()
-            || current_maximum_number_of_rooms == Some(0)
-            || self.is_cold.load(Ordering::SeqCst)
-        {
-            debug!("first run, replacing rooms list");
-
-            let mut rooms_list = ObservableVector::new();
-            rooms_list.append(
-                iter::repeat(RoomListEntry::Empty).take(maximum_number_of_rooms as usize).collect(),
-            );
-
-            // then we apply it
-            room_ops(&mut rooms_list, ops, ranges)?;
-
-            {
-                let mut lock = self.rooms_list.write().unwrap();
-                lock.clear();
-                lock.append(rooms_list.into_inner());
-            }
-
-            Observable::set(
-                &mut self.maximum_number_of_rooms.write().unwrap(),
-                Some(maximum_number_of_rooms),
-            );
-            self.is_cold.store(false, Ordering::SeqCst);
-
-            return Ok(true);
-        }
-
-        debug!("regular update");
-
-        let mut changed = false;
+        let mut new_changes = false;
 
         // Create missing room list entries.
         {
-            let mut missing = maximum_number_of_rooms
-                .saturating_sub(self.rooms_list.read().unwrap().len() as u32);
+            let number_of_missing_rooms = (maximum_number_of_rooms as usize)
+                .saturating_sub(self.rooms_list.read().unwrap().len());
 
-            if missing > 0 {
-                let mut list = self.rooms_list.write().unwrap();
+            if number_of_missing_rooms > 0 {
+                self.rooms_list.write().unwrap().append(
+                    iter::repeat(RoomListEntry::Empty).take(number_of_missing_rooms).collect(),
+                );
 
-                while missing > 0 {
-                    list.push_back(RoomListEntry::Empty);
-                    missing -= 1;
-                }
-
-                changed = true;
+                new_changes = true;
             }
         }
 
@@ -454,7 +411,7 @@ impl SlidingSyncListInner {
 
             if !ops.is_empty() {
                 room_ops(&mut rooms_list, ops, ranges)?;
-                changed = true;
+                new_changes = true;
             } else {
                 debug!("no rooms operations found");
             }
@@ -462,11 +419,11 @@ impl SlidingSyncListInner {
 
         // Update the `maximum_number_of_rooms`.
         {
-            let mut lock = self.maximum_number_of_rooms.write().unwrap();
+            let mut maximum_number_of_rooms_lock = self.maximum_number_of_rooms.write().unwrap();
 
-            if **lock != Some(maximum_number_of_rooms) {
-                Observable::set(&mut lock, Some(maximum_number_of_rooms));
-                changed = true;
+            if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms) {
+                Observable::set(&mut maximum_number_of_rooms_lock, Some(maximum_number_of_rooms));
+                new_changes = true;
             }
         }
 
@@ -474,18 +431,17 @@ impl SlidingSyncListInner {
             let found_lists = self.find_rooms_in_list(updated_rooms);
 
             if !found_lists.is_empty() {
-                debug!("room details found");
                 let mut rooms_list = self.rooms_list.write().unwrap();
 
                 for (pos, room_id) in found_lists {
-                    // trigger an `UpdatedAt` update
                     rooms_list.set(pos, RoomListEntry::Filled(room_id));
-                    changed = true;
                 }
+
+                new_changes = true;
             }
         }
 
-        Ok(changed)
+        Ok(new_changes)
     }
 
     /// Update the state of the [`SlidingSyncListRequestGenerator`].
@@ -826,7 +782,7 @@ impl SlidingSyncMode {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::{Deref, Not};
+    use std::ops::Deref;
 
     use imbl::vector;
     use ruma::{api::client::sync::sync_events::v4::SlidingOp, assign, room_id, uint};
@@ -908,7 +864,6 @@ mod tests {
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
                 rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
                 ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
-                is_cold: AtomicBool::new(true),
                 request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new_growing(
                     42,
                     Some(153),
@@ -935,7 +890,6 @@ mod tests {
         assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
         assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
         assert!(new_list.rooms_list.read().unwrap().deref().is_empty());
-        assert!(new_list.is_cold.load(Ordering::SeqCst).not());
     }
 
     #[test]
