@@ -446,29 +446,14 @@ impl Room {
         })
     }
 
-    /// Reports an event from the room whilst also ignoring the sender.
+    /// Ignores a user.
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event to report
-    ///
-    /// * `reason` - The reason for the event being reported (optional).
-    ///
-    /// * `score` - The score to rate this content as where -100 is most
-    ///   offensive and 0 is inoffensive (optional).
-    ///
-    /// * `sender_id` - The ID of the event's sender who should be ignored.
-    pub fn report_content_and_ignore(
-        &self,
-        event_id: String,
-        score: Option<i32>,
-        reason: Option<String>,
-        sender_id: String,
-    ) -> Result<()> {
-        self.report_content(event_id, score, reason)?;
-        let user_id = UserId::parse(sender_id)?;
-
+    /// * `event_id` - The ID of the user to ignore.
+    pub fn ignore_user(&self, user_id: String) -> Result<()> {
         RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
             self.client().account().ignore_user(&user_id).await?;
             Ok(())
         })
