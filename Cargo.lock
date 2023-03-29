@@ -2978,6 +2978,8 @@ dependencies = [
  "futures-util",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-sled",
+ "matrix-sdk-sqlite",
  "mime",
  "once_cell",
  "opentelemetry",
