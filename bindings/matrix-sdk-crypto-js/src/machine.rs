@@ -18,7 +18,9 @@ use crate::{
     olm, requests,
     requests::{OutgoingRequest, ToDeviceRequest},
     responses::{self, response_from_string},
-    store, sync_events, types, verification, vodozemac,
+    store,
+    store::RoomKeyInfo,
+    sync_events, types, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -774,11 +776,11 @@ impl OlmMachine {
     /// Register a callback which will be called whenever there is an update to
     /// a room key.
     ///
-    /// `callback` should be a function that takes a single argument (an
-    /// `InboundGroupSession`) and returns a Promise.
+    /// `callback` should be a function that takes a single argument (a
+    /// {@link RoomKeyInfo}) and returns a Promise.
     #[wasm_bindgen(js_name = "registerRoomKeyUpdatedCallback")]
     pub async fn register_room_key_updated_callback(&self, callback: Function) {
-        let stream = self.inner.store().inbound_group_session_stream();
+        let stream = self.inner.store().room_keys_received_stream();
 
         // fire up a promise chain which will call `cb` on each result from the stream
         spawn_local(async move {
@@ -799,14 +801,14 @@ impl OlmMachine {
     pub fn close(self) {}
 }
 
-// helper for register_room_key_received_callback: wraps the session
-// into our own InboundGroupSession struct, and passes it into the javascript
+// helper for register_room_key_received_callback: wraps the key info
+// into our own RoomKeyInfo struct, and passes it into the javascript
 // function
 async fn send_room_key_info_to_callback(
     callback: &Function,
-    session: matrix_sdk_crypto::olm::InboundGroupSession,
+    room_key_info: matrix_sdk_crypto::store::RoomKeyInfo,
 ) {
-    let rki = olm::InboundGroupSession::from(session);
+    let rki = RoomKeyInfo::from(room_key_info);
     match promise_result_to_future(callback.call1(&JsValue::NULL, &JsValue::from(rki))).await {
         Ok(_) => (),
         Err(e) => {

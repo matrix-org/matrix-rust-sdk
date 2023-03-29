@@ -2146,16 +2146,17 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
-        let mut inbound_group_session_stream = Box::pin(bob.store().inbound_group_session_stream());
+        let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
 
         let group_session =
             bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session.unwrap();
         bob.store.save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
 
-        // when we decrypt the room key, the inbound_group_session_stream should tell us
+        // when we decrypt the room key, the
+        // inbound_group_session_streamroom_keys_received_stream should tell us
         // about it.
-        let igs = inbound_group_session_stream.next().await;
-        assert_eq!(igs.unwrap().session_id(), group_session.session_id());
+        let room_key = room_keys_received_stream.next().await;
+        assert_eq!(room_key.unwrap().session_id, group_session.session_id());
 
         let plaintext = "It is a secret to everybody";
 
@@ -2196,7 +2197,7 @@ pub(crate) mod tests {
         // Just decrypting the event should *not* cause an update on the
         // inbound_group_session_stream.
         select! {
-            igs = inbound_group_session_stream.next().fuse() => {
+            igs = room_keys_received_stream.next().fuse() => {
                 panic!("Session stream unexpectedly returned update: {igs:?}");
             },
             default => {},

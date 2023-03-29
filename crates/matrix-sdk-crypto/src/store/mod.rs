@@ -125,7 +125,7 @@ pub struct Store {
 
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
-    inbound_group_sessions_sender: Arc<broadcast::Sender<InboundGroupSession>>,
+    room_keys_received_sender: Arc<broadcast::Sender<RoomKeyInfo>>,
 }
 
 #[derive(Default, Debug)]
@@ -332,6 +332,36 @@ impl Default for RoomSettings {
     }
 }
 
+/// Information on a room key that has been received or imported.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RoomKeyInfo {
+    /// The [messaging algorithm] that this key is used for. Will be one of the
+    /// `m.megolm.*` algorithms.
+    ///
+    /// [messaging algorithm]: https://spec.matrix.org/v1.6/client-server-api/#messaging-algorithms
+    pub algorithm: EventEncryptionAlgorithm,
+
+    /// The room where the key is used.
+    pub room_id: OwnedRoomId,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: Curve25519PublicKey,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+}
+
+impl From<&InboundGroupSession> for RoomKeyInfo {
+    fn from(group_session: &InboundGroupSession) -> Self {
+        RoomKeyInfo {
+            algorithm: group_session.algorithm().clone(),
+            room_id: group_session.room_id().to_owned(),
+            sender_key: group_session.sender_key(),
+            session_id: group_session.session_id().to_owned(),
+        }
+    }
+}
+
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
@@ -340,7 +370,7 @@ impl Store {
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let (inbound_group_sessions_sender, _) = broadcast::channel(10);
+        let (room_keys_received_sender, _) = broadcast::channel(10);
         Self {
             user_id,
             identity,
@@ -351,7 +381,7 @@ impl Store {
             users_for_key_query_condvar: Condvar::new().into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
-            inbound_group_sessions_sender: inbound_group_sessions_sender.into(),
+            room_keys_received_sender: room_keys_received_sender.into(),
         }
     }
 
@@ -389,13 +419,13 @@ impl Store {
     }
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // if we have any listeners on the inbound_group_sessions stream, broadcast any
+        // if we have any listeners on the room_keys_received stream, broadcast any
         // updates to them
-        if self.inbound_group_sessions_sender.receiver_count() > 0 {
+        if self.room_keys_received_sender.receiver_count() > 0 {
             for s in changes.inbound_group_sessions.iter() {
                 // ignore the result. It can only fail if there are no listeners (ie, we raced
                 // with the removal of the last one), which isn't a big deal.
-                let _ = self.inbound_group_sessions_sender.send(s.clone());
+                let _ = self.room_keys_received_sender.send(s.into());
             }
         }
 
@@ -919,8 +949,8 @@ impl Store {
     ///
     /// If the reader of the stream lags too far behind, a warning will be
     /// logged and items will be dropped.
-    pub fn inbound_group_session_stream(&self) -> impl Stream<Item = InboundGroupSession> {
-        let stream = BroadcastStream::new(self.inbound_group_sessions_sender.subscribe());
+    pub fn room_keys_received_stream(&self) -> impl Stream<Item = RoomKeyInfo> {
+        let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
 
         // the raw BroadcastStream gives us Results which can fail with
         // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
@@ -929,7 +959,7 @@ impl Store {
             match result {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("inbound_group_session_stream missed {} updates", lag);
+                    warn!("room_keys_received_stream missed {} updates", lag);
                     None
                 }
             }
