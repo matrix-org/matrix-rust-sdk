@@ -21,7 +21,7 @@ pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, UInt};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, warn};
+use tracing::{instrument, warn};
 
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
@@ -205,15 +205,15 @@ impl SlidingSyncList {
     }
 
     // Handle the response from the server.
-    #[instrument(skip(self, ops), fields(name = self.name(), ops_count = ops.len()))]
+    #[instrument(skip(self, sync_operations), fields(name = self.name(), sync_operations_count = sync_operations.len()))]
     pub(super) fn handle_response(
         &mut self,
         maximum_number_of_rooms: u32,
-        ops: &[v4::SyncOp],
+        sync_operations: &[v4::SyncOp],
     ) -> Result<bool, Error> {
         let result = self.inner.update_state(
             maximum_number_of_rooms,
-            ops,
+            sync_operations,
             &self.inner.request_generator.read().unwrap().ranges,
         )?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
@@ -382,12 +382,14 @@ impl SlidingSyncListInner {
     fn update_state(
         &self,
         maximum_number_of_rooms: u32,
-        ops: &[v4::SyncOp],
-        ranges: &[(UInt, UInt)],
+        sync_operations: &[v4::SyncOp],
+        requested_ranges: &[(UInt, UInt)],
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
         // Create missing room list entries.
+        // This should be called only once, when the `rooms_list` is empty. Otherwise,
+        // the `maximum_number_of_rooms` should not change, so there is no update to do.
         {
             let number_of_missing_rooms = (maximum_number_of_rooms as usize)
                 .saturating_sub(self.rooms_list.read().unwrap().len());
@@ -401,25 +403,24 @@ impl SlidingSyncListInner {
             }
         }
 
-        // Run the operations.
-        {
-            // keep the lock scoped so that the later `find_rooms_in_list` doesn't deadlock
+        // Run the sync operations.
+        if !sync_operations.is_empty() {
             let mut rooms_list = self.rooms_list.write().unwrap();
 
-            if !ops.is_empty() {
-                room_ops(&mut rooms_list, ops, ranges)?;
-                new_changes = true;
-            } else {
-                debug!("no rooms operations found");
-            }
+            apply_sync_operations(sync_operations, &mut rooms_list, requested_ranges)?;
+
+            new_changes = true;
         }
 
-        // Update the `maximum_number_of_rooms`.
+        // Update the `maximum_number_of_rooms` if it has changed.
+        // Again, it should happened only once at the beginning, as the value of
+        // `maximum_number_of_rooms` should not change over time.
         {
             let mut maximum_number_of_rooms_lock = self.maximum_number_of_rooms.write().unwrap();
 
             if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms) {
                 Observable::set(&mut maximum_number_of_rooms_lock, Some(maximum_number_of_rooms));
+
                 new_changes = true;
             }
         }
@@ -516,47 +517,48 @@ impl SlidingSyncListInner {
 }
 
 #[instrument(skip(operations))]
-fn room_ops(
-    rooms_list: &mut ObservableVector<RoomListEntry>,
+fn apply_sync_operations(
     operations: &[v4::SyncOp],
-    room_ranges: &[(UInt, UInt)],
+    rooms_list: &mut ObservableVector<RoomListEntry>,
+    requested_ranges: &[(UInt, UInt)],
 ) -> Result<(), Error> {
-    let room_ranges = room_ranges
+    // TODO: remove?
+    let room_ranges = requested_ranges
         .iter()
         .map(|(start, end)| ((*start).try_into().unwrap(), (*end).try_into().unwrap()))
         .collect::<Vec<(usize, usize)>>();
+
+    // TODO: remove?
     let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
 
     for operation in operations {
         match &operation.op {
             v4::SlidingOp::Sync => {
-                let start: u32 = operation
+                // Extract `start` and `end` from the operation's range.
+                let (start, end) = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`range` must be present for Sync and Update operation".to_owned(),
+                            "`range` must be present for `SYNC` operation".to_string(),
                         )
-                    })?
-                    .0
-                    .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`range` not a valid int: {error}"))
-                    })?;
-                let room_ids = operation.room_ids.clone();
-
-                room_ids
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, r)| {
-                        let idx = start as usize + i;
-
-                        if idx >= rooms_list.len() {
-                            rooms_list.insert(idx, RoomListEntry::Filled(r));
-                        } else {
-                            rooms_list.set(idx, RoomListEntry::Filled(r));
-                        }
                     })
-                    .count();
+                    .map(|(start, end)| {
+                        (usize::try_from(start).unwrap(), usize::try_from(end).unwrap())
+                    })?;
+
+                if end > rooms_list.len() {
+                    return Err(Error::BadResponse(
+                        "`range` is out of the `rooms_list`' bounds".to_string(),
+                    ));
+                }
+
+                // Update `rooms_list`.
+                //
+                // The room entry index is given by the `start..=end` bounds.
+                // The room ID is given by the `operation.room_ids`.
+                for (room_entry_index, room_id) in (start..=end).zip(operation.room_ids.iter()) {
+                    rooms_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
+                }
             }
 
             v4::SlidingOp::Delete => {
@@ -1534,5 +1536,126 @@ mod tests {
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preloaded"));
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("PartiallyLoaded"));
         assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("FullyLoaded"));
+    }
+
+    macro_rules! entries {
+        ( @_ [ E $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Empty, ] )
+        };
+
+        ( @_ [ F( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Filled(room_id!( $room_id ).to_owned()), ] )
+        };
+
+        ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )+ ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
+        };
+
+        ( @_ [] [ $( $accumulator:tt )+ ] ) => {
+            vector![ $( $accumulator )* ]
+        };
+
+        ( $( $all:tt )* ) => {
+            entries!( @_ [ $( $all )* ] [] )
+        };
+
+    }
+
+    macro_rules! assert_sync_operations {
+        (
+            rooms_list = [ $( $room_list_entries:tt )* ],
+            ranges = [ $( $ranges:tt )* ],
+            operations = [
+                $(
+                    { $( $operation:tt )+ }
+                ),*
+                $(,)?
+            ]
+            $(,)?
+            =>
+            result = $result:tt,
+            rooms_list = [ $( $expected_room_list_entries:tt )* ]
+            $(,)?
+        ) => {
+            let mut rooms_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
+            let ranges = ranges![ $( $ranges )* ];
+            let operations: &[v4::SyncOp] = &[
+                $(
+                    serde_json::from_value(json!({
+                        $( $operation )+
+                    })).unwrap()
+                ),*
+            ];
+
+            let result = apply_sync_operations(operations, &mut rooms_list, ranges);
+
+            assert!(result.$result());
+            assert_eq!(*rooms_list, entries![ $( $expected_room_list_entries )* ]);
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_sync() {
+        // All rooms list is updated.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                    "room_ids": ["!r0:x.y", "!r1:x.y", "!r2:x.y"],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Partial update.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            ranges = [(0, 1)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 1],
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), E],
+        };
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            ranges = [(1, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [1, 2],
+                    "room_ids": ["!r1:x.y", "!r2:x.y"],
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Out of bounds operation.
+        assert_sync_operations! {
+            rooms_list = [E, F("!r1:x.y"), E],
+            ranges = [(0, 2)],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [10, 12],
+                    "room_ids": ["!r1:x.y", "!r2:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            rooms_list = [E, F("!r1:x.y"), E],
+        };
     }
 }
