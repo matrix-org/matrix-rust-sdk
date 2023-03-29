@@ -571,7 +571,7 @@ impl SlidingSyncList {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn add_range(&self, start: u32, end: u32) {
-        self.inner.add_range(start, end);
+        self.inner.add_range((start, end));
     }
 
     /// Reset the ranges
