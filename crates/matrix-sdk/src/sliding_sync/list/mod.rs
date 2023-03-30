@@ -574,7 +574,7 @@ fn apply_sync_operations(
                 // The room entry index is given by the `room_entry_range` bounds.
                 // The room ID is given by the `room_ids`.
                 for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
-                    // Syncing = updating the room list to `Filled`.
+                    // Syncing means updating the room list to `Filled`.
                     rooms_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
                 }
             }
@@ -603,8 +603,8 @@ fn apply_sync_operations(
                     )));
                 }
 
-                // Removing = updating the room list to `Empty`.
-                rooms_list.set(index, RoomListEntry::Empty);
+                // Removing the entry in the room list.
+                rooms_list.remove(index);
             }
 
             // Specification says:
@@ -637,10 +637,16 @@ fn apply_sync_operations(
                     )));
                 }
 
-                // Insert = inserting a `Filled` entry in the room list .
+                // Inserting a `Filled` entry in the room list .
                 rooms_list.insert(index, RoomListEntry::Filled(room_id));
             }
 
+            // Specification says:
+            //
+            // > Remove a range of entries. Clients MAY persist the invalidated
+            // > range for offline support, but they should be treated as empty
+            // > when additional operations which concern indexes in the range
+            // > arrive from the server.
             v4::SlidingOp::Invalidate => {
                 // Extract `start` and `end` from the operation's range.
                 let (start, end) = operation
@@ -680,7 +686,7 @@ fn apply_sync_operations(
                 //
                 // The room entry index is given by the `room_entry_range` bounds.
                 for room_entry_index in room_entry_range {
-                    // Invalidating = updating the room list to `Invalidate`.
+                    // Invalidating means updating the room list to `Invalidate`.
                     //
                     // If the previous room list entry is `Filled`, it becomes `Invalidated`.
                     // Otherwise, for `Empty` or `Invalidated`, it stays as is.
@@ -1745,9 +1751,9 @@ mod tests {
 
     #[test]
     fn test_sync_operations_delete() {
-        // Delete an empty room entry.
+        // Delete a room entry in the middle.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1756,40 +1762,40 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [E, E, E],
+            rooms_list = [F("!r0:x.y"), F("!r2:x.y")],
         };
 
-        // Delete a filled room entry.
+        // Delete a room entry at the beginning.
         assert_sync_operations! {
-            rooms_list = [E, F("!r1:x.y"), E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
-                    "index": 1,
+                    "index": 0,
                 }
             ]
             =>
             result = is_ok,
-            rooms_list = [E, E, E],
+            rooms_list = [F("!r1:x.y"), F("!r2:x.y")],
         };
 
-        // Delete an invalidated room entry.
+        // Delete a room entry at the end.
         assert_sync_operations! {
-            rooms_list = [E, I("!r1:x.y"), E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
-                    "index": 1,
+                    "index": 2,
                 }
             ]
             =>
             result = is_ok,
-            rooms_list = [E, E, E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y")],
         };
 
         // Delete an out of bounds room entry.
         assert_sync_operations! {
-            rooms_list = [E, F("!r1:x.y"), E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1798,7 +1804,7 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, F("!r1:x.y"), E],
+            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
 
