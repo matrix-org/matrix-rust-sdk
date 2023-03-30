@@ -46,8 +46,8 @@ pub enum FullSyncMode {
 impl From<FullSyncMode> for SlidingSyncMode {
     fn from(val: FullSyncMode) -> Self {
         match val {
-            FullSyncMode::Growing => SlidingSyncMode::GrowingFullSync,
-            FullSyncMode::Paging => SlidingSyncMode::PagingFullSync,
+            FullSyncMode::Growing => SlidingSyncMode::Growing,
+            FullSyncMode::Paging => SlidingSyncMode::Paging,
         }
     }
 }
