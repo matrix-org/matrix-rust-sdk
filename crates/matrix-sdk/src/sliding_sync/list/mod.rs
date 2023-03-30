@@ -563,11 +563,31 @@ fn apply_sync_operations(
                     )));
                 }
 
-                let room_entry_range = start..end;
+                let mut room_entry_range = start..end;
+
+                // `room_ids` is absent.
+                if operation.room_ids.is_empty() {
+                    return Err(Error::BadResponse(
+                        "`room_ids` must be present for `SYNC` operation".to_string(),
+                    ));
+                }
+
                 let room_ids = operation.room_ids.iter();
 
                 // Mismatch between the `range` and `room_ids`.
                 if room_entry_range.len() != room_ids.len() {
+                    // Because of https://github.com/matrix-org/sliding-sync/issues/52, we
+                    // can't trust the `range` returned by the server. That's a
+                    // problem. Let's try to work around
+                    // that.
+                    //
+                    // Let's pretend the `start` bound of the range is… correct.
+                    room_entry_range = start..room_ids.len();
+
+                    // Once the bug is fixed on the Sliding Sync Proxy side, we
+                    // can remove this code, and uncomment
+                    // the code below.
+                    /*
                     return Err(Error::BadResponse(
                         format!(
                             "There is a mismatch between the number of items in `range` and `room_ids` ({} != {})",
@@ -575,6 +595,7 @@ fn apply_sync_operations(
                             room_ids.len(),
                         )
                     ));
+                    */
                 }
 
                 // Update parts `room_list`.
@@ -657,7 +678,7 @@ fn apply_sync_operations(
             // > arrive from the server.
             v4::SlidingOp::Invalidate => {
                 // Extract `start` and `end` from the operation's range.
-                let (start, end) = operation
+                let (start, mut end) = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -671,20 +692,28 @@ fn apply_sync_operations(
                         )
                     })?;
 
+                // The `end` bound of the range might not be correct… At the time of writing,
+                // there is a bug in the Sliding Sync Proxy that can return
+                // ranges greater than the `room_list` size.
+                //
+                // For example, if the client asks for a range `0..=9`, and there is only one
+                // room, the server will reply with one `room_id` (which is correct) but with
+                // the range `0..=9` instead of `0..=0`.
+                //
+                // So, a safe workaround is to take the minimum between `end` and the
+                // `room_list`'s length.
+                //
+                // The “safety” is ensured by the fact we also compare the size of the new range
+                // with the size of the `operation.room_ids` length later on.
+                //
+                // See https://github.com/matrix-org/sliding-sync/issues/52.
+                end = min(end, room_list.len());
+
                 // Range is invalid.
                 if start > end {
                     return Err(Error::BadResponse(format!(
                         "`range` bounds are invalid ({} > {})",
                         start, end,
-                    )));
-                }
-
-                // Range is too big.
-                if end > room_list.len() {
-                    return Err(Error::BadResponse(format!(
-                        "`range` is out of the `room_list`' bounds ({} > {})",
-                        end,
-                        room_list.len(),
                     )));
                 }
 
@@ -1668,6 +1697,8 @@ mod tests {
 
         // The range returned by the server is too large compared to the `room_ids` but
         // we can fix it on-the-fly.
+        //
+        // See https://github.com/matrix-org/sliding-sync/issues/52.
         assert_sync_operations! {
             room_list = [E],
             operations = [
@@ -1727,7 +1758,7 @@ mod tests {
 
         // Out of bounds operation.
         assert_sync_operations! {
-            room_list = [E, F("!r1:x.y"), E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1736,8 +1767,14 @@ mod tests {
                 }
             ]
             =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [E, E, E],
+            /*
             result = is_err,
-            room_list = [E, F("!r1:x.y"), E],
+            room_list = [E, E, E],
+            */
         };
 
         // The server replies with a particular range, but some room IDs are
@@ -1752,8 +1789,14 @@ mod tests {
                 }
             ]
             =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [F("!r0:x.y"), E, E],
+            /*
             result = is_err,
             room_list = [E, E, E],
+            */
         };
 
         // The server replies with a particular range, but there is too much
@@ -1768,8 +1811,14 @@ mod tests {
                 }
             ]
             =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!extra:x.y")],
+            /*
             result = is_err,
             room_list = [E, E, E],
+            */
         };
     }
 
@@ -1979,12 +2028,29 @@ mod tests {
             room_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
         };
 
+        // The range returned by the server is too large compared to the `room_lists`
+        // but we can fix it on-the-fly.
+        //
+        // See https://github.com/matrix-org/sliding-sync/issues/52.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y")],
+            operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 9], // <- it should be [0, 0]
+                }
+            ]
+            =>
+            result = is_ok, // <- because we have fixed it
+            room_list = [I("!r0:x.y")],
+        };
+
         // Missing `range`.
         assert_sync_operations! {
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
-                    "op": SlidingOp::Delete,
+                    "op": SlidingOp::Invalidate,
                 }
             ]
             =>
@@ -1997,22 +2063,8 @@ mod tests {
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
-                    "op": SlidingOp::Delete,
+                    "op": SlidingOp::Invalidate,
                     "range": [12, 0],
-                }
-            ]
-            =>
-            result = is_err,
-            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
-        };
-
-        // Out of bounds operation.
-        assert_sync_operations! {
-            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
-            operations = [
-                {
-                    "op": SlidingOp::Delete,
-                    "range": [2, 3],
                 }
             ]
             =>
