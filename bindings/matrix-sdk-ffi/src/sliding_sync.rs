@@ -745,6 +745,10 @@ impl SlidingSync {
         self.inner.add_common_extensions();
     }
 
+    pub fn reset_lists(&self) {
+        self.inner.reset_lists()
+    }
+
     pub fn sync(&self) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
         let client = self.client.clone();
