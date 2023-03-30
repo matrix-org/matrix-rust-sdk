@@ -348,7 +348,7 @@ impl Room {
         Ok(members)
     }
 
-    /// Returns the acrtive members count for the room sychronously
+    /// Returns the number of members who have joined or been invited to the room.
     pub fn active_members_count(&self) -> u64 {
         self.inner.read().unwrap().active_members_count()
     }
