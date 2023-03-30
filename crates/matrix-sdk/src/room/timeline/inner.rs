@@ -80,9 +80,12 @@ pub(super) struct TimelineInnerState {
     /// IDs.
     pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     pub(super) fully_read_event: Option<OwnedEventId>,
-    /// Whether the event that the fully-ready event _refers to_ is part of the
-    /// timeline.
-    pub(super) fully_read_event_in_timeline: bool,
+    /// Whether the fully-read marker item should try to be updated when an
+    /// event is added.
+    /// This is currently `true` in two cases:
+    /// - The fully-read marker points to an event that is not in the timeline,
+    /// - The fully-read marker item would be the last item in the timeline.
+    pub(super) event_should_update_fully_read_marker: bool,
     /// User ID => Receipt type => Read receipt of the user of the given type.
     pub(super) users_read_receipts:
         HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
@@ -168,7 +171,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.clear();
         state.reaction_map.clear();
         state.fully_read_event = None;
-        state.fully_read_event_in_timeline = false;
+        state.event_should_update_fully_read_marker = false;
     }
 
     #[instrument(skip_all)]
@@ -342,7 +345,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         update_read_marker(
             &mut state.items,
             state.fully_read_event.as_deref(),
-            &mut state.fully_read_event_in_timeline,
+            &mut state.event_should_update_fully_read_marker,
         );
     }
 
