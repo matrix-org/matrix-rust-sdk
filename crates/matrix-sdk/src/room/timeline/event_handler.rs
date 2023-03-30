@@ -838,8 +838,11 @@ pub(crate) fn update_read_marker(
     match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {}
         (None, Some(idx)) => {
-            *fully_read_event_in_timeline = true;
-            items.insert(idx + 1, Arc::new(TimelineItem::read_marker()));
+            // We don't want to insert the read marker if it is at the end of the timeline.
+            if idx + 1 < items.len() {
+                *fully_read_event_in_timeline = true;
+                items.insert(idx + 1, Arc::new(TimelineItem::read_marker()));
+            }
         }
         (Some(_), None) => {
             // Keep the current position of the read marker, hopefully we
@@ -852,10 +855,17 @@ pub(crate) fn update_read_marker(
             // The read marker can't move backwards.
             if from < to {
                 let item = items.remove(from);
-                // Since the fully-read event's index was shifted to the left
-                // by one position by the remove call above, insert the fully-
-                // read marker at its previous position, rather than that + 1
-                items.insert(to, item);
+
+                // We don't want to re-insert the read marker if it is at the end of the
+                // timeline.
+                if to < items.len() {
+                    // Since the fully-read event's index was shifted to the left
+                    // by one position by the remove call above, insert the fully-
+                    // read marker at its previous position, rather than that + 1
+                    items.insert(to, item);
+                } else {
+                    *fully_read_event_in_timeline = false;
+                }
             }
         }
     }

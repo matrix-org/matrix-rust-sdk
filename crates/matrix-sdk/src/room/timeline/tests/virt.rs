@@ -96,39 +96,53 @@ async fn update_read_marker() {
     let _day_divider =
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let first_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
 
-    timeline.inner.set_fully_read_event(event_id).await;
+    timeline.inner.set_fully_read_event(first_event_id.clone()).await;
+
+    // Nothing should happen, the marker cannot be added at the end.
+
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("B")).await;
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let second_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    // Now the read marker appears after the first event.
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Insert { index: 2, value }) => value);
     assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
 
-    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("B")).await;
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    timeline.inner.set_fully_read_event(second_event_id.clone()).await;
 
-    timeline.inner.set_fully_read_event(event_id.clone()).await;
+    // The read marker is removed but not reinserted, because it cannot be added at
+    // the end.
     assert_matches!(stream.next().await, Some(VectorDiff::Remove { index: 2 }));
+
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let third_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    // Now the read marker is reinserted after the second event.
     let marker =
         assert_matches!(stream.next().await, Some(VectorDiff::Insert { index: 3, value }) => value);
     assert_matches!(*marker, TimelineItem::Virtual(VirtualTimelineItem::ReadMarker));
 
-    // Nothing should happen if the fully read event is set back to the same event
-    // as before.
-    timeline.inner.set_fully_read_event(event_id.clone()).await;
+    // Nothing should happen if the fully read event is set back to an older event.
+    timeline.inner.set_fully_read_event(first_event_id).await;
 
     // Nothing should happen if the fully read event isn't found.
     timeline.inner.set_fully_read_event(event_id!("$fake_event_id").to_owned()).await;
 
-    // Nothing should happen if the fully read event is referring to an old event
+    // Nothing should happen if the fully read event is referring to an event
     // that has already been marked as fully read.
-    timeline.inner.set_fully_read_event(event_id).await;
+    timeline.inner.set_fully_read_event(second_event_id).await;
 
-    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("C")).await;
+    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("D")).await;
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    item.as_event().unwrap();
 
-    timeline.inner.set_fully_read_event(event_id).await;
+    timeline.inner.set_fully_read_event(third_event_id).await;
+
+    // The read marker is moved after the third event.
     assert_matches!(stream.next().await, Some(VectorDiff::Remove { index: 3 }));
     let marker =
         assert_matches!(stream.next().await, Some(VectorDiff::Insert { index: 4, value }) => value);
