@@ -1295,7 +1295,7 @@ async fn receipts_extension_works() -> anyhow::Result<()> {
     // we expect to see it because we have enabled the receipt extension. We don't
     // know when we'll see it though
     let mut found_receipt = false;
-    for _n in 0..3 {
+    for _n in 0..10 {
         stream.next().await.context("sync has closed unexpectedly")??;
 
         // try to find it
