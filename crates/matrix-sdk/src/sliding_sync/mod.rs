@@ -572,15 +572,7 @@ impl SlidingSync {
     #[instrument(name = "sync_stream", skip_all, parent = &self.inner.client.inner.root_span)]
     pub fn stream<'a>(&'a self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + 'a {
         // Copy all the lists.
-        let lists = {
-            let lists = self.inner.lists.read().unwrap();
-
-            for (_, list) in lists.iter() {
-                list.reset();
-            }
-
-            Arc::new(Mutex::new(lists.clone()))
-        };
+        let lists = Arc::new(Mutex::new(self.inner.lists.read().unwrap().clone()));
 
         // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
@@ -643,6 +635,15 @@ impl SlidingSync {
                     }
                 }
             }
+        }
+    }
+
+    /// Resets the lists.
+    pub fn reset_lists(&self) {
+        let lists = self.inner.lists.read().unwrap();
+
+        for (_, list) in lists.iter() {
+            list.reset();
         }
     }
 }
