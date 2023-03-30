@@ -578,11 +578,11 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomListObserver>,
     ) -> Arc<TaskHandle> {
-        let mut rooms_list_stream = self.inner.rooms_list_stream();
+        let mut room_list_stream = self.inner.room_list_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
-                if let Some(diff) = rooms_list_stream.next().await {
+                if let Some(diff) = room_list_stream.next().await {
                     observer.did_receive_update(diff.into());
                 }
             }
@@ -608,8 +608,8 @@ impl SlidingSyncList {
 #[uniffi::export]
 impl SlidingSyncList {
     /// Get the current list of rooms
-    pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
-        self.inner.rooms_list()
+    pub fn current_room_list(&self) -> Vec<RoomListEntry> {
+        self.inner.room_list()
     }
 
     /// Reset the ranges to a particular set

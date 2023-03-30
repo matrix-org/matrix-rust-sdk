@@ -60,7 +60,7 @@ impl SlidingSyncList {
     pub(crate) fn set_from_cold(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
-        rooms_list: Vector<RoomListEntry>,
+        room_list: Vector<RoomListEntry>,
     ) {
         Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
         Observable::set(
@@ -68,9 +68,9 @@ impl SlidingSyncList {
             maximum_number_of_rooms,
         );
 
-        let mut lock = self.inner.rooms_list.write().unwrap();
+        let mut lock = self.inner.room_list.write().unwrap();
         lock.clear();
-        lock.append(rooms_list);
+        lock.append(room_list);
     }
 
     /// Get the name of the list.
@@ -165,17 +165,17 @@ impl SlidingSyncList {
         Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
     }
 
-    /// Get the current rooms list.
-    pub fn rooms_list<R>(&self) -> Vec<R>
+    /// Get the current room list.
+    pub fn room_list<R>(&self) -> Vec<R>
     where
         R: for<'a> From<&'a RoomListEntry>,
     {
-        self.inner.rooms_list.read().unwrap().iter().map(|e| R::from(e)).collect()
+        self.inner.room_list.read().unwrap().iter().map(|e| R::from(e)).collect()
     }
 
-    /// Get a stream of rooms list.
-    pub fn rooms_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
-        ObservableVector::subscribe(&self.inner.rooms_list.read().unwrap())
+    /// Get a stream of room list.
+    pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
+        ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
@@ -192,7 +192,7 @@ impl SlidingSyncList {
     /// Return the `room_id` at the given index.
     pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
         self.inner
-            .rooms_list
+            .room_list
             .read()
             .unwrap()
             .get(index)
@@ -211,7 +211,7 @@ impl SlidingSyncList {
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
     ) -> Result<bool, Error> {
-        let result = self.inner.update_rooms_list(maximum_number_of_rooms, sync_operations)?;
+        let result = self.inner.update_room_list(maximum_number_of_rooms, sync_operations)?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(result)
@@ -234,7 +234,7 @@ pub(super) struct SlidingSyncListInner {
     /// Which [`SlidingSyncMode`] to start this list under.
     sync_mode: SlidingSyncMode,
 
-    /// Sort the rooms list by this.
+    /// Sort the room list by this.
     sort: Vec<String>,
 
     /// Required states to return per room.
@@ -256,7 +256,7 @@ pub(super) struct SlidingSyncListInner {
     maximum_number_of_rooms: StdRwLock<Observable<Option<u32>>>,
 
     /// The rooms in order.
-    rooms_list: StdRwLock<ObservableVector<RoomListEntry>>,
+    room_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
     /// The ranges windows of the list.
     ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
@@ -375,9 +375,9 @@ impl SlidingSyncListInner {
         })
     }
 
-    // Update the [`Self::rooms_list`]. It also updates
+    // Update the [`Self::room_list`]. It also updates
     // `[Self::maximum_number_of_rooms]`.
-    fn update_rooms_list(
+    fn update_room_list(
         &self,
         maximum_number_of_rooms: u32,
         sync_operations: &[v4::SyncOp],
@@ -387,10 +387,10 @@ impl SlidingSyncListInner {
         // Adjust room list entries.
         {
             let number_of_missing_rooms = (maximum_number_of_rooms as usize)
-                .saturating_sub(self.rooms_list.read().unwrap().len());
+                .saturating_sub(self.room_list.read().unwrap().len());
 
             if number_of_missing_rooms > 0 {
-                self.rooms_list.write().unwrap().append(
+                self.room_list.write().unwrap().append(
                     iter::repeat(RoomListEntry::Empty).take(number_of_missing_rooms).collect(),
                 );
 
@@ -413,9 +413,9 @@ impl SlidingSyncListInner {
 
         // Run the sync operations.
         if !sync_operations.is_empty() {
-            let mut rooms_list = self.rooms_list.write().unwrap();
+            let mut room_list = self.room_list.write().unwrap();
 
-            apply_sync_operations(sync_operations, &mut rooms_list)?;
+            apply_sync_operations(sync_operations, &mut room_list)?;
 
             new_changes = true;
         }
@@ -514,7 +514,7 @@ impl SlidingSyncListInner {
 #[instrument(skip(operations))]
 fn apply_sync_operations(
     operations: &[v4::SyncOp],
-    rooms_list: &mut ObservableVector<RoomListEntry>,
+    room_list: &mut ObservableVector<RoomListEntry>,
 ) -> Result<(), Error> {
     for operation in operations {
         match &operation.op {
@@ -540,20 +540,20 @@ fn apply_sync_operations(
 
                 // The `end` bound of the range might not be correct… At the time of writing,
                 // there is a bug in the Sliding Sync Proxy that can return
-                // ranges greater than the `rooms_list` size.
+                // ranges greater than the `room_list` size.
                 //
                 // For example, if the client asks for a range `0..=9`, and there is only one
                 // room, the server will reply with one `room_id` (which is correct) but with
                 // the range `0..=9` instead of `0..=0`.
                 //
                 // So, a safe workaround is to take the minimum between `end` and the
-                // `rooms_list`'s length.
+                // `room_list`'s length.
                 //
                 // The “safety” is ensured by the fact we also compare the size of the new range
                 // with the size of the `operation.room_ids` length later on.
                 //
                 // See https://github.com/matrix-org/sliding-sync/issues/52.
-                end = min(end, rooms_list.len());
+                end = min(end, room_list.len());
 
                 // Range is invalid.
                 if start > end {
@@ -577,13 +577,13 @@ fn apply_sync_operations(
                     ));
                 }
 
-                // Update parts `rooms_list`.
+                // Update parts `room_list`.
                 //
                 // The room entry index is given by the `room_entry_range` bounds.
                 // The room ID is given by the `room_ids`.
                 for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
                     // Syncing means updating the room list to `Filled`.
-                    rooms_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
+                    room_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
                 }
             }
 
@@ -603,7 +603,7 @@ fn apply_sync_operations(
                     .unwrap();
 
                 // Index is out of bounds.
-                if index >= rooms_list.len() {
+                if index >= room_list.len() {
                     // OK, so, normally, we should raise an error. But the server sometimes sends a
                     // `DELETE` for an index that doesn't exist. It happens with the existing
                     // Sliding Sync Proxy (at the time of writing). It may be a bug or something
@@ -612,7 +612,7 @@ fn apply_sync_operations(
                 }
 
                 // Removing the entry in the room list.
-                rooms_list.remove(index);
+                room_list.remove(index);
             }
 
             // Specification says:
@@ -637,16 +637,16 @@ fn apply_sync_operations(
                 })?;
 
                 // Index is out of bounds.
-                if index > rooms_list.len() {
+                if index > room_list.len() {
                     return Err(Error::BadResponse(format!(
-                        "`index` is out of the `rooms_list`' bounds ({} > {})",
+                        "`index` is out of the `room_list`' bounds ({} > {})",
                         index,
-                        rooms_list.len(),
+                        room_list.len(),
                     )));
                 }
 
                 // Inserting a `Filled` entry in the room list .
-                rooms_list.insert(index, RoomListEntry::Filled(room_id));
+                room_list.insert(index, RoomListEntry::Filled(room_id));
             }
 
             // Specification says:
@@ -680,17 +680,17 @@ fn apply_sync_operations(
                 }
 
                 // Range is too big.
-                if end > rooms_list.len() {
+                if end > room_list.len() {
                     return Err(Error::BadResponse(format!(
-                        "`range` is out of the `rooms_list`' bounds ({} > {})",
+                        "`range` is out of the `room_list`' bounds ({} > {})",
                         end,
-                        rooms_list.len(),
+                        room_list.len(),
                     )));
                 }
 
                 let room_entry_range = start..end;
 
-                // Invalidate parts of `rooms_list`.
+                // Invalidate parts of `room_list`.
                 //
                 // The room entry index is given by the `room_entry_range` bounds.
                 for room_entry_index in room_entry_range {
@@ -698,8 +698,8 @@ fn apply_sync_operations(
                     //
                     // If the previous room list entry is `Filled`, it becomes `Invalidated`.
                     // Otherwise, for `Empty` or `Invalidated`, it stays as is.
-                    if let Some(RoomListEntry::Filled(room_id)) = rooms_list.get(room_entry_index) {
-                        rooms_list
+                    if let Some(RoomListEntry::Filled(room_id)) = room_list.get(room_entry_index) {
+                        room_list
                             .set(room_entry_index, RoomListEntry::Invalidated(room_id.clone()));
                     }
                 }
@@ -847,7 +847,7 @@ mod tests {
                 name: "qux".to_owned(),
                 state: StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded)),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
-                rooms_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
+                room_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
                 ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
                 request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new_growing(
                     42,
@@ -874,7 +874,7 @@ mod tests {
 
         assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
         assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
-        assert!(new_list.rooms_list.read().unwrap().deref().is_empty());
+        assert!(new_list.room_list.read().unwrap().deref().is_empty());
     }
 
     #[test]
@@ -1471,7 +1471,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
-        assert_eq!(list.inner.rooms_list.read().unwrap().len(), 0);
+        assert_eq!(list.inner.room_list.read().unwrap().len(), 0);
 
         let room0 = room_id!("!room0:bar.org");
         let room1 = room_id!("!room1:bar.org");
@@ -1499,12 +1499,12 @@ mod tests {
             // The `maximum_number_of_rooms` has been updated as expected.
             assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
 
-            // The `rooms_list` has the correct size and contains expected room entries.
-            let rooms_list = list.inner.rooms_list.read().unwrap();
+            // The `room_list` has the correct size and contains expected room entries.
+            let room_list = list.inner.room_list.read().unwrap();
 
-            assert_eq!(rooms_list.len(), 5);
+            assert_eq!(room_list.len(), 5);
             assert_eq!(
-                **rooms_list,
+                **room_list,
                 vector![
                     RoomListEntry::Filled(room0.to_owned()),
                     RoomListEntry::Filled(room1.to_owned()),
@@ -1535,12 +1535,12 @@ mod tests {
             // The `maximum_number_of_rooms` has been updated as expected.
             assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
 
-            // The `rooms_list` has the correct size and contains expected room entries.
-            let rooms_list = list.inner.rooms_list.read().unwrap();
+            // The `room_list` has the correct size and contains expected room entries.
+            let room_list = list.inner.room_list.read().unwrap();
 
-            assert_eq!(rooms_list.len(), 5);
+            assert_eq!(room_list.len(), 5);
             assert_eq!(
-                **rooms_list,
+                **room_list,
                 vector![
                     RoomListEntry::Filled(room0.to_owned()),
                     RoomListEntry::Filled(room1.to_owned()),
@@ -1592,7 +1592,7 @@ mod tests {
 
     macro_rules! assert_sync_operations {
         (
-            rooms_list = [ $( $room_list_entries:tt )* ],
+            room_list = [ $( $room_list_entries:tt )* ],
             operations = [
                 $(
                     { $( $operation:tt )+ }
@@ -1602,10 +1602,10 @@ mod tests {
             $(,)?
             =>
             result = $result:tt,
-            rooms_list = [ $( $expected_room_list_entries:tt )* ]
+            room_list = [ $( $expected_room_list_entries:tt )* ]
             $(,)?
         ) => {
-            let mut rooms_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
+            let mut room_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
             let operations: &[v4::SyncOp] = &[
                 $(
                     serde_json::from_value(json!({
@@ -1614,18 +1614,18 @@ mod tests {
                 ),*
             ];
 
-            let result = apply_sync_operations(operations, &mut rooms_list);
+            let result = apply_sync_operations(operations, &mut room_list);
 
             assert!(result.$result());
-            assert_eq!(*rooms_list, entries![ $( $expected_room_list_entries )* ]);
+            assert_eq!(*room_list, entries![ $( $expected_room_list_entries )* ]);
         };
     }
 
     #[test]
     fn test_sync_operations_sync() {
-        // All rooms list is updated.
+        // All room list is updated.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1635,12 +1635,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
 
         // Partial update.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1650,10 +1650,10 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), E],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), E],
         };
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1663,13 +1663,13 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [E, F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [E, F("!r1:x.y"), F("!r2:x.y")],
         };
 
         // The range returned by the server is too large compared to the `room_ids` but
         // we can fix it on-the-fly.
         assert_sync_operations! {
-            rooms_list = [E],
+            room_list = [E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1679,12 +1679,12 @@ mod tests {
             ]
             =>
             result = is_ok, // <- because we have fixed it
-            rooms_list = [F("!r0:x.y")],
+            room_list = [F("!r0:x.y")],
         };
 
         // Missing `range`.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1693,12 +1693,12 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
         };
 
         // Invalid `range`.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1708,12 +1708,12 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
         };
 
         // Missing `room_ids`.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1722,12 +1722,12 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
         };
 
         // Out of bounds operation.
         assert_sync_operations! {
-            rooms_list = [E, F("!r1:x.y"), E],
+            room_list = [E, F("!r1:x.y"), E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1737,13 +1737,13 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, F("!r1:x.y"), E],
+            room_list = [E, F("!r1:x.y"), E],
         };
 
         // The server replies with a particular range, but some room IDs are
         // missing.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1753,13 +1753,13 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
         };
 
         // The server replies with a particular range, but there is too much
         // room IDs.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Sync,
@@ -1769,7 +1769,7 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
         };
     }
 
@@ -1777,7 +1777,7 @@ mod tests {
     fn test_sync_operations_delete() {
         // Delete a room entry in the middle.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1786,12 +1786,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r2:x.y")],
         };
 
         // Delete a room entry at the beginning.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1800,12 +1800,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r1:x.y"), F("!r2:x.y")],
         };
 
         // Delete a room entry at the end.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1814,12 +1814,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y")],
         };
 
         // Delete an out of bounds room entry.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1828,7 +1828,7 @@ mod tests {
             ]
             =>
             result = is_ok, // <- that's surprising, see the code for more explanations!
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
 
@@ -1836,7 +1836,7 @@ mod tests {
     fn test_sync_operations_insert() {
         // Insert a room entry in the middle.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Insert,
@@ -1846,12 +1846,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [E, F("!r1:x.y"), E, E],
+            room_list = [E, F("!r1:x.y"), E, E],
         };
 
         // Insert a room entry at the beginning.
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Insert,
@@ -1861,12 +1861,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), E, E, E],
+            room_list = [F("!r0:x.y"), E, E, E],
         };
 
         // Insert a room entry at the end
         assert_sync_operations! {
-            rooms_list = [E, E, E],
+            room_list = [E, E, E],
             operations = [
                 {
                     "op": SlidingOp::Insert,
@@ -1876,12 +1876,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [E, E, E, F("!r3:x.y")],
+            room_list = [E, E, E, F("!r3:x.y")],
         };
 
         // Insert an out of bounds room entry.
         assert_sync_operations! {
-            rooms_list = [E, F("!r1:x.y"), E],
+            room_list = [E, F("!r1:x.y"), E],
             operations = [
                 {
                     "op": SlidingOp::Insert,
@@ -1891,7 +1891,7 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [E, F("!r1:x.y"), E],
+            room_list = [E, F("!r1:x.y"), E],
         };
     }
 
@@ -1899,7 +1899,7 @@ mod tests {
     fn test_sync_operations_invalidate() {
         // Invalidating an empty room.
         assert_sync_operations! {
-            rooms_list = [E],
+            room_list = [E],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1908,12 +1908,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [E],
+            room_list = [E],
         };
 
         // Invalidating a filled room.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y")],
+            room_list = [F("!r0:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1922,12 +1922,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [I("!r0:x.y")],
+            room_list = [I("!r0:x.y")],
         };
 
         // Invalidating an invalidated room.
         assert_sync_operations! {
-            rooms_list = [I("!r0:x.y")],
+            room_list = [I("!r0:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1936,12 +1936,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [I("!r0:x.y")],
+            room_list = [I("!r0:x.y")],
         };
 
         // Partial update.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1950,10 +1950,10 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [I("!r0:x.y"), I("!r1:x.y"), F("!r2:x.y")],
+            room_list = [I("!r0:x.y"), I("!r1:x.y"), F("!r2:x.y")],
         };
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1962,12 +1962,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+            room_list = [F("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
         };
 
         // Full update.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Invalidate,
@@ -1976,12 +1976,12 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+            room_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
         };
 
         // Missing `range`.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -1989,12 +1989,12 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
 
         // Invalid `range`.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -2003,12 +2003,12 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
 
         // Out of bounds operation.
         assert_sync_operations! {
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             operations = [
                 {
                     "op": SlidingOp::Delete,
@@ -2017,7 +2017,7 @@ mod tests {
             ]
             =>
             result = is_err,
-            rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
 }

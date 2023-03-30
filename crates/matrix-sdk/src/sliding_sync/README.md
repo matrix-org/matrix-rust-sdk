@@ -96,12 +96,12 @@ copy can be retrieved by calling `SlidingSync::list()`, providing the name
 of the list. Next to the configuration settings (like name and
 `timeline_limit`), the list provides the stateful
 [`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms),
-[`rooms_list`](SlidingSyncList::rooms_list) and
+[`room_list`](SlidingSyncList::room_list) and
 [`state`](SlidingSyncList::state):
 
  - `maximum_number_of_rooms` is the number of rooms _total_ there were found
    matching the filters given.
- - `rooms_list` is a vector of `maximum_number_of_rooms` [`RoomListEntry`]'s
+ - `room_list` is a vector of `maximum_number_of_rooms` [`RoomListEntry`]'s
    at the current state. `RoomListEntry`'s only hold `the room_id` if given,
    the [Rooms API](#rooms) holds the actual information about each room
  - `state` is a [`SlidingSyncMode`] signalling meta information about the
@@ -188,7 +188,7 @@ the bandwidth back down to what is really needed.
 
 ## Extensions
 
-Additionally to the rooms list and rooms with their state and latest
+Additionally to the room list and rooms with their state and latest
 messages Matrix knows of many other exchange information. All these are
 modeled as specific, optional extensions in the [sliding sync
 protocol][MSC]. This includes end-to-end-encryption, to-device-messages,
@@ -384,7 +384,7 @@ only adds them later, they will not be reading the data from storage (to
 avoid inconsistencies) and might require more data to be sent in their first
 request than if they were loaded form cold-cache.
 
-When loading from storage `rooms_list` entries found are set to
+When loading from storage `room_list` entries found are set to
 `Invalidated` — the initial setting here is communicated as a single
 `VecDiff::Replace` event through the [reactive API](#reactive-api).
 
@@ -468,7 +468,7 @@ let sliding_sync = sliding_sync_builder
 let active_list = sliding_sync.list(&active_list_name).unwrap();
 let list_state_stream = active_list.state_stream();
 let list_count_stream = active_list.maximum_number_of_rooms_stream();
-let list_stream = active_list.rooms_list_stream();
+let list_stream = active_list.room_list_stream();
 
 tokio::spawn(async move {
     pin_mut!(list_state_stream);
@@ -487,7 +487,7 @@ tokio::spawn(async move {
 tokio::spawn(async move {
     pin_mut!(list_stream);
     while let Some(v_diff) = list_stream.next().await {
-        info!("active-list rooms list diff update: {v_diff:?}");
+        info!("active-list room list diff update: {v_diff:?}");
     }
 });
 

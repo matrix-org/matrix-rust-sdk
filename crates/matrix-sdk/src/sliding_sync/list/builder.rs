@@ -61,7 +61,7 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Sort the rooms list by this.
+    /// Sort the room list by this.
     pub fn sort(mut self, value: Vec<String>) -> Self {
         self.sort = value;
         self
@@ -172,7 +172,7 @@ impl SlidingSyncListBuilder {
                 // Default values for the type we are building.
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
-                rooms_list: StdRwLock::new(ObservableVector::new()),
+                room_list: StdRwLock::new(ObservableVector::new()),
             }),
         })
     }

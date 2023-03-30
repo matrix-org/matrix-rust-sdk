@@ -11,7 +11,7 @@ pub struct FrozenSlidingSyncList {
     #[serde(default, rename = "rooms_count", skip_serializing_if = "Option::is_none")]
     pub maximum_number_of_rooms: Option<u32>,
     #[serde(default, skip_serializing_if = "Vector::is_empty")]
-    pub rooms_list: Vector<RoomListEntry>,
+    pub room_list: Vector<RoomListEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(in super::super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
 }
@@ -22,9 +22,9 @@ impl FrozenSlidingSyncList {
         rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     ) -> Self {
         let mut rooms = BTreeMap::new();
-        let mut rooms_list = Vector::new();
+        let mut room_list = Vector::new();
 
-        for room_list_entry in source_list.inner.rooms_list.read().unwrap().iter() {
+        for room_list_entry in source_list.inner.room_list.read().unwrap().iter() {
             match room_list_entry {
                 RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
                     rooms.insert(
@@ -36,12 +36,12 @@ impl FrozenSlidingSyncList {
                 _ => {}
             };
 
-            rooms_list.push_back(room_list_entry.freeze_by_ref());
+            room_list.push_back(room_list_entry.freeze_by_ref());
         }
 
         FrozenSlidingSyncList {
             maximum_number_of_rooms: source_list.maximum_number_of_rooms(),
-            rooms_list,
+            room_list,
             rooms,
         }
     }
@@ -64,7 +64,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&FrozenSlidingSyncList {
                 maximum_number_of_rooms: Some(42),
-                rooms_list: vector![RoomListEntry::Empty],
+                room_list: vector![RoomListEntry::Empty],
                 rooms: {
                     let mut rooms = BTreeMap::new();
                     rooms.insert(
@@ -95,7 +95,7 @@ mod tests {
             .unwrap(),
             json!({
                 "rooms_count": 42,
-                "rooms_list": ["Empty"],
+                "room_list": ["Empty"],
                 "rooms": {
                     "!foo:bar.org": {
                         "room_id": "!foo:bar.org",
