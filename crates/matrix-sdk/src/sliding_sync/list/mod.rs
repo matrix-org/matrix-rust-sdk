@@ -384,9 +384,7 @@ impl SlidingSyncListInner {
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
-        // Create missing room list entries.
-        // This should be called only once, when the `rooms_list` is empty. Otherwise,
-        // the `maximum_number_of_rooms` should not change, so there is no update to do.
+        // Adjust room list entries.
         {
             let number_of_missing_rooms = (maximum_number_of_rooms as usize)
                 .saturating_sub(self.rooms_list.read().unwrap().len());
@@ -631,7 +629,7 @@ fn apply_sync_operations(
                 })?;
 
                 // Index is out of bounds.
-                if index >= rooms_list.len() {
+                if index > rooms_list.len() {
                     return Err(Error::BadResponse(format!(
                         "`index` is out of the `rooms_list`' bounds ({} > {})",
                         index,
@@ -639,8 +637,8 @@ fn apply_sync_operations(
                     )));
                 }
 
-                // Insert = updating the room list to `Filled`.
-                rooms_list.set(index, RoomListEntry::Filled(room_id));
+                // Insert = inserting a `Filled` entry in the room list .
+                rooms_list.insert(index, RoomListEntry::Filled(room_id));
             }
 
             v4::SlidingOp::Invalidate => {
@@ -1806,7 +1804,22 @@ mod tests {
 
     #[test]
     fn test_sync_operations_insert() {
-        // Insert a room entry.
+        // Insert a room entry in the middle.
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 1,
+                    "room_id": "!r1:x.y",
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, F("!r1:x.y"), E, E],
+        };
+
+        // Insert a room entry at the beginning.
         assert_sync_operations! {
             rooms_list = [E, E, E],
             operations = [
@@ -1818,7 +1831,22 @@ mod tests {
             ]
             =>
             result = is_ok,
-            rooms_list = [F("!r0:x.y"), E, E],
+            rooms_list = [F("!r0:x.y"), E, E, E],
+        };
+
+        // Insert a room entry at the end
+        assert_sync_operations! {
+            rooms_list = [E, E, E],
+            operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 3,
+                    "room_id": "!r3:x.y",
+                }
+            ]
+            =>
+            result = is_ok,
+            rooms_list = [E, E, E, F("!r3:x.y")],
         };
 
         // Insert an out of bounds room entry.
@@ -1827,7 +1855,8 @@ mod tests {
             operations = [
                 {
                     "op": SlidingOp::Insert,
-                    "index": 3,
+                    "index": 4,
+                    "room_id": "!r4:x.y",
                 }
             ]
             =>
