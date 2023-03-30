@@ -34,10 +34,7 @@ use crate::{
     identities::device::MaybeEncryptedRoomKey,
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
-    types::events::{
-        room::encrypted::RoomEncryptedEventContent,
-        room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
-    },
+    types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 

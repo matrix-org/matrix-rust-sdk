@@ -5,6 +5,7 @@ macro_rules! cryptostore_integration_tests {
         mod cryptostore_integration_tests {
             use std::collections::{BTreeMap, HashMap};
 
+            use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, encryption::SignedKey, room_id, serde::Base64, user_id, DeviceId,
@@ -16,14 +17,18 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{
-                    withheld::DirectWithheldInfo, Changes, CryptoStore, DeviceChanges,
+                    Changes, CryptoStore, DeviceChanges,
                     GossipRequest, IdentityChanges, RecoveryKey, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
                     events::{
                         room_key_request::MegolmV1AesSha2Content,
-                        room_key_withheld::{CommonWithheldCodeContent, WithheldCode},
+                        room_key_withheld::{
+                            CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
+                            RoomKeyWithheldContent, WithheldCode,
+                        },
+                        ToDeviceEvent,
                     },
                     EventEncryptionAlgorithm,
                 },
@@ -624,77 +629,80 @@ macro_rules! cryptostore_integration_tests {
             async fn withheld_info_storage() {
                 let (account, store) = get_loaded_store("withheld_info_storage").await;
 
-                let mut info_list: Vec<DirectWithheldInfo> = Vec::new();
+                let mut info_list: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
+                let user_id = account.user_id().to_owned();
                 let room_id = room_id!("!DwLygpkclUAfQNnfva:example.com");
                 let session_id_1 = "GBnDxGP9i3IkPsz3/ihNr6P7qjIXxSRVWZ1MYmSn09w";
                 let session_id_2 = "IDLtnNCH2kIr3xIf1B7JFkGpQmTjyMca2jww+X6zeOE";
 
-                let content = CommonWithheldCodeContent {
-                    room_id: room_id.to_owned(),
-                    session_id: session_id_1.into(),
-                    from_device: JsOption::Undefined,
-                    other: Default::default(),
-                    sender_key: Curve25519PublicKey::from_base64(
-                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
-                    )
-                    .unwrap(),
-                };
-                let info = DirectWithheldInfo::new(
-                    EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    WithheldCode::Unverified,
-                    content.to_owned(),
+                let content = RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unverified(
+                        CommonWithheldCodeContent {
+                            room_id: room_id.to_owned(),
+                            session_id: session_id_1.into(),
+                            from_device: JsOption::Undefined,
+                            other: Default::default(),
+                            sender_key: Curve25519PublicKey::from_base64(
+                                "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                            )
+                            .unwrap(),
+                        }
+                        .into(),
+                    ),
                 );
-                info_list.push(info);
+                let event = ToDeviceEvent::new(user_id.to_owned(), content);
+                info_list
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(session_id_1.to_owned(), event);
 
-                let content = CommonWithheldCodeContent {
-                    room_id: room_id.to_owned(),
-                    session_id: session_id_2.into(),
-                    from_device: JsOption::Undefined,
-                    other: Default::default(),
-                    sender_key: Curve25519PublicKey::from_base64(
-                        "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
-                    )
-                    .unwrap(),
-                };
-
-                let info = DirectWithheldInfo::new(
-                    EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    WithheldCode::Blacklisted,
-                    content,
+                let content = RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::BlackListed(
+                        CommonWithheldCodeContent {
+                            room_id: room_id.to_owned(),
+                            session_id: session_id_2.into(),
+                            from_device: JsOption::Undefined,
+                            other: Default::default(),
+                            sender_key: Curve25519PublicKey::from_base64(
+                                "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                            )
+                            .unwrap(),
+                        }
+                        .into(),
+                    ),
                 );
-                info_list.push(info);
+                let event = ToDeviceEvent::new(user_id.to_owned(), content);
+                info_list
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(session_id_2.to_owned(), event);
 
                 let changes = Changes { withheld_session_info: info_list, ..Default::default() };
-
                 store.save_changes(changes).await.unwrap();
 
                 let is_withheld = store.get_withheld_info(room_id, session_id_1).await.unwrap();
 
-                if let Some(info) = is_withheld {
-                    let actual_code = info.withheld_code();
-                    assert_eq!(EventEncryptionAlgorithm::MegolmV1AesSha2, info.algorithm());
-                    assert_eq!(room_id, info.room_id());
-                    assert_eq!(WithheldCode::Unverified, actual_code);
-                } else {
-                    panic!();
-                }
+                assert_matches!(
+                    is_withheld, Some(event)
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Unverified
+                );
 
                 let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
 
-                if let Some(info) = is_withheld {
-                    let actual_code = info.withheld_code();
-                    assert_eq!(WithheldCode::Blacklisted, actual_code);
-                } else {
-                    panic!();
-                }
+                assert_matches!(
+                    is_withheld, Some(event)
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Blacklisted
+                );
 
                 let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");
 
                 let is_withheld =
                     store.get_withheld_info(other_room_id, session_id_2).await.unwrap();
 
-                assert_eq!(is_withheld, None);
+                assert!(is_withheld.is_none());
             }
 
             #[async_test]

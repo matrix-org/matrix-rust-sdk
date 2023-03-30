@@ -33,6 +33,16 @@ use crate::types::{
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;
 
+impl Clone for RoomKeyWithheldEvent {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            content: self.content.clone(),
+            other: self.other.clone(),
+        }
+    }
+}
+
 /// The `m.room_key.withheld` event content.
 ///
 /// This is an enum over the different room key algorithms we support.
@@ -117,6 +127,15 @@ impl RoomKeyWithheldContent {
                 )
             }
             _ => todo!(),
+        }
+    }
+
+    pub fn withheld_code(&self) -> WithheldCode {
+        match self {
+            RoomKeyWithheldContent::MegolmV1AesSha2(c) => c.withheld_code(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(c) => c.withheld_code(),
+            RoomKeyWithheldContent::Unknown(c) => c.code.to_owned(),
         }
     }
 

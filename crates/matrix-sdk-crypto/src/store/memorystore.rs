@@ -15,10 +15,11 @@
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use async_trait::async_trait;
-use dashmap::{mapref::entry::Entry, DashMap, DashSet};
+use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use tracing::warn;
 
@@ -31,7 +32,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
-    store::withheld::DirectWithheldInfo,
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
 };
 
@@ -54,7 +55,7 @@ pub struct MemoryStore {
     identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
     outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
-    direct_withheld_info: Arc<DashMap<String, DirectWithheldInfo>>,
+    direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
 }
 
 impl Default for MemoryStore {
@@ -149,8 +150,13 @@ impl CryptoStore for MemoryStore {
             self.key_requests_by_info.insert(info_string, id);
         }
 
-        for info in changes.withheld_session_info {
-            self.direct_withheld_info.insert(info.session_id().to_owned(), info);
+        for (room_id, data) in changes.withheld_session_info {
+            for (session_id, event) in data {
+                self.direct_withheld_info
+                    .entry(room_id.to_owned())
+                    .or_insert_with(DashMap::new)
+                    .insert(session_id, event);
+            }
         }
 
         Ok(())
@@ -284,12 +290,11 @@ impl CryptoStore for MemoryStore {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>> {
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
         Ok(self
             .direct_withheld_info
-            .get(session_id)
-            .filter(|e| e.value().room_id() == room_id)
-            .map(|e| e.value().to_owned()))
+            .get(room_id)
+            .and_then(|e| e.value().get(session_id).map(|v| v.value().to_owned())))
     }
 
     async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {

@@ -69,8 +69,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        withheld::DirectWithheldInfo, Changes, DeviceChanges, DynCryptoStore, IdentityChanges,
-        IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError, Store,
+        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Result as StoreResult, SecretImportError, Store,
     },
     types::{
         events::{
@@ -80,7 +80,9 @@ use crate::{
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
-            room_key_withheld::RoomKeyWithheldEvent,
+            room_key_withheld::{
+                MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
+            },
             ToDeviceEvents,
         },
         Signatures,
@@ -676,8 +678,19 @@ impl OlmMachine {
         changes: &mut Changes,
         event: &RoomKeyWithheldEvent,
     ) -> OlmResult<()> {
-        if let Some(info) = DirectWithheldInfo::from_event(event) {
-            changes.withheld_session_info.push(info)
+        match &event.content {
+            RoomKeyWithheldContent::MegolmV1AesSha2(c) => match c {
+                MegolmV1AesSha2WithheldContent::BlackListed(c)
+                | MegolmV1AesSha2WithheldContent::Unverified(c) => {
+                    changes
+                        .withheld_session_info
+                        .entry(c.room_id.to_owned())
+                        .or_insert_with(BTreeMap::default)
+                        .insert(c.session_id.to_owned(), event.to_owned());
+                }
+                _ => (),
+            },
+            _ => (),
         }
 
         Ok(())
@@ -1261,7 +1274,7 @@ impl OlmMachine {
                             .store
                             .get_withheld_info(room_id, content.session_id())
                             .await?
-                            .map(|i| i.withheld_code());
+                            .map(|e| e.content.withheld_code());
 
                         if withheld_code.is_some() {
                             // Partially withheld, report with a withheld code if we have one.
@@ -1279,7 +1292,7 @@ impl OlmMachine {
                 .store
                 .get_withheld_info(room_id, content.session_id())
                 .await?
-                .map(|i| i.withheld_code());
+                .map(|e| e.content.withheld_code());
 
             Err(MegolmError::MissingRoomKey(withheld_code))
         }

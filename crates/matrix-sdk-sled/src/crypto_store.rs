@@ -27,10 +27,13 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        CryptoStoreError, Result, RoomKeyCounts, RoomSettings,
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
+        RoomKeyCounts, RoomSettings,
     },
-    types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
+    types::{
+        events::{room_key_request::SupportedKeyInfo, room_key_withheld::RoomKeyWithheldEvent},
+        EventEncryptionAlgorithm,
+    },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -670,17 +673,16 @@ impl SledCryptoStore {
                         }
                     }
 
-                    for info in &changes.withheld_session_info {
-                        let session_id = info.session_id();
-                        let room_id = info.room_id();
-
-                        let key =
-                            self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id));
-                        direct_withheld_info.insert(
-                            key,
-                            self.serialize_value(info)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
+                    for (room_id, data) in &changes.withheld_session_info {
+                        for (session_id, event) in data {
+                            let key =
+                                self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id));
+                            direct_withheld_info.insert(
+                                key,
+                                self.serialize_value(&event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        }
                     }
 
                     for (room_id, settings) in &room_settings_changes {
@@ -1076,13 +1078,13 @@ impl CryptoStore for SledCryptoStore {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>, Self::Error> {
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
         let key = self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id.as_str()));
         Ok(self
             .direct_withheld_info
             .get(key)
             .map_err(CryptoStoreError::backend)?
-            .map(|d| self.deserialize_value::<DirectWithheldInfo>(&d))
+            .map(|d| self.deserialize_value::<RoomKeyWithheldEvent>(&d))
             .transpose()?)
     }
 

@@ -27,9 +27,10 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        CryptoStoreError, RoomKeyCounts, RoomSettings,
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
+        RoomSettings,
     },
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -569,12 +570,12 @@ impl_crypto_store! {
         if !withheld_session_info.is_empty() {
             let withhelds = tx.object_store(keys::DIRECT_WITHHELD_INFO)?;
 
-            for info in withheld_session_info {
-                let room_id = info.room_id();
-                let session_id = info.session_id();
+            for (room_id, data) in withheld_session_info {
+                for (session_id, event) in data {
 
-                let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
-                withhelds.put_key_val(&key, &self.serialize_value(&info)?)?;
+                    let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
+                    withhelds.put_key_val(&key, &self.serialize_value(&event)?)?;
+                }
             }
         }
 
@@ -1005,7 +1006,7 @@ impl_crypto_store! {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>> {
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
         let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner

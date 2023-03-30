@@ -39,7 +39,7 @@
 //! [`CryptoStore`]: trait.Cryptostore.html
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
@@ -68,7 +68,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
-    types::EventEncryptionAlgorithm,
+    types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
@@ -83,7 +83,6 @@ mod traits;
 #[macro_use]
 #[allow(missing_docs)]
 pub mod integration_tests;
-pub mod withheld;
 
 use caches::{SequenceNumber, UsersForKeyQuery};
 pub use error::{CryptoStoreError, Result};
@@ -92,7 +91,6 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
-use crate::store::withheld::DirectWithheldInfo;
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -137,7 +135,7 @@ pub struct Changes {
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
     /// Stores when a `m.room_key.withheld` is received
-    pub withheld_session_info: Vec<DirectWithheldInfo>,
+    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
 }
 

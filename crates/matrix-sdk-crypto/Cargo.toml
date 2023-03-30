@@ -63,7 +63,7 @@ tokio = { version = "1.24", default-features = false, features = ["time"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-assert_matches = "1.5.0"
+assert_matches = { workspace = true }
 ctor.workspace = true
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 http = { workspace = true }

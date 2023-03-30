@@ -17,7 +17,6 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use async_trait::async_trait;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
-use vodozemac::Curve25519PublicKey;
 
 use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
 use crate::{
@@ -25,7 +24,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         Session,
     },
-    store::withheld::DirectWithheldInfo,
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -91,7 +90,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>, Self::Error>;
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error>;
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
@@ -357,7 +356,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>, Self::Error> {
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
         self.0.get_withheld_info(room_id, session_id).await.map_err(Into::into)
     }
 

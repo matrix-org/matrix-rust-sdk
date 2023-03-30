@@ -27,10 +27,8 @@ use matrix_sdk_crypto::{
         IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
-    store::{
-        caches::SessionStore, withheld::DirectWithheldInfo, BackupKeys, Changes, CryptoStore,
-        RoomKeyCounts, RoomSettings,
-    },
+    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -770,12 +768,13 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
                 }
 
-                for info in changes.withheld_session_info {
-                    let session_id =
-                        this.encode_key("direct_withheld_info", info.session_id.as_bytes());
-                    let room_id = this.encode_key("direct_withheld_info", info.room_id.as_bytes());
-                    let serialized_info = this.serialize_value(&info)?;
-                    txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                for (room_id, data) in changes.withheld_session_info {
+                    for (session_id, event) in data {
+                        let session_id = this.encode_key("direct_withheld_info", session_id);
+                        let room_id = this.encode_key("direct_withheld_info", room_id.to_owned());
+                        let serialized_info = this.serialize_value(&event)?;
+                        txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                    }
                 }
 
                 for (room_id, settings) in changes.room_settings {
@@ -1045,15 +1044,16 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<DirectWithheldInfo>> {
-        let session_id = self.encode_key("direct_withheld_info", session_id.as_bytes());
-        let room_id = self.encode_key("direct_withheld_info", room_id.as_str().as_bytes());
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        let room_id = self.encode_key("direct_withheld_info", room_id);
+        let session_id = self.encode_key("direct_withheld_info", session_id);
+
         self.acquire()
             .await?
             .get_direct_withheld_info(session_id, room_id)
             .await?
             .map(|value| {
-                let info = self.deserialize_value::<DirectWithheldInfo>(&value)?;
+                let info = self.deserialize_value::<RoomKeyWithheldEvent>(&value)?;
                 Ok(info)
             })
             .transpose()
