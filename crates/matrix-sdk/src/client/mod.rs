@@ -55,6 +55,7 @@ use ruma::{
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
             user_directory::search_users,
+            profile::get_profile
         },
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -2539,6 +2540,16 @@ impl Client {
         let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
         let observable = lock.entry(room_id.to_owned()).or_default();
         Observable::subscribe(observable)
+    }
+
+    /// Get the profile for a given user id
+    ///
+    /// # Arguments
+    /// 
+    /// * `user_id` this function downloads the profile for
+    pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
+        let request = get_profile::v3::Request::new(user_id.to_owned());
+        Ok(self.send(request, None).await?)
     }
 }
 
