@@ -229,6 +229,9 @@ impl SlidingSyncRoom {
             }
         };
 
+        // This in the future could be removed, and the rx handling could be moved
+        // inside handle_sliding_sync_reset since we want to reset the sliding
+        // sync for ignore user list events
         let handle_ignore_user_list_changes = {
             let ignore_user_list_change_rx = self.client.subscribe_to_ignore_user_list_changes();
             let timeline = timeline.to_owned();
