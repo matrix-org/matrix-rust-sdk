@@ -596,11 +596,11 @@ fn apply_sync_operations(
 
                 // Index is out of bounds.
                 if index >= rooms_list.len() {
-                    return Err(Error::BadResponse(format!(
-                        "`index` is out of the `rooms_list`' bounds ({} > {})",
-                        index,
-                        rooms_list.len(),
-                    )));
+                    // OK, so, normally, we should raise an error. But the server sometimes sends a
+                    // `DELETE` for an index that doesn't exist. It happens with the existing
+                    // Sliding Sync Proxy (at the time of writing). It may be a bug or something
+                    // else. Anyway, it's better to consider an out-of-bounds `DELETE` as a no-op.
+                    return Ok(());
                 }
 
                 // Removing the entry in the room list.
@@ -1803,7 +1803,7 @@ mod tests {
                 }
             ]
             =>
-            result = is_err,
+            result = is_ok, // <- that's surprising, see the code for more explanations!
             rooms_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
