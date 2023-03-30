@@ -541,7 +541,7 @@ impl Client {
             let user_profile = UserProfile {
                 user_id,
                 display_name: response.displayname.clone(),
-                avatar_url: response.avatar_url.as_ref().map(|url| url.to_string())
+                avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
             };
 
             Ok(user_profile)

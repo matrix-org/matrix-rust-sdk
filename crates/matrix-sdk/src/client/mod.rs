@@ -47,6 +47,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
+            profile::get_profile,
             push::{get_notifications::v3::Notification, set_pusher, Pusher},
             room::create_room,
             session::{
@@ -55,7 +56,6 @@ use ruma::{
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
             user_directory::search_users,
-            profile::get_profile
         },
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -2545,7 +2545,7 @@ impl Client {
     /// Get the profile for a given user id
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `user_id` the matrix id this function downloads the profile for
     pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
         let request = get_profile::v3::Request::new(user_id.to_owned());
