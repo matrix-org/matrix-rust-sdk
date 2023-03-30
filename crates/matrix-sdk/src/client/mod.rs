@@ -2555,7 +2555,7 @@ impl Client {
     /// * `user_id` the matrix id this function downloads the profile for
     pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
         let request = get_profile::v3::Request::new(user_id.to_owned());
-        Ok(self.send(request, None).await?)
+        Ok(self.send(request, Some(RequestConfig::short_retry())).await?)
     }
 }
 
