@@ -256,6 +256,9 @@ interface Room {
 
     [Throws=ClientError]
     void report_content(string event_id, i32? score, string? reason);
+    
+    [Throws=ClientError]
+    void ignore_user(string user_id);
 
     [Throws=ClientError]
     void send_reaction(string event_id, string key);
