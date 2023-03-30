@@ -143,16 +143,14 @@ impl BaseClient {
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
 
-                // RoomSummart not yet supported by sliding sync.
-                // so I am creating a fake one and setting the invited
-                // and joined member values
+                // Sliding sync doesn't have a room summary, nevertheless it contains the joined
+                // and invited member counts. It likely will never have a heroes concept since
+                // it calculates the room display name for us.
+                //
+                // Let's at least fetch the member counts, since they might be useful.
                 let mut room_summary = RoomSummary::new();
-                let joined = store.get_joined_user_ids(room_id).await?;
-                let invited = store.get_invited_user_ids(room_id).await?;
-
-                room_summary.invited_member_count = UInt::new(invited.len() as u64);
-                room_summary.joined_member_count = UInt::new(joined.len() as u64);
-
+                room_summary.invited_member_count = room_data.invited_count;
+                room_summary.joined_member_count = room_data.joined_count;
                 room_info.update_summary(&room_summary);
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
@@ -205,6 +203,9 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
+                            let joined = store.get_joined_user_ids(room_id).await?;
+                            let invited = store.get_invited_user_ids(room_id).await?;
+
                             let user_ids: Vec<&UserId> =
                                 joined.iter().chain(&invited).map(Deref::deref).collect();
                             o.update_tracked_users(user_ids).await?
