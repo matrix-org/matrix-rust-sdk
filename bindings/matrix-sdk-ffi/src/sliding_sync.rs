@@ -101,6 +101,61 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     }
 }
 
+#[derive(uniffi::Error)]
+pub enum SlidingSyncError {
+    /// The response we've received from the server can't be parsed or doesn't
+    /// match up with the current expectations on the client side. A
+    /// `sync`-restart might be required.
+    BadResponse {
+        message: String,
+    },
+    /// Called `.build()` on a builder type, but the given required field was
+    /// missing.
+    BuildMissingField {
+        message: String,
+    },
+    /// A `SlidingSyncListRequestGenerator` has been used without having been
+    /// initialized. It happens when a response is handled before a request has
+    /// been sent. It usually happens when testing.
+    RequestGeneratorHasNotBeenInitialized {
+        message: String,
+    },
+    /// Someone has tried to modify a sliding sync list's ranges, but the
+    /// selected sync mode doesn't allow that.
+    CannotModifyRanges {
+        message: String,
+    },
+    /// Ranges have a `start` bound greater than `end`.
+    InvalidRange {
+        /// Start bound.
+        start: u32,
+        /// End bound.
+        end: u32,
+    },
+    Unknown {
+        error: String,
+    },
+}
+
+impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
+    fn from(value: matrix_sdk::sliding_sync::Error) -> Self {
+        use matrix_sdk::sliding_sync::Error as E;
+
+        match value {
+            E::BadResponse(message) => Self::BadResponse { message },
+            E::BuildMissingField(message) => {
+                Self::BuildMissingField { message: message.to_string() }
+            }
+            E::RequestGeneratorHasNotBeenInitialized(message) => {
+                Self::RequestGeneratorHasNotBeenInitialized { message }
+            }
+            E::CannotModifyRanges(message) => Self::CannotModifyRanges { message },
+            E::InvalidRange { start, end } => Self::InvalidRange { start, end },
+            error => Self::Unknown { error: error.to_string() },
+        }
+    }
+}
+
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
     timeline: TimelineLock,
@@ -403,12 +458,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn send_updates_for_items(self: Arc<Self>, enable: bool) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.send_updates_for_items(enable);
-        Arc::new(builder)
-    }
-
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.ranges(ranges);
@@ -567,21 +616,21 @@ impl SlidingSyncList {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) {
-        self.inner.set_range(start, end);
+    pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
+        self.inner.set_range(start, end).map_err(Into::into)
     }
 
     /// Set the ranges to fetch
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) {
-        self.inner.add_range((start, end));
+    pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
+        self.inner.add_range((start, end)).map_err(Into::into)
     }
 
     /// Reset the ranges
-    pub fn reset_ranges(&self) {
-        self.inner.reset_ranges();
+    pub fn reset_ranges(&self) -> Result<(), SlidingSyncError> {
+        self.inner.reset_ranges().map_err(Into::into)
     }
 
     /// Total of rooms matching the filter
