@@ -1,9 +1,9 @@
 # This workflow releases the `matrix-sdk-crypto-js` project.
 #
 # It is triggered when a new tag appears that matches
-# `matrix-sdk-crypto-js-v[0-9]+.*`. This workflow builds the package
+# `matrix-sdk-crypto-js-[0-9]+.*`. This workflow builds the package
 # for the binding, run its tests to ensure everything is still
-# correct, and publish the package on NPM and on a newly created
+# correct, and publishes the package on NPM and on a newly created
 # Github release.
 
 
@@ -16,7 +16,7 @@ env:
 on:
   push:
     tags:
-      - matrix-sdk-crypto-js-v[0-9]+.*
+      - matrix-sdk-crypto-js-[0-9]+.*
 
 jobs:
   publish-matrix-sdk-crypto-js:
