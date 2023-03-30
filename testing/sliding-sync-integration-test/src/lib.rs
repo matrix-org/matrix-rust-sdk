@@ -937,65 +937,6 @@ async fn growing_sync_keeps_going() -> anyhow::Result<()> {
     Ok(())
 }
 
-/*
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
-    let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    let growing_sync = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::Growing)
-        .full_sync_batch_size(5u32)
-        .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("growing")
-        .build()?;
-
-    let sync_proxy = sync_proxy_builder.clone().add_list(growing_sync).build().await?;
-    let list = sync_proxy.list("growing").context("but we just added that list!")?;
-
-    let stream = sync_proxy.stream();
-    pin_mut!(stream);
-
-    // we have 20 and catch up in batches of 5. so let's get over to 15.
-
-    for _ in 0..=2 {
-        let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-        let _summary = room_summary?;
-    }
-
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
-
-    assert_eq!(
-        collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
-            acc + 1
-        } else {
-            acc
-        }),
-        15
-    );
-
-    // we have 20 and catch up in batches of 5. Let's make sure the restart
-    // continues.
-
-    let stream = sync_proxy.stream();
-    pin_mut!(stream);
-
-    let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-    let _summary = room_summary?;
-
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
-
-    assert_eq!(
-        collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
-            acc + 1
-        } else {
-            acc
-        }),
-        20
-    );
-
-    Ok(())
-}
-*/
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn continue_on_reset() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(10).await?;
