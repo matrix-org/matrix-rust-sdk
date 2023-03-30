@@ -436,6 +436,11 @@ impl Common {
         self.active_members_no_sync().await
     }
 
+    /// Returns the active members count for the room synchronously
+    pub fn active_members_count(&self) -> u64 {
+        self.inner.active_members_count()
+    }
+
     /// Get active members for this room, includes invited, joined members.
     ///
     /// *Note*: This method will not fetch the members from the homeserver if

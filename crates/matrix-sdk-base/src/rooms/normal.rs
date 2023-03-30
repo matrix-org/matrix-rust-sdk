@@ -348,6 +348,11 @@ impl Room {
         Ok(members)
     }
 
+    /// Returns the acrtive members count for the room sychronously
+    pub fn active_members_count(&self) -> u64 {
+        self.inner.read().unwrap().active_members_count()
+    }
+
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();
