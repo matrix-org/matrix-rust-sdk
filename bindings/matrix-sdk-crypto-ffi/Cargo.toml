@@ -12,6 +12,10 @@ publish = false
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
+
 [dependencies]
 anyhow = { workspace = true }
 base64 = { workspace = true }
