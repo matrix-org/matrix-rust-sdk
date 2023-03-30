@@ -524,7 +524,7 @@ fn apply_sync_operations(
             // > knew about entries in this range.
             v4::SlidingOp::Sync => {
                 // Extract `start` and `end` from the operation's range.
-                let (start, end) = operation
+                let (start, mut end) = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -538,20 +538,28 @@ fn apply_sync_operations(
                         )
                     })?;
 
+                // The `end` bound of the range might not be correct… At the time of writing,
+                // there is a bug in the Sliding Sync Proxy that can return
+                // ranges greater than the `rooms_list` size.
+                //
+                // For example, if the client asks for a range `0..=9`, and there is only one
+                // room, the server will reply with one `room_id` (which is correct) but with
+                // the range `0..=9` instead of `0..=0`.
+                //
+                // So, a safe workaround is to take the minimum between `end` and the
+                // `rooms_list`'s length.
+                //
+                // The “safety” is ensured by the fact we also compare the size of the new range
+                // with the size of the `operation.room_ids` length later on.
+                //
+                // See https://github.com/matrix-org/sliding-sync/issues/52.
+                end = min(end, rooms_list.len());
+
                 // Range is invalid.
                 if start > end {
                     return Err(Error::BadResponse(format!(
                         "`range` bounds are invalid ({} > {})",
                         start, end,
-                    )));
-                }
-
-                // Range is too big.
-                if end > rooms_list.len() {
-                    return Err(Error::BadResponse(format!(
-                        "`range` is out of the `rooms_list`' bounds ({} > {})",
-                        end,
-                        rooms_list.len(),
                     )));
                 }
 
@@ -1656,6 +1664,22 @@ mod tests {
             =>
             result = is_ok,
             rooms_list = [E, F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // The range returned by the server is too large compared to the `room_ids` but
+        // we can fix it on-the-fly.
+        assert_sync_operations! {
+            rooms_list = [E],
+            operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 9], // <- it should be [0, 0]
+                    "room_ids": ["!r0:x.y"],
+                }
+            ]
+            =>
+            result = is_ok, // <- because we have fixed it
+            rooms_list = [F("!r0:x.y")],
         };
 
         // Missing `range`.
