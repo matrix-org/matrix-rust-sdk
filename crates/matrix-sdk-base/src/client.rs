@@ -13,15 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::ops::Deref;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::Arc,
 };
-#[cfg(feature = "e2e-encryption")]
-use std::{ops::Deref, sync::Arc};
 
-use eyeball::Subscriber;
+use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -89,6 +90,7 @@ pub struct BaseClient {
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
+    pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -120,6 +122,7 @@ impl BaseClient {
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
+            ignore_user_list_changes_tx: Default::default(),
         }
     }
 
@@ -894,6 +897,9 @@ impl BaseClient {
     }
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
+        if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
+            self.ignore_user_list_changes_tx.set(());
+        }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
@@ -1226,6 +1232,12 @@ impl BaseClient {
             push_rules.default_power_level = room_power_levels.users_default;
             push_rules.notification_power_levels = room_power_levels.notifications;
         }
+    }
+
+    /// Returns a subscriber that publishes an event every time the ignore user
+    /// list changes
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+        self.ignore_user_list_changes_tx.subscribe()
     }
 }
 
