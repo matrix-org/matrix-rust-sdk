@@ -2,7 +2,7 @@
 #
 # It is triggered when a new tag appears that matches
 # `matrix-sdk-crypto-js-[0-9]+.*`. This workflow builds the package
-# for the binding, run its tests to ensure everything is still
+# for the bindings, runs its tests to ensure everything is still
 # correct, and publishes the package on NPM and on a newly created
 # Github release.
 
