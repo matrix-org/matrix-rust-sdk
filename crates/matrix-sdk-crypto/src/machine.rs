@@ -1666,6 +1666,8 @@ pub(crate) mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
     use assert_matches::assert_matches;
+    use futures::select;
+    use futures_util::{FutureExt, StreamExt};
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
     };
@@ -2142,9 +2144,18 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
+        let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+
         let group_session =
-            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
-        bob.store.save_inbound_group_sessions(&[group_session.unwrap()]).await.unwrap();
+            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session.unwrap();
+        bob.store.save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+
+        // when we decrypt the room key, the
+        // inbound_group_session_streamroom_keys_received_stream should tell us
+        // about it.
+        let room_keys = room_keys_received_stream.next().await.unwrap();
+        assert_eq!(room_keys.len(), 1);
+        assert_eq!(room_keys[0].session_id, group_session.session_id());
 
         let plaintext = "It is a secret to everybody";
 
@@ -2180,6 +2191,15 @@ pub(crate) mod tests {
             }
         } else {
             panic!("Decrypted room event has the wrong type")
+        }
+
+        // Just decrypting the event should *not* cause an update on the
+        // inbound_group_session_stream.
+        select! {
+            igs = room_keys_received_stream.next().fuse() => {
+                panic!("Session stream unexpectedly returned update: {igs:?}");
+            },
+            default => {},
         }
     }
 
