@@ -277,6 +277,8 @@ interface Room {
 
     [Throws=ClientError]
     void remove_avatar();
+
+    u64 active_members_count();
 };
 
 callback interface TimelineListener {
