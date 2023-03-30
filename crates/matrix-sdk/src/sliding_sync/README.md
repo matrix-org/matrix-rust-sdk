@@ -121,10 +121,10 @@ above). Very often, one still wants to load up the entire room list in
 background though. For that, the client implementation offers to run lists
 in two additional full-sync-modes, which require additional configuration:
 
-- [`SlidingSyncMode::PagingFullSync`]: Pages through the entire list of
+- [`SlidingSyncMode::Paging`]: Pages through the entire list of
   rooms one request at a time asking for the next `batch_size` number of
   rooms up to the end or `limit` if configured
-- [`SlidingSyncMode::GrowingFullSync`]: Grows the window by `batch_size` on
+- [`SlidingSyncMode::Growing`]: Grows the window by `batch_size` on
   every request till all rooms or until `limit` of rooms are in list.
 
 For both, one should configure
@@ -434,7 +434,7 @@ let sliding_sync_builder = client
     .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder()
-    .sync_mode(SlidingSyncMode::GrowingFullSync)  // sync up by growing the window
+    .sync_mode(SlidingSyncMode::Growing)  // sync up by growing the window
     .name(&full_sync_list_name)    // needed to lookup again.
     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
