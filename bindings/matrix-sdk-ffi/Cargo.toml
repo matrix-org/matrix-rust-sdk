@@ -12,6 +12,10 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
+
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
 
@@ -60,7 +64,7 @@ features = [
     "experimental-sliding-sync",
     "experimental-timeline",
     "e2e-encryption",
-    "markdown", 
+    "markdown",
     "socks",
     "rustls-tls",
 ]

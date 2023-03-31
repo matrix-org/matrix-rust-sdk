@@ -532,6 +532,21 @@ impl Client {
             Ok(SearchUsersResults::from(response))
         })
     }
+
+    pub fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
+        RUNTIME.block_on(async move {
+            let owned_user_id = UserId::parse(user_id.clone())?;
+            let response = self.client.get_profile(&owned_user_id).await?;
+
+            let user_profile = UserProfile {
+                user_id,
+                display_name: response.displayname.clone(),
+                avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
+            };
+
+            Ok(user_profile)
+        })
+    }
 }
 
 #[derive(uniffi::Record)]
