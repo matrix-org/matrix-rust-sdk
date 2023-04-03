@@ -568,6 +568,28 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    // Nothing should happen, the marker cannot be added at the end.
+
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "body": "hello to you!",
+                "msgtype": "m.text",
+            },
+            "event_id": "$someotherplace:example.org",
+            "origin_server_ts": 152067280,
+            "sender": "@bob:example.org",
+            "type": "m.room.message",
+        })),
+    ));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let message = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
+
     let marker = assert_matches!(
         timeline_stream.next().await,
         Some(VectorDiff::Insert { index: 2, value }) => value

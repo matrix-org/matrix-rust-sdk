@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{fmt, ops::ControlFlow};
 
 /// Options for pagination.
 pub struct PaginationOptions<'a> {
@@ -48,10 +48,11 @@ impl<'a> PaginationOptions<'a> {
     /// items for the last request as well as summed over all
     /// requests in a `paginate_backwards` call, and can decide
     /// whether to do another request (by returning
-    /// `Some(next_event_limit)`) or not (by returning `None`).
+    /// `ControlFlow::Continue(next_event_limit)`) or not (by returning
+    /// `ControlFlow::Break(())`).
     pub fn custom(
         initial_event_limit: u16,
-        pagination_strategy: impl FnMut(PaginationOutcome) -> Option<u16> + Send + 'a,
+        pagination_strategy: impl FnMut(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a,
     ) -> Self {
         Self::new(PaginationOptionsInner::Custom {
             event_limit_if_first: Some(initial_event_limit),
@@ -71,7 +72,10 @@ impl<'a> PaginationOptions<'a> {
                 (pagination_outcome.total_items_added < *items).then_some(*event_limit)
             }
             PaginationOptionsInner::Custom { event_limit_if_first, strategy } => {
-                event_limit_if_first.take().or_else(|| strategy(pagination_outcome))
+                event_limit_if_first.take().or_else(|| match strategy(pagination_outcome) {
+                    ControlFlow::Continue(event_limit) => Some(event_limit),
+                    ControlFlow::Break(_) => None,
+                })
             }
         }
     }
@@ -91,7 +95,7 @@ pub enum PaginationOptionsInner<'a> {
     },
     Custom {
         event_limit_if_first: Option<u16>,
-        strategy: Box<dyn FnMut(PaginationOutcome) -> Option<u16> + Send + 'a>,
+        strategy: Box<dyn FnMut(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a>,
     },
 }
 

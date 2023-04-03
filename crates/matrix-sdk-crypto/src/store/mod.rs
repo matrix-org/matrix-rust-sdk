@@ -49,12 +49,15 @@ use std::{
 use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
+use futures_core::Stream;
+use futures_util::stream::StreamExt;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -118,6 +121,10 @@ pub struct Store {
 
     tracked_user_loading_lock: Arc<Mutex<()>>,
     tracked_users_loaded: Arc<AtomicBool>,
+
+    /// The sender side of a broadcast stream that is notified whenever we get
+    /// an update to an inbound group session.
+    room_keys_received_sender: Arc<broadcast::Sender<Vec<RoomKeyInfo>>>,
 }
 
 #[derive(Default, Debug)]
@@ -324,6 +331,36 @@ impl Default for RoomSettings {
     }
 }
 
+/// Information on a room key that has been received or imported.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RoomKeyInfo {
+    /// The [messaging algorithm] that this key is used for. Will be one of the
+    /// `m.megolm.*` algorithms.
+    ///
+    /// [messaging algorithm]: https://spec.matrix.org/v1.6/client-server-api/#messaging-algorithms
+    pub algorithm: EventEncryptionAlgorithm,
+
+    /// The room where the key is used.
+    pub room_id: OwnedRoomId,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: Curve25519PublicKey,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+}
+
+impl From<&InboundGroupSession> for RoomKeyInfo {
+    fn from(group_session: &InboundGroupSession) -> Self {
+        RoomKeyInfo {
+            algorithm: group_session.algorithm().clone(),
+            room_id: group_session.room_id().to_owned(),
+            sender_key: group_session.sender_key(),
+            session_id: group_session.session_id().to_owned(),
+        }
+    }
+}
+
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
@@ -332,6 +369,7 @@ impl Store {
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
+        let (room_keys_received_sender, _) = broadcast::channel(10);
         Self {
             user_id,
             identity,
@@ -342,6 +380,7 @@ impl Store {
             users_for_key_query_condvar: Condvar::new().into(),
             tracked_users_loaded: AtomicBool::new(false).into(),
             tracked_user_loading_lock: Mutex::new(()).into(),
+            room_keys_received_sender: room_keys_received_sender.into(),
         }
     }
 
@@ -376,6 +415,21 @@ impl Store {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
+    }
+
+    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // if we have any listeners on the room_keys_received stream, broadcast any
+        // updates to them
+        if self.room_keys_received_sender.receiver_count() > 0
+            && !changes.inbound_group_sessions.is_empty()
+        {
+            let updates = changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+            // ignore the result. It can only fail if there are no listeners (ie, we raced
+            // with the removal of the last one), which isn't a big deal.
+            let _ = self.room_keys_received_sender.send(updates);
+        }
+
+        self.inner.save_changes(changes).await
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
@@ -886,6 +940,31 @@ impl Store {
         let deserialized =
             rmp_serde::from_slice(value).map_err(|e| CryptoStoreError::Backend(e.into()))?;
         Ok(deserialized)
+    }
+
+    /// Receive notifications of room keys being received as a [`Stream`].
+    ///
+    /// Each time a room key is updated in any way, an update will be sent to
+    /// the stream. Updates that happen at the same time are batched into a
+    /// [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
+        let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
+
+        // the raw BroadcastStream gives us Results which can fail with
+        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
+        // with, so here we just drop the errors.
+        stream.filter_map(|result| async move {
+            match result {
+                Ok(r) => Some(r),
+                Err(BroadcastStreamRecvError::Lagged(lag)) => {
+                    warn!("room_keys_received_stream missed {} updates", lag);
+                    None
+                }
+            }
+        })
     }
 }
 

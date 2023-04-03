@@ -206,7 +206,7 @@ pub(super) struct TimelineEventHandler<'a> {
     >,
     pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
-    fully_read_event_in_timeline: &'a mut bool,
+    event_should_update_fully_read_marker: &'a mut bool,
     track_read_receipts: bool,
     users_read_receipts:
         &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
@@ -242,7 +242,7 @@ impl<'a> TimelineEventHandler<'a> {
             reaction_map: &mut state.reaction_map,
             pending_reactions: &mut state.pending_reactions,
             fully_read_event: &mut state.fully_read_event,
-            fully_read_event_in_timeline: &mut state.fully_read_event_in_timeline,
+            event_should_update_fully_read_marker: &mut state.event_should_update_fully_read_marker,
             track_read_receipts,
             users_read_receipts: &mut state.users_read_receipts,
             result: HandleEventResult::default(),
@@ -787,12 +787,12 @@ impl<'a> TimelineEventHandler<'a> {
             }
         }
 
-        // See if we got the event corresponding to the read marker now.
-        if !*self.fully_read_event_in_timeline {
+        // See if we can update the read marker.
+        if *self.event_should_update_fully_read_marker {
             update_read_marker(
                 self.items,
                 self.fully_read_event.as_deref(),
-                self.fully_read_event_in_timeline,
+                self.event_should_update_fully_read_marker,
             );
         }
     }
@@ -827,7 +827,7 @@ impl<'a> TimelineEventHandler<'a> {
 pub(crate) fn update_read_marker(
     items: &mut ObservableVector<Arc<TimelineItem>>,
     fully_read_event: Option<&EventId>,
-    fully_read_event_in_timeline: &mut bool,
+    event_should_update_fully_read_marker: &mut bool,
 ) {
     let Some(fully_read_event) = fully_read_event else { return };
     trace!(?fully_read_event, "Updating read marker");
@@ -836,26 +836,40 @@ pub(crate) fn update_read_marker(
     let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
 
     match (read_marker_idx, fully_read_event_idx) {
-        (None, None) => {}
+        (None, None) => {
+            *event_should_update_fully_read_marker = true;
+        }
         (None, Some(idx)) => {
-            *fully_read_event_in_timeline = true;
-            items.insert(idx + 1, Arc::new(TimelineItem::read_marker()));
+            // We don't want to insert the read marker if it is at the end of the timeline.
+            if idx + 1 < items.len() {
+                *event_should_update_fully_read_marker = false;
+                items.insert(idx + 1, Arc::new(TimelineItem::read_marker()));
+            } else {
+                *event_should_update_fully_read_marker = true;
+            }
         }
         (Some(_), None) => {
             // Keep the current position of the read marker, hopefully we
             // should have a new position later.
-            *fully_read_event_in_timeline = false;
+            *event_should_update_fully_read_marker = true;
         }
         (Some(from), Some(to)) => {
-            *fully_read_event_in_timeline = true;
+            *event_should_update_fully_read_marker = false;
 
             // The read marker can't move backwards.
             if from < to {
                 let item = items.remove(from);
-                // Since the fully-read event's index was shifted to the left
-                // by one position by the remove call above, insert the fully-
-                // read marker at its previous position, rather than that + 1
-                items.insert(to, item);
+
+                // We don't want to re-insert the read marker if it is at the end of the
+                // timeline.
+                if to < items.len() {
+                    // Since the fully-read event's index was shifted to the left
+                    // by one position by the remove call above, insert the fully-
+                    // read marker at its previous position, rather than that + 1
+                    items.insert(to, item);
+                } else {
+                    *event_should_update_fully_read_marker = true;
+                }
             }
         }
     }

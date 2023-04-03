@@ -2,7 +2,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{identifiers, impl_from_to_inner};
+use crate::{identifiers, impl_from_to_inner, vodozemac::Curve25519PublicKey};
 
 /// Struct representing the state of our private cross signing keys,
 /// it shows which private cross signing keys we have locally stored.
@@ -55,6 +55,13 @@ impl InboundGroupSession {
     #[wasm_bindgen(getter, js_name = "roomId")]
     pub fn room_id(&self) -> identifiers::RoomId {
         self.inner.room_id().to_owned().into()
+    }
+
+    /// The Curve25519 key of the sender of this session, as a
+    /// [Curve25519PublicKey].
+    #[wasm_bindgen(getter, js_name = "senderKey")]
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.inner.sender_key().into()
     }
 
     /// Returns the unique identifier for this session.

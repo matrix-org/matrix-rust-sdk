@@ -446,6 +446,19 @@ impl Room {
         })
     }
 
+    /// Ignores a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the user to ignore.
+    pub fn ignore_user(&self, user_id: String) -> Result<()> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client().account().ignore_user(&user_id).await?;
+            Ok(())
+        })
+    }
+
     /// Leaves the joined room.
     ///
     /// Will throw an error if used on an room that isn't in a joined state

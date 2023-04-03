@@ -175,7 +175,7 @@ fn build_xcframework(
         (vec![lipo_target_macos, lipo_target_sim, ios_path], darwin_x86_path)
     };
 
-    println!("-- Generate uniffi files");
+    println!("-- Generating uniffi files");
     generate_uniffi(&uniff_lib_path, &generated_dir)?;
 
     rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
@@ -189,7 +189,7 @@ fn build_xcframework(
 
     rename(generated_dir.join("matrix_sdk_ffi.swift"), swift_dir.join("matrix_sdk_ffi.swift"))?;
 
-    println!("-- Generate MatrixSDKFFI.xcframework framework");
+    println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
     if xcframework_path.exists() {
         remove_dir_all(xcframework_path.as_path())?;
