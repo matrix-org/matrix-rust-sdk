@@ -47,9 +47,9 @@ enum SlidingSyncState {
 
 enum SlidingSyncMode {
     /// Sync up the entire room list first, page by page
-    "PagingFullSync",
+    "Paging",
     /// Sync up the entire room list first through a growing window
-    "GrowingFullSync",
+    "Growing",
     /// Only ever sync the currently selected window
     "Selective",
 };
@@ -96,9 +96,6 @@ interface SlidingSyncListBuilder {
 
     [Self=ByArc]
     SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
-
-    [Self=ByArc]
-    SlidingSyncListBuilder send_updates_for_items(boolean enable);
 
     [Throws=ClientError, Self=ByArc]
     SlidingSyncList build();

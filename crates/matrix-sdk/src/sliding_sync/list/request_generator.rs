@@ -33,11 +33,13 @@ use std::cmp::min;
 
 use ruma::UInt;
 
+use crate::sliding_sync::Error;
+
 /// The kind of request generator.
 #[derive(Debug)]
 pub(super) enum SlidingSyncListRequestGeneratorKind {
     /// Growing-mode (see [`SlidingSyncMode`]).
-    GrowingFullSync {
+    Growing {
         /// Size of the batch, used to grow the range to fetch more rooms.
         batch_size: u32,
         /// Maximum number of rooms to fetch (see
@@ -50,7 +52,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
     },
 
     /// Paging-mode (see [`SlidingSyncMode`]).
-    PagingFullSync {
+    Paging {
         /// Size of the batch, used to grow the range to fetch more rooms.
         batch_size: u32,
         /// Maximum number of rooms to fetch (see
@@ -69,7 +71,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 /// A request generator for [`SlidingSyncList`].
 #[derive(Debug)]
 pub(in super::super) struct SlidingSyncListRequestGenerator {
-    /// The current range used by this request generator.
+    /// The current ranges used by this request generator.
     pub(super) ranges: Vec<(UInt, UInt)>,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
@@ -77,13 +79,13 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 
 impl SlidingSyncListRequestGenerator {
     /// Create a new request generator configured for paging-mode.
-    pub(super) fn new_paging_full_sync(
+    pub(super) fn new_paging(
         batch_size: u32,
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Self {
         Self {
             ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::PagingFullSync {
+            kind: SlidingSyncListRequestGeneratorKind::Paging {
                 batch_size,
                 maximum_number_of_rooms_to_fetch,
                 number_of_fetched_rooms: 0,
@@ -93,13 +95,13 @@ impl SlidingSyncListRequestGenerator {
     }
 
     /// Create a new request generator configured for growing-mode.
-    pub(super) fn new_growing_full_sync(
+    pub(super) fn new_growing(
         batch_size: u32,
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Self {
         Self {
             ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::GrowingFullSync {
+            kind: SlidingSyncListRequestGeneratorKind::Growing {
                 batch_size,
                 maximum_number_of_rooms_to_fetch,
                 number_of_fetched_rooms: 0,
@@ -113,13 +115,35 @@ impl SlidingSyncListRequestGenerator {
         Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
     }
 
+    pub(super) fn reset(&mut self) {
+        // Reset the ranges.
+        self.ranges.clear();
+
+        // Reset particular parts of the generator.
+        match &mut self.kind {
+            SlidingSyncListRequestGeneratorKind::Paging {
+                number_of_fetched_rooms,
+                fully_loaded,
+                ..
+            }
+            | SlidingSyncListRequestGeneratorKind::Growing {
+                number_of_fetched_rooms,
+                fully_loaded,
+                ..
+            } => {
+                *number_of_fetched_rooms = 0;
+                *fully_loaded = false;
+            }
+
+            SlidingSyncListRequestGeneratorKind::Selective => {}
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn is_fully_loaded(&self) -> bool {
         match self.kind {
-            SlidingSyncListRequestGeneratorKind::PagingFullSync { fully_loaded, .. }
-            | SlidingSyncListRequestGeneratorKind::GrowingFullSync { fully_loaded, .. } => {
-                fully_loaded
-            }
+            SlidingSyncListRequestGeneratorKind::Paging { fully_loaded, .. }
+            | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded, .. } => fully_loaded,
             SlidingSyncListRequestGeneratorKind::Selective => true,
         }
     }
@@ -130,7 +154,7 @@ pub(super) fn create_range(
     desired_size: u32,
     maximum_number_of_rooms_to_fetch: Option<u32>,
     maximum_number_of_rooms: Option<u32>,
-) -> Option<(UInt, UInt)> {
+) -> Result<(UInt, UInt), Error> {
     // Calculate the range.
     // The `start` bound is given. Let's calculate the `end` bound.
 
@@ -158,10 +182,10 @@ pub(super) fn create_range(
     // Make sure `start` is smaller than `end`. It can happen if `start` is greater
     // than `maximum_number_of_rooms_to_fetch` or `maximum_number_of_rooms`.
     if start > end {
-        return None;
+        return Err(Error::InvalidRange { start, end });
     }
 
-    Some((start.into(), end.into()))
+    Ok((start.into(), end.into()))
 }
 
 #[cfg(test)]
@@ -173,41 +197,47 @@ mod tests {
     #[test]
     fn test_create_range_from() {
         // From 0, we want 100 items.
-        assert_eq!(create_range(0, 100, None, None), Some((uint!(0), uint!(99))));
+        assert_eq!(create_range(0, 100, None, None), Ok((uint!(0), uint!(99))));
 
         // From 100, we want 100 items.
-        assert_eq!(create_range(100, 100, None, None), Some((uint!(100), uint!(199))));
+        assert_eq!(create_range(100, 100, None, None), Ok((uint!(100), uint!(199))));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
-        assert_eq!(create_range(0, 100, Some(50), None), Some((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(50), None), Ok((uint!(0), uint!(49))));
 
         // From 49, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, Some(50), None), Some((uint!(49), uint!(49))));
+        assert_eq!(create_range(49, 100, Some(50), None), Ok((uint!(49), uint!(49))));
 
         // From 50, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
-        assert_eq!(create_range(50, 100, Some(50), None), None);
+        assert_eq!(
+            create_range(50, 100, Some(50), None),
+            Err(Error::InvalidRange { start: 50, end: 49 })
+        );
 
         // From 0, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
-        assert_eq!(create_range(0, 100, None, Some(50)), Some((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, None, Some(50)), Ok((uint!(0), uint!(49))));
 
         // From 49, we want 100 items, but there is a maximum number of rooms defined at
         // 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, None, Some(50)), Some((uint!(49), uint!(49))));
+        assert_eq!(create_range(49, 100, None, Some(50)), Ok((uint!(49), uint!(49))));
 
         // From 50, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
-        assert_eq!(create_range(50, 100, None, Some(50)), None);
+        assert_eq!(
+            create_range(50, 100, None, Some(50)),
+            Err(Error::InvalidRange { start: 50, end: 49 })
+        );
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 75, and a maximum number of rooms defined at 50.
-        assert_eq!(create_range(0, 100, Some(75), Some(50)), Some((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(75), Some(50)), Ok((uint!(0), uint!(49))));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50, and a maximum number of rooms defined at 75.
-        assert_eq!(create_range(0, 100, Some(50), Some(75)), Some((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(50), Some(75)), Ok((uint!(0), uint!(49))));
     }
 }

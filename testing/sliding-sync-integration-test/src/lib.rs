@@ -138,7 +138,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         let room_id = update_summary.rooms[0].clone();
 
         // Let's fetch the room ID from the list too.
-        assert_matches!(list.rooms_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
+        assert_matches!(list.room_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
             assert_eq!(same_room_id, &room_id);
         });
 
@@ -166,7 +166,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         .add_list(
             SlidingSyncList::builder()
                 .sync_mode(SlidingSyncMode::Selective)
-                .name("visible_rooms_list")
+                .name("visible_room_list")
                 .add_range(0u32, 1)
                 .timeline_limit(1u32)
                 .build()?,
@@ -179,7 +179,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
     pin_mut!(stream);
 
     // Get the list.
-    let list = sync.list("visible_rooms_list").context("list `visible_rooms_list` isn't found")?;
+    let list = sync.list("visible_room_list").context("list `visible_room_list` isn't found")?;
 
     let mut all_event_ids = Vec::new();
 
@@ -252,7 +252,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         assert_eq!(room_id, update_summary.rooms[0]);
 
         // Let's fetch the room ID from the list too.
-        assert_matches!(list.rooms_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
+        assert_matches!(list.room_list().get(0), Some(RoomListEntry::Filled(same_room_id)) => {
             assert_eq!(same_room_id, &room_id);
         });
 
@@ -370,7 +370,7 @@ async fn adding_list_later() -> anyhow::Result<()> {
     assert!(saw_update, "We didn't see the update come through the pipe");
 
     // and let's update the order of all lists again
-    let room_id = assert_matches!(list1.rooms_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
+    let room_id = assert_matches!(list1.room_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
     let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -452,7 +452,7 @@ async fn live_lists() -> anyhow::Result<()> {
     // Let's trigger an update by sending a message to room pos=3, making it move to
     // pos 0
 
-    let room_id = assert_matches!(list1.rooms_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
+    let room_id = assert_matches!(list1.room_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
     let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -486,7 +486,7 @@ async fn live_lists() -> anyhow::Result<()> {
     pin_mut!(stream);
 
     // and let's update the order of all lists again
-    let room_id = assert_matches!(list1.rooms_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
+    let room_id = assert_matches!(list1.room_list().get(4), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
     let Some(room) = client.get_joined_room(&room_id) else {
             bail!("No joined room {room_id}");
@@ -527,7 +527,7 @@ async fn list_goes_live() -> anyhow::Result<()> {
         .build()?;
 
     let full = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::GrowingFullSync)
+        .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(10u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .name("full")
@@ -558,10 +558,10 @@ async fn list_goes_live() -> anyhow::Result<()> {
     let _room_summary =
         stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
 
-    let rooms_list = full_list.rooms_list::<RoomListEntryEasy>();
+    let room_list = full_list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
-        rooms_list,
+        room_list,
         repeat(RoomListEntryEasy::Filled)
             .take(20)
             .chain(once(RoomListEntryEasy::Empty))
@@ -573,9 +573,9 @@ async fn list_goes_live() -> anyhow::Result<()> {
     let _room_summary =
         stream.next().await.context("No room summary found, loop ended unsecessfully")??;
 
-    let rooms_list = full_list.rooms_list::<RoomListEntryEasy>();
+    let room_list = full_list.room_list::<RoomListEntryEasy>();
 
-    assert_eq!(rooms_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
+    assert_eq!(room_list, repeat(RoomListEntryEasy::Filled).take(21).collect::<Vec<_>>());
     assert_eq!(full_list.state(), SlidingSyncState::FullyLoaded, "full isn't fully loaded");
 
     Ok(())
@@ -600,7 +600,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
     // we only heard about the ones we had asked for
     assert_eq!(summary.rooms.len(), 11);
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -610,11 +610,11 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
     );
 
-    let _signal = list.rooms_list_stream();
+    let _signal = list.room_list_stream();
 
     // let's move the window
 
-    list.set_range(1u32, 10);
+    list.set_range(1u32, 10).unwrap();
     // Ensure 0-0 invalidation ranges work.
 
     for _n in 0..2 {
@@ -626,7 +626,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -637,7 +637,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
     );
 
-    list.set_range(5u32, 10);
+    list.set_range(5u32, 10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -648,7 +648,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -661,7 +661,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(5u32, 15);
+    list.set_range(5u32, 15).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -672,7 +672,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -703,7 +703,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     let summary = room_summary?;
     // we only heard about the ones we had asked for
     assert_eq!(summary.rooms.len(), 10);
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -714,11 +714,11 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
     );
 
-    let _signal = list.rooms_list_stream();
+    let _signal = list.room_list_stream();
 
     // let's move the window
 
-    list.set_range(0u32, 10);
+    list.set_range(0u32, 10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -729,7 +729,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -741,7 +741,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window again
 
-    list.set_range(2u32, 12);
+    list.set_range(2u32, 12).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -752,7 +752,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -766,7 +766,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     // now we "move" the room of pos 3 to pos 0;
     // this is a bordering case
 
-    let room_id = assert_matches!(list.rooms_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
+    let room_id = assert_matches!(list.room_list().get(3), Some(RoomListEntry::Filled(room_id)) => room_id.clone());
 
     let room = client.get_joined_room(&room_id).context("No joined room {room_id}")?;
 
@@ -783,7 +783,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -795,11 +795,11 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     );
 
     // items has moved, thus we shouldn't find it where it was
-    assert!(list.rooms_list::<RoomListEntry>().get(3).unwrap().as_room_id().unwrap() != room_id);
+    assert!(list.room_list::<RoomListEntry>().get(3).unwrap().as_room_id().unwrap() != room_id);
 
     // let's move the window again
 
-    list.set_range(0u32, 10);
+    list.set_range(0u32, 10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -810,7 +810,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -822,7 +822,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     );
 
     // and check that our room move has been accepted properly, too.
-    assert_eq!(list.rooms_list::<RoomListEntry>().get(0).unwrap().as_room_id().unwrap(), &room_id);
+    assert_eq!(list.room_list::<RoomListEntry>().get(0).unwrap().as_room_id().unwrap(), &room_id);
 
     Ok(())
 }
@@ -840,7 +840,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
             .name("sliding")
             .build()?;
         let growing_sync = SlidingSyncList::builder()
-            .sync_mode(SlidingSyncMode::GrowingFullSync)
+            .sync_mode(SlidingSyncMode::Growing)
             .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .name("growing")
@@ -897,7 +897,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
 async fn growing_sync_keeps_going() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let growing_sync = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::GrowingFullSync)
+        .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(5u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .name("growing")
@@ -916,7 +916,7 @@ async fn growing_sync_keeps_going() -> anyhow::Result<()> {
         let _summary = room_summary?;
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -930,66 +930,9 @@ async fn growing_sync_keeps_going() -> anyhow::Result<()> {
     let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
     let _summary = room_summary?;
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(collection_simple, repeat(RoomListEntryEasy::Filled).take(20).collect::<Vec<_>>());
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn growing_sync_keeps_going_after_restart() -> anyhow::Result<()> {
-    let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    let growing_sync = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::GrowingFullSync)
-        .full_sync_batch_size(5u32)
-        .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("growing")
-        .build()?;
-
-    let sync_proxy = sync_proxy_builder.clone().add_list(growing_sync).build().await?;
-    let list = sync_proxy.list("growing").context("but we just added that list!")?;
-
-    let stream = sync_proxy.stream();
-    pin_mut!(stream);
-
-    // we have 20 and catch up in batches of 5. so let's get over to 15.
-
-    for _ in 0..=2 {
-        let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-        let _summary = room_summary?;
-    }
-
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
-
-    assert_eq!(
-        collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
-            acc + 1
-        } else {
-            acc
-        }),
-        15
-    );
-
-    // we have 20 and catch up in batches of 5. Let's make sure the restart
-    // continues.
-
-    let stream = sync_proxy.stream();
-    pin_mut!(stream);
-
-    let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
-    let _summary = room_summary?;
-
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
-
-    assert_eq!(
-        collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
-            acc + 1
-        } else {
-            acc
-        }),
-        20
-    );
 
     Ok(())
 }
@@ -999,7 +942,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(10).await?;
     print!("setup took its time");
     let growing_sync = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::GrowingFullSync)
+        .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(5u32)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -1026,7 +969,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
@@ -1065,7 +1008,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
 
     assert!(error_seen, "We have not seen the UnknownPos error");
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
@@ -1084,7 +1027,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     print!("setup took its time");
     let growing_sync = SlidingSyncList::builder()
-        .sync_mode(SlidingSyncMode::GrowingFullSync)
+        .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(10u32)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
@@ -1108,7 +1051,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
             stream.next().await.context("No room summary found, loop ended unsuccessfully")??;
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
@@ -1141,7 +1084,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple.iter().fold(0, |acc, i| if *i == RoomListEntryEasy::Filled {
@@ -1182,15 +1125,15 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
     // we only heard about the ones we had asked for
     assert_eq!(room_summary.rooms.len(), 3);
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(collection_simple, repeat(RoomListEntryEasy::Filled).take(3).collect::<Vec<_>>());
 
-    let _signal = list.rooms_list_stream();
+    let _signal = list.room_list_stream();
 
     // let's move the window
 
-    list.set_range(1u32, 2);
+    list.set_range(1u32, 2).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
@@ -1201,7 +1144,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
         }
     }
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -1213,7 +1156,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
 
     // let's get that first entry
 
-    let room_id = assert_matches!(list.rooms_list().get(0), Some(RoomListEntry::Invalidated(room_id)) => room_id.clone());
+    let room_id = assert_matches!(list.room_list().get(0), Some(RoomListEntry::Invalidated(room_id)) => room_id.clone());
 
     // send a message
 
@@ -1298,7 +1241,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
     let sliding_sync_room = sync_proxy.get_room(&room_id).expect("Slidin Sync room not found");
     let event = sliding_sync_room.latest_event().await.expect("No even found");
 
-    let collection_simple = list.rooms_list::<RoomListEntryEasy>();
+    let collection_simple = list.room_list::<RoomListEntryEasy>();
 
     assert_eq!(
         collection_simple,
@@ -1352,7 +1295,7 @@ async fn receipts_extension_works() -> anyhow::Result<()> {
     // we expect to see it because we have enabled the receipt extension. We don't
     // know when we'll see it though
     let mut found_receipt = false;
-    for _n in 0..3 {
+    for _n in 0..10 {
         stream.next().await.context("sync has closed unexpectedly")??;
 
         // try to find it

@@ -114,9 +114,9 @@ mod uniffi_types {
         room_member::{MembershipState, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},
         sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
-            SlidingSyncListBuilder, SlidingSyncRequestListFilters, SlidingSyncRoom, TaskHandle,
-            UnreadNotificationsCount,
+            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncError,
+            SlidingSyncList, SlidingSyncListBuilder, SlidingSyncRequestListFilters,
+            SlidingSyncRoom, TaskHandle, UnreadNotificationsCount,
         },
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,

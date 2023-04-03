@@ -372,10 +372,10 @@ async fn build_from_storage(
             // OK, at this step, everything has been loaded successfully from the cache.
 
             // Let's update all the `SlidingSyncList`.
-            for (list, FrozenSlidingSyncList { maximum_number_of_rooms, rooms_list, rooms }) in
+            for (list, FrozenSlidingSyncList { maximum_number_of_rooms, room_list, rooms }) in
                 collected_lists_and_frozen_lists
             {
-                list.set_from_cold(maximum_number_of_rooms, rooms_list);
+                list.set_from_cold(maximum_number_of_rooms, room_list);
 
                 for (key, frozen_room) in rooms.into_iter() {
                     rooms_found.entry(key).or_insert_with(|| {
