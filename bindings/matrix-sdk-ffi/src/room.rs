@@ -90,6 +90,20 @@ impl Room {
         }
     }
 
+    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+        match &self.room {
+            SdkRoom::Invited(i) => RUNTIME.block_on(async move {
+                i.invite_details()
+                    .await
+                    .ok()
+                    .and_then(|a| a.inviter)
+                    .map(|m| Arc::new(RoomMember::new(m)))
+            }),
+            SdkRoom::Joined(_) => None,
+            SdkRoom::Left(_) => None,
+        }
+    }
+
     /// Removes the timeline.
     ///
     /// Timeline items cached in memory as well as timeline listeners are
