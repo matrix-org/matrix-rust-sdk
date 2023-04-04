@@ -150,9 +150,13 @@ impl Message {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { msgtype: _, in_reply_to, edited } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
-        f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
+        f.debug_struct("Message")
+            .field("in_reply_to", in_reply_to)
+            .field("edited", edited)
+            .finish_non_exhaustive()
     }
 }
 
