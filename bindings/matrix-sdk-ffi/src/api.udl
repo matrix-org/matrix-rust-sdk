@@ -274,6 +274,9 @@ interface Room {
 
     [Throws=ClientError]
     void remove_avatar();
+
+    [Throws=ClientError]
+    void invite_user_by_id(string user_id);
 };
 
 callback interface TimelineListener {

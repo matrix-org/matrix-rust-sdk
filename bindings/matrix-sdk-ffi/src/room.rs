@@ -554,6 +554,20 @@ impl Room {
             Ok(())
         })
     }
+
+    pub fn invite_user_by_id(&self, user_id: String) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(joined_room) => joined_room.clone(),
+            _ => bail!("Can't invite user to room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            let user = <&UserId>::try_from(user_id.as_str())
+                .context("Could not create user from string")?;
+            room.invite_user_by_id(user).await?;
+            Ok(())
+        })
+    }
 }
 
 impl std::ops::Deref for Room {
