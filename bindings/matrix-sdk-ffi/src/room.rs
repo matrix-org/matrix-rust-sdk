@@ -550,7 +550,7 @@ impl Room {
         RUNTIME.block_on(async move {
             let user = <&UserId>::try_from(user_id.as_str())
                 .context("Could not create user from string")?;
-            room.invite_user_by_id(&user).await?;
+            room.invite_user_by_id(user).await?;
             Ok(())
         })
     }
