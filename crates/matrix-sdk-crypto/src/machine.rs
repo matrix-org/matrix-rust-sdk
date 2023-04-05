@@ -678,18 +678,16 @@ impl OlmMachine {
         changes: &mut Changes,
         event: &RoomKeyWithheldEvent,
     ) -> OlmResult<()> {
-        if let RoomKeyWithheldContent::MegolmV1AesSha2(c) = &event.content {
-            match c {
-                MegolmV1AesSha2WithheldContent::BlackListed(c)
-                | MegolmV1AesSha2WithheldContent::Unverified(c) => {
+        if let RoomKeyWithheldContent::MegolmV1AesSha2(
+            MegolmV1AesSha2WithheldContent::BlackListed(c)
+            | MegolmV1AesSha2WithheldContent::Unverified(c)
+        ) = &event.content {
                     changes
                         .withheld_session_info
                         .entry(c.room_id.to_owned())
                         .or_insert_with(BTreeMap::default)
                         .insert(c.session_id.to_owned(), event.to_owned());
                 }
-                _ => (),
-            }
         }
 
         Ok(())
