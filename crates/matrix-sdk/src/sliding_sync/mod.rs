@@ -196,16 +196,6 @@ impl SlidingSync {
         self.inner.lists.read().unwrap().get(list_name).cloned()
     }
 
-    /// Remove the SlidingSyncList named `list_name` from the lists list if
-    /// found.
-    ///
-    /// Note: Remember that this change will only be applicable for any new
-    /// stream created after this. The old stream will still continue to use the
-    /// previous set of lists.
-    pub fn pop_list(&self, list_name: &String) -> Option<SlidingSyncList> {
-        self.inner.lists.write().unwrap().remove(list_name)
-    }
-
     /// Add the list to the list of lists.
     ///
     /// As lists need to have a unique `.name`, if a list with the same name

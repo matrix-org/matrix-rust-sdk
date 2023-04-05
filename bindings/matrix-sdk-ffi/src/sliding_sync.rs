@@ -756,10 +756,6 @@ impl SlidingSync {
         self.inner.add_list(list.inner.clone()).map(|inner| Arc::new(SlidingSyncList { inner }))
     }
 
-    pub fn pop_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.pop_list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
-    }
-
     pub fn add_common_extensions(&self) {
         self.inner.add_common_extensions();
     }
