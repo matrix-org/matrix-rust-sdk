@@ -266,7 +266,7 @@ impl EventTimelineItem {
         self.0.sender().to_string()
     }
 
-    pub fn sender_profile(&self) -> ProfileTimelineDetails {
+    pub fn sender_profile(&self) -> ProfileDetails {
         self.0.sender_profile().into()
     }
 
@@ -340,14 +340,14 @@ pub struct EventTimelineItemDebugInfo {
 }
 
 #[derive(uniffi::Enum)]
-pub enum ProfileTimelineDetails {
+pub enum ProfileDetails {
     Unavailable,
     Pending,
     Ready { display_name: Option<String>, display_name_ambiguous: bool, avatar_url: Option<String> },
     Error { message: String },
 }
 
-impl From<&TimelineDetails<Profile>> for ProfileTimelineDetails {
+impl From<&TimelineDetails<Profile>> for ProfileDetails {
     fn from(details: &TimelineDetails<Profile>) -> Self {
         match details {
             TimelineDetails::Unavailable => Self::Unavailable,
