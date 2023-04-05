@@ -16,6 +16,7 @@
 #![doc = include_str!("README.md")]
 
 mod builder;
+mod cache;
 mod client;
 mod error;
 mod list;
