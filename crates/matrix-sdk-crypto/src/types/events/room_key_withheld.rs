@@ -131,7 +131,7 @@ impl RoomKeyWithheldContent {
                     from_device
                 )
             }
-            _ => unreachable!("Unsupported algorithm {}", algorithm),
+            _ => unreachable!("Unsupported algorithm {algorithm}"),
         }
     }
 
