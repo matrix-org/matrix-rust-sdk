@@ -174,14 +174,14 @@ pub struct InReplyToDetails {
     ///
     /// [`Timeline::fetch_item_details`]: super::Timeline::fetch_item_details
     /// [`TimelineDetailsSettings`]: super::TimelineDetailsSettings
-    pub details: TimelineDetails<Box<RepliedToEvent>>,
+    pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
 impl InReplyToDetails {
     pub(in crate::room::timeline) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
         match relation {
             message::Relation::Reply { in_reply_to } => {
-                Some(Self { event_id: in_reply_to.event_id, details: TimelineDetails::Unavailable })
+                Some(Self { event_id: in_reply_to.event_id, event: TimelineDetails::Unavailable })
             }
             _ => None,
         }

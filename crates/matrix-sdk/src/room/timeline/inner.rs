@@ -562,7 +562,7 @@ impl TimelineInner {
             return Ok(item);
         };
 
-        let details = fetch_replied_to_event(
+        let event = fetch_replied_to_event(
             state,
             index,
             &item,
@@ -588,9 +588,12 @@ impl TimelineInner {
             return Ok(item);
         };
 
-        item.set_content(TimelineItemContent::Message(message.with_in_reply_to(
-            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
-        )));
+        item.set_content(TimelineItemContent::Message(
+            message.with_in_reply_to(InReplyToDetails {
+                event_id: in_reply_to.event_id.clone(),
+                event,
+            }),
+        ));
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
         Ok(item)
@@ -696,7 +699,7 @@ async fn fetch_replied_to_event(
 
     let reply = message.with_in_reply_to(InReplyToDetails {
         event_id: in_reply_to.to_owned(),
-        details: TimelineDetails::Pending,
+        event: TimelineDetails::Pending,
     });
     let event_item = item.apply_edit(TimelineItemContent::Message(reply), None).into();
     state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
