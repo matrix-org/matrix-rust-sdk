@@ -771,7 +771,7 @@ impl CryptoStore for SqliteCryptoStore {
                 for (room_id, data) in changes.withheld_session_info {
                     for (session_id, event) in data {
                         let session_id = this.encode_key("direct_withheld_info", session_id);
-                        let room_id = this.encode_key("direct_withheld_info", room_id.to_owned());
+                        let room_id = this.encode_key("direct_withheld_info", &room_id);
                         let serialized_info = this.serialize_value(&event)?;
                         txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
                     }

@@ -55,7 +55,7 @@ impl Clone for RoomKeyWithheldEvent {
 pub enum RoomKeyWithheldContent {
     /// The `m.megolm.v1.aes-sha2` variant of the `m.room_key.withheld` content.
     MegolmV1AesSha2(MegolmV1AesSha2WithheldContent),
-    // The `m.megolm.v2.aes-sha2` variant of the `m.room_key.withheld` content.
+    /// The `m.megolm.v2.aes-sha2` variant of the `m.room_key.withheld` content.
     #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(MegolmV2AesSha2WithheldContent),
     /// An unknown and unsupported variant of the `m.room_key.withheld` content.
