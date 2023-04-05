@@ -17,6 +17,7 @@ mod verification;
 
 use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
+use anyhow::Context;
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
 };
@@ -192,8 +193,8 @@ pub fn migrate(
     path: &str,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
         migrate_data(data, path, passphrase, progress_listener).await?;
         Ok(())
@@ -354,9 +355,10 @@ pub fn migrate_sessions(
     path: &str,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
-    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
+    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))?;
+    Ok(())
 }
 
 async fn migrate_session_data(
@@ -499,19 +501,21 @@ pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
     path: &str,
     passphrase: Option<String>,
-) -> anyhow::Result<()> {
-    let runtime = Runtime::new()?;
+) -> Result<(), MigrationError> {
+    let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        let store = SqliteCryptoStore::open(path, passphrase.as_deref()).await?;
+        let store = SqliteCryptoStore::open(path, passphrase.as_deref())
+            .await
+            .context("opening sqlite crypto store")?;
 
         let mut rust_settings = HashMap::new();
         for (room_id, settings) in room_settings {
-            let room_id = RoomId::parse(room_id)?;
+            let room_id = RoomId::parse(room_id).context("parsing room ID")?;
             rust_settings.insert(room_id, settings.into());
         }
 
         let changes = Changes { room_settings: rust_settings, ..Default::default() };
-        store.save_changes(changes).await?;
+        store.save_changes(changes).await.context("saving changes")?;
 
         Ok(())
     })
