@@ -305,7 +305,7 @@ impl EventTimelineItem {
     }
 
     pub fn raw(&self) -> Option<String> {
-        self.0.raw().map(|r| r.json().get().to_owned())
+        self.0.original_json().map(|r| r.json().get().to_owned())
     }
 
     pub fn local_send_state(&self) -> Option<EventSendState> {

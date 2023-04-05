@@ -130,7 +130,7 @@ async fn edit() {
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
-    assert!(item.raw().is_some());
+    assert!(item.original_json().is_some());
 
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     assert_matches!(msg.msgtype(), MessageType::Text(_));

@@ -381,14 +381,19 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             };
 
-            let content = TimelineItemContent::Message(Message {
+            let new_content = TimelineItemContent::Message(Message {
                 msgtype: replacement.new_content,
                 in_reply_to: msg.in_reply_to.clone(),
                 edited: true,
             });
 
+            let edit_json = match &self.flow {
+                Flow::Local { .. } => None,
+                Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
+            };
+
             trace!("Applying edit");
-            Some(event_item.with_content(content))
+            Some(event_item.apply_edit(new_content, edit_json))
         });
     }
 
