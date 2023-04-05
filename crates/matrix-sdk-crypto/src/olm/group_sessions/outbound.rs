@@ -278,7 +278,7 @@ impl OutboundGroupSession {
         if let Some((_, (to_device, request))) = self.to_share_with_set.remove(request_id) {
             let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
                 .iter()
-                .map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect()))
+                .map(|(u, d)| (u.as_ref(), d.keys().map(|d| d.as_ref()).collect()))
                 .collect();
 
             info!(
@@ -528,8 +528,8 @@ impl OutboundGroupSession {
     }
 
     pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
-        self
-            .shared_with_set.get(device.user_id())
+        self.shared_with_set
+            .get(device.user_id())
             .and_then(|d| {
                 let info = d.get(device.device_id())?;
                 Some(matches!(info.value(), ShareInfo::Withheld(c) if c == code))
