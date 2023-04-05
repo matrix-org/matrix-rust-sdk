@@ -678,8 +678,8 @@ impl OlmMachine {
         changes: &mut Changes,
         event: &RoomKeyWithheldEvent,
     ) -> OlmResult<()> {
-        match &event.content {
-            RoomKeyWithheldContent::MegolmV1AesSha2(c) => match c {
+        if let RoomKeyWithheldContent::MegolmV1AesSha2(c) = &event.content {
+            match c {
                 MegolmV1AesSha2WithheldContent::BlackListed(c)
                 | MegolmV1AesSha2WithheldContent::Unverified(c) => {
                     changes
@@ -689,8 +689,7 @@ impl OlmMachine {
                         .insert(c.session_id.to_owned(), event.to_owned());
                 }
                 _ => (),
-            },
-            _ => (),
+            }
         }
 
         Ok(())

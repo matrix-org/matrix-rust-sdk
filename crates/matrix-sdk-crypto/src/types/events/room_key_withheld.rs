@@ -94,6 +94,11 @@ macro_rules! construct_withheld_content {
 
 impl RoomKeyWithheldContent {
     /// Creates a withheld content from the given info
+    ///
+    /// # Panics
+    ///
+    /// The method will panic if a unsupported algorithm is given. The only
+    /// supported algorithm as of now is `m.megolm.v1.aes-sha2`.
     pub fn new(
         algorithm: EventEncryptionAlgorithm,
         code: WithheldCode,
@@ -126,7 +131,7 @@ impl RoomKeyWithheldContent {
                     from_device
                 )
             }
-            _ => todo!(),
+            _ => unreachable!("Unsupported algorithm {}", algorithm),
         }
     }
 
