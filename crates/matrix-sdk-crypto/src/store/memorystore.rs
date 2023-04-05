@@ -294,7 +294,7 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .direct_withheld_info
             .get(room_id)
-            .and_then(|e| e.value().get(session_id).map(|v| v.value().to_owned())))
+            .and_then(|e| Some(e.value().get(session_id)?.value().to_owned())))
     }
 
     async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {

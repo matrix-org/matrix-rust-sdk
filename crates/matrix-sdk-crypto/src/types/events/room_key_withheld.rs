@@ -162,10 +162,10 @@ impl EventType for RoomKeyWithheldContent {
 
 /// A machine-readable code for why the megolm key was not sent.
 #[derive(
+    Clone,
+    PartialEq,
     Eq,
     Hash,
-    PartialEq,
-    Clone,
     AsStrAsRefStr,
     AsRefStr,
     FromString,
@@ -215,11 +215,11 @@ impl std::fmt::Display for WithheldCode {
             _ => self.as_str(),
         };
 
-        write!(f, "{string}")
+        f.write_str(string)
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 struct WithheldHelper {
     pub algorithm: EventEncryptionAlgorithm,
     pub reason: JsOption<String>,
@@ -356,6 +356,7 @@ pub struct UnknownRoomKeyWithHeld {
     /// The withheld code
     pub code: WithheldCode,
     /// A human-readable reason for why the key was not sent.
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
     pub reason: JsOption<String>,
     /// The other data of the unknown room key.
     #[serde(flatten)]

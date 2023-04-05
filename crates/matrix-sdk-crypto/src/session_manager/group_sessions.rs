@@ -168,7 +168,7 @@ impl GroupSessionManager {
                         changes.devices.changed.push(device.inner.clone());
                     } else {
                         error!(
-                            request_id = request_id.to_string().as_str(),
+                            ?request_id,
                             "Marking to-device no olm as sent but device not found, might \
                             have been deleted?"
                         );

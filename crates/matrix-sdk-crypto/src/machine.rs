@@ -2305,11 +2305,7 @@ pub(crate) mod tests {
         assert_matches!(decrypt_result, Err(MegolmError::MissingRoomKey(Some(_))));
 
         let err = decrypt_result.err().unwrap();
-        if let MegolmError::MissingRoomKey(Some(code)) = err {
-            assert_eq!(WithheldCode::Unverified, code);
-        } else {
-            panic!();
-        }
+        assert_matches!(err, MegolmError::MissingRoomKey(Some(WithheldCode::Unverified)));
     }
 
     #[async_test]

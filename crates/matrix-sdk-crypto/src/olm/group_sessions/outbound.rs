@@ -161,8 +161,8 @@ pub enum ShareInfo {
 
 impl ShareInfo {
     /// Helper to create a SharedWith info
-    pub fn new_shared(sender_key: Curve25519PublicKey, index: u32) -> Self {
-        ShareInfo::Shared(SharedWith { sender_key, message_index: index })
+    pub fn new_shared(sender_key: Curve25519PublicKey, message_index: u32) -> Self {
+        ShareInfo::Shared(SharedWith { sender_key, message_index })
     }
 
     /// Helper to create a Withheld info
@@ -292,17 +292,17 @@ impl OutboundGroupSession {
                 let no_olms: BTreeSet<OwnedDeviceId> = info
                     .iter()
                     .filter(|(_, info)| matches!(info, ShareInfo::Withheld(WithheldCode::NoOlm)))
-                    .map(|(d, _)| (d.to_owned()))
+                    .map(|(d, _)| d.to_owned())
                     .collect();
                 no_olm_devices.insert(user_id.to_owned(), no_olms);
 
-                self.shared_with_set.entry(user_id).or_default().extend(info)
+                self.shared_with_set.entry(user_id).or_default().extend(info);
             }
 
             if self.to_share_with_set.is_empty() {
                 debug!(
                     session_id = self.session_id(),
-                    room_id = self.room_id.as_str(),
+                    room_id = ?self.room_id,
                     "All m.room_key and withheld to-device requests were sent out, marking \
                         session as shared.",
                 );
@@ -315,7 +315,7 @@ impl OutboundGroupSession {
 
             error!(
                 all_request_ids = ?request_ids,
-                request_id = %request_id,
+                request_id = ?request_id,
                 "Marking to-device request carrying a room key as sent but no \
                     request found with the given id"
             );
@@ -528,31 +528,30 @@ impl OutboundGroupSession {
     }
 
     pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
-        let withheld = self.shared_with_set.get(device.user_id()).and_then(|d| {
-            d.get(device.device_id())
-                .map(|s| matches!(s.value(), ShareInfo::Withheld(c) if c == code))
-        });
-
-        if let Some(withheld) = withheld {
-            withheld
-        } else {
-            // If we haven't yet withheld, check if we're going to withheld
-            // the session.
-
-            // Find the first request that contains the given user id and
-            // device ID.
-            self.to_share_with_set.iter().any(|item| {
-                let share_info = &item.value().1;
-
-                share_info
-                    .get(device.user_id())
-                    .and_then(|d| {
-                        d.get(device.device_id())
-                            .map(|info| matches!(info, ShareInfo::Withheld(c) if c == code))
-                    })
-                    .unwrap_or_default()
+        self
+            .shared_with_set.get(device.user_id())
+            .and_then(|d| {
+                let info = d.get(device.device_id())?;
+                Some(matches!(info.value(), ShareInfo::Withheld(c) if c == code))
             })
-        }
+            .unwrap_or_else(|| {
+                // If we haven't yet withheld, check if we're going to withheld
+                // the session.
+
+                // Find the first request that contains the given user id and
+                // device ID.
+                self.to_share_with_set.iter().any(|item| {
+                    let share_info = &item.value().1;
+
+                    share_info
+                        .get(device.user_id())
+                        .and_then(|d| {
+                            let info = d.get(device.device_id())?;
+                            Some(matches!(info, ShareInfo::Withheld(c) if c == code))
+                        })
+                        .unwrap_or(false)
+                })
+            })
     }
 
     /// Mark the session as shared with the given user/device pair, starting
