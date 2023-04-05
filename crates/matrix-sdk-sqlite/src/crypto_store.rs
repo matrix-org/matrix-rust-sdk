@@ -280,11 +280,6 @@ trait SqliteConnectionExt {
         data: &[u8],
     ) -> rusqlite::Result<()>;
 
-    // fn get_direct_withheld_info(
-    //     &self,
-    //     session_id: Key,
-    //     room_id: Key,
-    // ) -> rusqlite::Result<Option<Vec<u8>>>;
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 }
 
@@ -826,9 +821,9 @@ impl CryptoStore for SqliteCryptoStore {
         let session_id = self.encode_key("inbound_group_session", session_id);
         let Some((room_id_from_db, value)) =
             self.acquire().await?.get_inbound_group_session(session_id).await?
-            else {
-                return Ok(None);
-            };
+        else {
+            return Ok(None);
+        };
 
         let room_id = self.encode_key("inbound_group_session", room_id.as_bytes());
         if *room_id != room_id_from_db {

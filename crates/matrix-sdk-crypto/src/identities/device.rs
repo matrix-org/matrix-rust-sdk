@@ -452,10 +452,7 @@ impl Device {
                 message: encrypted.cast(),
             }),
 
-            Err(
-                OlmError::MissingSession
-                | OlmError::EventError(EventError::MissingSenderKey)
-            ) => {
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
                 Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
             }
             Err(e) => Err(e),
