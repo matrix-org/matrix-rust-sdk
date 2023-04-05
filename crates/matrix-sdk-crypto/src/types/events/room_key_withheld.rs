@@ -130,6 +130,7 @@ impl RoomKeyWithheldContent {
         }
     }
 
+    /// Get the withheld code of this event.
     pub fn withheld_code(&self) -> WithheldCode {
         match self {
             RoomKeyWithheldContent::MegolmV1AesSha2(c) => c.withheld_code(),
@@ -222,15 +223,23 @@ struct WithheldHelper {
     other: Value,
 }
 
+/// Content for the `m.room_key.withheld` event for the `m.megolm.v1.aes-sha2`
+/// algorithm.
 #[derive(Clone, Debug)]
 pub enum MegolmV1AesSha2WithheldContent {
+    /// The `m.blacklisted` variant of the withheld code content.
     BlackListed(Box<CommonWithheldCodeContent>),
+    /// The `m.unverified` variant of the withheld code content.
     Unverified(Box<CommonWithheldCodeContent>),
+    /// The `m.unauthorised` variant of the withheld code content.
     Unauthorised(Box<CommonWithheldCodeContent>),
+    /// The `m.unavailable` variant of the withheld code content.
     Unavailable(Box<CommonWithheldCodeContent>),
+    /// The `m.no_olm` variant of the withheld code content.
     NoOlm(Box<NoOlmWithheldContent>),
 }
 
+/// Struct for most of the withheld code content variants.
 #[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CommonWithheldCodeContent {
     /// The room where the key is used.
@@ -249,7 +258,25 @@ pub struct CommonWithheldCodeContent {
     pub from_device: JsOption<OwnedDeviceId>,
 
     #[serde(flatten)]
-    pub other: BTreeMap<String, Value>,
+    other: BTreeMap<String, Value>,
+}
+
+impl CommonWithheldCodeContent {
+    /// Create a new common withheld code content.
+    pub fn new(
+        room_id: OwnedRoomId,
+        session_id: String,
+        sender_key: Curve25519PublicKey,
+        device_id: OwnedDeviceId,
+    ) -> Self {
+        Self {
+            room_id,
+            session_id,
+            sender_key,
+            from_device: JsOption::Some(device_id),
+            other: Default::default(),
+        }
+    }
 }
 
 impl MegolmV1AesSha2WithheldContent {
@@ -323,7 +350,7 @@ pub struct UnknownRoomKeyWithHeld {
     pub algorithm: EventEncryptionAlgorithm,
     /// The withheld code
     pub code: WithheldCode,
-
+    /// A human-readable reason for why the key was not sent.
     pub reason: JsOption<String>,
     /// The other data of the unknown room key.
     #[serde(flatten)]

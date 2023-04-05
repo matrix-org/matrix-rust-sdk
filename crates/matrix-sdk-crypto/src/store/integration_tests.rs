@@ -638,16 +638,15 @@ macro_rules! cryptostore_integration_tests {
 
                 let content = RoomKeyWithheldContent::MegolmV1AesSha2(
                     MegolmV1AesSha2WithheldContent::Unverified(
-                        CommonWithheldCodeContent {
-                            room_id: room_id.to_owned(),
-                            session_id: session_id_1.into(),
-                            from_device: JsOption::Undefined,
-                            other: Default::default(),
-                            sender_key: Curve25519PublicKey::from_base64(
+                        CommonWithheldCodeContent::new(
+                            room_id.to_owned(),
+                            session_id_1.into(),
+                            Curve25519PublicKey::from_base64(
                                 "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
                             )
                             .unwrap(),
-                        }
+                            "DEVICEID".into(),
+                        )
                         .into(),
                     ),
                 );
@@ -659,16 +658,15 @@ macro_rules! cryptostore_integration_tests {
 
                 let content = RoomKeyWithheldContent::MegolmV1AesSha2(
                     MegolmV1AesSha2WithheldContent::BlackListed(
-                        CommonWithheldCodeContent {
-                            room_id: room_id.to_owned(),
-                            session_id: session_id_2.into(),
-                            from_device: JsOption::Undefined,
-                            other: Default::default(),
-                            sender_key: Curve25519PublicKey::from_base64(
+                        CommonWithheldCodeContent::new(
+                            room_id.to_owned(),
+                            session_id_2.into(),
+                            Curve25519PublicKey::from_base64(
                                 "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
                             )
                             .unwrap(),
-                        }
+                            "DEVICEID".into(),
+                        )
                         .into(),
                     ),
                 );
