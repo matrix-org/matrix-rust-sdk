@@ -673,11 +673,7 @@ impl OlmMachine {
         }
     }
 
-    async fn add_withheld_info(
-        &self,
-        changes: &mut Changes,
-        event: &RoomKeyWithheldEvent,
-    ) -> OlmResult<()> {
+    async fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
             MegolmV1AesSha2WithheldContent::BlackListed(c)
             | MegolmV1AesSha2WithheldContent::Unverified(c),
@@ -689,8 +685,6 @@ impl OlmMachine {
                 .or_insert_with(BTreeMap::default)
                 .insert(c.session_id.to_owned(), event.to_owned());
         }
-
-        Ok(())
     }
 
     #[cfg(test)]
@@ -936,7 +930,7 @@ impl OlmMachine {
         match event {
             RoomKeyRequest(e) => self.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.key_request_machine.receive_incoming_secret_request(e),
-            RoomKeyWithheld(e) => self.add_withheld_info(changes, e).await?,
+            RoomKeyWithheld(e) => self.add_withheld_info(changes, e).await,
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
             | KeyVerificationKey(..)
