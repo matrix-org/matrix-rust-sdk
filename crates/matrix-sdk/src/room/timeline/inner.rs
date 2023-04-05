@@ -395,7 +395,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("event_id", debug(remote_event.event_id()));
 
-                let raw = remote_event.raw().cast_ref();
+                let raw = remote_event.original_json().cast_ref();
                 match olm_machine.decrypt_room_event(raw, room_id).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
@@ -694,12 +694,11 @@ async fn fetch_replied_to_event(
         return details;
     };
 
-    let event_item = item
-        .with_content(TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
-            event_id: in_reply_to.to_owned(),
-            details: TimelineDetails::Pending,
-        })))
-        .into();
+    let reply = message.with_in_reply_to(InReplyToDetails {
+        event_id: in_reply_to.to_owned(),
+        details: TimelineDetails::Pending,
+    });
+    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None).into();
     state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
 
     // Don't hold the state lock while the network request is made

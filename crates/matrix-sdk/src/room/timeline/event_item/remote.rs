@@ -36,8 +36,13 @@ pub struct RemoteEventTimelineItem {
     is_own: bool,
     /// Encryption information.
     encryption_info: Option<EncryptionInfo>,
-    // FIXME: Expose the raw JSON of aggregated events somehow
-    raw: Raw<AnySyncTimelineEvent>,
+    /// JSON of the original event.
+    ///
+    /// If the message is edited, this *won't* change, instead
+    /// `latest_edit_json` will be updated.
+    original_json: Raw<AnySyncTimelineEvent>,
+    /// JSON of the latest edit to this item.
+    latest_edit_json: Option<Raw<AnySyncTimelineEvent>>,
     /// Whether the item should be highlighted in the timeline.
     is_highlighted: bool,
 }
@@ -54,7 +59,7 @@ impl RemoteEventTimelineItem {
         read_receipts: IndexMap<OwnedUserId, Receipt>,
         is_own: bool,
         encryption_info: Option<EncryptionInfo>,
-        raw: Raw<AnySyncTimelineEvent>,
+        original_json: Raw<AnySyncTimelineEvent>,
         is_highlighted: bool,
     ) -> Self {
         Self {
@@ -67,7 +72,8 @@ impl RemoteEventTimelineItem {
             read_receipts,
             is_own,
             encryption_info,
-            raw,
+            original_json,
+            latest_edit_json: None,
             is_highlighted,
         }
     }
@@ -125,8 +131,13 @@ impl RemoteEventTimelineItem {
     }
 
     /// Get the raw JSON representation of the primary event.
-    pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
-        &self.raw
+    pub fn original_json(&self) -> &Raw<AnySyncTimelineEvent> {
+        &self.original_json
+    }
+
+    /// Get the raw JSON representation of the latest edit, if any.
+    pub fn latest_edit_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
+        self.latest_edit_json.as_ref()
     }
 
     /// Whether the event should be highlighted in the timeline.
@@ -159,8 +170,15 @@ impl RemoteEventTimelineItem {
     }
 
     /// Clone the current event item, and update its `content`.
-    pub(in crate::room::timeline) fn with_content(&self, content: TimelineItemContent) -> Self {
-        Self { content, ..self.clone() }
+    pub(in crate::room::timeline) fn apply_edit(
+        &self,
+        content: TimelineItemContent,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    ) -> Self {
+        // If the edit is local (is not a full event yet), `edit_json` will be
+        // `None`, in that case retain the existing value of `latest_edit_json`
+        let latest_edit_json = edit_json.or_else(|| self.latest_edit_json.clone());
+        Self { content, latest_edit_json, ..self.clone() }
     }
 
     /// Clone the current event item, and update its `sender_profile`.
