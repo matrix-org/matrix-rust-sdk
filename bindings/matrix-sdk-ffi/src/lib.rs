@@ -120,12 +120,12 @@ mod uniffi_types {
         },
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
-            EventTimelineItem, FileInfo, FileMessageContent, FormattedBody, ImageInfo,
-            ImageMessageContent, InsertData, MembershipChange, Message, MessageFormat, MessageType,
-            NoticeMessageContent, OtherState, ProfileTimelineDetails, Reaction, SetData,
-            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
-            VirtualTimelineItem,
+            EventTimelineItem, EventTimelineItemDebugInfo, FileInfo, FileMessageContent,
+            FormattedBody, ImageInfo, ImageMessageContent, InsertData, MembershipChange, Message,
+            MessageFormat, MessageType, NoticeMessageContent, OtherState, ProfileTimelineDetails,
+            Reaction, SetData, TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff,
+            TimelineItem, TimelineItemContent, TimelineItemContentKind, VideoInfo,
+            VideoMessageContent, VirtualTimelineItem,
         },
         ClientError,
     };
