@@ -85,7 +85,11 @@ pub struct ReadOnlyDevice {
     trust_state: Arc<Atomic<LocalTrust>>,
     /// Flag remembering if we successfully sent an `m.no_olm` withheld code to
     /// this device.
-    #[serde(default)]
+    #[serde(
+        default,
+        serialize_with = "atomic_bool_serializer",
+        deserialize_with = "atomic_bool_deserializer"
+    )]
     withheld_code_sent: Arc<AtomicBool>,
 }
 
