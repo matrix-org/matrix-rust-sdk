@@ -9,7 +9,9 @@ use std::collections::BTreeMap;
 use ruma::{api::client::sync::sync_events::v4::ExtensionsConfig, OwnedRoomId};
 use tracing::{trace, warn};
 
-use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSyncList, SlidingSyncRoom};
+use super::{
+    FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList, SlidingSyncRoom,
+};
 use crate::{Client, Result};
 
 fn format_storage_key_for_sliding_sync(storage_key: &str) -> String {
@@ -37,6 +39,50 @@ async fn clean_storage(
     let _ = storage
         .remove_custom_value(format_storage_key_for_sliding_sync(storage_key).as_bytes())
         .await;
+}
+
+/// Store the `SlidingSync`'s state in the storage.
+pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
+    let Some(storage_key) = sliding_sync.inner.storage_key.as_ref() else { return Ok(()) };
+
+    trace!(storage_key, "Saving a `SlidingSync`");
+    let storage = sliding_sync.inner.client.store();
+
+    // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
+    // the store.
+    storage
+        .set_custom_value(
+            format_storage_key_for_sliding_sync(storage_key).as_bytes(),
+            serde_json::to_vec(&FrozenSlidingSync::from(sliding_sync))?,
+        )
+        .await?;
+
+    // Write every `SlidingSyncList` inside the client the store.
+    let frozen_lists = {
+        let rooms_lock = sliding_sync.inner.rooms.read().unwrap();
+
+        sliding_sync
+            .inner
+            .lists
+            .read()
+            .unwrap()
+            .iter()
+            .map(|(list_name, list)| {
+                Ok((
+                    format_storage_key_for_sliding_sync_list(storage_key, list_name),
+                    serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
+                ))
+            })
+            .collect::<Result<Vec<_>, crate::Error>>()?
+    };
+
+    for (storage_key_for_list, frozen_list) in frozen_lists {
+        trace!(storage_key_for_list, "Saving a `SlidingSyncList`");
+
+        storage.set_custom_value(storage_key_for_list.as_bytes(), frozen_list).await?;
+    }
+
+    Ok(())
 }
 
 /// Restore the `SlidingSync`'s state from what is stored in the storage.
@@ -109,7 +155,7 @@ pub(super) async fn restore_sliding_sync_state(
     {
         // `SlidingSync` has been found and successfully deserialized.
         Some(Ok(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token })) => {
-            trace!("successfully read the `SlidingSync` from the cache");
+            trace!("Successfully read the `SlidingSync` from the cache");
 
             // OK, at this step, everything has been loaded successfully from the cache.
 

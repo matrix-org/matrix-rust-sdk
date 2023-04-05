@@ -53,7 +53,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{spawn, sync::Mutex as AsyncMutex};
-use tracing::{debug, error, info_span, instrument, trace, warn, Instrument, Span};
+use tracing::{debug, error, info_span, instrument, warn, Instrument, Span};
 use url::Url;
 use uuid::Uuid;
 
@@ -117,45 +117,7 @@ impl SlidingSync {
     }
 
     async fn cache_to_storage(&self) -> Result<(), crate::Error> {
-        let Some(storage_key) = self.inner.storage_key.as_ref() else { return Ok(()) };
-        trace!(storage_key, "Saving to storage for later use");
-
-        let store = self.inner.client.store();
-
-        // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
-        // the client store.
-        store
-            .set_custom_value(
-                storage_key.as_bytes(),
-                serde_json::to_vec(&FrozenSlidingSync::from(self))?,
-            )
-            .await?;
-
-        // Write every `SlidingSyncList` inside the client the store.
-        let frozen_lists = {
-            let rooms_lock = self.inner.rooms.read().unwrap();
-
-            self.inner
-                .lists
-                .read()
-                .unwrap()
-                .iter()
-                .map(|(name, list)| {
-                    Ok((
-                        format!("{storage_key}::{name}"),
-                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, crate::Error>>()?
-        };
-
-        for (storage_key, frozen_list) in frozen_lists {
-            trace!(storage_key, "Saving the frozen Sliding Sync list");
-
-            store.set_custom_value(storage_key.as_bytes(), frozen_list).await?;
-        }
-
-        Ok(())
+        cache::store_sliding_sync_state(self).await
     }
 
     /// Create a new [`SlidingSyncBuilder`].
