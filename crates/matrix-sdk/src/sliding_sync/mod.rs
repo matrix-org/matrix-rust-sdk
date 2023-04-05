@@ -186,9 +186,16 @@ impl SlidingSync {
             .since = Some(since);
     }
 
-    /// Get access to the SlidingSyncList named `list_name`.
-    pub fn list(&self, _list_name: &str) -> Option<SlidingSyncList> {
-        todo!("this is going to be removed!");
+    /// Find a list by its name, and do something on it if it exists.
+    pub fn on_list<F>(&self, list_name: &str, f: F)
+    where
+        F: FnOnce(&SlidingSyncList),
+    {
+        let lists = self.inner.lists.read().unwrap();
+
+        if let Some(list) = lists.get(list_name) {
+            f(list);
+        }
     }
 
     /// Add the list to the list of lists.
