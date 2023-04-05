@@ -304,8 +304,22 @@ impl EventTimelineItem {
         }
     }
 
-    pub fn raw(&self) -> Option<String> {
-        self.0.original_json().map(|r| r.json().get().to_owned())
+    pub fn debug_info(&self) -> EventTimelineItemDebugInfo {
+        use matrix_sdk::room::timeline::EventTimelineItem::*;
+
+        let (original_json, latest_edit_json) = match &self.0 {
+            Local(_) => (None, None),
+            Remote(event) => (
+                Some(event.original_json().json().get().to_owned()),
+                event.latest_edit_json().map(|raw| raw.json().get().to_owned()),
+            ),
+        };
+
+        EventTimelineItemDebugInfo {
+            model: format!("{:#?}", self.0),
+            original_json,
+            latest_edit_json,
+        }
     }
 
     pub fn local_send_state(&self) -> Option<EventSendState> {
@@ -316,10 +330,13 @@ impl EventTimelineItem {
             Remote(_) => None,
         }
     }
+}
 
-    pub fn fmt_debug(&self) -> String {
-        format!("{:#?}", self.0)
-    }
+#[derive(uniffi::Record)]
+pub struct EventTimelineItemDebugInfo {
+    model: String,
+    original_json: Option<String>,
+    latest_edit_json: Option<String>,
 }
 
 #[derive(uniffi::Enum)]
