@@ -33,7 +33,7 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
@@ -439,7 +439,7 @@ impl MemoryStore {
             }
         }
 
-        info!("Saved changes in {:?}", now.elapsed());
+        debug!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }
