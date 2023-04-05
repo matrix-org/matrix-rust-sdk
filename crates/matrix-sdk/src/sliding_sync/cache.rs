@@ -208,3 +208,106 @@ pub(super) async fn restore_sliding_sync_state(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use futures::executor::block_on;
+    use url::Url;
+
+    use super::*;
+    use crate::{Client, Result};
+
+    #[test]
+    fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
+        block_on(async {
+            let homeserver = Url::parse("https://foo.bar")?;
+            let client = Client::new(homeserver).await?;
+
+            let store = client.store();
+
+            // Store entries don't exist.
+            assert!(store
+                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+                .await?
+                .is_none());
+
+            assert!(store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+                )
+                .await?
+                .is_none());
+
+            // Create a new `SlidingSync` instance, and store it.
+            {
+                let sliding_sync = client
+                    .sliding_sync()
+                    .await
+                    .storage_key(Some("hello".to_string()))
+                    .add_list(SlidingSyncList::builder().name("list_foo").build()?)
+                    .build()
+                    .await?;
+
+                // Modify one list just to check the restoration.
+                {
+                    let lists = sliding_sync.inner.lists.write().unwrap();
+                    let list_foo = lists.get("list_foo").unwrap();
+
+                    list_foo.set_maximum_number_of_rooms(Some(42));
+                }
+
+                assert!(sliding_sync.cache_to_storage().await.is_ok());
+            }
+
+            // Store entries now exist.
+            assert!(store
+                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+                .await?
+                .is_some());
+
+            assert!(store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+                )
+                .await?
+                .is_some());
+
+            // Create a new `SlidingSync`, and it should be read from the cache.
+            {
+                let sliding_sync = client
+                    .sliding_sync()
+                    .await
+                    .storage_key(Some("hello".to_string()))
+                    .add_list(SlidingSyncList::builder().name("list_foo").build()?)
+                    .build()
+                    .await?;
+
+                // Check the list' state.
+                {
+                    let lists = sliding_sync.inner.lists.write().unwrap();
+                    let list_foo = lists.get("list_foo").unwrap();
+
+                    assert_eq!(list_foo.maximum_number_of_rooms(), Some(42));
+                }
+
+                // Clean the cache.
+                clean_storage(&client, "hello", &sliding_sync.inner.lists.read().unwrap()).await;
+            }
+
+            // Store entries don't exist.
+            assert!(store
+                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+                .await?
+                .is_none());
+
+            assert!(store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+                )
+                .await?
+                .is_none());
+
+            Ok(())
+        })
+    }
+}

@@ -223,6 +223,16 @@ impl SlidingSyncList {
     }
 }
 
+#[cfg(test)]
+impl SlidingSyncList {
+    pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
+        Observable::set(
+            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
+            maximum_number_of_rooms,
+        );
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct SlidingSyncListInner {
     /// Name of this list to easily recognize them.
