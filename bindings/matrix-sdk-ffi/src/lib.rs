@@ -121,9 +121,10 @@ mod uniffi_types {
         timeline::{
             AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
             EventTimelineItem, EventTimelineItemDebugInfo, FileInfo, FileMessageContent,
-            FormattedBody, ImageInfo, ImageMessageContent, InsertData, MembershipChange, Message,
-            MessageFormat, MessageType, NoticeMessageContent, OtherState, ProfileDetails, Reaction,
-            SetData, TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
+            FormattedBody, ImageInfo, ImageMessageContent, InReplyToDetails, InsertData,
+            MembershipChange, Message, MessageFormat, MessageType, NoticeMessageContent,
+            OtherState, ProfileDetails, Reaction, RepliedToEventDetails, SetData,
+            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
             TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
             VirtualTimelineItem,
         },

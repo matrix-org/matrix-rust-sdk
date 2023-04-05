@@ -534,9 +534,8 @@ impl Message {
         self.0.msgtype().body().to_owned()
     }
 
-    // This event ID string will be replaced by something more useful later.
-    pub fn in_reply_to(&self) -> Option<String> {
-        self.0.in_reply_to().map(|r| r.event_id.to_string())
+    pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
+        self.0.in_reply_to().map(InReplyToDetails::from)
     }
 
     pub fn is_edited(&self) -> bool {
@@ -742,6 +741,40 @@ impl From<&matrix_sdk::ruma::events::room::message::FileInfo> for FileInfo {
             thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
         }
     }
+}
+
+#[derive(uniffi::Record)]
+pub struct InReplyToDetails {
+    event_id: String,
+    event: RepliedToEventDetails,
+}
+
+impl From<&matrix_sdk::room::timeline::InReplyToDetails> for InReplyToDetails {
+    fn from(inner: &matrix_sdk::room::timeline::InReplyToDetails) -> Self {
+        let event_id = inner.event_id.to_string();
+        let event = match &inner.event {
+            TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
+            TimelineDetails::Pending => RepliedToEventDetails::Pending,
+            TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
+                message: Arc::new(Message(event.message().to_owned())),
+                sender: event.sender().to_string(),
+                sender_profile: event.sender_profile().into(),
+            },
+            TimelineDetails::Error(err) => {
+                RepliedToEventDetails::Error { message: err.to_string() }
+            }
+        };
+
+        Self { event_id, event }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum RepliedToEventDetails {
+    Unavailable,
+    Pending,
+    Ready { message: Arc<Message>, sender: String, sender_profile: ProfileDetails },
+    Error { message: String },
 }
 
 #[derive(Clone, uniffi::Enum)]
