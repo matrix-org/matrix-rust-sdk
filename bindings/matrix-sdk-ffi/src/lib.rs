@@ -98,38 +98,3 @@ impl From<serde_json::Error> for ClientError {
 pub use platform::*;
 
 uniffi::include_scaffolding!("api");
-
-mod uniffi_types {
-    pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
-
-    pub use crate::{
-        authentication_service::{
-            AuthenticationError, AuthenticationService, HomeserverLoginDetails,
-        },
-        client::{
-            Client, CreateRoomParameters, HttpPusherData, PushFormat, PusherIdentifiers,
-            PusherKind, SearchUsersResults, Session, UserProfile,
-        },
-        client_builder::ClientBuilder,
-        room::{Membership, Room},
-        room_member::{MembershipState, RoomMember},
-        session_verification::{SessionVerificationController, SessionVerificationEmoji},
-        sliding_sync::{
-            RequiredState, RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncError,
-            SlidingSyncList, SlidingSyncListBuilder, SlidingSyncRequestListFilters,
-            SlidingSyncRoom, TaskHandle, UnreadNotificationsCount,
-        },
-        timeline::{
-            AudioInfo, AudioMessageContent, EmoteMessageContent, EncryptedMessage, EventSendState,
-            EventTimelineItem, EventTimelineItemDebugInfo, FileInfo, FileMessageContent,
-            FormattedBody, ImageInfo, ImageMessageContent, InReplyToDetails, InsertData,
-            MembershipChange, Message, MessageFormat, MessageType, NoticeMessageContent,
-            OtherState, ProfileDetails, Reaction, RepliedToEventDetails, SetData,
-            TextMessageContent, ThumbnailInfo, TimelineChange, TimelineDiff, TimelineItem,
-            TimelineItemContent, TimelineItemContentKind, VideoInfo, VideoMessageContent,
-            VirtualTimelineItem,
-        },
-        tracing::{LogLevel, Span},
-        ClientError,
-    };
-}

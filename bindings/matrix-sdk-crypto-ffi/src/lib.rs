@@ -853,22 +853,6 @@ fn vodozemac_version() -> String {
 
 uniffi::include_scaffolding!("olm");
 
-mod uniffi_types {
-    pub use crate::{
-        backup_recovery_key::{
-            BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
-        },
-        error::{CryptoStoreError, DecryptionError, SecretImportError},
-        machine::{KeyRequestPair, OlmMachine},
-        responses::{BootstrapCrossSigningResult, DeviceLists, Request},
-        verification::{
-            RequestVerificationResult, StartSasResult, Verification, VerificationRequest,
-        },
-        BackupKeys, CrossSigningKeyExport, CrossSigningStatus, DecryptedEvent, EncryptionSettings,
-        EventEncryptionAlgorithm, RoomKeyCounts, RoomSettings, ShieldColor, ShieldState,
-    };
-}
-
 #[cfg(test)]
 mod test {
     use anyhow::Result;
