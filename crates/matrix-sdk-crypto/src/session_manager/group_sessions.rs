@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     ops::Deref,
     sync::Arc,
 };
@@ -115,7 +115,7 @@ pub struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: HashMap<OwnedUserId, Vec<Device>>,
+    pub devices: BTreeMap<OwnedUserId, Vec<Device>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
     pub withheld_devices: Vec<(Device, WithheldCode)>,
@@ -336,8 +336,8 @@ impl GroupSessionManager {
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<CollectRecipientsResult> {
-        let users: HashSet<&UserId> = users.collect();
-        let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
+        let users: BTreeSet<&UserId> = users.collect();
+        let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
         let mut withheld_devices: Vec<(Device, WithheldCode)> = Vec::new();
 
         trace!(
@@ -348,15 +348,15 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<OwnedUserId> =
+        let users_shared_with: BTreeSet<OwnedUserId> =
             outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
-        let users_shared_with: HashSet<&UserId> =
+        let users_shared_with: BTreeSet<&UserId> =
             users_shared_with.iter().map(Deref::deref).collect();
 
         // A user left if a user is missing from the set of users that should
         // get the session but is in the set of users that received the session.
-        let user_left = !users_shared_with.difference(&users).collect::<HashSet<_>>().is_empty();
+        let user_left = !users_shared_with.difference(&users).collect::<BTreeSet<_>>().is_empty();
 
         let visibility_changed =
             outbound.settings().history_visibility != settings.history_visibility;
@@ -396,14 +396,14 @@ impl GroupSessionManager {
             // meantime. If so, we should also rotate the session.
             if !should_rotate {
                 // Device IDs that should receive this session
-                let recipient_device_ids: HashSet<&DeviceId> =
+                let recipient_device_ids: BTreeSet<&DeviceId> =
                     recipients.iter().map(|d| d.device_id()).collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
-                    let shared: HashSet<OwnedDeviceId> =
+                    let shared: BTreeSet<OwnedDeviceId> =
                         shared.iter().map(|d| d.key().clone()).collect();
-                    let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+                    let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
                     // The set difference between
                     //
@@ -413,7 +413,7 @@ impl GroupSessionManager {
                     // Represents newly deleted or blacklisted devices. If this
                     // set is non-empty, we must rotate.
                     let newly_deleted_or_blacklisted =
-                        shared.difference(&recipient_device_ids).collect::<HashSet<_>>();
+                        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
 
                     should_rotate = !newly_deleted_or_blacklisted.is_empty();
                 };
@@ -782,7 +782,7 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, ops::Deref, sync::Arc};
+    use std::{collections::BTreeSet, ops::Deref, sync::Arc};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -1046,7 +1046,7 @@ mod tests {
         let late_joiner = user_id!("@bob:localhost");
         let keys_claim = keys_claim_response();
 
-        let mut users: HashSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
         users.insert(late_joiner);
 
         let requests = machine
