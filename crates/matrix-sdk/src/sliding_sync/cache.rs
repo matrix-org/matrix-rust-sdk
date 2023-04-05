@@ -217,6 +217,7 @@ mod tests {
     use super::*;
     use crate::{Client, Result};
 
+    #[allow(clippy::await_holding_lock)]
     #[test]
     fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
         block_on(async {
