@@ -20,7 +20,7 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use crate::{
-    helpers::unwrap_or_clone_arc, room::TimelineLock, Client, ClientError, EventTimelineItem, Room,
+    helpers::unwrap_or_clone_arc, room::TimelineLock, Client, EventTimelineItem, Room,
     TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
 
@@ -825,21 +825,9 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl SlidingSyncBuilder {
-    pub fn add_fullsync_list(self: Arc<Self>) -> Arc<Self> {
+    pub fn storage_key(self: Arc<Self>, name: Option<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_fullsync_list();
-        Arc::new(builder)
-    }
-
-    pub fn no_lists(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.no_lists();
-        Arc::new(builder)
-    }
-
-    pub fn cold_cache(self: Arc<Self>, name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.cold_cache(name);
+        builder.inner = builder.inner.storage_key(name);
         Arc::new(builder)
     }
 
@@ -890,17 +878,6 @@ impl SlidingSyncBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.with_all_extensions();
         Arc::new(builder)
-    }
-}
-
-#[uniffi::export]
-impl Client {
-    pub fn full_sliding_sync(&self) -> Result<Arc<SlidingSync>, ClientError> {
-        RUNTIME.block_on(async move {
-            let builder = self.client.sliding_sync().await;
-            let inner = builder.add_fullsync_list().build().await?;
-            Ok(Arc::new(SlidingSync::new(inner, self.clone())))
-        })
     }
 }
 

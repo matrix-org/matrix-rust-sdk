@@ -16,7 +16,7 @@ use url::Url;
 
 use super::{
     cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner, SlidingSyncList,
-    SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
+    SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -61,41 +61,6 @@ impl SlidingSyncBuilder {
     /// Set the client this sliding sync will be using.
     pub fn client(mut self, value: Client) -> Self {
         self.client = Some(value);
-        self
-    }
-
-    pub(super) fn subscriptions(
-        mut self,
-        value: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-    ) -> Self {
-        self.subscriptions = value;
-        self
-    }
-
-    /// Convenience function to add a full-sync list to the builder
-    pub fn add_fullsync_list(self) -> Self {
-        self.add_list(
-            SlidingSyncListBuilder::default_with_fullsync()
-                .build()
-                .expect("Building default full sync list doesn't fail"),
-        )
-    }
-
-    /// The cold cache key to read from and store the frozen state at
-    pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
-        self.storage_key = Some(name.to_string());
-        self
-    }
-
-    /// Do not use the cold cache
-    pub fn no_cold_cache(mut self) -> Self {
-        self.storage_key = None;
-        self
-    }
-
-    /// Reset the lists to `None`
-    pub fn no_lists(mut self) -> Self {
-        self.lists.clear();
         self
     }
 
