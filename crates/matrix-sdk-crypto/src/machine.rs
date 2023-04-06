@@ -1027,7 +1027,7 @@ impl OlmMachine {
 
                 match decrypted.result.raw_event.deserialize_as() {
                     Ok(event) => {
-                        self.handle_to_device_event(changes, &event).await?;
+                        self.handle_to_device_event(changes, &event).await;
 
                         raw_event = event
                             .serialize_zeroized()
@@ -1041,7 +1041,7 @@ impl OlmMachine {
                 }
             }
 
-            e => self.handle_to_device_event(changes, &e).await?,
+            e => self.handle_to_device_event(changes, &e).await,
         }
 
         Ok(raw_event)
