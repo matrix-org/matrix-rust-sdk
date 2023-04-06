@@ -538,7 +538,7 @@ fn apply_sync_operations(
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`range` must be present for `SYNC` operation".to_string(),
+                            "`range` must be present for `SYNC` operation".to_owned(),
                         )
                     })
                     .map(|(start, end)| {
@@ -578,7 +578,7 @@ fn apply_sync_operations(
                 // `room_ids` is absent.
                 if operation.room_ids.is_empty() {
                     return Err(Error::BadResponse(
-                        "`room_ids` must be present for `SYNC` operation".to_string(),
+                        "`room_ids` must be present for `SYNC` operation".to_owned(),
                     ));
                 }
 
@@ -627,7 +627,7 @@ fn apply_sync_operations(
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for `DELETE` operation".to_string(),
+                            "`index` must be present for `DELETE` operation".to_owned(),
                         )
                     })?
                     .try_into()
@@ -656,14 +656,14 @@ fn apply_sync_operations(
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for `INSERT` operation".to_string(),
+                            "`index` must be present for `INSERT` operation".to_owned(),
                         )
                     })?
                     .try_into()
                     .unwrap();
                 let room_id = operation.room_id.clone().ok_or_else(|| {
                     Error::BadResponse(
-                        "`room_id` must be present for `INSERT` operation".to_string(),
+                        "`room_id` must be present for `INSERT` operation".to_owned(),
                     )
                 })?;
 
@@ -692,7 +692,7 @@ fn apply_sync_operations(
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`range` must be present for `INVALIDATE` operation".to_string(),
+                            "`range` must be present for `INVALIDATE` operation".to_owned(),
                         )
                     })
                     .map(|(start, end)| {
@@ -877,7 +877,7 @@ mod tests {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 sync_mode: SlidingSyncMode::Growing,
-                sort: vec!["foo".to_string(), "bar".to_string()],
+                sort: vec!["foo".to_owned(), "bar".to_owned()],
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
                 filters: Some(assign!(v4::SyncRequestListFilters::default(), {
                     is_dm: Some(true),
