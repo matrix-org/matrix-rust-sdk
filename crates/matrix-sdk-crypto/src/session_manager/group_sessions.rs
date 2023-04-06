@@ -338,7 +338,7 @@ impl GroupSessionManager {
     ) -> OlmResult<CollectRecipientsResult> {
         let users: BTreeSet<&UserId> = users.collect();
         let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
-        let mut withheld_devices: Vec<(Device, WithheldCode)> = Vec::new();
+        let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
 
         trace!(
             ?users,

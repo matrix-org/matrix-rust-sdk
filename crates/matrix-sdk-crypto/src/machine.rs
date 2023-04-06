@@ -920,11 +920,7 @@ impl OlmMachine {
         self.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
-    async fn handle_to_device_event(
-        &self,
-        changes: &mut Changes,
-        event: &ToDeviceEvents,
-    ) -> OlmResult<()> {
+    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
@@ -944,8 +940,6 @@ impl OlmMachine {
             Dummy(_) | RoomKey(_) | ForwardedRoomKey(_) | RoomEncrypted(_) => {}
             _ => {}
         }
-
-        Ok(())
     }
 
     fn record_message_id(event: &Raw<AnyToDeviceEvent>) {

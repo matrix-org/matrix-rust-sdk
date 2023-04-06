@@ -304,7 +304,7 @@ impl OutboundGroupSession {
                     session_id = self.session_id(),
                     room_id = ?self.room_id,
                     "All m.room_key and withheld to-device requests were sent out, marking \
-                        session as shared.",
+                     session as shared.",
                 );
 
                 self.mark_as_shared();
@@ -317,7 +317,7 @@ impl OutboundGroupSession {
                 all_request_ids = ?request_ids,
                 request_id = ?request_id,
                 "Marking to-device request carrying a room key as sent but no \
-                    request found with the given id"
+                 request found with the given id"
             );
         }
 
@@ -488,7 +488,7 @@ impl OutboundGroupSession {
         let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
             d.get(device.device_id()).map(|s| match s.value() {
                 ShareInfo::Shared(s) => {
-                    if Some(s.sender_key) == device.curve25519_key() {
+                    if device.curve25519_key() == Some(s.sender_key) {
                         ShareState::Shared(s.message_index)
                     } else {
                         ShareState::SharedButChangedSenderKey
@@ -512,7 +512,7 @@ impl OutboundGroupSession {
                 share_info.get(device.user_id()).and_then(|d| {
                     d.get(device.device_id()).map(|info| match info {
                         ShareInfo::Shared(info) => {
-                            if Some(info.sender_key) == device.curve25519_key() {
+                            if device.curve25519_key() == Some(info.sender_key) {
                                 ShareState::Shared(info.message_index)
                             } else {
                                 ShareState::SharedButChangedSenderKey
