@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt,
     path::{Path, PathBuf},
@@ -111,26 +112,43 @@ impl SqliteCryptoStore {
         })
     }
 
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = rmp_serde::to_vec_named(value)?;
-
+    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
         if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(serialized)?;
+            let encrypted = key.encrypt_value_data(value)?;
             Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
-            Ok(serialized)
+            Ok(value)
         }
     }
 
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
         if let Some(key) = &self.store_cipher {
             let encrypted = rmp_serde::from_slice(value)?;
             let decrypted = key.decrypt_value_data(encrypted)?;
-
-            Ok(rmp_serde::from_slice(&decrypted)?)
+            Ok(Cow::Owned(decrypted))
         } else {
-            Ok(rmp_serde::from_slice(value)?)
+            Ok(Cow::Borrowed(value))
         }
+    }
+
+    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = serde_json::to_vec(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(data)?;
+        Ok(serde_json::from_slice(&decoded)?)
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = rmp_serde::to_vec_named(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(value)?;
+        Ok(rmp_serde::from_slice(&decoded)?)
     }
 
     fn deserialize_pickled_inbound_group_session(
@@ -171,7 +189,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -223,6 +241,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     if version < 3 {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+        })
+        .await?;
+    }
+
+    if version < 4 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/004_drop_outbound_group_sessions.sql"))
         })
         .await?;
     }
@@ -702,7 +727,7 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for (room_id, pickle) in &outbound_session_changes {
-                    let serialized_session = this.serialize_value(&pickle)?;
+                    let serialized_session = this.serialize_json(&pickle)?;
                     txn.set_outbound_group_session(room_id, &serialized_session)?;
                 }
 
@@ -847,7 +872,7 @@ impl CryptoStore for SqliteCryptoStore {
 
         let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
 
-        let pickle = self.deserialize_value(&value)?;
+        let pickle = self.deserialize_json(&value)?;
         let session = OutboundGroupSession::from_pickle(
             account_info.device_id,
             account_info.identity_keys,
