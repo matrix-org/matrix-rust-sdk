@@ -45,6 +45,7 @@ matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
+serde_json = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
