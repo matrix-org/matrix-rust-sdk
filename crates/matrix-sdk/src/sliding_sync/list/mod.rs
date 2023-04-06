@@ -5,6 +5,7 @@ mod room_list_entry;
 
 use std::{
     cmp::min,
+    collections::HashSet,
     fmt::Debug,
     iter,
     ops::Not,
@@ -204,17 +205,34 @@ impl SlidingSyncList {
         self.inner.next_request()
     }
 
-    // Handle the response from the server.
-    #[instrument(skip(self, sync_operations), fields(name = self.name(), sync_operations_count = sync_operations.len()))]
-    pub(super) fn handle_response(
+    /// Update the list based on the response from the server.
+    ///
+    /// The `maximum_number_of_rooms` is the `lists.$this_list.count` value,
+    /// i.e. maximum number of available rooms as defined by the server. The
+    /// `list_sync_operations` is the `list.$this_list.ops` value
+    /// received from the server for this specific list. It consists of
+    /// operations to “move” rooms' positions. Finally,
+    /// the `rooms_that_have_received_an_update` is the `rooms` value received
+    /// from the server, which represents aggregated rooms that have received an
+    /// update. Maybe their position has changed, maybe they have received a new
+    /// event in their timeline. We need this information to update the
+    /// `room_list` even if the position of the room hasn't be modified: it
+    /// helps the user to know that a room has received an update.
+    #[instrument(skip(self, list_sync_operations), fields(name = self.name(), list_sync_operations_count = list_sync_operations.len()))]
+    pub(super) fn update(
         &mut self,
         maximum_number_of_rooms: u32,
-        sync_operations: &[v4::SyncOp],
+        list_sync_operations: &[v4::SyncOp],
+        rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        let result = self.inner.update_room_list(maximum_number_of_rooms, sync_operations)?;
+        let new_changes = self.inner.update_room_list(
+            maximum_number_of_rooms,
+            list_sync_operations,
+            rooms_that_have_received_an_update,
+        )?;
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
-        Ok(result)
+        Ok(new_changes)
     }
 
     // Reset `Self`.
@@ -375,12 +393,25 @@ impl SlidingSyncListInner {
         })
     }
 
-    // Update the [`Self::room_list`]. It also updates
-    // `[Self::maximum_number_of_rooms]`.
+    /// Update the [`Self::room_list`]. It also updates
+    /// `[Self::maximum_number_of_rooms]`.
+    ///
+    /// The `maximum_number_of_rooms` is the `lists.$this_list.count` value,
+    /// i.e. maximum number of available rooms as defined by the server. The
+    /// `list_sync_operations` is the `list.$this_list.ops` value
+    /// received from the server for this specific list. It consists of
+    /// operations to “move” rooms' positions. Finally,
+    /// the `rooms_that_have_received_an_update` is the `rooms` value received
+    /// from the server, which represents aggregated rooms that have received an
+    /// update. Maybe their position has changed, maybe they have received a new
+    /// event in their timeline. We need this information to update the
+    /// `room_list` even if the position of the room hasn't be modified: it
+    /// helps the user to know that a room has received an update.
     fn update_room_list(
         &self,
         maximum_number_of_rooms: u32,
-        sync_operations: &[v4::SyncOp],
+        list_sync_operations: &[v4::SyncOp],
+        rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
         let mut new_changes = false;
 
@@ -399,8 +430,6 @@ impl SlidingSyncListInner {
         }
 
         // Update the `maximum_number_of_rooms` if it has changed.
-        // Again, it should happened only once at the beginning, as the value of
-        // `maximum_number_of_rooms` should not change over time.
         {
             let mut maximum_number_of_rooms_lock = self.maximum_number_of_rooms.write().unwrap();
 
@@ -411,13 +440,61 @@ impl SlidingSyncListInner {
             }
         }
 
-        // Run the sync operations.
-        if !sync_operations.is_empty() {
+        {
             let mut room_list = self.room_list.write().unwrap();
 
-            apply_sync_operations(sync_operations, &mut room_list)?;
+            // Run the sync operations.
+            let mut rooms_that_have_received_an_update =
+                HashSet::from_iter(rooms_that_have_received_an_update.into_iter().cloned());
 
-            new_changes = true;
+            if !list_sync_operations.is_empty() {
+                apply_sync_operations(
+                    list_sync_operations,
+                    &mut room_list,
+                    &mut rooms_that_have_received_an_update,
+                )?;
+
+                new_changes = true;
+            }
+
+            // Finally, some rooms have received an update, but their position
+            // didn't change in the `room_list`, so no “diff” has
+            // been triggered. The `room_list` value is used by the
+            // user to know if a room has received an update: be either a
+            // position modification or an update in general (like a new room
+            // message). Let's trigger those.
+            let ranges = self.ranges.read().unwrap();
+
+            for (start, end) in ranges.iter().map(|(start, end)| {
+                (usize::try_from(*start).unwrap(), usize::try_from(*end).unwrap())
+            }) {
+                let mut rooms_to_update =
+                    Vec::with_capacity(rooms_that_have_received_an_update.len());
+
+                for (position, room_list_entry) in
+                    room_list.iter().enumerate().skip(start).take(end.saturating_add(1))
+                {
+                    // Invalidated rooms must be considered as empty rooms, so let's just filter by
+                    // filled rooms.
+                    if let RoomListEntry::Filled(room_id) = room_list_entry {
+                        // If room has received an update but that has not been handled by a
+                        // sync operation.
+                        if rooms_that_have_received_an_update.contains(room_id) {
+                            rooms_to_update.push((position, room_list_entry.clone()));
+                        }
+                    }
+                }
+
+                if !rooms_to_update.is_empty() {
+                    for (position, room_list_entry) in rooms_to_update {
+                        // Setting to `room_list`'s item to the same value, just
+                        // to generate an “diff update”.
+                        room_list.set(position, room_list_entry);
+                    }
+
+                    new_changes = true;
+                }
+            }
         }
 
         Ok(new_changes)
@@ -515,6 +592,7 @@ impl SlidingSyncListInner {
 fn apply_sync_operations(
     operations: &[v4::SyncOp],
     room_list: &mut ObservableVector<RoomListEntry>,
+    rooms_that_have_received_an_update: &mut HashSet<OwnedRoomId>,
 ) -> Result<(), Error> {
     for operation in operations {
         match &operation.op {
@@ -605,6 +683,10 @@ fn apply_sync_operations(
                 for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
                     // Syncing means updating the room list to `Filled`.
                     room_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
+
+                    // This `room_id` has been handled, let's remove it from the rooms to handle
+                    // later.
+                    rooms_that_have_received_an_update.remove(room_id);
                 }
             }
 
@@ -629,11 +711,17 @@ fn apply_sync_operations(
                     // `DELETE` for an index that doesn't exist. It happens with the existing
                     // Sliding Sync Proxy (at the time of writing). It may be a bug or something
                     // else. Anyway, it's better to consider an out-of-bounds `DELETE` as a no-op.
-                    return Ok(());
+                    continue;
                 }
 
                 // Removing the entry in the room list.
-                room_list.remove(index);
+                let room_entry = room_list.remove(index);
+
+                // This `room_id` has been handled, let's remove it from the rooms to handle
+                // later.
+                if let Some(room_id) = room_entry.as_room_id() {
+                    rooms_that_have_received_an_update.remove(room_id);
+                }
             }
 
             // Specification says:
@@ -665,6 +753,10 @@ fn apply_sync_operations(
                         room_list.len(),
                     )));
                 }
+
+                // This `room_id` is being handled, let's remove it from the rooms to handle
+                // later.
+                rooms_that_have_received_an_update.remove(&room_id);
 
                 // Inserting a `Filled` entry in the room list .
                 room_list.insert(index, RoomListEntry::Filled(room_id));
@@ -727,9 +819,25 @@ fn apply_sync_operations(
                     //
                     // If the previous room list entry is `Filled`, it becomes `Invalidated`.
                     // Otherwise, for `Empty` or `Invalidated`, it stays as is.
-                    if let Some(RoomListEntry::Filled(room_id)) = room_list.get(room_entry_index) {
-                        room_list
-                            .set(room_entry_index, RoomListEntry::Invalidated(room_id.clone()));
+                    match room_list.get(room_entry_index) {
+                        Some(RoomListEntry::Filled(room_id)) => {
+                            // This `room_id` is being handled, let's remove it from the rooms to
+                            // handle later.
+                            rooms_that_have_received_an_update.remove(room_id);
+
+                            room_list.set(
+                                room_entry_index,
+                                RoomListEntry::Invalidated(room_id.to_owned()),
+                            );
+                        }
+
+                        Some(RoomListEntry::Invalidated(room_id)) => {
+                            // This `room_id` has been handled, let's remove it from the rooms to
+                            // handle later.
+                            rooms_that_have_received_an_update.remove(room_id);
+                        }
+
+                        _ => {}
                     }
                 }
             }

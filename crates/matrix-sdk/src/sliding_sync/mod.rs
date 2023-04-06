@@ -405,7 +405,7 @@ impl SlidingSync {
                 let maximum_number_of_rooms: u32 =
                     updates.count.try_into().expect("failed to convert `count` to `u32`");
 
-                if list.handle_response(maximum_number_of_rooms, &updates.ops)? {
+                if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
                     updated_lists.push(name.clone());
                 }
             }
