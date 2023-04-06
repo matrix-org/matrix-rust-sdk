@@ -7,9 +7,14 @@ macro_rules! cryptostore_integration_tests {
 
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id, encryption::SignedKey, room_id, serde::Base64, user_id, DeviceId,
-                TransactionId, UserId,
+                device_id,
+                encryption::SignedKey,
+                room_id,
+                serde::{Base64, Raw},
+                to_device::DeviceIdOrAllDevices,
+                user_id, DeviceId, JsOption, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
             };
+            use serde_json::value::to_raw_value;
             use $crate::{
                 olm::{
                     Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
@@ -21,9 +26,13 @@ macro_rules! cryptostore_integration_tests {
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
-                    events::room_key_request::MegolmV1AesSha2Content, EventEncryptionAlgorithm,
+                    events::{
+                        dummy::DummyEventContent, room_key_request::MegolmV1AesSha2Content,
+                        ToDeviceEvent,
+                    },
+                    EventEncryptionAlgorithm,
                 },
-                ReadOnlyDevice, SecretInfo, TrackedUser,
+                ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -207,6 +216,16 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.get_outbound_group_session(&room_id).await.unwrap().is_none());
 
                 let (session, _) = account.create_group_session_pair_with_defaults(&room_id).await;
+
+                let user_id = user_id!("@example:localhost");
+                let request = ToDeviceRequest::new(
+                    user_id,
+                    DeviceIdOrAllDevices::AllDevices,
+                    "m.dummy",
+                    Raw::from_json(to_raw_value(&DummyEventContent::new()).unwrap()),
+                );
+
+                session.add_request(TransactionId::new(), request.into(), Default::default());
 
                 let changes = Changes {
                     outbound_group_sessions: vec![session.clone()],
