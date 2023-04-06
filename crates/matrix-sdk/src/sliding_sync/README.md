@@ -363,17 +363,12 @@ out).
 
 This is a purely in-memory cache layer though. If one wants Sliding Sync to
 persist and load from cold (storage) cache, one needs to set its key with
-[`cold_cache(name)`][`SlidingSyncBuilder::cold_cache`] and for each list
+[`storage_key(name)`][`SlidingSyncBuilder::storage_key`] and for each list
 present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
 to load their latest cached version from storage, as well as some overall
 information of Sliding Sync. If that succeeded the lists `state` has been
 set to [`Preload`][SlidingSyncListState::Preload]. Only room data of rooms
 present in one of the lists is loaded from storage.
-
-Once [#1441](https://github.com/matrix-org/matrix-rust-sdk/pull/1441) is merged
-one can disable caching on a per-list basis by setting
-[`cold_cache(false)`][`SlidingSyncListBuilder::cold_cache`] when
-constructing the builder.
 
 Notice that lists added after Sliding Sync has been built **will not be
 loaded from cache** regardless of their settings (as this could lead to
@@ -431,7 +426,7 @@ let sliding_sync_builder = client
     .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
-    .cold_cache("example-cache".to_owned()); // we want these to be loaded from and stored into the persistent storage
+    .storage_key(Some("example-cache".to_string())); // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder()
     .sync_mode(SlidingSyncMode::Growing)  // sync up by growing the window
