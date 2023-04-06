@@ -1,9 +1,6 @@
 //! Builder for [`SlidingSyncList`].
 
-use std::{
-    fmt::Debug,
-    sync::{Arc, RwLock as StdRwLock},
-};
+use std::{fmt::Debug, sync::RwLock as StdRwLock};
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
