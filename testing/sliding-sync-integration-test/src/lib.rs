@@ -360,7 +360,7 @@ async fn adding_list_later() -> anyhow::Result<()> {
         // we only heard about the ones we had asked for
         if !summary.lists.is_empty() {
             // only if we saw an update come through
-            assert_eq!(summary.lists, [list_name_3]);
+            assert_eq!(summary.lists, [list_name_1, list_name_2, list_name_3]);
             // we didn't update the other lists, so only no 2 should se an update
             saw_update = true;
             break;

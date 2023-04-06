@@ -317,8 +317,10 @@ impl SlidingSync {
         }
 
         let update_summary = {
-            let mut updated_rooms = Vec::new();
             let mut rooms_map = self.inner.rooms.write().unwrap();
+
+            // Update the rooms.
+            let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
 
             for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
                 // `sync_response` contains the rooms with decrypted events if any, so look at
@@ -353,7 +355,8 @@ impl SlidingSync {
                 updated_rooms.push(room_id);
             }
 
-            let mut updated_lists = Vec::new();
+            // Update the lists.
+            let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
 
             for (name, updates) in sliding_sync_response.lists {
                 let Some(list) = lists.get_mut(&name) else {
@@ -363,9 +366,9 @@ impl SlidingSync {
                 };
 
                 let maximum_number_of_rooms: u32 =
-                    updates.count.try_into().expect("the list total count convertible into u32");
+                    updates.count.try_into().expect("failed to convert `count` to `u32`");
 
-                if list.handle_response(maximum_number_of_rooms, &updates.ops)? {
+                if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
                     updated_lists.push(name.clone());
                 }
             }
