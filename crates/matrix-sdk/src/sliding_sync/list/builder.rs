@@ -137,7 +137,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// Build the list.
-    pub fn build(self) -> Result<SlidingSyncList> {
+    pub(in super::super) fn build(self) -> Result<SlidingSyncList> {
         let request_generator = match &self.sync_mode {
             SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
                 self.full_sync_batch_size,

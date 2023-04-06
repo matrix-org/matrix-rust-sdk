@@ -203,8 +203,13 @@ impl SlidingSync {
     /// As lists need to have a unique `.name`, if a list with the same name
     /// is found the new list will replace the old one and the return it or
     /// `None`.
-    pub fn add_list(&self, list: SlidingSyncList) -> Option<SlidingSyncList> {
-        self.inner.lists.write().unwrap().insert(list.name().to_owned(), list)
+    pub fn add_list(
+        &self,
+        list_builder: SlidingSyncListBuilder,
+    ) -> Result<Option<SlidingSyncList>> {
+        let list = list_builder.build()?;
+
+        Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
 
     /// Lookup a set of rooms
