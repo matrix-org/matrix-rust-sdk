@@ -426,7 +426,7 @@ let sliding_sync_builder = client
     .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
-    .storage_key(Some("example-cache".to_string())); // we want these to be loaded from and stored into the persistent storage
+    .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder()
     .sync_mode(SlidingSyncMode::Growing)  // sync up by growing the window
