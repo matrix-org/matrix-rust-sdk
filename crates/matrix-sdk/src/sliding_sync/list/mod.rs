@@ -445,7 +445,7 @@ impl SlidingSyncListInner {
 
             // Run the sync operations.
             let mut rooms_that_have_received_an_update =
-                HashSet::from_iter(rooms_that_have_received_an_update.into_iter().cloned());
+                HashSet::from_iter(rooms_that_have_received_an_update.iter().cloned());
 
             if !list_sync_operations.is_empty() {
                 apply_sync_operations(
@@ -1601,6 +1601,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
         let mut list = SlidingSyncList::builder()
             .name("foo")
