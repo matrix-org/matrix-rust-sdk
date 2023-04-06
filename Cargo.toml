@@ -61,13 +61,13 @@ debug = 0
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
 
-# Custom profile with full debugging info, use `--profile debug` to select
+# Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]
 inherits = "dev"
 debug = 2
 
 # Custom profile for use in (debug) builds of the binding crates, use
-# `--profile release_dbg` to select
+# `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dev"
 incremental = false
