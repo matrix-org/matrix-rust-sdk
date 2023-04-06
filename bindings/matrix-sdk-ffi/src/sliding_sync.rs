@@ -144,7 +144,7 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
         match value {
             E::BadResponse(message) => Self::BadResponse { message },
             E::BuildMissingField(message) => {
-                Self::BuildMissingField { message: message.to_string() }
+                Self::BuildMissingField { message: message.to_owned() }
             }
             E::RequestGeneratorHasNotBeenInitialized(message) => {
                 Self::RequestGeneratorHasNotBeenInitialized { message }

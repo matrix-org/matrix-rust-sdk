@@ -244,7 +244,7 @@ mod tests {
                 let sliding_sync = client
                     .sliding_sync()
                     .await
-                    .storage_key(Some("hello".to_string()))
+                    .storage_key(Some("hello".to_owned()))
                     .add_list(SlidingSyncList::builder().name("list_foo").build()?)
                     .build()
                     .await?;
@@ -278,7 +278,7 @@ mod tests {
                 let sliding_sync = client
                     .sliding_sync()
                     .await
-                    .storage_key(Some("hello".to_string()))
+                    .storage_key(Some("hello".to_owned()))
                     .add_list(SlidingSyncList::builder().name("list_foo").build()?)
                     .build()
                     .await?;
