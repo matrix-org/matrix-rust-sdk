@@ -906,9 +906,11 @@ impl SlidingSyncMode {
 mod tests {
     use std::ops::Deref;
 
+    use futures::StreamExt;
     use imbl::vector;
     use ruma::{api::client::sync::sync_events::v4::SlidingOp, assign, room_id, uint};
     use serde_json::json;
+    use tokio::{spawn, sync::mpsc::unbounded_channel};
 
     use super::*;
 
@@ -1598,8 +1600,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_sliding_sync_inner_update_state_room_lists_and_maximum_number_of_rooms() {
+    #[tokio::test]
+    async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
         let mut list = SlidingSyncList::builder()
             .name("foo")
             .sync_mode(SlidingSyncMode::Selective)
@@ -1652,41 +1654,77 @@ mod tests {
             );
         }
 
-        // Update the range.
-        for _ in 0..=1 {
-            // Simulate a request.
-            let _ = list.next_request();
+        let mut room_list_stream = list.room_list_stream();
+        let (room_list_stream_sender, mut room_list_stream_receiver) = unbounded_channel();
 
-            // A new response.
-            let sync: v4::SyncOp = serde_json::from_value(json!({
-                "op": SlidingOp::Sync,
-                "range": [3, 4],
-                "room_ids": [room3, room4],
-            }))
+        spawn(async move {
+            while let Some(diff) = room_list_stream.next().await {
+                room_list_stream_sender.send(diff).unwrap();
+            }
+        });
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [3, 4],
+            "room_ids": [room3, room4],
+        }))
+        .unwrap();
+
+        let new_changes = list
+            .update(
+                5,
+                &[sync],
+                // Let's imagine `room2` has received an update, but its position doesn't
+                // change.
+                &[room3.to_owned(), room4.to_owned(), room2.to_owned()],
+            )
             .unwrap();
 
-            let new_changes = list.handle_response(5, &[sync]).unwrap();
+        assert!(new_changes);
 
-            assert!(new_changes);
+        // The `maximum_number_of_rooms` has been updated as expected.
+        assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
 
-            // The `maximum_number_of_rooms` has been updated as expected.
-            assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
+        // The `room_list` has the correct size and contains expected room entries.
+        let room_list = list.inner.room_list.read().unwrap();
 
-            // The `room_list` has the correct size and contains expected room entries.
-            let room_list = list.inner.room_list.read().unwrap();
+        assert_eq!(room_list.len(), 5);
+        assert_eq!(
+            **room_list,
+            vector![
+                RoomListEntry::Filled(room0.to_owned()),
+                RoomListEntry::Filled(room1.to_owned()),
+                RoomListEntry::Filled(room2.to_owned()),
+                RoomListEntry::Filled(room3.to_owned()),
+                RoomListEntry::Filled(room4.to_owned()),
+            ]
+        );
 
-            assert_eq!(room_list.len(), 5);
-            assert_eq!(
-                **room_list,
-                vector![
-                    RoomListEntry::Filled(room0.to_owned()),
-                    RoomListEntry::Filled(room1.to_owned()),
-                    RoomListEntry::Filled(room2.to_owned()),
-                    RoomListEntry::Filled(room3.to_owned()),
-                    RoomListEntry::Filled(room4.to_owned()),
-                ]
-            );
-        }
+        // Wait for “diff” to be generated.
+        // Why this? Because the following `assert_eq` are using `try_recv()` instead of
+        // recv().await`, so that a missing “diff” doesn't make the test to hang
+        // forever.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // `room3` has been modified by a `SYNC` operation.
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 3, value: RoomListEntry::Filled(room3.to_owned()) })
+        );
+        // `room4` has been modified by a `SYNC` operation.
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 4, value: RoomListEntry::Filled(room4.to_owned()) })
+        );
+        // `room2` has been modified by another update (like a new event).
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 2, value: RoomListEntry::Filled(room2.to_owned()) })
+        );
     }
 
     #[test]
