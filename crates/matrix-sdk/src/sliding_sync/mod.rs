@@ -125,26 +125,6 @@ impl SlidingSync {
         SlidingSyncBuilder::new()
     }
 
-    /// Generate a new [`SlidingSyncBuilder`] with the same inner settings and
-    /// lists but without the current state.
-    pub fn new_builder_copy(&self) -> SlidingSyncBuilder {
-        let mut builder = Self::builder()
-            .client(self.inner.client.clone())
-            .subscriptions(self.inner.subscriptions.read().unwrap().to_owned());
-
-        for list in self.inner.lists.read().unwrap().values().map(|list| {
-            list.new_builder().build().expect("builder worked before, builder works now")
-        }) {
-            builder = builder.add_list(list);
-        }
-
-        if let Some(homeserver) = &self.inner.homeserver {
-            builder.homeserver(homeserver.clone())
-        } else {
-            builder
-        }
-    }
-
     /// Subscribe to a given room.
     ///
     /// Note: this does not cancel any pending request, so make sure to only

@@ -86,8 +86,18 @@ impl From<&RoomListEntry> for RoomListEntryEasy {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn it_works_smoke_test() -> anyhow::Result<()> {
-    let (_client, sync_proxy_builder) = setup("odo".to_owned(), false).await?;
-    let sync_proxy = sync_proxy_builder.add_fullsync_list().build().await?;
+    let (_client, sync_builder) = setup("odo".to_owned(), false).await?;
+    let sync_proxy = sync_builder
+        .add_list(
+            SlidingSyncList::builder()
+                .sync_mode(SlidingSyncMode::Selective)
+                .add_range(0u32, 10)
+                .timeline_limit(0u32)
+                .name("foo")
+                .build()?,
+        )
+        .build()
+        .await?;
     let stream = sync_proxy.stream();
     pin_mut!(stream);
     let room_summary =
@@ -855,7 +865,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
         let (sliding_window_list, growing_sync) = build_lists()?;
         let sync_proxy = sync_proxy_builder
             .clone()
-            .cold_cache("sliding_sync")
+            .storage_key(Some("sliding_sync".to_string()))
             .add_list(sliding_window_list)
             .add_list(growing_sync)
             .build()
@@ -881,7 +891,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
     let start = Instant::now();
     let _sync_proxy = sync_proxy_builder
         .clone()
-        .cold_cache("sliding_sync")
+        .storage_key(Some("sliding_sync".to_string()))
         .add_list(sliding_window_list)
         .add_list(growing_sync)
         .build()
@@ -952,7 +962,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
         .clone()
-        .cold_cache("sliding_sync")
+        .storage_key(Some("sliding_sync".to_string()))
         .add_list(growing_sync)
         .build()
         .await?;
@@ -1037,7 +1047,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
         .clone()
-        .cold_cache("sliding_sync")
+        .storage_key(Some("sliding_sync".to_string()))
         .add_list(growing_sync)
         .build()
         .await?;
