@@ -200,7 +200,9 @@ impl SlidingSyncRoom {
     }
 
     pub fn avatar_url(&self) -> Option<String> {
-        self.client.get_room(self.inner.room_id()).and_then(|room| room.avatar_url_string())
+        self.client
+            .get_room(self.inner.room_id())
+            .and_then(|room| room.avatar_url().map(|url| url.into()))
     }
 
     #[allow(clippy::significant_drop_in_scrutinee)]

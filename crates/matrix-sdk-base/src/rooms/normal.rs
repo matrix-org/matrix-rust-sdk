@@ -178,13 +178,6 @@ impl Room {
             .and_then(|e| e.as_original().and_then(|e| e.content.url.clone()))
     }
 
-    /// Get the avatar url of this room directly as string
-    pub fn avatar_url_string(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.avatar.as_ref().and_then(|e| {
-            e.as_original().and_then(|e| e.content.url.as_ref().map(OwnedMxcUri::to_string))
-        })
-    }
-
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
         self.inner.read().unwrap().canonical_alias().map(ToOwned::to_owned)
