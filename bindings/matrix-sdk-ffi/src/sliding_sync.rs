@@ -101,37 +101,44 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     }
 }
 
-#[derive(uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SlidingSyncError {
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
+    #[error("{message}")]
     BadResponse {
         message: String,
     },
     /// Called `.build()` on a builder type, but the given required field was
     /// missing.
+    #[error("{message}")]
     BuildMissingField {
         message: String,
     },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
+    #[error("{message}")]
     RequestGeneratorHasNotBeenInitialized {
         message: String,
     },
     /// Someone has tried to modify a sliding sync list's ranges, but the
     /// selected sync mode doesn't allow that.
+    #[error("{message}")]
     CannotModifyRanges {
         message: String,
     },
     /// Ranges have a `start` bound greater than `end`.
+    #[error("Ranges have a start {start} bound greater than end {end}")]
     InvalidRange {
         /// Start bound.
         start: u32,
         /// End bound.
         end: u32,
     },
+    #[error("{error}")]
     Unknown {
         error: String,
     },
