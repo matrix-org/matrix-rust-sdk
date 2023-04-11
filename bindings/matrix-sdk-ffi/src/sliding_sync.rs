@@ -199,6 +199,10 @@ impl SlidingSyncRoom {
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
 
+    pub fn avatar_url(&self) -> Option<String> {
+        Some(self.client.get_room(self.inner.room_id())?.avatar_url()?.into())
+    }
+
     #[allow(clippy::significant_drop_in_scrutinee)]
     pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
         let item = RUNTIME.block_on(self.inner.latest_event())?;
