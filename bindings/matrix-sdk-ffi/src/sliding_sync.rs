@@ -101,37 +101,40 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     }
 }
 
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-#[uniffi(flat_error)]
+#[derive(uniffi::Error)]
 pub enum SlidingSyncError {
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
-    #[error("{message}")]
-    BadResponse { message: String },
+    BadResponse {
+        msg: String,
+    },
     /// Called `.build()` on a builder type, but the given required field was
     /// missing.
-    #[error("{message}")]
-    BuildMissingField { message: String },
+    BuildMissingField {
+        msg: String,
+    },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
-    #[error("{message}")]
-    RequestGeneratorHasNotBeenInitialized { message: String },
+    RequestGeneratorHasNotBeenInitialized {
+        msg: String,
+    },
     /// Someone has tried to modify a sliding sync list's ranges, but the
     /// selected sync mode doesn't allow that.
-    #[error("{message}")]
-    CannotModifyRanges { message: String },
+    CannotModifyRanges {
+        msg: String,
+    },
     /// Ranges have a `start` bound greater than `end`.
-    #[error("Ranges have a start {start} bound greater than end {end}")]
     InvalidRange {
         /// Start bound.
         start: u32,
         /// End bound.
         end: u32,
     },
-    #[error("{error}")]
-    Unknown { error: String },
+    Unknown {
+        error: String,
+    },
 }
 
 impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
@@ -139,14 +142,12 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
         use matrix_sdk::sliding_sync::Error as E;
 
         match value {
-            E::BadResponse(message) => Self::BadResponse { message },
-            E::BuildMissingField(message) => {
-                Self::BuildMissingField { message: message.to_owned() }
-            }
+            E::BadResponse(message) => Self::BadResponse { msg: message },
+            E::BuildMissingField(message) => Self::BuildMissingField { msg: message.to_owned() },
             E::RequestGeneratorHasNotBeenInitialized(message) => {
-                Self::RequestGeneratorHasNotBeenInitialized { message }
+                Self::RequestGeneratorHasNotBeenInitialized { msg: message }
             }
-            E::CannotModifyRanges(message) => Self::CannotModifyRanges { message },
+            E::CannotModifyRanges(message) => Self::CannotModifyRanges { msg: message },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
             error => Self::Unknown { error: error.to_string() },
         }
