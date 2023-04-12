@@ -865,7 +865,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
         let (sliding_window_list, growing_sync) = build_lists()?;
         let sync_proxy = sync_proxy_builder
             .clone()
-            .storage_key(Some("sliding_sync".to_string()))
+            .storage_key(Some("sliding_sync".to_owned()))
             .add_list(sliding_window_list)
             .add_list(growing_sync)
             .build()
@@ -891,7 +891,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
     let start = Instant::now();
     let _sync_proxy = sync_proxy_builder
         .clone()
-        .storage_key(Some("sliding_sync".to_string()))
+        .storage_key(Some("sliding_sync".to_owned()))
         .add_list(sliding_window_list)
         .add_list(growing_sync)
         .build()
@@ -962,7 +962,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
         .clone()
-        .storage_key(Some("sliding_sync".to_string()))
+        .storage_key(Some("sliding_sync".to_owned()))
         .add_list(growing_sync)
         .build()
         .await?;
@@ -1047,7 +1047,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
         .clone()
-        .storage_key(Some("sliding_sync".to_string()))
+        .storage_key(Some("sliding_sync".to_owned()))
         .add_list(growing_sync)
         .build()
         .await?;
