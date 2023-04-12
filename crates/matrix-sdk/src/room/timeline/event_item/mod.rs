@@ -14,11 +14,13 @@
 
 use std::sync::Arc;
 
+use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedUserId, TransactionId,
+    UserId,
 };
 
 use crate::Error;
@@ -44,11 +46,18 @@ pub use self::{
 /// also part of the item.
 #[derive(Clone, Debug)]
 pub struct EventTimelineItem {
+    /// The sender of the event.
+    sender: OwnedUserId,
+    /// The sender's profile of the event.
+    sender_profile: TimelineDetails<Profile>,
+    /// The content of the event.
+    content: TimelineItemContent,
+    /// The kind of event timeline item, local or remote.
     kind: EventTimelineItemKind,
 }
 
 #[derive(Clone, Debug)]
-enum EventTimelineItemKind {
+pub(super) enum EventTimelineItemKind {
     /// A local event, not yet echoed back by the server.
     Local(LocalEventTimelineItem),
     /// An event received from the server.
@@ -56,6 +65,15 @@ enum EventTimelineItemKind {
 }
 
 impl EventTimelineItem {
+    pub(super) fn new(
+        sender: OwnedUserId,
+        sender_profile: TimelineDetails<Profile>,
+        content: TimelineItemContent,
+        kind: EventTimelineItemKind,
+    ) -> Self {
+        Self { sender, sender_profile, content, kind }
+    }
+
     /// Get the `LocalEventTimelineItem` if `self` is `Local`.
     pub fn as_local(&self) -> Option<&LocalEventTimelineItem> {
         match &self.kind {
@@ -128,26 +146,17 @@ impl EventTimelineItem {
 
     /// Get the sender of this item.
     pub fn sender(&self) -> &UserId {
-        match &self.kind {
-            EventTimelineItemKind::Local(local_event) => local_event.sender(),
-            EventTimelineItemKind::Remote(remote_event) => remote_event.sender(),
-        }
+        &self.sender
     }
 
     /// Get the profile of the sender.
     pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
-        match &self.kind {
-            EventTimelineItemKind::Local(local_event) => local_event.sender_profile(),
-            EventTimelineItemKind::Remote(remote_event) => remote_event.sender_profile(),
-        }
+        &self.sender_profile
     }
 
     /// Get the content of this item.
     pub fn content(&self) -> &TimelineItemContent {
-        match &self.kind {
-            EventTimelineItemKind::Local(local_event) => local_event.content(),
-            EventTimelineItemKind::Remote(remote_event) => remote_event.content(),
-        }
+        &self.content
     }
 
     /// Get the reactions of this item.
@@ -191,6 +200,22 @@ impl EventTimelineItem {
         }
     }
 
+    /// Whether the event should be highlighted in the timeline.
+    pub fn is_highlighted(&self) -> bool {
+        match &self.kind {
+            EventTimelineItemKind::Local(_) => false,
+            EventTimelineItemKind::Remote(remote_event) => remote_event.is_highlighted(),
+        }
+    }
+
+    /// Get the encryption information for the event, if any.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        match &self.kind {
+            EventTimelineItemKind::Local(_) => None,
+            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info(),
+        }
+    }
+
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///
@@ -211,36 +236,33 @@ impl EventTimelineItem {
         }
     }
 
+    pub(super) fn set_content(&mut self, content: TimelineItemContent) {
+        self.content = content;
+    }
+
+    /// Clone the current event item, and update its `kind`.
+    pub(super) fn with_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Self {
+        Self { kind: kind.into(), ..self.clone() }
+    }
+
     /// Clone the current event item, and apply an edit to it.
     pub(super) fn apply_edit(
         &self,
         new_content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) -> Self {
-        let kind = match &self.kind {
-            EventTimelineItemKind::Local(local_event) => {
-                EventTimelineItemKind::Local(local_event.with_content(new_content))
-            }
-            EventTimelineItemKind::Remote(remote_event) => {
-                EventTimelineItemKind::Remote(remote_event.apply_edit(new_content, edit_json))
-            }
-        };
+        let mut new = self.clone();
+        new.content = new_content;
+        if let EventTimelineItemKind::Remote(r) = &mut new.kind {
+            r.set_edit_json(edit_json);
+        }
 
-        Self { kind }
+        new
     }
 
     /// Clone the current event item, and update its `sender_profile`.
     pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
-        let kind = match &self.kind {
-            EventTimelineItemKind::Local(local_event) => {
-                EventTimelineItemKind::Local(local_event.with_sender_profile(sender_profile))
-            }
-            EventTimelineItemKind::Remote(remote_event) => {
-                EventTimelineItemKind::Remote(remote_event.with_sender_profile(sender_profile))
-            }
-        };
-
-        Self { kind }
+        Self { sender_profile, ..self.clone() }
     }
 }
 
@@ -262,15 +284,15 @@ pub enum EventSendState {
     },
 }
 
-impl From<LocalEventTimelineItem> for EventTimelineItem {
+impl From<LocalEventTimelineItem> for EventTimelineItemKind {
     fn from(value: LocalEventTimelineItem) -> Self {
-        Self { kind: EventTimelineItemKind::Local(value) }
+        EventTimelineItemKind::Local(value)
     }
 }
 
-impl From<RemoteEventTimelineItem> for EventTimelineItem {
+impl From<RemoteEventTimelineItem> for EventTimelineItemKind {
     fn from(value: RemoteEventTimelineItem) -> Self {
-        Self { kind: EventTimelineItemKind::Remote(value) }
+        EventTimelineItemKind::Remote(value)
     }
 }
 

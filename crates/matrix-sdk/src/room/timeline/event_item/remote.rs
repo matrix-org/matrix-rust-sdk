@@ -8,21 +8,15 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 
-use super::{BundledReactions, Profile, TimelineDetails, TimelineItemContent};
+use super::BundledReactions;
 
 /// An item for an event that was received from the homeserver.
 #[derive(Clone)]
 pub struct RemoteEventTimelineItem {
     /// The event ID.
     event_id: OwnedEventId,
-    /// The sender of the event.
-    sender: OwnedUserId,
-    /// The sender's profile of the event.
-    sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
     timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event.
-    content: TimelineItemContent,
     /// All bundled reactions about the event.
     reactions: BundledReactions,
     /// All read receipts for the event.
@@ -51,10 +45,7 @@ impl RemoteEventTimelineItem {
     #[allow(clippy::too_many_arguments)] // Would be nice to fix, but unclear how
     pub(in crate::room::timeline) fn new(
         event_id: OwnedEventId,
-        sender: OwnedUserId,
-        sender_profile: TimelineDetails<Profile>,
         timestamp: MilliSecondsSinceUnixEpoch,
-        content: TimelineItemContent,
         reactions: BundledReactions,
         read_receipts: IndexMap<OwnedUserId, Receipt>,
         is_own: bool,
@@ -64,10 +55,7 @@ impl RemoteEventTimelineItem {
     ) -> Self {
         Self {
             event_id,
-            sender,
-            sender_profile,
             timestamp,
-            content,
             reactions,
             read_receipts,
             is_own,
@@ -83,24 +71,9 @@ impl RemoteEventTimelineItem {
         &self.event_id
     }
 
-    /// Get the sender of the event.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-
-    /// Get the profile of the event's sender.
-    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
-        &self.sender_profile
-    }
-
     /// Get the event timestamp as set by the homeserver that created the event.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         self.timestamp
-    }
-
-    /// Get the content of the event.
-    pub fn content(&self) -> &TimelineItemContent {
-        &self.content
     }
 
     /// Get the reactions of this item.
@@ -125,7 +98,7 @@ impl RemoteEventTimelineItem {
         self.is_own
     }
 
-    /// Get the encryption information for the event.
+    /// Get the encryption information for the event, if any.
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         self.encryption_info.as_ref()
     }
@@ -143,10 +116,6 @@ impl RemoteEventTimelineItem {
     /// Whether the event should be highlighted in the timeline.
     pub fn is_highlighted(&self) -> bool {
         self.is_highlighted
-    }
-
-    pub(in crate::room::timeline) fn set_content(&mut self, content: TimelineItemContent) {
-        self.content = content;
     }
 
     pub(in crate::room::timeline) fn add_read_receipt(
@@ -169,35 +138,14 @@ impl RemoteEventTimelineItem {
         Self { reactions, ..self.clone() }
     }
 
-    /// Clone the current event item, and update its `content`.
-    pub(in crate::room::timeline) fn apply_edit(
-        &self,
-        content: TimelineItemContent,
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    ) -> Self {
-        // If the edit is local (is not a full event yet), `edit_json` will be
-        // `None`, in that case retain the existing value of `latest_edit_json`
-        let latest_edit_json = edit_json.or_else(|| self.latest_edit_json.clone());
-        Self { content, latest_edit_json, ..self.clone() }
-    }
-
-    /// Clone the current event item, and update its `sender_profile`.
-    pub(in crate::room::timeline) fn with_sender_profile(
-        &self,
-        sender_profile: TimelineDetails<Profile>,
-    ) -> Self {
-        Self { sender_profile, ..self.clone() }
-    }
-
     /// Clone the current event item, change its `content` to
     /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
     pub(in crate::room::timeline) fn to_redacted(&self) -> Self {
-        Self {
-            // FIXME: Change when we support state events
-            content: TimelineItemContent::RedactedMessage,
-            reactions: BundledReactions::default(),
-            ..self.clone()
-        }
+        Self { reactions: BundledReactions::default(), ..self.clone() }
+    }
+
+    pub(super) fn set_edit_json(&mut self, edit_json: Option<Raw<AnySyncTimelineEvent>>) {
+        self.latest_edit_json = edit_json;
     }
 }
 
@@ -206,9 +154,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteEventTimelineItem")
             .field("event_id", &self.event_id)
-            .field("sender", &self.sender)
             .field("timestamp", &self.timestamp)
-            .field("content", &self.content)
             .field("reactions", &self.reactions)
             .field("is_own", &self.is_own)
             .field("encryption_info", &self.encryption_info)
