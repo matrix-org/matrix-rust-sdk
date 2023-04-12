@@ -308,8 +308,7 @@ impl Timeline {
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
-        self.inner.fetch_in_reply_to_details(event_id).await?;
-        Ok(())
+        self.inner.fetch_in_reply_to_details(event_id).await
     }
 
     /// Fetch all member events for the room this timeline is displaying.
