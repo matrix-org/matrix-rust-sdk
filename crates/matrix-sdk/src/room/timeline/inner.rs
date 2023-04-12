@@ -53,9 +53,8 @@ use super::{
         handle_explicit_read_receipts, latest_user_read_receipt, load_read_receipts_for_event,
         user_receipt,
     },
-    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
-    Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    rfind_event_by_id, rfind_event_item, EventSendState, InReplyToDetails, Message, Profile,
+    RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -250,7 +249,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return;
         };
 
-        let EventTimelineItem::Local(item) = item else {
+        let Some(item) = item.as_local() else {
             // Remote echo already received. This is very unlikely.
             trace!("Remote echo received before send-event response");
             return;
@@ -387,7 +386,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("session_id", session_id);
 
-                let EventTimelineItem::Remote(remote_event) = event_item else {
+                let Some(remote_event) = event_item.as_remote() else {
                     error!("Key for unable-to-decrypt timeline item is not an event ID");
                     return None;
                 };
