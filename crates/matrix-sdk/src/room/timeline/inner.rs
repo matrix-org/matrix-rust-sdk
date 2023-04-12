@@ -546,20 +546,17 @@ impl TimelineInner {
         }
     }
 
-    pub(super) async fn fetch_in_reply_to_details(
-        &self,
-        event_id: &EventId,
-    ) -> Result<RemoteEventTimelineItem> {
+    pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
         let event = fetch_replied_to_event(
@@ -582,10 +579,10 @@ impl TimelineInner {
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
         item.set_content(TimelineItemContent::Message(
@@ -596,7 +593,7 @@ impl TimelineInner {
         ));
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
-        Ok(item)
+        Ok(())
     }
 
     /// Get the latest read receipt for the given user.
