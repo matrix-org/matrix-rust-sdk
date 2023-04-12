@@ -142,12 +142,12 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
         use matrix_sdk::sliding_sync::Error as E;
 
         match value {
-            E::BadResponse(message) => Self::BadResponse { msg: message },
-            E::BuildMissingField(message) => Self::BuildMissingField { msg: message.to_owned() },
-            E::RequestGeneratorHasNotBeenInitialized(message) => {
-                Self::RequestGeneratorHasNotBeenInitialized { msg: message }
+            E::BadResponse(msg) => Self::BadResponse { msg },
+            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
+            E::RequestGeneratorHasNotBeenInitialized(msg) => {
+                Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
-            E::CannotModifyRanges(message) => Self::CannotModifyRanges { msg: message },
+            E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
             error => Self::Unknown { error: error.to_string() },
         }
