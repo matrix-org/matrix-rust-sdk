@@ -107,23 +107,23 @@ pub enum SlidingSyncError {
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
     BadResponse {
-        message: String,
+        msg: String,
     },
     /// Called `.build()` on a builder type, but the given required field was
     /// missing.
     BuildMissingField {
-        message: String,
+        msg: String,
     },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
     RequestGeneratorHasNotBeenInitialized {
-        message: String,
+        msg: String,
     },
     /// Someone has tried to modify a sliding sync list's ranges, but the
     /// selected sync mode doesn't allow that.
     CannotModifyRanges {
-        message: String,
+        msg: String,
     },
     /// Ranges have a `start` bound greater than `end`.
     InvalidRange {
@@ -142,14 +142,12 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
         use matrix_sdk::sliding_sync::Error as E;
 
         match value {
-            E::BadResponse(message) => Self::BadResponse { message },
-            E::BuildMissingField(message) => {
-                Self::BuildMissingField { message: message.to_owned() }
+            E::BadResponse(msg) => Self::BadResponse { msg },
+            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
+            E::RequestGeneratorHasNotBeenInitialized(msg) => {
+                Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
-            E::RequestGeneratorHasNotBeenInitialized(message) => {
-                Self::RequestGeneratorHasNotBeenInitialized { message }
-            }
-            E::CannotModifyRanges(message) => Self::CannotModifyRanges { message },
+            E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
             error => Self::Unknown { error: error.to_string() },
         }
