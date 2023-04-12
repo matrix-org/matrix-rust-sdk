@@ -243,15 +243,11 @@ pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelin
 #[uniffi::export]
 impl EventTimelineItem {
     pub fn is_local(&self) -> bool {
-        use matrix_sdk::room::timeline::EventTimelineItem::*;
-
-        matches!(self.0, Local(_))
+        self.0.as_local().is_some()
     }
 
     pub fn is_remote(&self) -> bool {
-        use matrix_sdk::room::timeline::EventTimelineItem::*;
-
-        matches!(self.0, Remote(_))
+        self.0.as_remote().is_some()
     }
 
     pub fn unique_identifier(&self) -> String {
@@ -286,49 +282,24 @@ impl EventTimelineItem {
         self.0.timestamp().0.into()
     }
 
-    pub fn reactions(&self) -> Option<Vec<Reaction>> {
-        use matrix_sdk::room::timeline::EventTimelineItem::*;
-
-        match &self.0 {
-            Local(_) => None,
-            Remote(remote_event_item) => Some(
-                remote_event_item
-                    .reactions()
-                    .iter()
-                    .map(|(k, v)| Reaction {
-                        key: k.to_owned(),
-                        count: v.len().try_into().unwrap(),
-                    })
-                    .collect(),
-            ),
-        }
+    pub fn reactions(&self) -> Vec<Reaction> {
+        self.0
+            .reactions()
+            .iter()
+            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.len().try_into().unwrap() })
+            .collect()
     }
 
     pub fn debug_info(&self) -> EventTimelineItemDebugInfo {
-        use matrix_sdk::room::timeline::EventTimelineItem::*;
-
-        let (original_json, latest_edit_json) = match &self.0 {
-            Local(_) => (None, None),
-            Remote(event) => (
-                Some(event.original_json().json().get().to_owned()),
-                event.latest_edit_json().map(|raw| raw.json().get().to_owned()),
-            ),
-        };
-
         EventTimelineItemDebugInfo {
             model: format!("{:#?}", self.0),
-            original_json,
-            latest_edit_json,
+            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
+            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
         }
     }
 
     pub fn local_send_state(&self) -> Option<EventSendState> {
-        use matrix_sdk::room::timeline::EventTimelineItem::*;
-
-        match &self.0 {
-            Local(local_event) => Some(local_event.send_state().into()),
-            Remote(_) => None,
-        }
+        self.0.send_state().map(Into::into)
     }
 }
 

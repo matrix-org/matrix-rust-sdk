@@ -108,7 +108,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
     timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) {
-    let EventTimelineItem::Remote(remote_event_item) = event_item else {
+    let Some(remote_event_item) = event_item.as_remote_mut() else {
         return;
     };
 

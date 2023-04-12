@@ -409,7 +409,7 @@ impl<'a> TimelineEventHandler<'a> {
         };
 
         if let Some((idx, event_item)) = rfind_event_by_id(self.items, event_id) {
-            let EventTimelineItem::Remote(remote_event_item) = event_item else {
+            let Some(remote_event_item) = event_item.as_remote() else {
                 error!("inconsistent state: reaction received on a non-remote event item");
                 return;
             };
@@ -478,7 +478,7 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
         if let Some((_, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
-                let EventTimelineItem::Remote(remote_event_item) = event_item else {
+                let Some(remote_event_item) = event_item.as_remote() else {
                     error!("inconsistent state: reaction received on a non-remote event item");
                     return None;
                 };
@@ -528,10 +528,10 @@ impl<'a> TimelineEventHandler<'a> {
         // `reaction_map`), it can still be present in the timeline items
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
-            let EventTimelineItem::Remote(remote_event_item) = event_item else {
-                    error!("inconsistent state: reaction received on a non-remote event item");
-                    return None;
-                };
+            let Some(remote_event_item) = event_item.as_remote() else {
+                error!("inconsistent state: reaction received on a non-remote event item");
+                return None;
+            };
 
             Some(remote_event_item.to_redacted().into())
         });
@@ -551,17 +551,16 @@ impl<'a> TimelineEventHandler<'a> {
         let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
-        let mut item = match &self.flow {
-            Flow::Local { txn_id, timestamp } => {
-                EventTimelineItem::Local(LocalEventTimelineItem::new(
-                    EventSendState::NotSentYet,
-                    txn_id.to_owned(),
-                    sender,
-                    sender_profile,
-                    *timestamp,
-                    content,
-                ))
-            }
+        let mut item: EventTimelineItem = match &self.flow {
+            Flow::Local { txn_id, timestamp } => LocalEventTimelineItem::new(
+                EventSendState::NotSentYet,
+                txn_id.to_owned(),
+                sender,
+                sender_profile,
+                *timestamp,
+                content,
+            )
+            .into(),
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -570,7 +569,7 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                EventTimelineItem::Remote(RemoteEventTimelineItem::new(
+                RemoteEventTimelineItem::new(
                     event_id.clone(),
                     sender,
                     sender_profile,
@@ -582,7 +581,8 @@ impl<'a> TimelineEventHandler<'a> {
                     self.meta.encryption_info.clone(),
                     raw_event.clone(),
                     self.meta.is_highlighted,
-                ))
+                )
+                .into()
             }
         };
 
@@ -678,7 +678,7 @@ impl<'a> TimelineEventHandler<'a> {
                 });
 
                 if let Some((idx, old_item)) = result {
-                    if let EventTimelineItem::Remote(old_item) = old_item {
+                    if let Some(old_item) = old_item.as_remote() {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
                         // sync proxy, it is actually very common.

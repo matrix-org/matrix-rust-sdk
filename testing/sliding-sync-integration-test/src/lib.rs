@@ -10,7 +10,6 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures::{pin_mut, stream::StreamExt};
 use matrix_sdk::{
-    room::timeline::EventTimelineItem,
     ruma::{
         api::client::{
             error::ErrorKind as RumaError,
@@ -224,17 +223,17 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         assert_matches!(timeline_items[0].as_virtual(), Some(_));
 
         // Second timeline item.
-        let latest_remote_event = assert_matches!(
-            timeline_items[1].as_event(),
-            Some(EventTimelineItem::Remote(remote_event)) => remote_event
-        );
+        let latest_remote_event = timeline_items[1].as_event().unwrap().as_remote().unwrap();
         all_event_ids.push(latest_remote_event.event_id().to_owned());
 
         // Test the room to see the last event.
-        assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
-            assert_eq!(remote_event.event_id(), latest_remote_event.event_id(), "Unexpected latest event");
-            assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
-        });
+        let latest_event = room.latest_event().await.unwrap();
+        assert_eq!(
+            latest_event.event_id(),
+            Some(latest_remote_event.event_id()),
+            "Unexpected latest event"
+        );
+        assert_eq!(latest_event.content().as_message().unwrap().body(), "Message #19");
 
         (room, timeline, timeline_stream)
     };
@@ -270,20 +269,23 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
 
         // The first 19th items are `VectorDiff::PushBack`.
         for nth in 0..19 {
-            assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => {
-                let remote_event = assert_matches!(
-                    value.as_event(),
-                    Some(EventTimelineItem::Remote(remote_event)) => remote_event
-                );
+            let value = assert_matches!(
+                timeline_stream.next().await,
+                Some(VectorDiff::PushBack { value }) => value
+            );
+            let remote_event = value.as_event().unwrap().as_remote().unwrap();
 
-                // Check messages arrived in the correct order.
-                assert_eq!(
-                    remote_event.content().as_message().expect("Received event is not a message").body(),
-                    format!("Message #{nth}"),
-                );
+            // Check messages arrived in the correct order.
+            assert_eq!(
+                remote_event
+                    .content()
+                    .as_message()
+                    .expect("Received event is not a message")
+                    .body(),
+                format!("Message #{nth}"),
+            );
 
-                all_event_ids.push(remote_event.event_id().to_owned());
-            });
+            all_event_ids.push(remote_event.event_id().to_owned());
         }
 
         // The 20th item is a `VectorDiff::Remove`, i.e. the first message is removed.
@@ -294,22 +296,24 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
 
         // And now, the initial message is pushed at the bottom, so the 21th item is a
         // `VectorDiff::PushBack`.
-        let latest_remote_event = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => {
-            let remote_event = assert_matches!(
-                value.as_event(),
-                Some(EventTimelineItem::Remote(remote_event)) => remote_event
-            );
-            assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
-            assert_eq!(remote_event.event_id(), all_event_ids[0]);
+        let latest_remote_event = assert_matches!(
+            timeline_stream.next().await,
+            Some(VectorDiff::PushBack { value }) => value
+        );
 
-            remote_event.clone()
-        });
+        let remote_event = latest_remote_event.as_event().unwrap().as_remote().unwrap();
+        assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
+        assert_eq!(remote_event.event_id(), all_event_ids[0]);
 
         // Test the room to see the last event.
-        assert_matches!(room.latest_event().await, Some(EventTimelineItem::Remote(remote_event)) => {
-            assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
-            assert_eq!(remote_event.event_id(), latest_remote_event.event_id(), "Unexpected latest event");
-        });
+        let latest_event = room.latest_event().await.unwrap();
+
+        assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
+        assert_eq!(
+            Some(remote_event.event_id()),
+            latest_event.event_id(),
+            "Unexpected latest event"
+        );
 
         // Ensure there is no event ID duplication.
         {
