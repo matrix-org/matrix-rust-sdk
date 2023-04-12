@@ -53,14 +53,11 @@ use super::{
         handle_explicit_read_receipts, latest_user_read_receipt, load_read_receipts_for_event,
         user_receipt,
     },
-    rfind_event_by_id, rfind_event_item, EventSendState, InReplyToDetails, Message, Profile,
-    RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
+    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
+    Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
+    TimelineItemContent,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    room::{self, timeline::event_item::RemoteEventTimelineItem},
-    Error, Result,
-};
+use crate::{events::SyncTimelineEventWithoutContent, room, Error, Result};
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
@@ -249,7 +246,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return;
         };
 
-        let Some(item) = item.as_local() else {
+        let Some(local_item) = item.as_local() else {
             // Remote echo already received. This is very unlikely.
             trace!("Remote echo received before send-event response");
             return;
@@ -257,12 +254,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
-        if let EventSendState::Sent { event_id: existing_event_id } = item.send_state() {
+        if let EventSendState::Sent { event_id: existing_event_id } = local_item.send_state() {
             let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        let new_item = TimelineItem::Event(item.with_kind(local_item.with_send_state(send_state)));
         state.items.set(idx, Arc::new(new_item));
     }
 
@@ -547,8 +544,8 @@ impl TimelineInner {
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
-            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
+        let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
             return Ok(());
@@ -557,6 +554,7 @@ impl TimelineInner {
             return Ok(());
         };
 
+        let item = item.clone();
         let event = fetch_replied_to_event(
             state,
             index,
@@ -570,8 +568,7 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, mut item) = rfind_event_by_id(&state.items, item.event_id())
-            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
+        let (index, item) = rfind_event_by_id(&state.items, remote_item.event_id())
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
@@ -583,13 +580,14 @@ impl TimelineInner {
             return Ok(());
         };
 
+        let mut item = item.clone();
         item.set_content(TimelineItemContent::Message(
             message.with_in_reply_to(InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
                 event,
             }),
         ));
-        state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
+        state.items.set(index, Arc::new(item.into()));
 
         Ok(())
     }
@@ -672,7 +670,7 @@ impl TimelineInner {
 async fn fetch_replied_to_event(
     mut state: MutexGuard<'_, TimelineInnerState>,
     index: usize,
-    item: &RemoteEventTimelineItem,
+    item: &EventTimelineItem,
     message: &Message,
     in_reply_to: &EventId,
     room: &room::Common,
@@ -696,8 +694,8 @@ async fn fetch_replied_to_event(
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
-    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None).into();
-    state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
+    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None);
+    state.items.set(index, Arc::new(event_item.into()));
 
     // Don't hold the state lock while the network request is made
     drop(state);

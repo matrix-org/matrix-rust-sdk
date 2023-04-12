@@ -43,9 +43,9 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EventSendState, LocalEventTimelineItem,
-        MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem, RoomMembershipChange,
-        Sticker,
+        AnyOtherFullStateEventContent, BundledReactions, EventSendState, EventTimelineItemKind,
+        LocalEventTimelineItem, MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem,
+        RoomMembershipChange, Sticker,
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
@@ -416,7 +416,7 @@ impl<'a> TimelineEventHandler<'a> {
 
             // Handling of reactions on redacted events is an open question.
             // For now, ignore reactions on redacted events like Element does.
-            if let TimelineItemContent::RedactedMessage = remote_event_item.content() {
+            if let TimelineItemContent::RedactedMessage = event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
             } else {
@@ -438,7 +438,7 @@ impl<'a> TimelineEventHandler<'a> {
                 self.items.set(
                     idx,
                     Arc::new(TimelineItem::Event(
-                        remote_event_item.with_reactions(reactions).into(),
+                        event_item.with_kind(remote_event_item.with_reactions(reactions)),
                     )),
                 );
                 self.result.items_updated += 1;
@@ -507,7 +507,7 @@ impl<'a> TimelineEventHandler<'a> {
                 }
 
                 trace!("Removing reaction");
-                Some(remote_event_item.with_reactions(reactions).into())
+                Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
             });
 
             if !self.result.items_updated > 0 {
@@ -533,7 +533,7 @@ impl<'a> TimelineEventHandler<'a> {
                 return None;
             };
 
-            Some(remote_event_item.to_redacted().into())
+            Some(event_item.with_kind(remote_event_item.to_redacted()))
         });
 
         if self.result.items_updated > 0 {
@@ -551,14 +551,11 @@ impl<'a> TimelineEventHandler<'a> {
         let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
-        let mut item: EventTimelineItem = match &self.flow {
+        let kind: EventTimelineItemKind = match &self.flow {
             Flow::Local { txn_id, timestamp } => LocalEventTimelineItem::new(
                 EventSendState::NotSentYet,
                 txn_id.to_owned(),
-                sender,
-                sender_profile,
                 *timestamp,
-                content,
             )
             .into(),
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
@@ -571,10 +568,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                 RemoteEventTimelineItem::new(
                     event_id.clone(),
-                    sender,
-                    sender_profile,
                     *origin_server_ts,
-                    content,
                     reactions,
                     self.meta.read_receipts.clone(),
                     self.meta.is_own_event,
@@ -585,6 +579,8 @@ impl<'a> TimelineEventHandler<'a> {
                 .into()
             }
         };
+
+        let mut item = EventTimelineItem::new(sender, sender_profile, content, kind);
 
         match &self.flow {
             Flow::Local { timestamp, .. } => {

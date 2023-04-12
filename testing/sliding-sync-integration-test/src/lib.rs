@@ -273,19 +273,15 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
                 timeline_stream.next().await,
                 Some(VectorDiff::PushBack { value }) => value
             );
-            let remote_event = value.as_event().unwrap().as_remote().unwrap();
+            let event = value.as_event().unwrap();
 
             // Check messages arrived in the correct order.
             assert_eq!(
-                remote_event
-                    .content()
-                    .as_message()
-                    .expect("Received event is not a message")
-                    .body(),
+                event.content().as_message().expect("Received event is not a message").body(),
                 format!("Message #{nth}"),
             );
 
-            all_event_ids.push(remote_event.event_id().to_owned());
+            all_event_ids.push(event.event_id().unwrap().to_owned());
         }
 
         // The 20th item is a `VectorDiff::Remove`, i.e. the first message is removed.
@@ -301,19 +297,16 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
             Some(VectorDiff::PushBack { value }) => value
         );
 
-        let remote_event = latest_remote_event.as_event().unwrap().as_remote().unwrap();
-        assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
-        assert_eq!(remote_event.event_id(), all_event_ids[0]);
+        let event = latest_remote_event.as_event().unwrap();
+        let event_id = event.event_id().unwrap();
+        assert_eq!(event.content().as_message().unwrap().body(), "Message #19");
+        assert_eq!(event_id, all_event_ids[0]);
 
         // Test the room to see the last event.
         let latest_event = room.latest_event().await.unwrap();
 
-        assert_eq!(remote_event.content().as_message().unwrap().body(), "Message #19");
-        assert_eq!(
-            Some(remote_event.event_id()),
-            latest_event.event_id(),
-            "Unexpected latest event"
-        );
+        assert_eq!(event.content().as_message().unwrap().body(), "Message #19");
+        assert_eq!(latest_event.event_id().unwrap(), event_id, "Unexpected latest event");
 
         // Ensure there is no event ID duplication.
         {
