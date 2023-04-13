@@ -14,10 +14,10 @@
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_common::locks::Mutex;
 use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,

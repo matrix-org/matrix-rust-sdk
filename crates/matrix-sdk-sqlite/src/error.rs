@@ -62,6 +62,8 @@ pub enum Error {
     #[error(transparent)]
     Decode(rmp_serde::decode::Error),
     #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
     Encryption(matrix_sdk_store_encryption::Error),
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,

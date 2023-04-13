@@ -15,21 +15,13 @@
 
 use std::{fmt, sync::Arc};
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
-use matrix_sdk_base::{
-    locks::{Mutex, RwLock},
-    store::StoreConfig,
-    BaseClient,
-};
+use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock};
 use tracing::{
     debug,
     field::{self, debug},
@@ -441,6 +433,7 @@ impl ClientBuilder {
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
+            sync_gap_broadcast_txs: Default::default(),
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,
             sync_beat: event_listener::Event::new(),

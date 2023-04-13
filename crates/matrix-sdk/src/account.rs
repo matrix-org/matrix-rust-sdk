@@ -35,15 +35,18 @@ use ruma::{
     assign,
     events::{
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        push_rules::PushRulesEventContent,
         room::MediaSource,
         AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
     },
+    push::Ruleset,
     serde::Raw,
     thirdparty::Medium,
     ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
+use tracing::error;
 
 use crate::{config::RequestConfig, Client, Error, HttpError, Result};
 
@@ -821,6 +824,30 @@ impl Account {
             .transpose()?
             .unwrap_or_default();
         Ok(ignored_user_list)
+    }
+
+    /// Get the current push rules.
+    ///
+    /// If no push rules event was found, or it fails to deserialize, a ruleset
+    /// with the server-default push rules is returned.
+    ///
+    /// Panics if called when the client is not logged in.
+    pub(crate) async fn push_rules(&self) -> Result<Ruleset> {
+        Ok(self
+            .account_data::<PushRulesEventContent>()
+            .await?
+            .and_then(|r| match r.deserialize() {
+                Ok(r) => Some(r.global),
+                Err(e) => {
+                    error!("Push rules event failed to deserialize: {e}");
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                Ruleset::server_default(
+                    self.client.user_id().expect("The client should be logged in"),
+                )
+            }))
     }
 }
 

@@ -23,7 +23,6 @@ use std::{
 };
 
 use atomic::Atomic;
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -32,6 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+use tokio::sync::Mutex;
 use tracing::{trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
@@ -359,6 +359,11 @@ impl Device {
         self.verification_machine.store.get_sessions(&k.to_base64()).await
     }
 
+    #[cfg(test)]
+    pub(crate) async fn get_most_recent_session(&self) -> OlmResult<Option<Session>> {
+        self.inner.get_most_recent_session(self.verification_machine.store.inner()).await
+    }
+
     /// Is this device considered to be verified.
     ///
     /// This method returns true if either [`is_locally_trusted()`] returns true
@@ -671,6 +676,34 @@ impl ReadOnlyDevice {
         }
     }
 
+    /// Find and return the most recently created Olm [`Session`] we are sharing
+    /// with this device.
+    pub(crate) async fn get_most_recent_session(
+        &self,
+        store: &DynCryptoStore,
+    ) -> OlmResult<Option<Session>> {
+        if let Some(sender_key) = self.curve25519_key() {
+            if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
+                let mut sessions = s.lock().await;
+
+                sessions.sort_by_key(|s| s.creation_time);
+
+                Ok(sessions.last().cloned())
+            } else {
+                Ok(None)
+            }
+        } else {
+            warn!(
+                user_id = ?self.user_id(),
+                device_id = ?self.device_id(),
+                "Trying to find a Olm session of a device, but the device doesn't have a \
+                Curve25519 key",
+            );
+
+            Err(EventError::MissingSenderKey.into())
+        }
+    }
+
     /// Does this device support the olm.v2.curve25519-aes-sha2 encryption
     /// algorithm.
     #[cfg(feature = "experimental-algorithms")]
@@ -739,44 +772,29 @@ impl ReadOnlyDevice {
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let Some(sender_key) = self.curve25519_key() else {
-            warn!(
+        let session = self.get_most_recent_session(store).await?;
+
+        if let Some(mut session) = session {
+            let message = session.encrypt(self, event_type, content).await?;
+
+            trace!(
                 user_id = ?self.user_id(),
                 device_id = ?self.device_id(),
-                "Trying to encrypt a Megolm session, but the device doesn't \
-                have a curve25519 key",
+                session_id = session.session_id(),
+                "Successfully encrypted a Megolm session",
             );
-            return Err(EventError::MissingSenderKey.into());
-        };
 
-        let session = if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
-            let mut sessions = s.lock().await;
-            sessions.sort_by_key(|s| s.last_use_time);
-            sessions.get(0).cloned()
+            Ok((session, message))
         } else {
-            None
-        };
-
-        let Some(mut session) = session else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
                 but no Olm session is found",
                 self.user_id(),
                 self.device_id()
             );
-            return Err(OlmError::MissingSession);
-        };
 
-        let message = session.encrypt(self, event_type, content).await?;
-
-        trace!(
-            user_id = ?self.user_id(),
-            device_id = ?self.device_id(),
-            session_id = session.session_id(),
-            "Successfully encrypted a Megolm session",
-        );
-
-        Ok((session, message))
+            Err(OlmError::MissingSession)
+        }
     }
 
     /// Update a device with a new device keys struct.

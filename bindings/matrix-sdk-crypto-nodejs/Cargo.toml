@@ -18,7 +18,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 crate-type = ["cdylib"]
 
 [features]
-default = []
+default = ["bundled-sqlite"]
+bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 tracing = ["dep:tracing-subscriber"]
 
@@ -33,7 +34,7 @@ napi-derive = "2.9.1"
 serde_json = { workspace = true }
 http = { workspace = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "time", "smallvec", "fmt", "env-filter"], optional = true }
-vodozemac = { workspace = true, features = ["js"]}
+vodozemac = { workspace = true, features = ["js"] }
 zeroize = { workspace = true }
 
 [build-dependencies]

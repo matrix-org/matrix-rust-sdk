@@ -90,6 +90,20 @@ impl Room {
         }
     }
 
+    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+        match &self.room {
+            SdkRoom::Invited(i) => RUNTIME.block_on(async move {
+                i.invite_details()
+                    .await
+                    .ok()
+                    .and_then(|a| a.inviter)
+                    .map(|m| Arc::new(RoomMember::new(m)))
+            }),
+            SdkRoom::Joined(_) => None,
+            SdkRoom::Left(_) => None,
+        }
+    }
+
     /// Removes the timeline.
     ///
     /// Timeline items cached in memory as well as timeline listeners are
@@ -446,6 +460,19 @@ impl Room {
         })
     }
 
+    /// Ignores a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the user to ignore.
+    pub fn ignore_user(&self, user_id: String) -> Result<()> {
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(user_id)?;
+            self.client().account().ignore_user(&user_id).await?;
+            Ok(())
+        })
+    }
+
     /// Leaves the joined room.
     ///
     /// Will throw an error if used on an room that isn't in a joined state
@@ -524,6 +551,20 @@ impl Room {
 
         RUNTIME.block_on(async move {
             room.remove_avatar().await?;
+            Ok(())
+        })
+    }
+
+    pub fn invite_user_by_id(&self, user_id: String) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Joined(joined_room) => joined_room.clone(),
+            _ => bail!("Can't invite user to room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            let user = <&UserId>::try_from(user_id.as_str())
+                .context("Could not create user from string")?;
+            room.invite_user_by_id(user).await?;
             Ok(())
         })
     }

@@ -14,7 +14,7 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use matrix_sdk::locks::Mutex;
+use tokio::sync::Mutex;
 
 use crate::{
     ruma::api::appservice::query::{

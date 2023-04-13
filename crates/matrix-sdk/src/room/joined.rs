@@ -5,8 +5,6 @@ use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
 use matrix_sdk_common::instant::{Duration, Instant};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
     api::client::{
@@ -38,6 +36,8 @@ use ruma::{
     EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::Mutex;
 use tracing::{debug, instrument};
 
 use super::Left;
@@ -663,13 +663,12 @@ impl Joined {
     /// Send an attachment to this room.
     ///
     /// This will upload the given data that the reader produces using the
-    /// [`upload()`](#method.upload) method and post an event to the given room.
+    /// [`upload()`] method and post an event to the given room.
     /// If the room is encrypted and the encryption feature is enabled the
     /// upload will be encrypted.
     ///
     /// This is a convenience method that calls the
-    /// [`Client::upload()`](#Client::method.upload) and afterwards the
-    /// [`send()`](#method.send).
+    /// [`upload()`] and afterwards the [`send()`].
     ///
     /// # Arguments
     /// * `body` - A textual representation of the media that is going to be
@@ -707,6 +706,9 @@ impl Joined {
     /// }
     /// # anyhow::Ok(()) });
     /// ```
+    ///
+    /// [`upload()`]: crate::Media::upload
+    /// [`send()`]: Joined::send
     #[instrument(skip_all, parent = &self.client.inner.root_span)]
     pub async fn send_attachment(
         &self,

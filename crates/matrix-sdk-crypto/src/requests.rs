@@ -74,8 +74,10 @@ impl ToDeviceRequest {
     /// * `recipient_device` - The device that should receive this to-device
     /// event, or all devices.
     ///
+    /// * `event_type` - The type of the event content that is getting sent out.
+    ///
     /// * `content` - The content of the to-device event.
-    pub(crate) fn new(
+    pub fn new(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         event_type: &str,

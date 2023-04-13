@@ -19,8 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-#[allow(unused_imports)]
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use matrix_sdk_common::instant::Instant;
 use ruma::{
     canonical_json::redact,
     events::{
@@ -34,7 +33,7 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
@@ -117,7 +116,7 @@ impl MemoryStore {
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
             #[cfg(feature = "memory-media-cache")]
-            media: Arc::new(Mutex::new(LruCache::new(
+            media: Arc::new(tokio::sync::Mutex::new(LruCache::new(
                 100.try_into().expect("100 is a non-zero usize"),
             ))),
             custom: DashMap::new().into(),
@@ -440,7 +439,7 @@ impl MemoryStore {
             }
         }
 
-        info!("Saved changes in {:?}", now.elapsed());
+        debug!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }

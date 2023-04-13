@@ -1,79 +1,278 @@
 mod builder;
+mod frozen;
 mod request_generator;
+mod room_list_entry;
 
 use std::{
-    collections::BTreeMap,
+    cmp::min,
+    collections::HashSet,
     fmt::Debug,
     iter,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, RwLock as StdRwLock,
-    },
+    ops::Not,
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
+pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
-use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId, RoomId, UInt};
+pub use room_list_entry::RoomListEntry;
+use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, UInt};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, warn};
+use tracing::{instrument, warn};
 
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
 /// Holding a specific filtered list within the concept of sliding sync.
-/// Main entrypoint to the `SlidingSync`:
 ///
-/// ```no_run
-/// # use futures::executor::block_on;
-/// # use matrix_sdk::Client;
-/// # use url::Url;
-/// # block_on(async {
-/// # let homeserver = Url::parse("http://example.com")?;
-/// let client = Client::new(homeserver).await?;
-/// let sliding_sync =
-///     client.sliding_sync().await.add_fullsync_list().build().await?;
-///
-/// # anyhow::Ok(())
-/// # });
-/// ```
+/// It is OK to clone this type as much as you need: cloning it is cheap.
 #[derive(Clone, Debug)]
 pub struct SlidingSyncList {
-    /// Which SlidingSyncMode to start this list under
+    inner: Arc<SlidingSyncListInner>,
+}
+
+impl SlidingSyncList {
+    /// Create a new [`SlidingSyncListBuilder`].
+    pub fn builder() -> SlidingSyncListBuilder {
+        SlidingSyncListBuilder::new()
+    }
+
+    /// Return a builder with the same settings as before
+    pub fn new_builder(&self) -> SlidingSyncListBuilder {
+        let mut builder = Self::builder()
+            .name(&self.inner.name)
+            .sync_mode(self.inner.sync_mode.clone())
+            .sort(self.inner.sort.clone())
+            .required_state(self.inner.required_state.clone())
+            .filters(self.inner.filters.clone())
+            .ranges(self.inner.ranges.read().unwrap().clone());
+
+        if let Some(timeline_limit) = Observable::get(&self.inner.timeline_limit.read().unwrap()) {
+            builder = builder.timeline_limit(*timeline_limit);
+        }
+
+        builder
+    }
+
+    pub(crate) fn set_from_cold(
+        &mut self,
+        maximum_number_of_rooms: Option<u32>,
+        room_list: Vector<RoomListEntry>,
+    ) {
+        Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
+        Observable::set(
+            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
+            maximum_number_of_rooms,
+        );
+
+        let mut lock = self.inner.room_list.write().unwrap();
+        lock.clear();
+        lock.append(room_list);
+    }
+
+    /// Get the name of the list.
+    pub fn name(&self) -> &str {
+        self.inner.name.as_str()
+    }
+
+    /// Set the ranges to fetch.
+    pub fn set_ranges<U>(&self, ranges: &[(U, U)]) -> Result<(), Error>
+    where
+        U: Into<UInt> + Copy,
+    {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
+
+        self.inner.set_ranges(ranges);
+        self.reset();
+
+        Ok(())
+    }
+
+    /// Reset the ranges to a particular set.
+    pub fn set_range<U>(&self, start: U, end: U) -> Result<(), Error>
+    where
+        U: Into<UInt> + Copy,
+    {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
+
+        self.inner.set_ranges(&[(start, end)]);
+        self.reset();
+
+        Ok(())
+    }
+
+    /// Set the ranges to fetch.
+    pub fn add_range<U>(&self, (start, end): (U, U)) -> Result<(), Error>
+    where
+        U: Into<UInt>,
+    {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
+
+        self.inner.add_range((start, end));
+        self.reset();
+
+        Ok(())
+    }
+
+    /// Reset the ranges to fetch.
+    ///
+    /// Note: sending an empty list of ranges is, according to the spec, to be
+    /// understood that the consumer doesn't care about changes of the room
+    /// order but you will only receive updates when for rooms entering or
+    /// leaving the set.
+    pub fn reset_ranges(&self) -> Result<(), Error> {
+        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+            return Err(Error::CannotModifyRanges(self.name().to_owned()));
+        }
+
+        self.inner.set_ranges::<UInt>(&[]);
+        self.reset();
+
+        Ok(())
+    }
+
+    /// Get the current state.
+    pub fn state(&self) -> SlidingSyncState {
+        self.inner.state.read().unwrap().clone()
+    }
+
+    /// Get a stream of state.
+    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
+        Observable::subscribe(&self.inner.state.read().unwrap())
+    }
+
+    /// Get the timeline limit.
+    pub fn timeline_limit(&self) -> Option<UInt> {
+        **self.inner.timeline_limit.read().unwrap()
+    }
+
+    /// Set timeline limit.
+    pub fn set_timeline_limit<U>(&self, timeline: Option<U>)
+    where
+        U: Into<UInt>,
+    {
+        let timeline = timeline.map(Into::into);
+
+        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
+    }
+
+    /// Get the current room list.
+    pub fn room_list<R>(&self) -> Vec<R>
+    where
+        R: for<'a> From<&'a RoomListEntry>,
+    {
+        self.inner.room_list.read().unwrap().iter().map(|e| R::from(e)).collect()
+    }
+
+    /// Get a stream of room list.
+    pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
+        ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
+    }
+
+    /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
+    /// to learn more.
+    pub fn maximum_number_of_rooms(&self) -> Option<u32> {
+        **self.inner.maximum_number_of_rooms.read().unwrap()
+    }
+
+    /// Get a stream of rooms count.
+    pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
+        Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
+    }
+
+    /// Return the `room_id` at the given index.
+    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
+        self.inner
+            .room_list
+            .read()
+            .unwrap()
+            .get(index)
+            .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
+    }
+
+    /// Calculate the next request and return it.
+    pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
+        self.inner.next_request()
+    }
+
+    /// Update the list based on the response from the server.
+    ///
+    /// The `maximum_number_of_rooms` is the `lists.$this_list.count` value,
+    /// i.e. maximum number of available rooms as defined by the server. The
+    /// `list_sync_operations` is the `list.$this_list.ops` value
+    /// received from the server for this specific list. It consists of
+    /// operations to “move” rooms' positions. Finally,
+    /// the `rooms_that_have_received_an_update` is the `rooms` value received
+    /// from the server, which represents aggregated rooms that have received an
+    /// update. Maybe their position has changed, maybe they have received a new
+    /// event in their timeline. We need this information to update the
+    /// `room_list` even if the position of the room hasn't be modified: it
+    /// helps the user to know that a room has received an update.
+    #[instrument(skip(self, list_sync_operations), fields(name = self.name(), list_sync_operations_count = list_sync_operations.len()))]
+    pub(super) fn update(
+        &mut self,
+        maximum_number_of_rooms: u32,
+        list_sync_operations: &[v4::SyncOp],
+        rooms_that_have_received_an_update: &[OwnedRoomId],
+    ) -> Result<bool, Error> {
+        let new_changes = self.inner.update_room_list(
+            maximum_number_of_rooms,
+            list_sync_operations,
+            rooms_that_have_received_an_update,
+        )?;
+        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
+
+        Ok(new_changes)
+    }
+
+    // Reset `Self`.
+    pub(super) fn reset(&self) {
+        self.inner.reset();
+    }
+}
+
+#[cfg(test)]
+impl SlidingSyncList {
+    pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
+        Observable::set(
+            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
+            maximum_number_of_rooms,
+        );
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct SlidingSyncListInner {
+    /// Name of this list to easily recognize them.
+    name: String,
+
+    /// The state this list is in.
+    state: StdRwLock<Observable<SlidingSyncState>>,
+
+    /// Which [`SlidingSyncMode`] to start this list under.
     sync_mode: SlidingSyncMode,
 
-    /// Sort the rooms list by this
+    /// Sort the room list by this.
     sort: Vec<String>,
 
-    /// Required states to return per room
+    /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
-
-    /// When doing a full-sync, the ranges of rooms to load are extended by this
-    /// `full_sync_batch_size` size.
-    full_sync_batch_size: u32,
-
-    /// When doing a full-sync, it is possible to limit the total number of
-    /// rooms to load by using this field.
-    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
-
-    /// Whether the list should send `UpdatedAt`-Diff signals for rooms
-    /// that have changed.
-    send_updates_for_items: bool,
 
     /// Any filters to apply to the query.
     filters: Option<v4::SyncRequestListFilters>,
 
-    /// The maximum number of timeline events to query for
-    pub timeline_limit: Arc<StdRwLock<Observable<Option<UInt>>>>,
-
-    /// Name of this list to easily recognize them
-    pub name: String,
-
-    /// The state this list is in.
-    state: Arc<StdRwLock<Observable<SlidingSyncState>>>,
+    /// The maximum number of timeline events to query for.
+    timeline_limit: StdRwLock<Observable<Option<UInt>>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -82,532 +281,574 @@ pub struct SlidingSyncList {
     /// client that it's possible to fetch this amount of rooms maximum.
     /// Since this number can change according to the list filters, it's
     /// observable.
-    maximum_number_of_rooms: Arc<StdRwLock<Observable<Option<u32>>>>,
+    maximum_number_of_rooms: StdRwLock<Observable<Option<u32>>>,
 
     /// The rooms in order.
-    rooms_list: Arc<StdRwLock<ObservableVector<RoomListEntry>>>,
+    room_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
     /// The ranges windows of the list.
-    #[allow(clippy::type_complexity)] // temporarily
-    ranges: Arc<StdRwLock<Observable<Vec<(UInt, UInt)>>>>,
+    ranges: StdRwLock<Observable<Vec<(UInt, UInt)>>>,
 
-    /// Get informed if anything in the room changed.
-    ///
-    /// If you only care to know about changes once all of them have applied
-    /// (including the total), subscribe to this observable.
-    pub rooms_updated_broadcast: Arc<StdRwLock<Observable<()>>>,
-
-    is_cold: Arc<AtomicBool>,
+    /// The request generator, i.e. a type that yields the appropriate list
+    /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
+    request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
 }
 
-impl SlidingSyncList {
-    pub(crate) fn set_from_cold(
-        &mut self,
-        maximum_number_of_rooms: Option<u32>,
-        rooms_list: Vector<RoomListEntry>,
-    ) {
-        Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::Preloaded);
-        self.is_cold.store(true, Ordering::SeqCst);
-        Observable::set(
-            &mut self.maximum_number_of_rooms.write().unwrap(),
-            maximum_number_of_rooms,
-        );
-
-        let mut lock = self.rooms_list.write().unwrap();
-        lock.clear();
-        lock.append(rooms_list);
+impl SlidingSyncListInner {
+    /// Reset and add new ranges.
+    fn set_ranges<U>(&self, ranges: &[(U, U)])
+    where
+        U: Into<UInt> + Copy,
+    {
+        let ranges = ranges.iter().map(|(start, end)| ((*start).into(), (*end).into())).collect();
+        Observable::set(&mut self.ranges.write().unwrap(), ranges);
     }
 
-    /// Create a new [`SlidingSyncListBuilder`].
-    pub fn builder() -> SlidingSyncListBuilder {
-        SlidingSyncListBuilder::new()
-    }
-
-    /// Return a builder with the same settings as before
-    pub fn new_builder(&self) -> SlidingSyncListBuilder {
-        Self::builder()
-            .name(&self.name)
-            .sync_mode(self.sync_mode.clone())
-            .sort(self.sort.clone())
-            .required_state(self.required_state.clone())
-            .full_sync_batch_size(self.full_sync_batch_size)
-            .ranges(self.ranges.read().unwrap().clone())
-    }
-
-    /// Set the ranges to fetch.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
-        let value = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
-        Observable::set(&mut self.ranges.write().unwrap(), value);
-
-        self
-    }
-
-    /// Reset the ranges to a particular set
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> &Self {
-        let value = vec![(start.into(), end.into())];
-        Observable::set(&mut self.ranges.write().unwrap(), value);
-
-        self
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> &Self {
+    /// Add a new range.
+    fn add_range<U>(&self, (start, end): (U, U))
+    where
+        U: Into<UInt>,
+    {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push((start.into(), end.into()));
         });
-
-        self
     }
 
-    /// Set the ranges to fetch
-    ///
-    /// Note: sending an empty list of ranges is, according to the spec, to be
-    /// understood that the consumer doesn't care about changes of the room
-    /// order but you will only receive updates when for rooms entering or
-    /// leaving the set.
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn reset_ranges(&self) -> &Self {
-        Observable::set(&mut self.ranges.write().unwrap(), Vec::new());
-
-        self
+    /// Call this method when it's necessary to reset `Self`.
+    fn reset(&self) {
+        self.request_generator.write().unwrap().reset();
+        Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::NotLoaded);
     }
 
-    /// Get the current state.
-    pub fn state(&self) -> SlidingSyncState {
-        self.state.read().unwrap().clone()
-    }
+    // Update the state to the next request, and return it.
+    fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
+        {
+            // Use a dedicated scope to ensure the lock is released before continuing.
+            let mut request_generator = self.request_generator.write().unwrap();
 
-    /// Get a stream of state.
-    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
-        Observable::subscribe(&self.state.read().unwrap())
-    }
-
-    /// Get the current rooms list.
-    pub fn rooms_list<R>(&self) -> Vec<R>
-    where
-        R: for<'a> From<&'a RoomListEntry>,
-    {
-        self.rooms_list.read().unwrap().iter().map(|e| R::from(e)).collect()
-    }
-
-    /// Get a stream of rooms list.
-    pub fn rooms_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
-        ObservableVector::subscribe(&self.rooms_list.read().unwrap())
-    }
-
-    /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
-    /// to learn more.
-    pub fn maximum_number_of_rooms(&self) -> Option<u32> {
-        **self.maximum_number_of_rooms.read().unwrap()
-    }
-
-    /// Get a stream of rooms count.
-    pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
-        Observable::subscribe(&self.maximum_number_of_rooms.read().unwrap())
-    }
-
-    /// Find the current valid position of the room in the list `room_list`.
-    ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the item was
-    /// found in the room_list, return None otherwise.
-    pub fn find_room_in_list(&self, room_id: &RoomId) -> Option<usize> {
-        let ranges = self.ranges.read().unwrap();
-        let listing = self.rooms_list.read().unwrap();
-
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut current_position: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let room_list_entries = listing.iter().skip(current_position);
-
-            for room_list_entry in room_list_entries {
-                if let RoomListEntry::Filled(this_room_id) = room_list_entry {
-                    if room_id == this_room_id {
-                        return Some(current_position);
-                    }
+            match request_generator.kind {
+                // Cases where all rooms have been fully loaded.
+                SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
+                | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
+                | SlidingSyncListRequestGeneratorKind::Selective => {
+                    // Let's copy all the ranges from `SlidingSyncList`.
+                    request_generator.ranges = self.ranges.read().unwrap().clone();
                 }
 
-                if current_position == end {
-                    break;
+                SlidingSyncListRequestGeneratorKind::Paging {
+                    number_of_fetched_rooms,
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    ..
+                } => {
+                    // In paging-mode, range starts at the number of fetched rooms. Since ranges are
+                    // inclusive, and since the number of fetched rooms starts at 1,
+                    // not at 0, there is no need to add 1 here.
+                    let range_start = number_of_fetched_rooms;
+                    let range_desired_size = batch_size;
+
+                    // Create a new range, and use it as the current set of ranges.
+                    request_generator.ranges = vec![create_range(
+                        range_start,
+                        range_desired_size,
+                        maximum_number_of_rooms_to_fetch,
+                        **self.maximum_number_of_rooms.read().unwrap(),
+                    )?];
                 }
 
-                current_position += 1;
+                SlidingSyncListRequestGeneratorKind::Growing {
+                    number_of_fetched_rooms,
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    ..
+                } => {
+                    // In growing-mode, range always starts from 0. However, the end is growing by
+                    // adding `batch_size` to the previous number of fetched rooms.
+                    let range_start = 0;
+                    let range_desired_size = number_of_fetched_rooms.saturating_add(batch_size);
+
+                    // Create a new range, and use it as the current set of ranges.
+                    request_generator.ranges = vec![create_range(
+                        range_start,
+                        range_desired_size,
+                        maximum_number_of_rooms_to_fetch,
+                        **self.maximum_number_of_rooms.read().unwrap(),
+                    )?];
+                }
             }
         }
 
-        None
+        // Here we go.
+        Ok(self.request())
     }
 
-    /// Find the current valid position of the rooms in the lists `room_list`.
+    /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
+    /// state of the request generator.
+    #[instrument(skip(self), fields(name = self.name, ranges = ?&self.ranges))]
+    fn request(&self) -> v4::SyncRequestList {
+        let ranges = self.request_generator.read().unwrap().ranges.clone();
+        let sort = self.sort.clone();
+        let required_state = self.required_state.clone();
+        let timeline_limit = **self.timeline_limit.read().unwrap();
+        let filters = self.filters.clone();
+
+        assign!(v4::SyncRequestList::default(), {
+            ranges,
+            room_details: assign!(v4::RoomDetailsConfig::default(), {
+                required_state,
+                timeline_limit,
+            }),
+            sort,
+            filters,
+        })
+    }
+
+    /// Update the [`Self::room_list`]. It also updates
+    /// `[Self::maximum_number_of_rooms]`.
     ///
-    /// Only matches against the current ranges and only against filled items.
-    /// Invalid items are ignore. Return the total position the items that were
-    /// found in the `room_list`, will skip any room not found in the
-    /// `rooms_list`.
-    pub fn find_rooms_in_list(&self, room_ids: &[OwnedRoomId]) -> Vec<(usize, OwnedRoomId)> {
-        let ranges = self.ranges.read().unwrap();
-        let listing = self.rooms_list.read().unwrap();
-        let mut rooms_found = Vec::new();
-
-        for (start_uint, end_uint) in ranges.iter() {
-            let mut current_position: usize = (*start_uint).try_into().unwrap();
-            let end: usize = (*end_uint).try_into().unwrap();
-            let room_list_entries = listing.iter().skip(current_position);
-
-            for room_list_entry in room_list_entries {
-                if let RoomListEntry::Filled(room_id) = room_list_entry {
-                    if room_ids.contains(room_id) {
-                        rooms_found.push((current_position, room_id.clone()));
-                    }
-                }
-
-                if current_position == end {
-                    break;
-                }
-
-                current_position += 1;
-            }
-        }
-
-        rooms_found
-    }
-
-    /// Return the `room_id` at the given index.
-    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
-        self.rooms_list
-            .read()
-            .unwrap()
-            .get(index)
-            .and_then(|room_list_entry| room_list_entry.as_room_id().map(ToOwned::to_owned))
-    }
-
-    #[instrument(skip(self, ops), fields(name = self.name, ops_count = ops.len()))]
-    pub(super) fn handle_response(
+    /// The `maximum_number_of_rooms` is the `lists.$this_list.count` value,
+    /// i.e. maximum number of available rooms as defined by the server. The
+    /// `list_sync_operations` is the `list.$this_list.ops` value
+    /// received from the server for this specific list. It consists of
+    /// operations to “move” rooms' positions. Finally,
+    /// the `rooms_that_have_received_an_update` is the `rooms` value received
+    /// from the server, which represents aggregated rooms that have received an
+    /// update. Maybe their position has changed, maybe they have received a new
+    /// event in their timeline. We need this information to update the
+    /// `room_list` even if the position of the room hasn't be modified: it
+    /// helps the user to know that a room has received an update.
+    fn update_room_list(
         &self,
         maximum_number_of_rooms: u32,
-        ops: &Vec<v4::SyncOp>,
-        ranges: &Vec<(UInt, UInt)>,
-        updated_rooms: &Vec<OwnedRoomId>,
+        list_sync_operations: &[v4::SyncOp],
+        rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        let ranges = ranges
-            .iter()
-            .map(|(start, end)| ((*start).try_into().unwrap(), (*end).try_into().unwrap()))
-            .collect::<Vec<(usize, usize)>>();
+        let mut new_changes = false;
 
-        let current_maximum_number_of_rooms = **self.maximum_number_of_rooms.read().unwrap();
-
-        if current_maximum_number_of_rooms.is_none()
-            || current_maximum_number_of_rooms == Some(0)
-            || self.is_cold.load(Ordering::SeqCst)
+        // Adjust room list entries.
         {
-            debug!("first run, replacing rooms list");
+            let number_of_missing_rooms = (maximum_number_of_rooms as usize)
+                .saturating_sub(self.room_list.read().unwrap().len());
 
-            // first response, we do that slightly differently
-            let mut rooms_list = ObservableVector::new();
-            rooms_list.append(
-                iter::repeat(RoomListEntry::Empty).take(maximum_number_of_rooms as usize).collect(),
-            );
+            if number_of_missing_rooms > 0 {
+                self.room_list.write().unwrap().append(
+                    iter::repeat(RoomListEntry::Empty).take(number_of_missing_rooms).collect(),
+                );
 
-            // then we apply it
-            room_ops(&mut rooms_list, ops, &ranges)?;
-
-            {
-                let mut lock = self.rooms_list.write().unwrap();
-                lock.clear();
-                lock.append(rooms_list.into_inner());
+                new_changes = true;
             }
-
-            Observable::set(
-                &mut self.maximum_number_of_rooms.write().unwrap(),
-                Some(maximum_number_of_rooms),
-            );
-            self.is_cold.store(false, Ordering::SeqCst);
-
-            return Ok(true);
         }
 
-        debug!("regular update");
-
-        let mut missing = maximum_number_of_rooms
-            .checked_sub(self.rooms_list.read().unwrap().len() as u32)
-            .unwrap_or_default();
-        let mut changed = false;
-
-        if missing > 0 {
-            let mut list = self.rooms_list.write().unwrap();
-
-            while missing > 0 {
-                list.push_back(RoomListEntry::Empty);
-                missing -= 1;
-            }
-
-            changed = true;
-        }
-
+        // Update the `maximum_number_of_rooms` if it has changed.
         {
-            // keep the lock scoped so that the later `find_rooms_in_list` doesn't deadlock
-            let mut rooms_list = self.rooms_list.write().unwrap();
+            let mut maximum_number_of_rooms_lock = self.maximum_number_of_rooms.write().unwrap();
 
-            if !ops.is_empty() {
-                room_ops(&mut rooms_list, ops, &ranges)?;
-                changed = true;
-            } else {
-                debug!("no rooms operations found");
+            if Observable::get(&maximum_number_of_rooms_lock) != &Some(maximum_number_of_rooms) {
+                Observable::set(&mut maximum_number_of_rooms_lock, Some(maximum_number_of_rooms));
+
+                new_changes = true;
             }
         }
 
         {
-            let mut lock = self.maximum_number_of_rooms.write().unwrap();
+            let mut room_list = self.room_list.write().unwrap();
 
-            if **lock != Some(maximum_number_of_rooms) {
-                Observable::set(&mut lock, Some(maximum_number_of_rooms));
-                changed = true;
+            // Run the sync operations.
+            let mut rooms_that_have_received_an_update =
+                HashSet::from_iter(rooms_that_have_received_an_update.iter().cloned());
+
+            if !list_sync_operations.is_empty() {
+                apply_sync_operations(
+                    list_sync_operations,
+                    &mut room_list,
+                    &mut rooms_that_have_received_an_update,
+                )?;
+
+                new_changes = true;
             }
-        }
 
-        if self.send_updates_for_items && !updated_rooms.is_empty() {
-            let found_lists = self.find_rooms_in_list(updated_rooms);
+            // Finally, some rooms have received an update, but their position
+            // didn't change in the `room_list`, so no “diff” has
+            // been triggered. The `room_list` value is used by the
+            // user to know if a room has received an update: be either a
+            // position modification or an update in general (like a new room
+            // message). Let's trigger those.
+            let ranges = self.ranges.read().unwrap();
 
-            if !found_lists.is_empty() {
-                debug!("room details found");
-                let mut rooms_list = self.rooms_list.write().unwrap();
+            for (start, end) in ranges.iter().map(|(start, end)| {
+                (usize::try_from(*start).unwrap(), usize::try_from(*end).unwrap())
+            }) {
+                let mut rooms_to_update =
+                    Vec::with_capacity(rooms_that_have_received_an_update.len());
 
-                for (pos, room_id) in found_lists {
-                    // trigger an `UpdatedAt` update
-                    rooms_list.set(pos, RoomListEntry::Filled(room_id));
-                    changed = true;
+                for (position, room_list_entry) in
+                    room_list.iter().enumerate().skip(start).take(end.saturating_add(1))
+                {
+                    // Invalidated rooms must be considered as empty rooms, so let's just filter by
+                    // filled rooms.
+                    if let RoomListEntry::Filled(room_id) = room_list_entry {
+                        // If room has received an update but that has not been handled by a
+                        // sync operation.
+                        if rooms_that_have_received_an_update.contains(room_id) {
+                            rooms_to_update.push((position, room_list_entry.clone()));
+                        }
+                    }
+                }
+
+                if !rooms_to_update.is_empty() {
+                    for (position, room_list_entry) in rooms_to_update {
+                        // Setting to `room_list`'s item to the same value, just
+                        // to generate an “diff update”.
+                        room_list.set(position, room_list_entry);
+                    }
+
+                    new_changes = true;
                 }
             }
         }
 
-        if changed {
-            Observable::set(&mut self.rooms_updated_broadcast.write().unwrap(), ());
-        }
-
-        Ok(changed)
+        Ok(new_changes)
     }
 
-    pub(super) fn request_generator(&self) -> SlidingSyncListRequestGenerator {
-        match &self.sync_mode {
-            SlidingSyncMode::PagingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_paging_full_sync(self.clone())
+    /// Update the state of the [`SlidingSyncListRequestGenerator`].
+    fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
+        let mut request_generator = self.request_generator.write().unwrap();
+
+        let range_end: u32 = request_generator
+            .ranges
+            .first()
+            .map(|(_start, end)| u32::try_from(*end).unwrap())
+            .ok_or_else(|| Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned()))?;
+
+        match &mut request_generator.kind {
+            SlidingSyncListRequestGeneratorKind::Paging {
+                number_of_fetched_rooms,
+                fully_loaded,
+                maximum_number_of_rooms_to_fetch,
+                ..
             }
+            | SlidingSyncListRequestGeneratorKind::Growing {
+                number_of_fetched_rooms,
+                fully_loaded,
+                maximum_number_of_rooms_to_fetch,
+                ..
+            } => {
+                // Calculate the maximum bound for the range.
+                // At this step, the server has given us a maximum number of rooms for this
+                // list. That's our `range_maximum`.
+                let mut range_maximum = maximum_number_of_rooms;
 
-            SlidingSyncMode::GrowingFullSync => {
-                SlidingSyncListRequestGenerator::new_with_growing_full_sync(self.clone())
-            }
-
-            SlidingSyncMode::Selective => {
-                SlidingSyncListRequestGenerator::new_selective(self.clone())
-            }
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub(super) struct FrozenSlidingSyncList {
-    #[serde(default, rename = "rooms_count", skip_serializing_if = "Option::is_none")]
-    pub(super) maximum_number_of_rooms: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vector::is_empty")]
-    pub(super) rooms_list: Vector<RoomListEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(super) rooms: BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>,
-}
-
-impl FrozenSlidingSyncList {
-    pub(super) fn freeze(
-        source_list: &SlidingSyncList,
-        rooms_map: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    ) -> Self {
-        let mut rooms = BTreeMap::new();
-        let mut rooms_list = Vector::new();
-
-        for room_list_entry in source_list.rooms_list.read().unwrap().iter() {
-            match room_list_entry {
-                RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
-                    rooms.insert(
-                        room_id.clone(),
-                        rooms_map.get(room_id).expect("room doesn't exist").into(),
-                    );
+                // But maybe the user has defined a maximum number of rooms to fetch? In this
+                // case, let's take the minimum of the two.
+                if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
+                    range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
                 }
 
-                _ => {}
-            };
+                // Finally, ranges are inclusive!
+                range_maximum = range_maximum.saturating_sub(1);
 
-            rooms_list.push_back(room_list_entry.freeze());
+                // Now, we know what the maximum bound for the range is.
+
+                // The current range hasn't reached its maximum, let's continue.
+                if range_end < range_maximum {
+                    // Update the number of fetched rooms forward. Do not forget that ranges are
+                    // inclusive, so let's add 1.
+                    *number_of_fetched_rooms = range_end.saturating_add(1);
+
+                    // The list is still not fully loaded.
+                    *fully_loaded = false;
+
+                    // Update the _list range_ to cover from 0 to `range_end`.
+                    // The list's range is different from the request generator (this) range.
+                    self.set_ranges(&[(0, range_end)]);
+
+                    // Finally, let's update the list' state.
+                    Observable::update_eq(&mut self.state.write().unwrap(), |state| {
+                        *state = SlidingSyncState::PartiallyLoaded;
+                    });
+                }
+                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
+                // mode.
+                else {
+                    // The number of fetched rooms is set to the maximum too.
+                    *number_of_fetched_rooms = range_maximum;
+
+                    // We update the `fully_loaded` marker.
+                    *fully_loaded = true;
+
+                    // The range is covering the entire list, from 0 to its maximum.
+                    self.set_ranges(&[(0, range_maximum)]);
+
+                    // Finally, let's update the list' state.
+                    Observable::update_eq(&mut self.state.write().unwrap(), |state| {
+                        *state = SlidingSyncState::FullyLoaded;
+                    });
+                }
+            }
+
+            SlidingSyncListRequestGeneratorKind::Selective => {
+                // Selective mode always loads everything.
+                Observable::update_eq(&mut self.state.write().unwrap(), |state| {
+                    *state = SlidingSyncState::FullyLoaded;
+                });
+            }
         }
 
-        FrozenSlidingSyncList {
-            maximum_number_of_rooms: **source_list.maximum_number_of_rooms.read().unwrap(),
-            rooms_list,
-            rooms,
-        }
+        Ok(())
     }
 }
 
 #[instrument(skip(operations))]
-fn room_ops(
-    rooms_list: &mut ObservableVector<RoomListEntry>,
-    operations: &Vec<v4::SyncOp>,
-    room_ranges: &Vec<(usize, usize)>,
+fn apply_sync_operations(
+    operations: &[v4::SyncOp],
+    room_list: &mut ObservableVector<RoomListEntry>,
+    rooms_that_have_received_an_update: &mut HashSet<OwnedRoomId>,
 ) -> Result<(), Error> {
-    let index_in_range = |idx| room_ranges.iter().any(|(start, end)| idx >= *start && idx <= *end);
-
     for operation in operations {
         match &operation.op {
+            // Specification says:
+            //
+            // > Sets a range of entries. Clients SHOULD discard what they previous
+            // > knew about entries in this range.
             v4::SlidingOp::Sync => {
-                let start: u32 = operation
+                // Extract `start` and `end` from the operation's range.
+                let (start, mut end) = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`range` must be present for Sync and Update operation".to_owned(),
+                            "`range` must be present for `SYNC` operation".to_owned(),
                         )
-                    })?
-                    .0
-                    .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`range` not a valid int: {error}"))
-                    })?;
-                let room_ids = operation.room_ids.clone();
-
-                room_ids
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, r)| {
-                        let idx = start as usize + i;
-
-                        if idx >= rooms_list.len() {
-                            rooms_list.insert(idx, RoomListEntry::Filled(r));
-                        } else {
-                            rooms_list.set(idx, RoomListEntry::Filled(r));
-                        }
                     })
-                    .count();
+                    .map(|(start, end)| {
+                        (
+                            usize::try_from(start).unwrap(),
+                            usize::try_from(end).unwrap().saturating_add(1),
+                        )
+                    })?;
+
+                // The `end` bound of the range might not be correct… At the time of writing,
+                // there is a bug in the Sliding Sync Proxy that can return
+                // ranges greater than the `room_list` size.
+                //
+                // For example, if the client asks for a range `0..=9`, and there is only one
+                // room, the server will reply with one `room_id` (which is correct) but with
+                // the range `0..=9` instead of `0..=0`.
+                //
+                // So, a safe workaround is to take the minimum between `end` and the
+                // `room_list`'s length.
+                //
+                // The “safety” is ensured by the fact we also compare the size of the new range
+                // with the size of the `operation.room_ids` length later on.
+                //
+                // See https://github.com/matrix-org/sliding-sync/issues/52.
+                end = min(end, room_list.len());
+
+                // Range is invalid.
+                if start > end {
+                    return Err(Error::BadResponse(format!(
+                        "`range` bounds are invalid ({} > {})",
+                        start, end,
+                    )));
+                }
+
+                let mut room_entry_range = start..end;
+
+                // `room_ids` is absent.
+                if operation.room_ids.is_empty() {
+                    return Err(Error::BadResponse(
+                        "`room_ids` must be present for `SYNC` operation".to_owned(),
+                    ));
+                }
+
+                let room_ids = operation.room_ids.iter();
+
+                // Mismatch between the `range` and `room_ids`.
+                if room_entry_range.len() != room_ids.len() {
+                    // Because of https://github.com/matrix-org/sliding-sync/issues/52, we
+                    // can't trust the `range` returned by the server. That's a
+                    // problem. Let's try to work around
+                    // that.
+                    //
+                    // Let's pretend the `start` bound of the range is… correct.
+                    room_entry_range = start..room_ids.len();
+
+                    // Once the bug is fixed on the Sliding Sync Proxy side, we
+                    // can remove this code, and uncomment
+                    // the code below.
+                    /*
+                    return Err(Error::BadResponse(
+                        format!(
+                            "There is a mismatch between the number of items in `range` and `room_ids` ({} != {})",
+                            room_entry_range.len(),
+                            room_ids.len(),
+                        )
+                    ));
+                    */
+                }
+
+                // Update parts `room_list`.
+                //
+                // The room entry index is given by the `room_entry_range` bounds.
+                // The room ID is given by the `room_ids`.
+                for (room_entry_index, room_id) in room_entry_range.zip(room_ids) {
+                    // Syncing means updating the room list to `Filled`.
+                    room_list.set(room_entry_index, RoomListEntry::Filled(room_id.clone()));
+
+                    // This `room_id` has been handled, let's remove it from the rooms to handle
+                    // later.
+                    rooms_that_have_received_an_update.remove(room_id);
+                }
             }
 
+            // Specification says:
+            //
+            // > Remove a single entry. Often comes before an INSERT to allow entries
+            // > to move places.
             v4::SlidingOp::Delete => {
-                let position: u32 = operation
+                let index = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for DELETE operation".to_owned(),
+                            "`index` must be present for `DELETE` operation".to_owned(),
                         )
                     })?
                     .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`index` not a valid int for DELETE: {error}"))
-                    })?;
-                rooms_list.set(position as usize, RoomListEntry::Empty);
+                    .unwrap();
+
+                // Index is out of bounds.
+                if index >= room_list.len() {
+                    // OK, so, normally, we should raise an error. But the server sometimes sends a
+                    // `DELETE` for an index that doesn't exist. It happens with the existing
+                    // Sliding Sync Proxy (at the time of writing). It may be a bug or something
+                    // else. Anyway, it's better to consider an out-of-bounds `DELETE` as a no-op.
+                    continue;
+                }
+
+                // Removing the entry in the room list.
+                let room_entry = room_list.remove(index);
+
+                // This `room_id` has been handled, let's remove it from the rooms to handle
+                // later.
+                if let Some(room_id) = room_entry.as_room_id() {
+                    rooms_that_have_received_an_update.remove(room_id);
+                }
             }
 
+            // Specification says:
+            //
+            // > Sets a single entry. If the position is not empty then clients MUST
+            // > move entries to the left or the right depending on where the closest
+            // > empty space is.
             v4::SlidingOp::Insert => {
-                let position: usize = operation
+                let index: usize = operation
                     .index
                     .ok_or_else(|| {
                         Error::BadResponse(
-                            "`index` must be present for INSERT operation".to_owned(),
+                            "`index` must be present for `INSERT` operation".to_owned(),
                         )
                     })?
                     .try_into()
-                    .map_err(|error| {
-                        Error::BadResponse(format!("`index` not a valid int for INSERT: {error}"))
-                    })?;
+                    .unwrap();
+                let room_id = operation.room_id.clone().ok_or_else(|| {
+                    Error::BadResponse(
+                        "`room_id` must be present for `INSERT` operation".to_owned(),
+                    )
+                })?;
 
-                let room = RoomListEntry::Filled(operation.room_id.clone().ok_or_else(|| {
-                    Error::BadResponse("`room_id` must be present for INSERT operation".to_owned())
-                })?);
-                let mut offset = 0usize;
-
-                loop {
-                    // Find the next empty slot and drop it.
-                    let (previous_position, overflow) = position.overflowing_sub(offset);
-                    let check_previous = !overflow && index_in_range(previous_position);
-
-                    let (next_position, overflow) = position.overflowing_add(offset);
-                    let check_next = !overflow
-                        && next_position < rooms_list.len()
-                        && index_in_range(next_position);
-
-                    if !check_previous && !check_next {
-                        return Err(Error::BadResponse(
-                            "We were asked to insert but could not find any direction to shift to"
-                                .to_owned(),
-                        ));
-                    }
-
-                    if check_previous && rooms_list[previous_position].is_empty_or_invalidated() {
-                        // we only check for previous, if there are items left
-                        rooms_list.remove(previous_position);
-
-                        break;
-                    } else if check_next && rooms_list[next_position].is_empty_or_invalidated() {
-                        rooms_list.remove(next_position);
-
-                        break;
-                    } else {
-                        // Let's check the next position.
-                        offset += 1;
-                    }
+                // Index is out of bounds.
+                if index > room_list.len() {
+                    return Err(Error::BadResponse(format!(
+                        "`index` is out of the `room_list`' bounds ({} > {})",
+                        index,
+                        room_list.len(),
+                    )));
                 }
 
-                rooms_list.insert(position, room);
+                // This `room_id` is being handled, let's remove it from the rooms to handle
+                // later.
+                rooms_that_have_received_an_update.remove(&room_id);
+
+                // Inserting a `Filled` entry in the room list .
+                room_list.insert(index, RoomListEntry::Filled(room_id));
             }
 
+            // Specification says:
+            //
+            // > Remove a range of entries. Clients MAY persist the invalidated
+            // > range for offline support, but they should be treated as empty
+            // > when additional operations which concern indexes in the range
+            // > arrive from the server.
             v4::SlidingOp::Invalidate => {
-                let max_len = rooms_list.len();
-                let (mut position, end): (usize, usize) = if let Some(range) = operation.range {
-                    (
-                        range.0.try_into().map_err(|error| {
-                            Error::BadResponse(format!("`range.0` not a valid int: {error}"))
-                        })?,
-                        range.1.try_into().map_err(|error| {
-                            Error::BadResponse(format!("`range.1` not a valid int: {error}"))
-                        })?,
-                    )
-                } else {
-                    return Err(Error::BadResponse(
-                        "`range` must be given on `Invalidate` operation".to_owned(),
-                    ));
-                };
+                // Extract `start` and `end` from the operation's range.
+                let (start, mut end) = operation
+                    .range
+                    .ok_or_else(|| {
+                        Error::BadResponse(
+                            "`range` must be present for `INVALIDATE` operation".to_owned(),
+                        )
+                    })
+                    .map(|(start, end)| {
+                        (
+                            usize::try_from(start).unwrap(),
+                            usize::try_from(end).unwrap().saturating_add(1),
+                        )
+                    })?;
 
-                if position > end {
-                    return Err(Error::BadResponse(
-                        "Invalid invalidation, end smaller than start".to_owned(),
-                    ));
+                // The `end` bound of the range might not be correct… At the time of writing,
+                // there is a bug in the Sliding Sync Proxy that can return
+                // ranges greater than the `room_list` size.
+                //
+                // For example, if the client asks for a range `0..=9`, and there is only one
+                // room, the server will reply with one `room_id` (which is correct) but with
+                // the range `0..=9` instead of `0..=0`.
+                //
+                // So, a safe workaround is to take the minimum between `end` and the
+                // `room_list`'s length.
+                //
+                // The “safety” is ensured by the fact we also compare the size of the new range
+                // with the size of the `operation.room_ids` length later on.
+                //
+                // See https://github.com/matrix-org/sliding-sync/issues/52.
+                end = min(end, room_list.len());
+
+                // Range is invalid.
+                if start > end {
+                    return Err(Error::BadResponse(format!(
+                        "`range` bounds are invalid ({} > {})",
+                        start, end,
+                    )));
                 }
 
-                // Ranges are inclusive up to the last index. e.g. `[0, 10]`; `[0, 0]`.
-                // ensure we pick them all up.
-                while position <= end {
-                    if position >= max_len {
-                        break; // how does this happen?
+                let room_entry_range = start..end;
+
+                // Invalidate parts of `room_list`.
+                //
+                // The room entry index is given by the `room_entry_range` bounds.
+                for room_entry_index in room_entry_range {
+                    // Invalidating means updating the room list to `Invalidate`.
+                    //
+                    // If the previous room list entry is `Filled`, it becomes `Invalidated`.
+                    // Otherwise, for `Empty` or `Invalidated`, it stays as is.
+                    match room_list.get(room_entry_index) {
+                        Some(RoomListEntry::Filled(room_id)) => {
+                            // This `room_id` is being handled, let's remove it from the rooms to
+                            // handle later.
+                            rooms_that_have_received_an_update.remove(room_id);
+
+                            room_list.set(
+                                room_entry_index,
+                                RoomListEntry::Invalidated(room_id.to_owned()),
+                            );
+                        }
+
+                        Some(RoomListEntry::Invalidated(room_id)) => {
+                            // This `room_id` has been handled, let's remove it from the rooms to
+                            // handle later.
+                            rooms_that_have_received_an_update.remove(room_id);
+                        }
+
+                        _ => {}
                     }
-
-                    let room_id =
-                        if let Some(RoomListEntry::Filled(room_id)) = rooms_list.get(position) {
-                            Some(room_id.clone())
-                        } else {
-                            None
-                        };
-
-                    if let Some(room_id) = room_id {
-                        rooms_list.set(position, RoomListEntry::Invalidated(room_id));
-                    } else {
-                        rooms_list.set(position, RoomListEntry::Empty);
-                    }
-
-                    position += 1;
                 }
             }
 
@@ -633,78 +874,1396 @@ fn room_ops(
 pub enum SlidingSyncState {
     /// Sliding Sync has not started to load anything yet.
     #[default]
-    #[serde(rename = "Cold")]
     NotLoaded,
     /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
-    #[serde(rename = "Preload")]
     Preloaded,
     /// Updates are received from the loaded rooms, and new rooms are being
     /// fetched in the background.
-    #[serde(rename = "CatchingUp")]
     PartiallyLoaded,
     /// Updates are received for all the loaded rooms, and all rooms have been
     /// loaded!
-    #[serde(rename = "Live")]
     FullyLoaded,
 }
 
 /// How a [`SlidingSyncList`] fetches the data.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
-    /// Fully sync all rooms in the background, page by page of `batch_size`,
-    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
-    #[serde(alias = "FullSync")]
-    PagingFullSync,
-    /// Fully sync all rooms in the background, with a growing window of
-    /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
-    /// `batch_size` is 20.
-    GrowingFullSync,
     /// Only sync the specific defined windows/ranges.
     #[default]
     Selective,
+
+    /// Fully sync all rooms in the background, page by page of `batch_size`,
+    /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
+    Paging,
+
+    /// Fully sync all rooms in the background, with a growing window of
+    /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
+    /// `batch_size` is 20.
+    Growing,
 }
 
-/// The Entry in the Sliding Sync room list per Sliding Sync list.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub enum RoomListEntry {
-    /// This entry isn't known at this point and thus considered `Empty`.
-    #[default]
-    Empty,
-    /// There was `OwnedRoomId` but since the server told us to invalid this
-    /// entry. it is considered stale.
-    Invalidated(OwnedRoomId),
-    /// This entry is followed with `OwnedRoomId`.
-    Filled(OwnedRoomId),
+impl SlidingSyncMode {
+    /// Return whether an external caller can modify the sync mode's ranges.
+    fn ranges_can_be_modified_by_user(&self) -> bool {
+        match self {
+            Self::Selective => true,
+            Self::Paging | Self::Growing => false,
+        }
+    }
 }
 
-impl RoomListEntry {
-    /// Is this entry empty or invalidated?
-    pub fn is_empty_or_invalidated(&self) -> bool {
-        matches!(self, Self::Empty | Self::Invalidated(_))
+#[cfg(test)]
+mod tests {
+    use std::ops::Deref;
+
+    use futures::StreamExt;
+    use imbl::vector;
+    use ruma::{api::client::sync::sync_events::v4::SlidingOp, assign, room_id, uint};
+    use serde_json::json;
+    use tokio::{spawn, sync::mpsc::unbounded_channel};
+
+    use super::*;
+
+    macro_rules! assert_json_roundtrip {
+        (from $type:ty: $rust_value:expr => $json_value:expr) => {
+            let json = serde_json::to_value(&$rust_value).unwrap();
+            assert_eq!(json, $json_value);
+
+            let rust: $type = serde_json::from_value(json).unwrap();
+            assert_eq!(rust, $rust_value);
+        };
     }
 
-    /// Return the inner `room_id` if the entry' state is not empty.
-    pub fn as_room_id(&self) -> Option<&RoomId> {
-        match &self {
-            Self::Empty => None,
-            Self::Invalidated(room_id) | Self::Filled(room_id) => Some(room_id.as_ref()),
+    macro_rules! assert_fields_eq {
+        ($left:ident == $right:ident on fields { $( $field:ident $( with $accessor:expr )? ),+ $(,)* } ) => {
+            $(
+                let left = {
+                    let $field = & $left . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+                let right = {
+                    let $field = & $right . $field;
+
+                    $( let $field = $accessor ; )?
+
+                    $field
+                };
+
+                assert_eq!(
+                    left,
+                    right,
+                    concat!(
+                        "`",
+                        stringify!($left),
+                        ".",
+                        stringify!($field),
+                        "` doesn't match with `",
+                        stringify!($right),
+                        ".",
+                        stringify!($field),
+                        "`."
+                    )
+                );
+            )*
         }
     }
 
-    /// Clone this entry, but freeze it, i.e. if the entry is empty, it remains
-    /// empty, otherwise it is invalidated.
-    fn freeze(&self) -> Self {
-        match &self {
-            Self::Empty => Self::Empty,
-            Self::Invalidated(room_id) | Self::Filled(room_id) => {
-                Self::Invalidated(room_id.clone())
+    macro_rules! ranges {
+        ( $( ( $start:literal, $end:literal ) ),* $(,)* ) => {
+            &[$(
+                (
+                    uint!($start),
+                    uint!($end),
+                )
+            ),+]
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_new_builder() {
+        let list = SlidingSyncList {
+            inner: Arc::new(SlidingSyncListInner {
+                sync_mode: SlidingSyncMode::Growing,
+                sort: vec!["foo".to_owned(), "bar".to_owned()],
+                required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
+                filters: Some(assign!(v4::SyncRequestListFilters::default(), {
+                    is_dm: Some(true),
+                })),
+                timeline_limit: StdRwLock::new(Observable::new(Some(uint!(7)))),
+                name: "qux".to_owned(),
+                state: StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded)),
+                maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
+                room_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
+                ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
+                request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new_growing(
+                    42,
+                    Some(153),
+                )),
+            }),
+        };
+
+        let new_list = list.new_builder().build().unwrap();
+        let list = list.inner;
+        let new_list = new_list.inner;
+
+        assert_fields_eq!(
+            list == new_list on fields {
+                sync_mode,
+                sort,
+                required_state,
+                filters with filters.as_ref().unwrap().is_dm,
+                timeline_limit with **timeline_limit.read().unwrap(),
+                name,
+                ranges with ranges.read().unwrap().clone(),
+            }
+        );
+
+        assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
+        assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
+        assert!(new_list.room_list.read().unwrap().deref().is_empty());
+    }
+
+    #[test]
+    fn test_sliding_sync_list_set_ranges() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1), (2, 3)].to_vec())
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.inner.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+        }
+
+        list.set_ranges(ranges![(4, 5), (6, 7)]).unwrap();
+
+        {
+            let lock = list.inner.ranges.read().unwrap();
+            let ranges = Observable::get(&lock);
+
+            assert_eq!(ranges, &ranges![(4, 5), (6, 7)]);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_set_range() {
+        // Set range on `Selective`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1), (2, 3)].to_vec())
+                .build()
+                .unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            }
+
+            list.set_range(4u32, 5).unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(4, 5)]);
             }
         }
-    }
-}
 
-impl<'a> From<&'a RoomListEntry> for RoomListEntry {
-    fn from(value: &'a RoomListEntry) -> Self {
-        value.clone()
+        // Set range on `Growing`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
+
+            assert!(list.set_range(4u32, 5).is_err());
+        }
+
+        // Set range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.set_range(4u32, 5).is_err());
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_add_range() {
+        // Add range on `Selective`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1)].to_vec())
+                .build()
+                .unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1)]);
+            }
+
+            list.add_range((2u32, 3)).unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1), (2, 3)]);
+            }
+        }
+
+        // Add range on `Growing`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
+
+            assert!(list.add_range((2u32, 3)).is_err());
+        }
+
+        // Add range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.add_range((2u32, 3)).is_err());
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_reset_ranges() {
+        // Reset ranges on `Selective`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Selective)
+                .ranges(ranges![(0, 1)].to_vec())
+                .build()
+                .unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert_eq!(ranges, &ranges![(0, 1)]);
+            }
+
+            list.reset_ranges().unwrap();
+
+            {
+                let lock = list.inner.ranges.read().unwrap();
+                let ranges = Observable::get(&lock);
+
+                assert!(ranges.is_empty());
+            }
+        }
+
+        // Reset range on `Growing`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Growing)
+                .build()
+                .unwrap();
+
+            assert!(list.reset_ranges().is_err());
+        }
+
+        // Reset range on `Paging`.
+        {
+            let list = SlidingSyncList::builder()
+                .name("foo")
+                .sync_mode(SlidingSyncMode::Paging)
+                .build()
+                .unwrap();
+
+            assert!(list.reset_ranges().is_err());
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_list_timeline_limit() {
+        let list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .ranges(ranges![(0, 1)].to_vec())
+            .timeline_limit(7u32)
+            .build()
+            .unwrap();
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &Some(uint!(7)));
+        }
+
+        list.set_timeline_limit(Some(42u32));
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &Some(uint!(42)));
+        }
+
+        list.set_timeline_limit::<UInt>(None);
+
+        {
+            let lock = list.inner.timeline_limit.read().unwrap();
+            let timeline_limit = Observable::get(&lock);
+
+            assert_eq!(timeline_limit, &None);
+        }
+    }
+
+    #[test]
+    fn test_sliding_sync_get_room_id() {
+        let mut list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 1)
+            .build()
+            .unwrap();
+
+        let room0 = room_id!("!room0:bar.org");
+        let room1 = room_id!("!room1:bar.org");
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync0: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [0, 1],
+            "room_ids": [room0, room1],
+        }))
+        .unwrap();
+
+        list.update(6, &[sync0], &[]).unwrap();
+
+        assert_eq!(list.get_room_id(0), Some(room0.to_owned()));
+        assert_eq!(list.get_room_id(1), Some(room1.to_owned()));
+        assert_eq!(list.get_room_id(2), None);
+    }
+
+    macro_rules! assert_ranges {
+        (
+            list = $list:ident,
+            list_state = $first_list_state:ident,
+            maximum_number_of_rooms = $maximum_number_of_rooms:expr,
+            $(
+                next => {
+                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),* ,
+                    is_fully_loaded = $is_fully_loaded:expr,
+                    list_state = $list_state:ident,
+                }
+            ),*
+            $(,)*
+        ) => {
+            assert_eq!($list.state(), SlidingSyncState::$first_list_state, "first state");
+
+            $(
+                {
+                    // Generate a new request.
+                    let request = $list.next_request().unwrap();
+
+                    assert_eq!(
+                        request.ranges,
+                        [
+                            $( (uint!( $range_start ), uint!( $range_end )) ),*
+                        ],
+                        "ranges",
+                    );
+
+                    // Fake a response.
+                    let _ = $list.update($maximum_number_of_rooms, &[], &[]);
+
+                    assert_eq!(
+                        $list.inner.request_generator.read().unwrap().is_fully_loaded(),
+                        $is_fully_loaded,
+                        "is fully loaded",
+                    );
+                    assert_eq!(
+                        $list.state(),
+                        SlidingSyncState::$list_state,
+                        "state",
+                    );
+                }
+            )*
+        };
+    }
+
+    #[test]
+    fn test_generator_paging_full_sync() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Paging)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [10; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [20; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 24], // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_paging_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Paging)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [10; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms to fetch is reached!
+            next => {
+                ranges = [20; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 21], // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_growing_full_sync() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Growing)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [0; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 24],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_growing_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Growing)
+            .name("testing")
+            .full_sync_batch_size(10)
+            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [0; 9],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = [0; 19],
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 21],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+    }
+
+    #[test]
+    fn test_generator_selective() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Selective)
+            .name("testing")
+            .ranges(ranges![(0, 10), (42, 153)].to_vec())
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+    }
+
+    #[test]
+    fn test_generator_selective_with_modifying_ranges_on_the_fly() {
+        let mut list = SlidingSyncList::builder()
+            .sync_mode(crate::SlidingSyncMode::Selective)
+            .name("testing")
+            .ranges(ranges![(0, 10), (42, 153)].to_vec())
+            .build()
+            .unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = [0; 10], [42; 153],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+
+        list.set_ranges(&[(3u32, 7)]).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [3; 7],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.add_range((10u32, 23)).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [3; 7], [10; 23],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.set_range(42u32, 77).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = [42; 77],
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        list.reset_ranges().unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = ,
+                is_fully_loaded = true,
+                list_state = NotLoaded, // Is this correct?
+            },
+        };
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
+        let mut list = SlidingSyncList::builder()
+            .name("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .add_range(0u32, 3)
+            .build()
+            .unwrap();
+
+        assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
+        assert_eq!(list.inner.room_list.read().unwrap().len(), 0);
+
+        let room0 = room_id!("!room0:bar.org");
+        let room1 = room_id!("!room1:bar.org");
+        let room2 = room_id!("!room2:bar.org");
+        let room3 = room_id!("!room3:bar.org");
+        let room4 = room_id!("!room4:bar.org");
+
+        // Initial range.
+        for _ in 0..=1 {
+            // Simulate a request.
+            let _ = list.next_request();
+
+            // A new response.
+            let sync: v4::SyncOp = serde_json::from_value(json!({
+                "op": SlidingOp::Sync,
+                "range": [0, 2],
+                "room_ids": [room0, room1, room2],
+            }))
+            .unwrap();
+
+            let new_changes = list.update(5, &[sync], &[]).unwrap();
+
+            assert!(new_changes);
+
+            // The `maximum_number_of_rooms` has been updated as expected.
+            assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
+
+            // The `room_list` has the correct size and contains expected room entries.
+            let room_list = list.inner.room_list.read().unwrap();
+
+            assert_eq!(room_list.len(), 5);
+            assert_eq!(
+                **room_list,
+                vector![
+                    RoomListEntry::Filled(room0.to_owned()),
+                    RoomListEntry::Filled(room1.to_owned()),
+                    RoomListEntry::Filled(room2.to_owned()),
+                    RoomListEntry::Empty,
+                    RoomListEntry::Empty,
+                ]
+            );
+        }
+
+        let mut room_list_stream = list.room_list_stream();
+        let (room_list_stream_sender, mut room_list_stream_receiver) = unbounded_channel();
+
+        spawn(async move {
+            while let Some(diff) = room_list_stream.next().await {
+                room_list_stream_sender.send(diff).unwrap();
+            }
+        });
+
+        // Simulate a request.
+        let _ = list.next_request();
+
+        // A new response.
+        let sync: v4::SyncOp = serde_json::from_value(json!({
+            "op": SlidingOp::Sync,
+            "range": [3, 4],
+            "room_ids": [room3, room4],
+        }))
+        .unwrap();
+
+        let new_changes = list
+            .update(
+                5,
+                &[sync],
+                // Let's imagine `room2` has received an update, but its position doesn't
+                // change.
+                &[room3.to_owned(), room4.to_owned(), room2.to_owned()],
+            )
+            .unwrap();
+
+        assert!(new_changes);
+
+        // The `maximum_number_of_rooms` has been updated as expected.
+        assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), Some(5));
+
+        // The `room_list` has the correct size and contains expected room entries.
+        let room_list = list.inner.room_list.read().unwrap();
+
+        assert_eq!(room_list.len(), 5);
+        assert_eq!(
+            **room_list,
+            vector![
+                RoomListEntry::Filled(room0.to_owned()),
+                RoomListEntry::Filled(room1.to_owned()),
+                RoomListEntry::Filled(room2.to_owned()),
+                RoomListEntry::Filled(room3.to_owned()),
+                RoomListEntry::Filled(room4.to_owned()),
+            ]
+        );
+
+        // Wait for “diff” to be generated.
+        // Why this? Because the following `assert_eq` are using `try_recv()` instead of
+        // recv().await`, so that a missing “diff” doesn't make the test to hang
+        // forever.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // `room3` has been modified by a `SYNC` operation.
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 3, value: RoomListEntry::Filled(room3.to_owned()) })
+        );
+        // `room4` has been modified by a `SYNC` operation.
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 4, value: RoomListEntry::Filled(room4.to_owned()) })
+        );
+        // `room2` has been modified by another update (like a new event).
+        assert_eq!(
+            room_list_stream_receiver.try_recv(),
+            Ok(VectorDiff::Set { index: 2, value: RoomListEntry::Filled(room2.to_owned()) })
+        );
+    }
+
+    #[test]
+    fn test_sliding_sync_mode_serialization() {
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Paging => json!("Paging"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Growing => json!("Growing"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => json!("Selective"));
+    }
+
+    #[test]
+    fn test_sliding_sync_state_serialization() {
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("NotLoaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preloaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("PartiallyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("FullyLoaded"));
+    }
+
+    macro_rules! entries {
+        ( @_ [ E $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Empty, ] )
+        };
+
+        ( @_ [ F( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Filled(room_id!( $room_id ).to_owned()), ] )
+        };
+
+        ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+            entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
+        };
+
+        ( @_ [] [ $( $accumulator:tt )+ ] ) => {
+            vector![ $( $accumulator )* ]
+        };
+
+        ( $( $all:tt )* ) => {
+            entries!( @_ [ $( $all )* ] [] )
+        };
+
+    }
+
+    macro_rules! assert_sync_operations {
+        (
+            room_list = [ $( $room_list_entries:tt )* ],
+            sync_operations = [
+                $(
+                    { $( $operation:tt )+ }
+                ),*
+                $(,)?
+            ]
+            $( , rooms = [ $( $rooms:literal ),* ] )?
+            $(,)?
+            =>
+            result = $result:tt,
+            room_list = [ $( $expected_room_list_entries:tt )* ]
+            $( , rooms = [ $( $expected_rooms:literal ),* ] )?
+            $(,)?
+        ) => {
+            let mut room_list = ObservableVector::from(entries![ $( $room_list_entries )* ]);
+            let operations: &[v4::SyncOp] = &[
+                $(
+                    serde_json::from_value(json!({
+                        $( $operation )+
+                    })).unwrap()
+                ),*
+            ];
+
+            let mut rooms_that_have_received_an_update = HashSet::<OwnedRoomId>::new();
+
+            $(
+                {
+                    $(
+                        rooms_that_have_received_an_update.insert(room_id!( $rooms ).to_owned());
+                    )*
+                }
+            )?
+
+            let result = apply_sync_operations(operations, &mut room_list, &mut rooms_that_have_received_an_update);
+
+            assert!(result.$result());
+            assert_eq!(*room_list, entries![ $( $expected_room_list_entries )* ]);
+
+            $(
+                #[allow(unused_mut)]
+                let mut expected_rooms_that_have_received_an_update = HashSet::<OwnedRoomId>::new();
+
+                {
+                    $(
+                        expected_rooms_that_have_received_an_update.insert(room_id!( $expected_rooms ).to_owned());
+                    )*
+                }
+
+                assert_eq!(rooms_that_have_received_an_update, expected_rooms_that_have_received_an_update);
+            )?
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_sync() {
+        // All room list is updated.
+        assert_sync_operations! {
+            room_list = [E, E, E, F("!r3:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                    "room_ids": ["!r0:x.y", "!r1:x.y", "!r2:x.y"],
+                }
+            ],
+            rooms = ["!r0:x.y", "!r1:x.y", "!r2:x.y", "!r3:x.y"], // `r3` has received an update, but its position didn't change
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y"), F("!r3:x.y")],
+            rooms = ["!r3:x.y"],
+        };
+
+        // Partial update.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 1],
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), E],
+        };
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [1, 2],
+                    "room_ids": ["!r1:x.y", "!r2:x.y"],
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [E, F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // The range returned by the server is too large compared to the `room_ids` but
+        // we can fix it on-the-fly.
+        //
+        // See https://github.com/matrix-org/sliding-sync/issues/52.
+        assert_sync_operations! {
+            room_list = [E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 9], // <- it should be [0, 0]
+                    "room_ids": ["!r0:x.y"],
+                }
+            ]
+            =>
+            result = is_ok, // <- because we have fixed it
+            room_list = [F("!r0:x.y")],
+        };
+
+        // Missing `range`.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [E, E, E],
+        };
+
+        // Invalid `range`.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [2, 0],
+                    "room_ids": ["!r0:x.y", "!r1:x.y"],
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [E, E, E],
+        };
+
+        // Missing `room_ids`.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [E, E, E],
+        };
+
+        // Out of bounds operation.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [2, 3],
+                    "room_ids": ["!r1:x.y", "!r2:x.y"],
+                }
+            ]
+            =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [E, E, E],
+            /*
+            result = is_err,
+            room_list = [E, E, E],
+            */
+        };
+
+        // The server replies with a particular range, but some room IDs are
+        // missing.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 2],
+                    "room_ids": ["!r0:x.y" /* items are missing here! */],
+                }
+            ]
+            =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [F("!r0:x.y"), E, E],
+            /*
+            result = is_err,
+            room_list = [E, E, E],
+            */
+        };
+
+        // The server replies with a particular range, but there is too much
+        // room IDs.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Sync,
+                    "range": [0, 1],
+                    "room_ids": ["!r0:x.y", "!r1:x.y", "!extra:x.y"],
+                }
+            ]
+            =>
+            // As soon https://github.com/matrix-org/sliding-sync/issues/52
+            // is fixed, let's uncomment the real test.
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!extra:x.y")],
+            /*
+            result = is_err,
+            room_list = [E, E, E],
+            */
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_delete() {
+        // Delete a room entry in the middle.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 1,
+                }
+            ],
+            rooms = ["!r0:x.y", "!r1:x.y"], // `r0` has also received an update.
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r2:x.y")],
+            rooms = ["!r0:x.y"],
+        };
+
+        // Delete a room entry at the beginning.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 0,
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Delete a room entry at the end.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 2,
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), F("!r1:x.y")],
+        };
+
+        // Delete an out of bounds room entry.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Delete,
+                    "index": 3,
+                }
+            ]
+            =>
+            result = is_ok, // <- that's surprising, see the code for more explanations!
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_insert() {
+        // Insert a room entry in the middle.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 1,
+                    "room_id": "!r1:x.y",
+                }
+            ],
+            rooms = ["!r0:x.y", "!r1:x.y"], // `r0` has also received an update.
+            =>
+            result = is_ok,
+            room_list = [E, F("!r1:x.y"), E, E],
+            rooms = ["!r0:x.y"],
+        };
+
+        // Insert a room entry at the beginning.
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 0,
+                    "room_id": "!r0:x.y",
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), E, E, E],
+        };
+
+        // Insert a room entry at the end
+        assert_sync_operations! {
+            room_list = [E, E, E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 3,
+                    "room_id": "!r3:x.y",
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [E, E, E, F("!r3:x.y")],
+        };
+
+        // Insert an out of bounds room entry.
+        assert_sync_operations! {
+            room_list = [E, F("!r1:x.y"), E],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Insert,
+                    "index": 4,
+                    "room_id": "!r4:x.y",
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [E, F("!r1:x.y"), E],
+        };
+    }
+
+    #[test]
+    fn test_sync_operations_invalidate() {
+        // Invalidating an empty room.
+        assert_sync_operations! {
+            room_list = [E, F("!r1:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ],
+            rooms = ["!r1:x.y"], // `r1` has also received an update.
+            =>
+            result = is_ok,
+            room_list = [E, F("!r1:x.y")],
+            rooms = ["!r1:x.y"],
+        };
+
+        // Invalidating a filled room.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ],
+            rooms = ["!r0:x.y", "!r1:x.y"], // `r1` has also received an update.
+            =>
+            result = is_ok,
+            room_list = [I("!r0:x.y"), F("!r1:x.y")],
+            rooms = ["!r1:x.y"],
+        };
+
+        // Invalidating an invalidated room.
+        assert_sync_operations! {
+            room_list = [I("!r0:x.y"), F("!r1:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 0],
+                }
+            ],
+            rooms = ["!r0:x.y", "!r1:x.y"], // `r1` has also received an update.
+            =>
+            result = is_ok,
+            room_list = [I("!r0:x.y"), F("!r1:x.y")],
+            rooms = ["!r1:x.y"],
+        };
+
+        // Partial update.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 1],
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [I("!r0:x.y"), I("!r1:x.y"), F("!r2:x.y")],
+        };
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [1, 2],
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [F("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+        };
+
+        // Full update.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 2],
+                }
+            ]
+            =>
+            result = is_ok,
+            room_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
+        };
+
+        // The range returned by the server is too large compared to the `room_lists`
+        // but we can fix it on-the-fly.
+        //
+        // See https://github.com/matrix-org/sliding-sync/issues/52.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [0, 9], // <- it should be [0, 0]
+                }
+            ]
+            =>
+            result = is_ok, // <- because we have fixed it
+            room_list = [I("!r0:x.y")],
+        };
+
+        // Missing `range`.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
+
+        // Invalid `range`.
+        assert_sync_operations! {
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+            sync_operations = [
+                {
+                    "op": SlidingOp::Invalidate,
+                    "range": [12, 0],
+                }
+            ]
+            =>
+            result = is_err,
+            room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
+        };
     }
 }

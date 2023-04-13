@@ -1,9 +1,8 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use eyeball::unique::Observable;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join, pin_mut, StreamExt};
+use futures_util::{future::join4, pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sync_events::{
         v4::RoomSubscription as RumaRoomSubscription,
@@ -16,12 +15,12 @@ pub use matrix_sdk::{
     Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
     SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
-use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 use url::Url;
 
 use crate::{
-    helpers::unwrap_or_clone_arc, room::TimelineLock, Client, ClientError, EventTimelineItem, Room,
+    helpers::unwrap_or_clone_arc, room::TimelineLock, Client, EventTimelineItem, Room,
     TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
 
@@ -102,6 +101,59 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     }
 }
 
+#[derive(uniffi::Error)]
+pub enum SlidingSyncError {
+    /// The response we've received from the server can't be parsed or doesn't
+    /// match up with the current expectations on the client side. A
+    /// `sync`-restart might be required.
+    BadResponse {
+        msg: String,
+    },
+    /// Called `.build()` on a builder type, but the given required field was
+    /// missing.
+    BuildMissingField {
+        msg: String,
+    },
+    /// A `SlidingSyncListRequestGenerator` has been used without having been
+    /// initialized. It happens when a response is handled before a request has
+    /// been sent. It usually happens when testing.
+    RequestGeneratorHasNotBeenInitialized {
+        msg: String,
+    },
+    /// Someone has tried to modify a sliding sync list's ranges, but the
+    /// selected sync mode doesn't allow that.
+    CannotModifyRanges {
+        msg: String,
+    },
+    /// Ranges have a `start` bound greater than `end`.
+    InvalidRange {
+        /// Start bound.
+        start: u32,
+        /// End bound.
+        end: u32,
+    },
+    Unknown {
+        error: String,
+    },
+}
+
+impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
+    fn from(value: matrix_sdk::sliding_sync::Error) -> Self {
+        use matrix_sdk::sliding_sync::Error as E;
+
+        match value {
+            E::BadResponse(msg) => Self::BadResponse { msg },
+            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
+            E::RequestGeneratorHasNotBeenInitialized(msg) => {
+                Self::RequestGeneratorHasNotBeenInitialized { msg }
+            }
+            E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
+            E::InvalidRange { start, end } => Self::InvalidRange { start, end },
+            error => Self::Unknown { error: error.to_string() },
+        }
+    }
+}
+
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
     timeline: TimelineLock,
@@ -143,6 +195,10 @@ impl SlidingSyncRoom {
         self.client
             .get_room(self.inner.room_id())
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
+    }
+
+    pub fn avatar_url(&self) -> Option<String> {
+        Some(self.client.get_room(self.inner.room_id())?.avatar_url()?.into())
     }
 
     #[allow(clippy::significant_drop_in_scrutinee)]
@@ -214,20 +270,42 @@ impl SlidingSyncRoom {
                 .await;
         };
 
-        let mut reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
-        let timeline = timeline.to_owned();
-        let handle_sliding_sync_reset = async move {
-            loop {
-                match reset_broadcast_rx.recv().await {
-                    Err(RecvError::Closed) => break,
-                    Ok(_) | Err(RecvError::Lagged(_)) => timeline.clear().await,
-                }
+        let handle_sliding_sync_reset = {
+            let reset_broadcast_rx = self.client.sliding_sync_reset_broadcast_tx.subscribe();
+            let timeline = timeline.to_owned();
+            async move {
+                reset_broadcast_rx.for_each(|_| timeline.clear()).await;
+            }
+        };
+
+        let handle_sync_gap = {
+            let gap_broadcast_rx = self.client.client.subscribe_sync_gap(self.inner.room_id());
+            let timeline = timeline.to_owned();
+            async move {
+                gap_broadcast_rx.for_each(|_| timeline.clear()).await;
+            }
+        };
+
+        // This in the future could be removed, and the rx handling could be moved
+        // inside handle_sliding_sync_reset since we want to reset the sliding
+        // sync for ignore user list events
+        let handle_ignore_user_list_changes = {
+            let ignore_user_list_change_rx = self.client.subscribe_to_ignore_user_list_changes();
+            let timeline = timeline.to_owned();
+            async move {
+                ignore_user_list_change_rx.for_each(|_| timeline.clear()).await;
             }
         };
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join(handle_events, handle_sliding_sync_reset).await;
+            join4(
+                handle_events,
+                handle_sliding_sync_reset,
+                handle_sync_gap,
+                handle_ignore_user_list_changes,
+            )
+            .await;
         }));
 
         Ok((items, task_handle))
@@ -399,12 +477,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn send_updates_for_items(self: Arc<Self>, enable: bool) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.send_updates_for_items(enable);
-        Arc::new(builder)
-    }
-
     pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.ranges(ranges);
@@ -525,27 +597,12 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomListObserver>,
     ) -> Arc<TaskHandle> {
-        let mut rooms_list_stream = self.inner.rooms_list_stream();
+        let mut room_list_stream = self.inner.room_list_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
-                if let Some(diff) = rooms_list_stream.next().await {
+                if let Some(diff) = room_list_stream.next().await {
                     observer.did_receive_update(diff.into());
-                }
-            }
-        })))
-    }
-
-    pub fn observe_room_items(
-        &self,
-        observer: Box<dyn SlidingSyncListRoomItemsObserver>,
-    ) -> Arc<TaskHandle> {
-        let mut rooms_updated =
-            Observable::subscribe(&self.inner.rooms_updated_broadcast.read().unwrap());
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            loop {
-                if rooms_updated.next().await.is_some() {
-                    observer.did_receive_update();
                 }
             }
         })))
@@ -570,29 +627,29 @@ impl SlidingSyncList {
 #[uniffi::export]
 impl SlidingSyncList {
     /// Get the current list of rooms
-    pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
-        self.inner.rooms_list()
+    pub fn current_room_list(&self) -> Vec<RoomListEntry> {
+        self.inner.room_list()
     }
 
     /// Reset the ranges to a particular set
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) {
-        self.inner.set_range(start, end);
+    pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
+        self.inner.set_range(start, end).map_err(Into::into)
     }
 
     /// Set the ranges to fetch
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) {
-        self.inner.add_range(start, end);
+    pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
+        self.inner.add_range((start, end)).map_err(Into::into)
     }
 
     /// Reset the ranges
-    pub fn reset_ranges(&self) {
-        self.inner.reset_ranges();
+    pub fn reset_ranges(&self) -> Result<(), SlidingSyncError> {
+        self.inner.reset_ranges().map_err(Into::into)
     }
 
     /// Total of rooms matching the filter
@@ -602,19 +659,17 @@ impl SlidingSyncList {
 
     /// The current timeline limit
     pub fn get_timeline_limit(&self) -> Option<u32> {
-        (**self.inner.timeline_limit.read().unwrap())
-            .map(|limit| u32::try_from(limit).unwrap_or_default())
+        self.inner.timeline_limit().map(|limit| u32::try_from(limit).unwrap_or_default())
     }
 
     /// The current timeline limit
     pub fn set_timeline_limit(&self, value: u32) {
-        let value = Some(UInt::try_from(value).unwrap());
-        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), value);
+        self.inner.set_timeline_limit(Some(value))
     }
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), None);
+        self.inner.set_timeline_limit::<UInt>(None)
     }
 }
 
@@ -709,6 +764,10 @@ impl SlidingSync {
         self.inner.add_common_extensions();
     }
 
+    pub fn reset_lists(&self) {
+        self.inner.reset_lists()
+    }
+
     pub fn sync(&self) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
         let client = self.client.clone();
@@ -768,21 +827,9 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl SlidingSyncBuilder {
-    pub fn add_fullsync_list(self: Arc<Self>) -> Arc<Self> {
+    pub fn storage_key(self: Arc<Self>, name: Option<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_fullsync_list();
-        Arc::new(builder)
-    }
-
-    pub fn no_lists(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.no_lists();
-        Arc::new(builder)
-    }
-
-    pub fn cold_cache(self: Arc<Self>, name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.cold_cache(name);
+        builder.inner = builder.inner.storage_key(name);
         Arc::new(builder)
     }
 
@@ -833,17 +880,6 @@ impl SlidingSyncBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.with_all_extensions();
         Arc::new(builder)
-    }
-}
-
-#[uniffi::export]
-impl Client {
-    pub fn full_sliding_sync(&self) -> Result<Arc<SlidingSync>, ClientError> {
-        RUNTIME.block_on(async move {
-            let builder = self.client.sliding_sync().await;
-            let inner = builder.add_fullsync_list().build().await?;
-            Ok(Arc::new(SlidingSync::new(inner, self.clone())))
-        })
     }
 }
 

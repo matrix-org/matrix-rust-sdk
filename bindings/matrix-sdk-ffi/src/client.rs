@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
+use eyeball::shared::Observable as SharedObservable;
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     room::Room as SdkRoom,
@@ -12,6 +13,7 @@ use matrix_sdk::{
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
+            user_directory::search_users,
         },
         events::{
             room::{
@@ -26,7 +28,7 @@ use matrix_sdk::{
 };
 use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
 use serde_json::Value;
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
@@ -108,18 +110,18 @@ pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     session_verification_controller:
-        Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
+        Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
     /// The sliding sync proxy that the client is configured to use by default.
     /// If this value is `Some`, it will be automatically added to the builder
     /// when calling `sliding_sync()`.
     pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
-    pub(crate) sliding_sync_reset_broadcast_tx: broadcast::Sender<()>,
+    pub(crate) sliding_sync_reset_broadcast_tx: Arc<SharedObservable<()>>,
 }
 
 impl Client {
     pub fn new(client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
-            matrix_sdk::locks::RwLock<Option<SessionVerificationController>>,
+            tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
         let ctrl = session_verification_controller.clone();
 
@@ -134,14 +136,12 @@ impl Client {
             }
         });
 
-        let (sliding_sync_reset_broadcast_tx, _) = broadcast::channel(1);
-
         let client = Client {
             client,
             delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
-            sliding_sync_reset_broadcast_tx,
+            sliding_sync_reset_broadcast_tx: Default::default(),
         };
 
         let mut unknown_token_error_receiver = client.subscribe_to_unknown_token_errors();
@@ -521,6 +521,62 @@ impl Client {
             Ok(())
         })
     }
+
+    pub fn search_users(
+        &self,
+        search_term: String,
+        limit: u64,
+    ) -> Result<SearchUsersResults, ClientError> {
+        RUNTIME.block_on(async move {
+            let response = self.client.search_users(&search_term, limit).await?;
+            Ok(SearchUsersResults::from(response))
+        })
+    }
+
+    pub fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
+        RUNTIME.block_on(async move {
+            let owned_user_id = UserId::parse(user_id.clone())?;
+            let response = self.client.get_profile(&owned_user_id).await?;
+
+            let user_profile = UserProfile {
+                user_id,
+                display_name: response.displayname.clone(),
+                avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
+            };
+
+            Ok(user_profile)
+        })
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct SearchUsersResults {
+    pub results: Vec<UserProfile>,
+    pub limited: bool,
+}
+
+impl From<search_users::v3::Response> for SearchUsersResults {
+    fn from(value: search_users::v3::Response) -> Self {
+        let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
+        SearchUsersResults { results, limited: value.limited }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+impl From<&search_users::v3::User> for UserProfile {
+    fn from(value: &search_users::v3::User) -> Self {
+        UserProfile {
+            user_id: value.user_id.to_string(),
+            display_name: value.display_name.clone(),
+            avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
+        }
+    }
 }
 
 impl Client {
@@ -529,7 +585,7 @@ impl Client {
         let client_api_error_kind = sync_error.client_api_error_kind();
         match client_api_error_kind {
             Some(ErrorKind::UnknownPos) => {
-                let _ = self.sliding_sync_reset_broadcast_tx.send(());
+                self.sliding_sync_reset_broadcast_tx.set(());
                 LoopCtrl::Continue
             }
             _ => {
@@ -547,7 +603,7 @@ impl Client {
 }
 
 pub struct CreateRoomParameters {
-    pub name: String,
+    pub name: Option<String>,
     pub topic: Option<String>,
     pub is_encrypted: bool,
     pub is_direct: bool,
@@ -560,7 +616,7 @@ pub struct CreateRoomParameters {
 impl From<CreateRoomParameters> for create_room::v3::Request {
     fn from(value: CreateRoomParameters) -> create_room::v3::Request {
         let mut request = create_room::v3::Request::new();
-        request.name = Some(value.name);
+        request.name = value.name;
         request.topic = value.topic;
         request.is_direct = value.is_direct;
         request.visibility = value.visibility.into();

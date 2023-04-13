@@ -39,9 +39,10 @@ serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
 thiserror = "1.0.38"
+tokio = { version = "1.24", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "58758341b72e9e8ff51ecd57a3eb22d6cc41a4b4" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "58758341b72e9e8ff51ecd57a3eb22d6cc41a4b4" }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
+uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 
@@ -61,13 +62,13 @@ debug = 0
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
 
-# Custom profile with full debugging info, use `--profile debug` to select
+# Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]
 inherits = "dev"
 debug = 2
 
 # Custom profile for use in (debug) builds of the binding crates, use
-# `--profile release_dbg` to select
+# `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dev"
 incremental = false

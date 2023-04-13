@@ -21,7 +21,6 @@ use std::{pin::Pin, sync::Arc, task::Poll};
 use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
 use imbl::Vector;
-use matrix_sdk_base::locks::Mutex;
 use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
@@ -33,6 +32,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{error, instrument, warn};
 
 use super::{Joined, Receipts};
@@ -308,8 +308,7 @@ impl Timeline {
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
-        self.inner.fetch_in_reply_to_details(event_id).await?;
-        Ok(())
+        self.inner.fetch_in_reply_to_details(event_id).await
     }
 
     /// Fetch all member events for the room this timeline is displaying.

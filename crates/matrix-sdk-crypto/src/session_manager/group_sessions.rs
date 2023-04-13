@@ -27,7 +27,7 @@ use ruma::{
     OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde_json::Value;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
@@ -67,16 +67,23 @@ impl GroupSessionCache {
         // and put it in the cache.
         if let Some(s) = self.sessions.get(room_id) {
             Ok(Some(s.clone()))
-        } else if let Some(s) = self.store.get_outbound_group_session(room_id).await? {
-            for request_id in s.pending_request_ids() {
-                self.sessions_being_shared.insert(request_id, s.clone());
-            }
-
-            self.sessions.insert(room_id.to_owned(), s.clone());
-
-            Ok(Some(s))
         } else {
-            Ok(None)
+            match self.store.get_outbound_group_session(room_id).await {
+                Ok(Some(s)) => {
+                    for request_id in s.pending_request_ids() {
+                        self.sessions_being_shared.insert(request_id, s.clone());
+                    }
+
+                    self.sessions.insert(room_id.to_owned(), s.clone());
+
+                    Ok(Some(s))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    error!("Couldn't restore an outbound group session: {e:?}");
+                    Ok(None)
+                }
+            }
         }
     }
 
@@ -470,7 +477,6 @@ impl GroupSessionManager {
             changes.inbound_group_sessions.push(inbound);
 
             debug!(
-                room_id = room_id.as_str(),
                 old_session_id = old_session_id,
                 session_id = outbound.session_id(),
                 "A user or device has left the room since we last sent a \
@@ -654,13 +660,14 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
+    #[instrument(skip(self, users, encryption_settings))]
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        trace!(room_id = room_id.as_str(), "Checking if a room key needs to be shared");
+        trace!("Checking if a room key needs to be shared");
 
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();

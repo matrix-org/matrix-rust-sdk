@@ -854,9 +854,9 @@ impl AcceptSettings {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
+    use tokio::sync::Mutex;
 
     use super::Sas;
     use crate::{

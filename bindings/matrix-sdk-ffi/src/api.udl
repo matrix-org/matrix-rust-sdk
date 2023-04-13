@@ -47,9 +47,9 @@ enum SlidingSyncState {
 
 enum SlidingSyncMode {
     /// Sync up the entire room list first, page by page
-    "PagingFullSync",
+    "Paging",
     /// Sync up the entire room list first through a growing window
-    "GrowingFullSync",
+    "Growing",
     /// Only ever sync the currently selected window
     "Selective",
 };
@@ -97,9 +97,6 @@ interface SlidingSyncListBuilder {
     [Self=ByArc]
     SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
 
-    [Self=ByArc]
-    SlidingSyncListBuilder send_updates_for_items(boolean enable);
-
     [Throws=ClientError, Self=ByArc]
     SlidingSyncList build();
 };
@@ -108,7 +105,6 @@ interface SlidingSyncList {
     TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
     TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
     TaskHandle observe_state(SlidingSyncListStateObserver observer);
-    TaskHandle observe_room_items(SlidingSyncListRoomItemsObserver observer);
 };
 
 interface SlidingSyncRoom {
@@ -153,7 +149,7 @@ interface SlidingSyncBuilder {
 };
 
 dictionary CreateRoomParameters {
-    string name;
+    string? name;
     string? topic = null;
     boolean is_encrypted;
     boolean is_direct = false;
@@ -257,6 +253,9 @@ interface Room {
 
     [Throws=ClientError]
     void report_content(string event_id, i32? score, string? reason);
+    
+    [Throws=ClientError]
+    void ignore_user(string user_id);
 
     [Throws=ClientError]
     void send_reaction(string event_id, string key);
@@ -275,6 +274,9 @@ interface Room {
 
     [Throws=ClientError]
     void remove_avatar();
+
+    [Throws=ClientError]
+    void invite_user_by_id(string user_id);
 };
 
 callback interface TimelineListener {

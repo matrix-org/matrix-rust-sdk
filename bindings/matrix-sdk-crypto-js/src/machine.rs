@@ -2,10 +2,13 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
+use futures_util::StreamExt;
 use js_sys::{Array, Function, Map, Promise, Set};
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::{json, Value as JsonValue};
+use tracing::warn;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 
 use crate::{
     device, encryption,
@@ -15,7 +18,9 @@ use crate::{
     olm, requests,
     requests::{OutgoingRequest, ToDeviceRequest},
     responses::{self, response_from_string},
-    store, sync_events, types, verification, vodozemac,
+    store,
+    store::RoomKeyInfo,
+    sync_events, types, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -768,6 +773,25 @@ impl OlmMachine {
         )?)?)
     }
 
+    /// Register a callback which will be called whenever there is an update to
+    /// a room key.
+    ///
+    /// `callback` should be a function that takes a single argument (an array
+    /// of {@link RoomKeyInfo}) and returns a Promise.
+    #[wasm_bindgen(js_name = "registerRoomKeyUpdatedCallback")]
+    pub async fn register_room_key_updated_callback(&self, callback: Function) {
+        let stream = self.inner.store().room_keys_received_stream();
+
+        // fire up a promise chain which will call `cb` on each result from the stream
+        spawn_local(async move {
+            // take a reference to `callback` (which we then pass into the closure), to stop
+            // the callback being moved into the closure (which would mean we could only
+            // call the closure once)
+            let callback_ref = &callback;
+            stream.for_each(move |item| send_room_key_info_to_callback(callback_ref, item)).await;
+        });
+    }
+
     /// Shut down the `OlmMachine`.
     ///
     /// The `OlmMachine` cannot be used after this method has been called.
@@ -775,4 +799,42 @@ impl OlmMachine {
     /// All associated resources will be closed too, like IndexedDB
     /// connections.
     pub fn close(self) {}
+}
+
+// helper for register_room_key_received_callback: wraps the key info
+// into our own RoomKeyInfo struct, and passes it into the javascript
+// function
+async fn send_room_key_info_to_callback(
+    callback: &Function,
+    room_key_info: Vec<matrix_sdk_crypto::store::RoomKeyInfo>,
+) {
+    let rki: Array = room_key_info.into_iter().map(RoomKeyInfo::from).map(JsValue::from).collect();
+    match promise_result_to_future(callback.call1(&JsValue::NULL, &rki)).await {
+        Ok(_) => (),
+        Err(e) => {
+            warn!("Error calling room-key-received callback: {:?}", e);
+        }
+    }
+}
+
+/// Given a result from a javascript function which returns a Promise (or throws
+/// an exception before returning one), convert the result to a rust Future
+/// which completes with the result of the promise
+async fn promise_result_to_future(res: Result<JsValue, JsValue>) -> Result<JsValue, JsValue> {
+    match res {
+        Ok(retval) => {
+            if !retval.has_type::<Promise>() {
+                panic!("not a promise");
+            }
+            let prom: Promise = retval.dyn_into().map_err(|v| {
+                JsError::new(&format!("function returned a non-Promise value {v:?}"))
+            })?;
+            JsFuture::from(prom).await
+        }
+        Err(e) => {
+            // the function threw an exception before it returned the promise. We can just
+            // return the error as an error result.
+            Err(e)
+        }
+    }
 }

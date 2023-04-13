@@ -72,22 +72,26 @@ pub(super) fn handle_explicit_read_receipts(
                 );
 
                 if read_receipt_updated && !is_own_user_id {
-                    // Update the new item pointed to by the user's read receipt.
-                    let new_receipt_event_item = receipt_item_pos.and_then(|pos| {
-                        let e = timeline_state.items[pos].as_event()?.as_remote()?;
-                        Some((pos, e.clone()))
-                    });
-
-                    if let Some((pos, mut remote_event_item)) = new_receipt_event_item {
-                        remote_event_item.add_read_receipt(user_id, receipt);
-                        timeline_state
-                            .items
-                            .set(pos, Arc::new(TimelineItem::Event(remote_event_item.into())));
-                    }
+                    add_read_receipt(receipt_item_pos, user_id, receipt, timeline_state);
                 }
             }
         }
     }
+}
+
+/// Update the new item pointed to by the user's read receipt.
+fn add_read_receipt(
+    receipt_item_pos: Option<usize>,
+    user_id: OwnedUserId,
+    receipt: Receipt,
+    timeline_state: &mut TimelineInnerState,
+) {
+    let Some(pos) = receipt_item_pos else { return };
+    let Some(event_item) = timeline_state.items[pos].as_event() else { return };
+    let Some(mut remote_event_item) = event_item.as_remote().cloned() else { return };
+
+    remote_event_item.add_read_receipt(user_id, receipt);
+    timeline_state.items.set(pos, Arc::new(TimelineItem::Event(remote_event_item.into())));
 }
 
 /// Add an implicit read receipt to the given event item, if it is more recent

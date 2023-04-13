@@ -32,11 +32,12 @@ crate-type = ["cdylib"]
 [features]
 default = ["tracing", "qrcode"]
 qrcode = ["matrix-sdk-crypto/qrcode", "dep:matrix-sdk-qrcode"]
-tracing = ["dep:tracing"]
+tracing = []
 
 [dependencies]
 anyhow = { workspace = true }
 console_error_panic_hook = "0.1.7"
+futures-util = "0.3.27"
 http = { workspace = true }
 js-sys = "0.3.49"
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
@@ -45,7 +46,7 @@ matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-inde
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
 ruma = { workspace = true, features = ["js", "rand", "unstable-msc2677"] }
 serde_json = { workspace = true }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.14", default-features = false, features = ["registry", "std"] }
 vodozemac = { workspace = true, features = ["js"] }
 wasm-bindgen = "0.2.83"

@@ -169,18 +169,24 @@ impl EventTimelineItem {
     ///
     /// Returns `None` if this event hasn't been echoed back by the server
     /// yet.
-    pub fn raw(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
+    pub fn original_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match self {
             Self::Local(_local_event) => None,
-            Self::Remote(remote_event) => Some(remote_event.raw()),
+            Self::Remote(remote_event) => Some(remote_event.original_json()),
         }
     }
 
-    /// Clone the current event item, and update its `content`.
-    pub(super) fn with_content(&self, content: TimelineItemContent) -> Self {
+    /// Clone the current event item, and apply an edit to it.
+    pub(super) fn apply_edit(
+        &self,
+        new_content: TimelineItemContent,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    ) -> Self {
         match self {
-            Self::Local(local_event) => Self::Local(local_event.with_content(content)),
-            Self::Remote(remote_event) => Self::Remote(remote_event.with_content(content)),
+            Self::Local(local_event) => Self::Local(local_event.with_content(new_content)),
+            Self::Remote(remote_event) => {
+                Self::Remote(remote_event.apply_edit(new_content, edit_json))
+            }
         }
     }
 

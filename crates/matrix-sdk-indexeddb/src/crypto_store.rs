@@ -20,7 +20,6 @@ use std::{
 use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -37,6 +36,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
+use tokio::sync::Mutex;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 

@@ -19,12 +19,9 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
-        VerificationState,
-    },
-    locks::Mutex,
+use matrix_sdk_common::deserialized_responses::{
+    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
+    VerificationState,
 };
 use ruma::{
     api::client::{
@@ -45,6 +42,7 @@ use ruma::{
     RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
+use tokio::sync::Mutex;
 use tracing::{
     debug, error,
     field::{debug, display},
@@ -1713,9 +1711,16 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{collections::BTreeMap, iter, sync::Arc};
+    use std::{
+        collections::BTreeMap,
+        iter,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use assert_matches::assert_matches;
+    use futures::select;
+    use futures_util::{FutureExt, StreamExt};
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
     };
@@ -1743,7 +1748,7 @@ pub(crate) mod tests {
         room_id,
         serde::Raw,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, TransactionId, UserId,
+        OwnedDeviceKeyId, SecondsSinceUnixEpoch, TransactionId, UserId,
     };
     use serde_json::json;
     use vodozemac::{
@@ -2076,23 +2081,34 @@ pub(crate) mod tests {
         assert!(user_sessions.contains_key(alice_device));
     }
 
-    #[async_test]
-    async fn test_session_creation() {
-        let (alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
-
-        let mut bob_keys = BTreeMap::new();
-
-        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
-        let mut keys = BTreeMap::new();
-        keys.insert(device_key_id.clone(), one_time_key.clone());
-        bob_keys.insert(bob_machine.device_id().into(), keys);
-
-        let mut one_time_keys = BTreeMap::new();
-        one_time_keys.insert(bob_machine.user_id().to_owned(), bob_keys);
-
+    async fn create_session(
+        machine: &OlmMachine,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        key_id: OwnedDeviceKeyId,
+        one_time_key: Raw<OneTimeKey>,
+    ) {
+        let keys = BTreeMap::from([(key_id, one_time_key)]);
+        let keys = BTreeMap::from([(device_id.to_owned(), keys)]);
+        let one_time_keys = BTreeMap::from([(user_id.to_owned(), keys)]);
         let response = claim_keys::v3::Response::new(one_time_keys);
 
-        alice_machine.receive_keys_claim_response(&response).await.unwrap();
+        machine.receive_keys_claim_response(&response).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_session_creation() {
+        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair().await;
+        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+
+        create_session(
+            &alice_machine,
+            bob_machine.user_id(),
+            bob_machine.device_id(),
+            device_key_id,
+            one_time_key,
+        )
+        .await;
 
         let session = alice_machine
             .store
@@ -2102,6 +2118,80 @@ pub(crate) mod tests {
             .unwrap();
 
         assert!(!session.lock().await.is_empty())
+    }
+
+    #[async_test]
+    async fn getting_most_recent_session() {
+        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair().await;
+        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+
+        let device = alice_machine
+            .get_device(bob_machine.user_id(), bob_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(device.get_most_recent_session().await.unwrap().is_none());
+
+        create_session(
+            &alice_machine,
+            bob_machine.user_id(),
+            bob_machine.device_id(),
+            device_key_id,
+            one_time_key.to_owned(),
+        )
+        .await;
+
+        for _ in 0..10 {
+            let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
+
+            create_session(
+                &alice_machine,
+                bob_machine.user_id(),
+                bob_machine.device_id(),
+                device_key_id,
+                one_time_key.to_owned(),
+            )
+            .await;
+        }
+
+        // Since the sessions are created quickly in succession and our timestamps have
+        // a resolution in seconds, it's very likely that we're going to end up
+        // with the same timestamps, so we manually masage them to be 10s apart.
+        let session_id = {
+            let sessions = alice_machine
+                .store
+                .get_sessions(&bob_machine.identity_keys().curve25519.to_base64())
+                .await
+                .unwrap()
+                .unwrap();
+
+            let mut use_time = SystemTime::now();
+            let mut sessions = sessions.lock().await;
+
+            let mut session_id = None;
+
+            // Iterate through the sessions skipping the first and last element so we know
+            // that the correct session isn't the first nor the last one.
+            let (_, sessions_slice) = sessions.as_mut_slice().split_last_mut().unwrap();
+
+            for session in sessions_slice.iter_mut().skip(1) {
+                session.creation_time = SecondsSinceUnixEpoch::from_system_time(use_time).unwrap();
+                use_time += Duration::from_secs(10);
+
+                session_id = Some(session.session_id().to_owned());
+            }
+
+            session_id.unwrap()
+        };
+
+        let newest_session = device.get_most_recent_session().await.unwrap().unwrap();
+
+        assert_eq!(
+            newest_session.session_id(),
+            session_id,
+            "The session we found is the one that was most recently created"
+        );
     }
 
     #[async_test]
@@ -2193,9 +2283,18 @@ pub(crate) mod tests {
             to_device_requests_to_content(to_device_requests),
         );
 
+        let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+
         let group_session =
-            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session;
-        bob.store.save_inbound_group_sessions(&[group_session.unwrap()]).await.unwrap();
+            bob.decrypt_to_device_event(&event).await.unwrap().inbound_group_session.unwrap();
+        bob.store.save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+
+        // when we decrypt the room key, the
+        // inbound_group_session_streamroom_keys_received_stream should tell us
+        // about it.
+        let room_keys = room_keys_received_stream.next().await.unwrap();
+        assert_eq!(room_keys.len(), 1);
+        assert_eq!(room_keys[0].session_id, group_session.session_id());
 
         let plaintext = "It is a secret to everybody";
 
@@ -2231,6 +2330,15 @@ pub(crate) mod tests {
             }
         } else {
             panic!("Decrypted room event has the wrong type")
+        }
+
+        // Just decrypting the event should *not* cause an update on the
+        // inbound_group_session_stream.
+        select! {
+            igs = room_keys_received_stream.next().fuse() => {
+                panic!("Session stream unexpectedly returned update: {igs:?}");
+            },
+            default => {},
         }
     }
 

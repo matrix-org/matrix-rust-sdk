@@ -27,7 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.24.2", default-features = false, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test = "0.3.33"

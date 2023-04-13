@@ -24,7 +24,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
@@ -33,6 +32,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
 pub use vodozemac::{
@@ -233,7 +233,16 @@ impl OutboundGroupSession {
         })
     }
 
-    pub(crate) fn add_request(
+    /// Add a to-device request that is sending the session key (or room key)
+    /// belonging to this [`OutboundGroupSession`] to other members of the
+    /// group.
+    ///
+    /// The request will get persisted with the session which allows seamless
+    /// session reuse across application restarts.
+    ///
+    /// **Warning** this method is only exposed to be used in integration tests
+    /// of crypto-store implementations. **Do not use this outside of tests**.
+    pub fn add_request(
         &self,
         request_id: OwnedTransactionId,
         request: Arc<ToDeviceRequest>,

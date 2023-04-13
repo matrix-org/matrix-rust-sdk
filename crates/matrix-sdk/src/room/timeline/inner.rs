@@ -22,10 +22,7 @@ use imbl::Vector;
 use indexmap::{IndexMap, IndexSet};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::OlmMachine;
-use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
-    locks::{Mutex, MutexGuard},
-};
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent};
 #[cfg(feature = "e2e-encryption")]
 use ruma::RoomId;
 use ruma::{
@@ -36,11 +33,12 @@ use ruma::{
         relation::Annotation,
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    push::Action,
+    push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
 };
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, field::debug, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{field, info, info_span, Instrument as _};
@@ -82,9 +80,12 @@ pub(super) struct TimelineInnerState {
     /// IDs.
     pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     pub(super) fully_read_event: Option<OwnedEventId>,
-    /// Whether the event that the fully-ready event _refers to_ is part of the
-    /// timeline.
-    pub(super) fully_read_event_in_timeline: bool,
+    /// Whether the fully-read marker item should try to be updated when an
+    /// event is added.
+    /// This is currently `true` in two cases:
+    /// - The fully-read marker points to an event that is not in the timeline,
+    /// - The fully-read marker item would be the last item in the timeline.
+    pub(super) event_should_update_fully_read_marker: bool,
     /// User ID => Receipt type => Read receipt of the user of the given type.
     pub(super) users_read_receipts:
         HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
@@ -170,7 +171,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.clear();
         state.reaction_map.clear();
         state.fully_read_event = None;
-        state.fully_read_event_in_timeline = false;
+        state.event_should_update_fully_read_marker = false;
     }
 
     #[instrument(skip_all)]
@@ -344,7 +345,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         update_read_marker(
             &mut state.items,
             state.fully_read_event.as_deref(),
-            &mut state.fully_read_event_in_timeline,
+            &mut state.event_should_update_fully_read_marker,
         );
     }
 
@@ -359,6 +360,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         use super::EncryptedMessage;
 
         trace!("Retrying decryption");
+
+        let push_rules_context = self.room_data_provider.push_rules_and_context().await;
+
         let should_retry = |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -391,7 +395,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("event_id", debug(remote_event.event_id()));
 
-                let raw = remote_event.raw().cast_ref();
+                let raw = remote_event.original_json().cast_ref();
                 match olm_machine.decrypt_room_event(raw, room_id).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
@@ -422,10 +426,17 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 continue;
             };
 
+            let push_actions = push_rules_context
+                .as_ref()
+                .map(|(push_rules, push_context)| {
+                    push_rules.get_actions(&event.event, push_context).to_owned()
+                })
+                .unwrap_or_default();
+
             let result = handle_remote_event(
                 event.event.cast(),
                 event.encryption_info,
-                event.push_actions,
+                push_actions,
                 TimelineItemPosition::Update(idx),
                 &mut state,
                 &self.room_data_provider,
@@ -535,23 +546,20 @@ impl TimelineInner {
         }
     }
 
-    pub(super) async fn fetch_in_reply_to_details(
-        &self,
-        event_id: &EventId,
-    ) -> Result<RemoteEventTimelineItem> {
+    pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
             .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
-        let details = fetch_replied_to_event(
+        let event = fetch_replied_to_event(
             state,
             index,
             &item,
@@ -571,18 +579,21 @@ impl TimelineInner {
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
-        item.set_content(TimelineItemContent::Message(message.with_in_reply_to(
-            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
-        )));
+        item.set_content(TimelineItemContent::Message(
+            message.with_in_reply_to(InReplyToDetails {
+                event_id: in_reply_to.event_id.clone(),
+                event,
+            }),
+        ));
         state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
 
-        Ok(item)
+        Ok(())
     }
 
     /// Get the latest read receipt for the given user.
@@ -683,12 +694,11 @@ async fn fetch_replied_to_event(
         return details;
     };
 
-    let event_item = item
-        .with_content(TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
-            event_id: in_reply_to.to_owned(),
-            details: TimelineDetails::Pending,
-        })))
-        .into();
+    let reply = message.with_in_reply_to(InReplyToDetails {
+        event_id: in_reply_to.to_owned(),
+        event: TimelineDetails::Pending,
+    });
+    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None).into();
     state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
 
     // Don't hold the state lock while the network request is made
@@ -710,6 +720,7 @@ pub(super) trait RoomDataProvider {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
 
 #[async_trait]
@@ -744,6 +755,26 @@ impl RoomDataProvider for room::Common {
             Err(e) => {
                 error!(?event_id, "Failed to get read receipts for event: {e}");
                 IndexMap::new()
+            }
+        }
+    }
+
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
+        match self.push_context().await {
+            Ok(Some(push_context)) => match self.client().account().push_rules().await {
+                Ok(push_rules) => Some((push_rules, push_context)),
+                Err(e) => {
+                    error!("Could not get push rules: {e}");
+                    None
+                }
+            },
+            Ok(None) => {
+                debug!("Could not aggregate push context");
+                None
+            }
+            Err(e) => {
+                error!("Could not get push context: {e}");
+                None
             }
         }
     }

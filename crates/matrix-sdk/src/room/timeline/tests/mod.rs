@@ -35,9 +35,13 @@ use ruma::{
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticStateEventContent,
     },
+    int,
+    power_levels::NotificationPowerLevels,
+    push::{PushConditionRoomCtx, Ruleset},
+    room_id,
     serde::Raw,
-    server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, TransactionId, UserId,
+    server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -304,5 +308,20 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn read_receipts_for_event(&self, _event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
         IndexMap::new()
+    }
+
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
+        let push_rules = Ruleset::server_default(&ALICE);
+        let push_context = PushConditionRoomCtx {
+            room_id: room_id!("!my_room:server.name").to_owned(),
+            member_count: uint!(2),
+            user_id: ALICE.to_owned(),
+            user_display_name: "Alice".to_owned(),
+            users_power_levels: BTreeMap::new(),
+            default_power_level: int!(0),
+            notification_power_levels: NotificationPowerLevels::new(),
+        };
+
+        Some((push_rules, push_context))
     }
 }

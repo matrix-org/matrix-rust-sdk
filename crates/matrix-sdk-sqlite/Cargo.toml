@@ -10,6 +10,7 @@ rust-version = { workspace = true }
 [features]
 default = []
 
+bundled = ["rusqlite/bundled"]
 crypto-store = [
     "dep:matrix-sdk-base",
     "dep:matrix-sdk-crypto",
@@ -30,10 +31,11 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 rmp-serde = "1.1.1"
 ruma = { workspace = true }
-rusqlite = { version = "0.28.0", features = ["bundled"] }
+rusqlite = "0.28.0"
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.24.2", default-features = false, features = ["sync", "fs"] }
+tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 vodozemac = { workspace = true }
 
@@ -46,5 +48,5 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

@@ -19,22 +19,18 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 
-#[cfg(target_arch = "wasm32")]
-use async_once_cell::OnceCell;
 use dashmap::DashMap;
+use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
     store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
     SessionTokens, SyncOutsideWasm,
 };
-use matrix_sdk_common::{
-    instant::Instant,
-    locks::{Mutex, RwLock, RwLockReadGuard},
-};
+use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
@@ -51,6 +47,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
+            profile::get_profile,
             push::{get_notifications::v3::Notification, set_pusher, Pusher},
             room::create_room,
             session::{
@@ -58,6 +55,7 @@ use ruma::{
             },
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
+            user_directory::search_users,
         },
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
@@ -68,9 +66,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::broadcast;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, field::display, info, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -168,6 +164,7 @@ pub(crate) struct ClientInner {
     pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
@@ -212,6 +209,12 @@ impl Client {
             .build()
             .await
             .map_err(ClientBuildError::assert_valid_builder_args)
+    }
+
+    /// Returns a subscriber that publishes an event every time the ignore user
+    /// list changes.
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
+        self.inner.base_client.subscribe_to_ignore_user_list_changes()
     }
 
     /// Create a new [`ClientBuilder`].
@@ -342,6 +345,29 @@ impl Client {
 
     fn session_meta(&self) -> Option<&SessionMeta> {
         self.base_client().session_meta()
+    }
+
+    /// Performs a search for users.
+    /// The search is performed case-insensitively on user IDs and display names
+    ///
+    /// # Arguments
+    ///
+    /// * `search_term` - The search term for the search
+    /// * `limit` - The maximum number of results to return. Defaults to 10.
+    ///
+    /// [user directory]: https://spec.matrix.org/v1.6/client-server-api/#user-directory
+    pub async fn search_users(
+        &self,
+        search_term: &str,
+        limit: u64,
+    ) -> HttpResult<search_users::v3::Response> {
+        let mut request = search_users::v3::Request::new(search_term.to_owned());
+
+        if let Some(limit) = UInt::new(limit) {
+            request.limit = limit;
+        }
+
+        self.send(request, None).await
     }
 
     /// Get the user id of the current owner of the client.
@@ -1399,12 +1425,9 @@ impl Client {
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let lock = self.inner.refresh_token_lock.try_lock().ok();
-        #[cfg(target_arch = "wasm32")]
         let lock = self.inner.refresh_token_lock.try_lock();
 
-        if let Some(mut guard) = lock {
+        if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
                 return Err(RefreshTokenError::RefreshTokenRequired.into());
@@ -1945,11 +1968,6 @@ impl Client {
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        #[cfg(target_arch = "wasm32")]
-        let server_versions =
-            self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
-
-        #[cfg(not(target_arch = "wasm32"))]
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
@@ -2519,6 +2537,26 @@ impl Client {
         let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
     }
+
+    /// Subscribe to sync gaps for the given room.
+    ///
+    /// This method is meant to be removed in favor of making event handlers
+    /// more general in the future.
+    pub fn subscribe_sync_gap(&self, room_id: &RoomId) -> Subscriber<()> {
+        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
+        let observable = lock.entry(room_id.to_owned()).or_default();
+        Observable::subscribe(observable)
+    }
+
+    /// Get the profile for a given user id
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` the matrix id this function downloads the profile for
+    pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
+        let request = get_profile::v3::Request::new(user_id.to_owned());
+        Ok(self.send(request, Some(RequestConfig::short_retry())).await?)
+    }
 }
 
 // The http mocking library is not supported for wasm32
@@ -2533,7 +2571,7 @@ pub(crate) mod tests {
     use ruma::{events::ignored_user_list::IgnoredUserListEventContent, UserId};
     use url::Url;
     use wiremock::{
-        matchers::{header, method, path},
+        matchers::{body_json, header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -2719,5 +2757,29 @@ pub(crate) mod tests {
         let homeserver = Url::parse("http://example.com/").unwrap();
         client.set_homeserver(homeserver.clone()).await;
         assert_eq!(client.homeserver().await, homeserver);
+    }
+
+    #[async_test]
+    async fn search_user_request() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path("_matrix/client/r0/user_directory/search"))
+            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::search_users::SEARCH_USERS_RESPONSE),
+            )
+            .mount(&server)
+            .await;
+
+        let response = client.search_users("test", 50).await.unwrap();
+        let result = response.results.first().unwrap();
+        assert_eq!(result.user_id.to_string(), "@test:example.me");
+        assert_eq!(result.display_name.clone().unwrap(), "Test");
+        assert_eq!(result.avatar_url.clone().unwrap().to_string(), "mxc://example.me/someid");
+        assert_eq!(response.results.len(), 1);
+        assert!(!response.limited);
     }
 }

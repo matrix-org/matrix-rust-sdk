@@ -39,7 +39,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sled = "0.34.7"
 thiserror = { workspace = true }
-tokio = { version = "1.24.2", default-features = false, features = ["sync", "fs"] }
+tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
@@ -50,4 +50,4 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
-tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

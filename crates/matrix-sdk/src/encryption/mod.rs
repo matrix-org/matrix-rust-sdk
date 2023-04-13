@@ -31,13 +31,11 @@ pub use matrix_sdk_base::crypto::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
     },
-    vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
-    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
+    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
     SessionCreationError, SignatureError, VERSION,
 };
-use matrix_sdk_base::crypto::{
-    CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
-};
+use matrix_sdk_base::crypto::{OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,

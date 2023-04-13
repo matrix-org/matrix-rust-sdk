@@ -12,12 +12,11 @@ use ruma::{
     },
     assign, OwnedRoomId,
 };
-use tracing::trace;
 use url::Url;
 
 use super::{
-    Error, FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncInner,
-    SlidingSyncList, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
+    cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner, SlidingSyncList,
+    SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -65,46 +64,11 @@ impl SlidingSyncBuilder {
         self
     }
 
-    pub(super) fn subscriptions(
-        mut self,
-        value: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-    ) -> Self {
-        self.subscriptions = value;
-        self
-    }
-
-    /// Convenience function to add a full-sync list to the builder
-    pub fn add_fullsync_list(self) -> Self {
-        self.add_list(
-            SlidingSyncListBuilder::default_with_fullsync()
-                .build()
-                .expect("Building default full sync list doesn't fail"),
-        )
-    }
-
-    /// The cold cache key to read from and store the frozen state at
-    pub fn cold_cache<T: ToString>(mut self, name: T) -> Self {
-        self.storage_key = Some(name.to_string());
-        self
-    }
-
-    /// Do not use the cold cache
-    pub fn no_cold_cache(mut self) -> Self {
-        self.storage_key = None;
-        self
-    }
-
-    /// Reset the lists to `None`
-    pub fn no_lists(mut self) -> Self {
-        self.lists.clear();
-        self
-    }
-
     /// Add the given list to the lists.
     ///
     /// Replace any list with the name.
     pub fn add_list(mut self, list: SlidingSyncList) -> Self {
-        self.lists.insert(list.name.clone(), list);
+        self.lists.insert(list.name().to_owned(), list);
 
         self
     }
@@ -235,58 +199,18 @@ impl SlidingSyncBuilder {
         let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
+        // Load an existing state from the cache.
         if let Some(storage_key) = &self.storage_key {
-            trace!(storage_key, "trying to load from cold");
-
-            for (name, list) in &mut self.lists {
-                if let Some(frozen_list) = client
-                    .store()
-                    .get_custom_value(format!("{storage_key}::{name}").as_bytes())
-                    .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSyncList>(&v))
-                    .transpose()?
-                {
-                    trace!(name, "frozen for list found");
-
-                    let FrozenSlidingSyncList { maximum_number_of_rooms, rooms_list, rooms } =
-                        frozen_list;
-                    list.set_from_cold(maximum_number_of_rooms, rooms_list);
-
-                    for (key, frozen_room) in rooms.into_iter() {
-                        rooms_found.entry(key).or_insert_with(|| {
-                            SlidingSyncRoom::from_frozen(frozen_room, client.clone())
-                        });
-                    }
-                } else {
-                    trace!(name, "no frozen state for list found");
-                }
-            }
-
-            if let Some(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token }) =
-                client
-                    .store()
-                    .get_custom_value(storage_key.as_bytes())
-                    .await?
-                    .map(|v| serde_json::from_slice::<FrozenSlidingSync>(&v))
-                    .transpose()?
-            {
-                trace!("frozen for generic found");
-
-                if let Some(since) = to_device_since {
-                    if let Some(to_device_ext) =
-                        self.extensions.get_or_insert_with(Default::default).to_device.as_mut()
-                    {
-                        to_device_ext.since = Some(since);
-                    }
-                }
-
-                delta_token = frozen_delta_token;
-            }
-
-            trace!("sync unfrozen done");
-        };
-
-        trace!(len = rooms_found.len(), "rooms unfrozen");
+            restore_sliding_sync_state(
+                &client,
+                storage_key,
+                &mut self.lists,
+                &mut delta_token,
+                &mut rooms_found,
+                &mut self.extensions,
+            )
+            .await?;
+        }
 
         let rooms = StdRwLock::new(rooms_found);
         let lists = StdRwLock::new(self.lists);
