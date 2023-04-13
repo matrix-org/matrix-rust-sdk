@@ -29,7 +29,10 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
         RoomKeyCounts, RoomSettings,
     },
-    types::{events::room_key_request::SupportedKeyInfo, EventEncryptionAlgorithm},
+    types::{
+        events::{room_key_request::SupportedKeyInfo, room_key_withheld::RoomKeyWithheldEvent},
+        EventEncryptionAlgorithm,
+    },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -58,6 +61,8 @@ const INBOUND_GROUP_TABLE_NAME: &str = "crypto-store-inbound-group-sessions";
 const OUTBOUND_GROUP_TABLE_NAME: &str = "crypto-store-outbound-group-sessions";
 const SECRET_REQUEST_BY_INFO_TABLE: &str = "crypto-store-secret-request-by-info";
 const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
+const DIRECT_WITHHELD_INFO_TABLE: &str = "crypto-store-direct-withheld-info";
+const NO_OLM_SENT_TABLE: &str = "crypto-store-no-olm-sent";
 const ROOM_SETTINGS_TABLE: &str = "crypto-store-secret-room-settings";
 
 impl EncodeKey for InboundGroupSession {
@@ -187,6 +192,8 @@ pub struct SledCryptoStore {
 
     tracked_users: Tree,
 
+    direct_withheld_info: Tree,
+    no_olm_sent: Tree,
     room_settings: Tree,
 }
 
@@ -338,6 +345,12 @@ impl SledCryptoStore {
             self.save_changes(changes).await?;
         }
 
+        if version < 7 {
+            // we have changed the way outbound group session are stored
+            // just clear
+            self.outbound_group_sessions.clear().map_err(CryptoStoreError::backend)?;
+        }
+
         self.inner
             .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
             .map_err(CryptoStoreError::backend)?;
@@ -393,6 +406,9 @@ impl SledCryptoStore {
 
         let session_cache = SessionStore::new();
 
+        let direct_withheld_info = db.open_tree("direct_withheld_info")?;
+        let no_olm_sent = db.open_tree("no_olm_sent")?;
+
         let database = Self {
             account_info: RwLock::new(None).into(),
             path,
@@ -411,6 +427,8 @@ impl SledCryptoStore {
             tracked_users,
             olm_hashes,
             identities,
+            direct_withheld_info,
+            no_olm_sent,
             room_settings,
         };
 
@@ -474,8 +492,15 @@ impl SledCryptoStore {
 
         let device_changes = changes.devices;
         let mut session_changes = HashMap::new();
+        let mut no_olm_to_clear = Vec::new();
 
         for session in changes.sessions {
+            let user_id = session.user_id.as_str();
+            let device_id = session.device_id.as_str();
+            let olm_key = self.encode_key(NO_OLM_SENT_TABLE, (user_id, device_id));
+
+            no_olm_to_clear.push(olm_key);
+
             let pickle = session.pickle().await;
             let key = self.encode_key(SESSIONS_TABLE_NAME, &session);
 
@@ -519,6 +544,8 @@ impl SledCryptoStore {
             &self.outgoing_secret_requests,
             &self.unsent_secret_requests,
             &self.secret_requests_by_info,
+            &self.direct_withheld_info,
+            &self.no_olm_sent,
             &self.room_settings,
         )
             .transaction(
@@ -534,6 +561,8 @@ impl SledCryptoStore {
                     outgoing_secret_requests,
                     unsent_secret_requests,
                     secret_requests_by_info,
+                    direct_withheld_info,
+                    no_olm_sent,
                     room_settings,
                 )| {
                     if let Some(a) = &account_pickle {
@@ -644,6 +673,18 @@ impl SledCryptoStore {
                         }
                     }
 
+                    for (room_id, data) in &changes.withheld_session_info {
+                        for (session_id, event) in data {
+                            let key =
+                                self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id));
+                            direct_withheld_info.insert(
+                                key,
+                                self.serialize_value(&event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        }
+                    }
+
                     for (room_id, settings) in &room_settings_changes {
                         let key = self.encode_key(ROOM_SETTINGS_TABLE, room_id);
                         room_settings.insert(
@@ -651,6 +692,10 @@ impl SledCryptoStore {
                             self.serialize_value(&settings)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
+                    }
+
+                    for key in &no_olm_to_clear {
+                        no_olm_sent.remove(key.clone())?;
                     }
 
                     Ok(())
@@ -1027,6 +1072,20 @@ impl CryptoStore for SledCryptoStore {
         };
 
         Ok(key)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
+        let key = self.encode_key(DIRECT_WITHHELD_INFO_TABLE, (session_id, room_id.as_str()));
+        Ok(self
+            .direct_withheld_info
+            .get(key)
+            .map_err(CryptoStoreError::backend)?
+            .map(|d| self.deserialize_value::<RoomKeyWithheldEvent>(&d))
+            .transpose()?)
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {

@@ -48,7 +48,10 @@ use tracing::{
     field::{debug, display},
     info, instrument, warn, Span,
 };
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{
+    megolm::{DecryptionError, SessionOrdering},
+    Curve25519PublicKey, Ed25519Signature,
+};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -75,6 +78,9 @@ use crate::{
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
+            room_key_withheld::{
+                MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
+            },
             ToDeviceEvents,
         },
         Signatures,
@@ -665,6 +671,20 @@ impl OlmMachine {
         }
     }
 
+    async fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
+        if let RoomKeyWithheldContent::MegolmV1AesSha2(
+            MegolmV1AesSha2WithheldContent::BlackListed(c)
+            | MegolmV1AesSha2WithheldContent::Unverified(c),
+        ) = &event.content
+        {
+            changes
+                .withheld_session_info
+                .entry(c.room_id.to_owned())
+                .or_insert_with(BTreeMap::default)
+                .insert(c.session_id.to_owned(), event.to_owned());
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn create_outbound_group_session_with_defaults(
         &self,
@@ -868,7 +888,6 @@ impl OlmMachine {
         self.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
         self.group_session_manager.mark_request_as_sent(request_id).await?;
         self.session_manager.mark_outgoing_request_as_sent(request_id);
-
         Ok(())
     }
 
@@ -899,12 +918,13 @@ impl OlmMachine {
         self.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
-    async fn handle_to_device_event(&self, event: &ToDeviceEvents) {
+    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
             RoomKeyRequest(e) => self.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.key_request_machine.receive_incoming_secret_request(e),
+            RoomKeyWithheld(e) => self.add_withheld_info(changes, e).await,
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
             | KeyVerificationKey(..)
@@ -989,8 +1009,8 @@ impl OlmMachine {
                 // one as well.
                 match decrypted.session {
                     SessionType::New(s) => {
-                        changes.sessions.push(s);
                         changes.account = Some(self.account.inner.clone());
+                        changes.sessions.push(s);
                     }
                     SessionType::Existing(s) => {
                         changes.sessions.push(s);
@@ -1005,7 +1025,7 @@ impl OlmMachine {
 
                 match decrypted.result.raw_event.deserialize_as() {
                     Ok(event) => {
-                        self.handle_to_device_event(&event).await;
+                        self.handle_to_device_event(changes, &event).await;
 
                         raw_event = event
                             .serialize_zeroized()
@@ -1019,7 +1039,7 @@ impl OlmMachine {
                 }
             }
 
-            e => self.handle_to_device_event(&e).await,
+            e => self.handle_to_device_event(changes, &e).await,
         }
 
         Ok(raw_event)
@@ -1219,17 +1239,45 @@ impl OlmMachine {
         {
             tracing::Span::current().record("sender_key", session.sender_key().to_base64());
 
-            // TODO: check the message index.
-            let (decrypted_event, _) = session.decrypt(event).await?;
-            let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+            let result = session.decrypt(event).await;
+            match result {
+                Ok((decrypted_event, _)) => {
+                    let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+                    Ok(TimelineEvent {
+                        encryption_info: Some(encryption_info),
+                        event: decrypted_event,
+                        push_actions: Vec::default(),
+                    })
+                }
+                Err(error) => Err(
+                    if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
+                        error
+                    {
+                        let withheld_code = self
+                            .store
+                            .get_withheld_info(room_id, content.session_id())
+                            .await?
+                            .map(|e| e.content.withheld_code());
 
-            Ok(TimelineEvent {
-                event: decrypted_event,
-                encryption_info: Some(encryption_info),
-                push_actions: vec![],
-            })
+                        if withheld_code.is_some() {
+                            // Partially withheld, report with a withheld code if we have one.
+                            MegolmError::MissingRoomKey(withheld_code)
+                        } else {
+                            error
+                        }
+                    } else {
+                        error
+                    },
+                ),
+            }
         } else {
-            Err(MegolmError::MissingRoomKey)
+            let withheld_code = self
+                .store
+                .get_withheld_info(room_id, content.session_id())
+                .await?
+                .map(|e| e.content.withheld_code());
+
+            Err(MegolmError::MissingRoomKey(withheld_code))
         }
     }
 
@@ -1269,10 +1317,10 @@ impl OlmMachine {
         if let Err(e) = &result {
             #[cfg(feature = "automatic-room-key-forwarding")]
             match e {
-                MegolmError::MissingRoomKey
-                | MegolmError::Decryption(
-                    vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _),
-                ) => {
+                // Optimisation should we request if we received a withheld code?
+                // Maybe for some code there is no point
+                MegolmError::MissingRoomKey(_)
+                | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
                     self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
                 }
                 _ => {}
@@ -1716,6 +1764,7 @@ pub(crate) mod tests {
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
                 ToDeviceEvent,
             },
             CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
@@ -2291,6 +2340,68 @@ pub(crate) mod tests {
             },
             default => {},
         }
+    }
+
+    #[async_test]
+    async fn test_withheld_unverified() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = room_id!("!test:example.org");
+
+        let encryption_settings = EncryptionSettings::default();
+        let encryption_settings =
+            EncryptionSettings { only_allow_trusted_devices: true, ..encryption_settings };
+
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)
+            .await
+            .expect("Share room key should be ok");
+
+        // Here there will be only one request, and it's for a m.room_key.withheld
+
+        // Transform that into an event to feed it back to bob machine
+        let wh_content = to_device_requests[0]
+            .messages
+            .values()
+            .next()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .deserialize_as::<RoomKeyWithheldContent>()
+            .expect("Deserialize should work");
+
+        let event = ToDeviceEvent::new(alice.user_id().to_owned(), wh_content);
+
+        let event = json_convert(&event).unwrap();
+
+        bob.receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .await
+            .unwrap();
+
+        let plaintext = "You shouldn't be able to decrypt that message";
+
+        let content = RoomMessageEventContent::text_plain(plaintext);
+
+        let content = alice
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .await
+            .unwrap();
+
+        let room_event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": content,
+        });
+        let room_event = json_convert(&room_event).unwrap();
+
+        let decrypt_result = bob.decrypt_room_event(&room_event, room_id).await;
+
+        assert_matches!(decrypt_result, Err(MegolmError::MissingRoomKey(Some(_))));
+
+        let err = decrypt_result.err().unwrap();
+        assert_matches!(err, MegolmError::MissingRoomKey(Some(WithheldCode::Unverified)));
     }
 
     #[async_test]

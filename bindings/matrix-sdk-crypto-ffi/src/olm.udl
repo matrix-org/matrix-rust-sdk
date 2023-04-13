@@ -69,12 +69,12 @@ enum CryptoStoreError {
 };
 
 [Error]
-enum DecryptionError {
-    "Identifier",
-    "Serialization",
-    "Megolm",
-    "MissingRoomKey",
-    "Store",
+interface DecryptionError {
+    Identifier(string error);
+    Serialization(string error);
+    Megolm(string error);
+    MissingRoomKey(string error, string? withheld_code);
+    Store(string error);
 };
 
 dictionary KeysImportResult {

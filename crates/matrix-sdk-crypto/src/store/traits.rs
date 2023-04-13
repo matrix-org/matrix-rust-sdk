@@ -25,6 +25,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         Session,
     },
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -80,6 +81,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>, Self::Error>;
+
+    /// Get withheld info for this key.
+    /// Allows to know if the session was not sent on purpose.
+    /// This only returns withheld info sent by the owner of the group session,
+    /// not the one you can get from a response to a key request from
+    /// another of your device.
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error>;
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
@@ -339,6 +351,14 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>, Self::Error> {
+        self.0.get_withheld_info(room_id, session_id).await.map_err(Into::into)
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {

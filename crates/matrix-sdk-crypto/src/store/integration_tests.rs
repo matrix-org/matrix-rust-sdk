@@ -3,8 +3,9 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
 
+            use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id,
@@ -21,13 +22,18 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{
-                    Changes, CryptoStore, DeviceChanges, GossipRequest, IdentityChanges,
-                    RecoveryKey, RoomSettings,
+                    Changes, CryptoStore, DeviceChanges,
+                    GossipRequest, IdentityChanges, RecoveryKey, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
                     events::{
-                        dummy::DummyEventContent, room_key_request::MegolmV1AesSha2Content,
+                        dummy::DummyEventContent,
+                        room_key_request::MegolmV1AesSha2Content,
+                        room_key_withheld::{
+                            CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
+                            RoomKeyWithheldContent, WithheldCode,
+                        },
                         ToDeviceEvent,
                     },
                     EventEncryptionAlgorithm,
@@ -636,36 +642,81 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn recovery_key_saving() {
-                let (account, store) = get_loaded_store("recovery_key_saving").await;
+            async fn withheld_info_storage() {
+                let (account, store) = get_loaded_store("withheld_info_storage").await;
 
-                let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-                let encoded_key = recovery_key.to_base64();
+                let mut info_list: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
-                let changes = Changes {
-                    recovery_key: Some(recovery_key),
-                    backup_version: Some("1".to_owned()),
-                    ..Default::default()
-                };
+                let user_id = account.user_id().to_owned();
+                let room_id = room_id!("!DwLygpkclUAfQNnfva:example.com");
+                let session_id_1 = "GBnDxGP9i3IkPsz3/ihNr6P7qjIXxSRVWZ1MYmSn09w";
+                let session_id_2 = "IDLtnNCH2kIr3xIf1B7JFkGpQmTjyMca2jww+X6zeOE";
 
+                let content = RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unverified(
+                        CommonWithheldCodeContent::new(
+                            room_id.to_owned(),
+                            session_id_1.into(),
+                            Curve25519PublicKey::from_base64(
+                                "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                            )
+                            .unwrap(),
+                            "DEVICEID".into(),
+                        )
+                        .into(),
+                    ),
+                );
+                let event = ToDeviceEvent::new(user_id.to_owned(), content);
+                info_list
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(session_id_1.to_owned(), event);
+
+                let content = RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::BlackListed(
+                        CommonWithheldCodeContent::new(
+                            room_id.to_owned(),
+                            session_id_2.into(),
+                            Curve25519PublicKey::from_base64(
+                                "9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA",
+                            )
+                            .unwrap(),
+                            "DEVICEID".into(),
+                        )
+                        .into(),
+                    ),
+                );
+                let event = ToDeviceEvent::new(user_id.to_owned(), content);
+                info_list
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(session_id_2.to_owned(), event);
+
+                let changes = Changes { withheld_session_info: info_list, ..Default::default() };
                 store.save_changes(changes).await.unwrap();
 
-                let loded_backup = store.load_backup_keys().await.unwrap();
+                let is_withheld = store.get_withheld_info(room_id, session_id_1).await.unwrap();
 
-                assert_eq!(
-                    encoded_key,
-                    loded_backup
-                        .recovery_key
-                        .expect("The recovery key wasn't loaded from the store")
-                        .to_base64(),
-                    "The loaded key matches to the one we stored"
+                assert_matches!(
+                    is_withheld, Some(event)
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Unverified
                 );
 
-                assert_eq!(
-                    Some("1"),
-                    loded_backup.backup_version.as_deref(),
-                    "The loaded version matches to the one we stored"
+                let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
+
+                assert_matches!(
+                    is_withheld, Some(event)
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Blacklisted
                 );
+
+                let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");
+
+                let is_withheld =
+                    store.get_withheld_info(other_room_id, session_id_2).await.unwrap();
+
+                assert!(is_withheld.is_none());
             }
 
             #[async_test]

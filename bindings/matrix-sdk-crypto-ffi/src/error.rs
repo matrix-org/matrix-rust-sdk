@@ -55,25 +55,41 @@ pub enum CryptoStoreError {
     Identifier(#[from] IdParseError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum DecryptionError {
-    #[error(transparent)]
-    Serialization(#[from] serde_json::Error),
-    #[error(transparent)]
-    Identifier(#[from] IdParseError),
-    #[error("Megolm decryption error: {error_message}")]
-    Megolm { error_message: String },
-    #[error("Can't find the room key to decrypt the event")]
-    MissingRoomKey,
-    #[error(transparent)]
-    Store(#[from] InnerStoreError),
+    Serialization { error: String },
+    Identifier { error: String },
+    Megolm { error: String },
+    MissingRoomKey { error: String, withheld_code: Option<String> },
+    Store { error: String },
 }
 
 impl From<MegolmError> for DecryptionError {
     fn from(value: MegolmError) -> Self {
         match value {
-            MegolmError::MissingRoomKey => Self::MissingRoomKey,
-            _ => Self::Megolm { error_message: value.to_string() },
+            MegolmError::MissingRoomKey(withheld_code) => Self::MissingRoomKey {
+                error: "Withheld Inbound group session".to_owned(),
+                withheld_code: withheld_code.map(|w| w.to_string()),
+            },
+            _ => Self::Megolm { error: value.to_string() },
         }
+    }
+}
+
+impl From<serde_json::Error> for DecryptionError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Serialization { error: err.to_string() }
+    }
+}
+
+impl From<IdParseError> for DecryptionError {
+    fn from(err: IdParseError) -> Self {
+        Self::Identifier { error: err.to_string() }
+    }
+}
+
+impl From<InnerStoreError> for DecryptionError {
+    fn from(err: InnerStoreError) -> Self {
+        Self::Store { error: err.to_string() }
     }
 }

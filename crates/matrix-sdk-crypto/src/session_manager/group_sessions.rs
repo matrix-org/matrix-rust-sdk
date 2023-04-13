@@ -13,29 +13,28 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     ops::Deref,
     sync::Arc,
 };
 
 use dashmap::DashMap;
 use futures_util::future::join_all;
+use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    events::{AnyToDeviceEventContent, ToDeviceEventType},
-    serde::Raw,
-    to_device::DeviceIdOrAllDevices,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    events::ToDeviceEventType, serde::Raw, to_device::DeviceIdOrAllDevices, DeviceId,
+    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
+    identities::device::MaybeEncryptedRoomKey,
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
-    types::events::{room::encrypted::RoomEncryptedEventContent, EventType},
+    types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -112,6 +111,23 @@ impl GroupSessionCache {
     }
 }
 
+/// Returned by `collect_session_recipients`.
+///
+/// Information indicating whether the session needs to be rotated
+/// (`should_rotate`) and the list of users/devices that should receive
+/// (`devices`) or not the session,  including withheld reason
+/// `withheld_devices`.
+#[derive(Debug)]
+pub struct CollectRecipientsResult {
+    /// If true the outbound group session should be rotated
+    pub should_rotate: bool,
+    /// The map of user|device that should receive the session
+    pub devices: BTreeMap<OwnedUserId, Vec<Device>>,
+    /// The map of user|device that won't receive the key with the withheld
+    /// code.
+    pub withheld_devices: Vec<(Device, WithheldCode)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GroupSessionManager {
     account: Account,
@@ -145,11 +161,29 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        if let Some((_, s)) = self.sessions.sessions_being_shared.remove(request_id) {
-            s.mark_request_as_sent(request_id);
+        if let Some((_, session)) = self.sessions.sessions_being_shared.remove(request_id) {
+            let no_olm = session.mark_request_as_sent(request_id);
 
             let mut changes = Changes::default();
-            changes.outbound_group_sessions.push(s.clone());
+
+            for (user_id, devices) in &no_olm {
+                for device_id in devices {
+                    let device = self.store.get_device(user_id, device_id).await;
+
+                    if let Ok(Some(device)) = device {
+                        device.mark_withheld_code_as_sent();
+                        changes.devices.changed.push(device.inner.clone());
+                    } else {
+                        error!(
+                            ?request_id,
+                            "Marking to-device no olm as sent but device not found, might \
+                            have been deleted?"
+                        );
+                    }
+                }
+            }
+
+            changes.outbound_group_sessions.push(session.clone());
             self.store.save_changes(changes).await?;
         }
 
@@ -224,88 +258,60 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
-        content: OutboundGroupSession,
+        group_session: OutboundGroupSession,
         devices: Vec<Device>,
-        message_index: u32,
     ) -> OlmResult<(
         OwnedTransactionId,
         ToDeviceRequest,
         BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
+        Vec<(Device, WithheldCode)>,
     )> {
         // Use a named type instead of a tuple with rather long type name
-        struct EncryptResult {
-            used_session: Option<Session>,
-            share_info: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
-            message:
-                BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+        pub struct DeviceResult {
+            device: Device,
+            maybe_encrypted_room_key: MaybeEncryptedRoomKey,
         }
 
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
         let mut share_infos = BTreeMap::new();
+        let mut withheld_devices = Vec::new();
 
         let encrypt = |device: Device, session: OutboundGroupSession| async move {
-            let mut message = BTreeMap::new();
-            let mut share_info = BTreeMap::new();
+            let encryption_result = device.maybe_encrypt_room_key(session).await?;
 
-            let content = session.as_content().await;
-            let event_type = content.event_type();
-            let content =
-                serde_json::to_value(content).expect("We can always serialize our own room key");
-
-            let encrypted = device.encrypt(event_type, content).await;
-
-            let used_session = match encrypted {
-                Ok((session, encrypted)) => {
-                    message
-                        .entry(device.user_id().to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(
-                            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                            encrypted.cast(),
-                        );
-                    share_info
-                        .entry(device.user_id().to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(
-                            device.device_id().to_owned(),
-                            ShareInfo {
-                                sender_key: session.sender_key().to_owned(),
-                                message_index,
-                            },
-                        );
-
-                    Some(session)
-                }
-                // TODO we'll want to create m.room_key.withheld here.
-                Err(OlmError::MissingSession)
-                | Err(OlmError::EventError(EventError::MissingSenderKey)) => None,
-                Err(e) => return Err(e),
-            };
-
-            Ok(EncryptResult { used_session, share_info, message })
+            Ok::<_, OlmError>(DeviceResult { device, maybe_encrypted_room_key: encryption_result })
         };
 
         let tasks: Vec<_> =
-            devices.iter().map(|d| spawn(encrypt(d.clone(), content.clone()))).collect();
+            devices.iter().map(|d| spawn(encrypt(d.clone(), group_session.clone()))).collect();
 
         let results = join_all(tasks).await;
 
         for result in results {
-            let EncryptResult { used_session, share_info, message } =
-                result.expect("Encryption task panicked")?;
+            let result = result.expect("Encryption task panicked")?;
 
-            if let Some(session) = used_session {
-                changed_sessions.push(session);
-            }
+            match result.maybe_encrypted_room_key {
+                MaybeEncryptedRoomKey::Encrypted { used_session, share_info, message } => {
+                    changed_sessions.push(used_session);
 
-            for (user, device_messages) in message {
-                messages.entry(user).or_insert_with(BTreeMap::new).extend(device_messages);
-            }
+                    let user_id = result.device.user_id().to_owned();
+                    let device_id = result.device.device_id().to_owned();
 
-            for (user, infos) in share_info {
-                share_infos.entry(user).or_insert_with(BTreeMap::new).extend(infos);
+                    messages
+                        .entry(user_id.to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), message);
+
+                    share_infos
+                        .entry(user_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(device_id, share_info);
+                }
+                MaybeEncryptedRoomKey::Withheld { code } => {
+                    withheld_devices.push((result.device, code));
+                }
             }
         }
 
@@ -322,22 +328,24 @@ impl GroupSessionManager {
             "Created a to-device request carrying a room_key"
         );
 
-        Ok((txn_id, request, share_infos, changed_sessions))
+        Ok((txn_id, request, share_infos, changed_sessions, withheld_devices))
     }
 
     /// Given a list of user and an outbound session, return the list of users
     /// and their devices that this session should be shared with.
     ///
-    /// Returns a boolean indicating whether the session needs to be rotated and
-    /// the list of users/devices that should receive the session.
+    /// Returns information indicating whether the session needs to be rotated
+    /// and the list of users/devices that should receive or not the session
+    /// (with withheld reason).
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>)> {
-        let users: HashSet<&UserId> = users.collect();
-        let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
+    ) -> OlmResult<CollectRecipientsResult> {
+        let users: BTreeSet<&UserId> = users.collect();
+        let mut devices: BTreeMap<OwnedUserId, Vec<Device>> = Default::default();
+        let mut withheld_devices: Vec<(Device, WithheldCode)> = Default::default();
 
         trace!(
             ?users,
@@ -347,15 +355,15 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<OwnedUserId> =
+        let users_shared_with: BTreeSet<OwnedUserId> =
             outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
-        let users_shared_with: HashSet<&UserId> =
+        let users_shared_with: BTreeSet<&UserId> =
             users_shared_with.iter().map(Deref::deref).collect();
 
         // A user left if a user is missing from the set of users that should
         // get the session but is in the set of users that received the session.
-        let user_left = !users_shared_with.difference(&users).collect::<HashSet<_>>().is_empty();
+        let user_left = !users_shared_with.difference(&users).collect::<BTreeSet<_>>().is_empty();
 
         let visibility_changed =
             outbound.settings().history_visibility != settings.history_visibility;
@@ -373,16 +381,21 @@ impl GroupSessionManager {
 
         for user_id in users {
             let user_devices = self.store.get_user_devices_filtered(user_id).await?;
-            let non_blacklisted_devices: Vec<Device> = user_devices
-                .devices()
-                .filter(|d| {
-                    if settings.only_allow_trusted_devices {
-                        !d.is_blacklisted() && d.is_verified()
+
+            // From all the devices a user has, we're splitting them into two
+            // buckets, a bucket of devices that should receive the
+            // room key and a bucket of devices that should receive
+            // a withheld code.
+            let (recipients, withheld_recipients): (Vec<Device>, Vec<(Device, WithheldCode)>) =
+                user_devices.devices().partition_map(|d| {
+                    if d.is_blacklisted() {
+                        Either::Right((d, WithheldCode::Blacklisted))
+                    } else if settings.only_allow_trusted_devices && !d.is_verified() {
+                        Either::Right((d, WithheldCode::Unverified))
                     } else {
-                        !d.is_blacklisted()
+                        Either::Left(d)
                     }
-                })
-                .collect();
+                });
 
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
@@ -390,32 +403,31 @@ impl GroupSessionManager {
             // meantime. If so, we should also rotate the session.
             if !should_rotate {
                 // Device IDs that should receive this session
-                let non_blacklisted_device_ids: HashSet<&DeviceId> =
-                    non_blacklisted_devices.iter().map(|d| d.device_id()).collect();
+                let recipient_device_ids: BTreeSet<&DeviceId> =
+                    recipients.iter().map(|d| d.device_id()).collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
-                    let shared: HashSet<OwnedDeviceId> =
+                    let shared: BTreeSet<OwnedDeviceId> =
                         shared.iter().map(|d| d.key().clone()).collect();
-                    let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+                    let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
                     // The set difference between
                     //
                     // 1. Devices that had previously received the session, and
                     // 2. Devices that would now receive the session
                     //
-                    // represents newly deleted or blacklisted devices. If this
+                    // Represents newly deleted or blacklisted devices. If this
                     // set is non-empty, we must rotate.
                     let newly_deleted_or_blacklisted =
-                        shared.difference(&non_blacklisted_device_ids).collect::<HashSet<_>>();
+                        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
 
-                    if !newly_deleted_or_blacklisted.is_empty() {
-                        should_rotate = true;
-                    }
+                    should_rotate = !newly_deleted_or_blacklisted.is_empty();
                 };
             }
 
-            devices.entry(user_id.to_owned()).or_default().extend(non_blacklisted_devices);
+            devices.entry(user_id.to_owned()).or_default().extend(recipients);
+            withheld_devices.extend(withheld_recipients);
         }
 
         trace!(
@@ -425,28 +437,217 @@ impl GroupSessionManager {
             "Done calculating group session recipients"
         );
 
-        Ok((should_rotate, devices))
+        Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
     }
 
     pub async fn encrypt_request(
         chunk: Vec<Device>,
         outbound: OutboundGroupSession,
-        message_index: u32,
         being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
-    ) -> OlmResult<Vec<Session>> {
-        let (id, request, share_infos, used_sessions) =
-            Self::encrypt_session_for(outbound.clone(), chunk, message_index).await?;
+    ) -> OlmResult<(Vec<Session>, Vec<(Device, WithheldCode)>)> {
+        let (id, request, share_infos, used_sessions, no_olm) =
+            Self::encrypt_session_for(outbound.clone(), chunk).await?;
 
         if !request.messages.is_empty() {
             outbound.add_request(id.clone(), request.into(), share_infos);
             being_shared.insert(id, outbound.clone());
         }
 
-        Ok(used_sessions)
+        Ok((used_sessions, no_olm))
     }
 
     pub(crate) fn session_cache(&self) -> GroupSessionCache {
         self.sessions.clone()
+    }
+
+    async fn maybe_rotate_group_session(
+        &self,
+        should_rotate: bool,
+        room_id: &RoomId,
+        outbound: OutboundGroupSession,
+        encryption_settings: EncryptionSettings,
+        changes: &mut Changes,
+    ) -> OlmResult<OutboundGroupSession> {
+        Ok(if should_rotate {
+            let old_session_id = outbound.session_id();
+
+            let (outbound, inbound) =
+                self.create_outbound_group_session(room_id, encryption_settings).await?;
+            changes.outbound_group_sessions.push(outbound.clone());
+            changes.inbound_group_sessions.push(inbound);
+
+            debug!(
+                old_session_id = old_session_id,
+                session_id = outbound.session_id(),
+                "A user or device has left the room since we last sent a \
+                message, or the encryption settings have changed. Rotating the \
+                room key.",
+            );
+
+            outbound
+        } else {
+            outbound
+        })
+    }
+
+    async fn encrypt_for_devices(
+        &self,
+        recipient_devices: Vec<Device>,
+        group_session: &OutboundGroupSession,
+        changes: &mut Changes,
+    ) -> OlmResult<Vec<(Device, WithheldCode)>> {
+        // If we have some recipients, log them here.
+        if !recipient_devices.is_empty() {
+            let recipients = recipient_devices.iter().fold(BTreeMap::new(), |mut acc, d| {
+                acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+                acc
+            });
+
+            // If there are new recipients we need to persist the outbound group
+            // session as the to-device requests are persisted with the session.
+            changes.outbound_group_sessions = vec![group_session.clone()];
+
+            let message_index = group_session.message_index().await;
+
+            info!(
+                ?recipients,
+                message_index,
+                room_id = %group_session.room_id(),
+                session_id = group_session.session_id(),
+                "Trying to encrypt a room key",
+            );
+        }
+
+        // Chunk the recipients out so each to-device request will contain a
+        // limited amount of to-device messages.
+        //
+        // Create concurrent tasks for each chunk of recipients.
+        let tasks: Vec<_> = recipient_devices
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .map(|chunk| {
+                spawn(Self::encrypt_request(
+                    chunk.to_vec(),
+                    group_session.clone(),
+                    self.sessions.sessions_being_shared.clone(),
+                ))
+            })
+            .collect();
+
+        let mut withheld_devices = Vec::new();
+
+        // Wait for all the tasks to finish up and queue up the Olm session that
+        // was used to encrypt the room key to be persisted again. This is
+        // needed because each encryption step will mutate the Olm session,
+        // ratcheting its state forward.
+        for result in join_all(tasks).await {
+            let result = result.expect("Encryption task panicked");
+
+            let (used_sessions, failed_no_olm) = result?;
+
+            changes.sessions.extend(used_sessions);
+            withheld_devices.extend(failed_no_olm)
+        }
+
+        Ok(withheld_devices)
+    }
+
+    fn is_withheld_to(
+        &self,
+        group_session: &OutboundGroupSession,
+        device: &Device,
+        code: &WithheldCode,
+    ) -> bool {
+        // The `m.no_olm` withheld code is special because it is supposed to be sent
+        // only once for a given device. The `Device` remembers the flag if we
+        // already sent a `m.no_olm` to this particular device so let's check
+        // that first.
+        //
+        // Keep in mind that any outbound group session might want to send this code to
+        // the device. So we need to check if any of our outbound group sessions
+        // is attempting to send the code to the device.
+        //
+        // This still has a slight race where some other thread might remove the
+        // outbound group session while a third is marking the device as having
+        // received the code.
+        //
+        // Since nothing terrible happens if we do end up sending the withheld code
+        // twice, and removing the race requires us to lock the store because the
+        // `OutboundGroupSession` and the `Device` both interact with the flag we'll
+        // leave it be.
+        if code == &WithheldCode::NoOlm {
+            device.was_withheld_code_sent()
+                || self.sessions.sessions.iter().any(|s| s.is_withheld_to(device, code))
+        } else {
+            group_session.is_withheld_to(device, code)
+        }
+    }
+
+    async fn handle_withheld_devices(
+        &self,
+        group_session: &OutboundGroupSession,
+        withheld_devices: Vec<(Device, WithheldCode)>,
+    ) -> OlmResult<()> {
+        // Convert a withheld code for the group session into a to-device event content.
+        let to_content = |code| {
+            let content = group_session.withheld_code(code);
+            Raw::new(&content).expect("We can always serialize a withheld content info").cast()
+        };
+
+        // Helper to convert a chunk of device and withheld code pairs into a to-device
+        // request and it's accompanying share info.
+        let chunk_to_request = |chunk| {
+            let mut messages = BTreeMap::new();
+            let mut share_infos = BTreeMap::new();
+
+            for (device, code) in chunk {
+                let device: Device = device;
+                let code: WithheldCode = code;
+
+                let user_id = device.user_id().to_owned();
+                let device_id = device.device_id().to_owned();
+
+                let share_info = ShareInfo::new_withheld(code.to_owned());
+                let content = to_content(code);
+
+                messages
+                    .entry(user_id.to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), content);
+
+                share_infos
+                    .entry(user_id)
+                    .or_insert_with(BTreeMap::new)
+                    .insert(device_id, share_info);
+            }
+
+            let txn_id = TransactionId::new();
+
+            let request = ToDeviceRequest {
+                event_type: ToDeviceEventType::from("m.room_key.withheld"),
+                txn_id,
+                messages,
+            };
+
+            (request, share_infos)
+        };
+
+        let result: Vec<_> = withheld_devices
+            .into_iter()
+            .filter(|(device, code)| !self.is_withheld_to(group_session, device, code))
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .into_iter()
+            .map(chunk_to_request)
+            .collect();
+
+        for (request, share_info) in result {
+            if !request.messages.is_empty() {
+                let txn_id = request.txn_id.to_owned();
+                group_session.add_request(txn_id.to_owned(), request.into(), share_info);
+                self.sessions.sessions_being_shared.insert(txn_id, group_session.clone());
+            }
+        }
+
+        Ok(())
     }
 
     /// Get to-device requests to share a room key with users in a room.
@@ -485,29 +686,18 @@ impl GroupSessionManager {
         // Collect the recipient devices and check if either the settings
         // or the recipient list changed in a way that requires the
         // session to be rotated.
-        let (should_rotate, devices) =
+        let CollectRecipientsResult { should_rotate, devices, mut withheld_devices } =
             self.collect_session_recipients(users, &encryption_settings, &outbound).await?;
 
-        let outbound = if should_rotate {
-            let old_session_id = outbound.session_id();
-
-            let (outbound, inbound) =
-                self.create_outbound_group_session(room_id, encryption_settings).await?;
-            changes.outbound_group_sessions.push(outbound.clone());
-            changes.inbound_group_sessions.push(inbound);
-
-            debug!(
-                old_session_id = old_session_id,
-                session_id = outbound.session_id(),
-                "A user or device has left the room since we last sent a \
-                message, or the encryption settings have changed. Rotating the \
-                room key.",
-            );
-
-            outbound
-        } else {
-            outbound
-        };
+        let outbound = self
+            .maybe_rotate_group_session(
+                should_rotate,
+                room_id,
+                outbound,
+                encryption_settings,
+                &mut changes,
+            )
+            .await?;
 
         // Filter out the devices that already received this room key or have a
         // to-device message already queued up.
@@ -519,52 +709,20 @@ impl GroupSessionManager {
             })
             .collect();
 
-        let message_index = outbound.message_index().await;
+        // The `encrypt_for_devices()` method adds the to-device requests that will send
+        // out the room key to the `OutboundGroupSession`. It doesn't do that
+        // for the m.room_key_withheld events since we might have more of those
+        // coming from the `collect_session_recipients()` method. Instead they get
+        // returned by the method.
+        let unable_to_encrypt_devices =
+            self.encrypt_for_devices(devices, &outbound, &mut changes).await?;
 
-        // If we have some recipients, log them here.
-        if !devices.is_empty() {
-            let recipients = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
-                acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-                acc
-            });
+        // Merge the withheld recipients.
+        withheld_devices.extend(unable_to_encrypt_devices);
 
-            // If there are new recipients we need to persist the outbound group
-            // session as the to-device requests are persisted with the session.
-            changes.outbound_group_sessions = vec![outbound.clone()];
-
-            info!(
-                index = message_index,
-                ?recipients,
-                session_id = outbound.session_id(),
-                "Trying to encrypt a room key",
-            );
-        }
-
-        // Chunk the recipients out so each to-device request will contain a
-        // limited amount of to-device messages.
-        //
-        // Create concurrent tasks for each chunk of recipients.
-        let tasks: Vec<_> = devices
-            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
-            .map(|chunk| {
-                spawn(Self::encrypt_request(
-                    chunk.to_vec(),
-                    outbound.clone(),
-                    message_index,
-                    self.sessions.sessions_being_shared.clone(),
-                ))
-            })
-            .collect();
-
-        // Wait for all the tasks to finish up and queue up the Olm session that
-        // was used to encrypt the room key to be persisted again. This is
-        // needed because each encryption step will mutate the Olm session,
-        // ratcheting its state forward.
-        for result in join_all(tasks).await {
-            let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task panicked");
-
-            changes.sessions.extend(used_sessions?);
-        }
+        // Now handle and add the withheld recipients to the resulting requests to the
+        // `OutboundGroupSession`.
+        self.handle_withheld_devices(&outbound, withheld_devices).await?;
 
         // The to-device requests get added to the outbound group session, this
         // way we're making sure that they are persisted and scoped to the
@@ -583,26 +741,30 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
-                BTreeMap::new();
+            let mut recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+            let mut withheld_recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
             // We're just collecting the recipients for logging reasons.
             for request in &requests {
                 for (user_id, device_map) in &request.messages {
                     let devices = device_map.keys();
-                    recipients.entry(user_id).or_default().extend(devices)
+                    if request.event_type == ToDeviceEventType::RoomEncrypted {
+                        recipients.entry(user_id).or_default().extend(devices)
+                    } else {
+                        withheld_recipients.entry(user_id).or_default().extend(devices)
+                    }
                 }
             }
 
             let transaction_ids: Vec<_> = requests.iter().map(|r| r.txn_id.clone()).collect();
 
-            // TODO log the withheld reasons here as well.
             info!(
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
                 request_count = requests.len(),
                 ?transaction_ids,
                 ?recipients,
+                ?withheld_recipients,
                 "Encrypted a room key and created to-device requests"
             );
         }
@@ -627,7 +789,7 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, ops::Deref};
+    use std::{collections::BTreeSet, ops::Deref, sync::Arc};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
@@ -640,11 +802,22 @@ mod tests {
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
-        room_id, user_id, DeviceId, TransactionId, UserId,
+        room_id,
+        to_device::DeviceIdOrAllDevices,
+        user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::{json, Value};
 
-    use crate::{types::EventEncryptionAlgorithm, EncryptionSettings, LocalTrust, OlmMachine};
+    use crate::{
+        session_manager::group_sessions::CollectRecipientsResult,
+        types::{
+            events::room_key_withheld::{
+                RoomKeyWithheldContent, RoomKeyWithheldContent::MegolmV1AesSha2, WithheldCode,
+            },
+            EventEncryptionAlgorithm,
+        },
+        EncryptionSettings, LocalTrust, OlmMachine, ToDeviceRequest,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -780,12 +953,96 @@ mod tests {
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
 
-        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room.encrypted".into())
+            .map(|r| r.message_count())
+            .sum();
 
         // The keys claim response has a couple of one-time keys with invalid
         // signatures, thus only 148 sessions are actually created, we check
         // that all 148 valid sessions get an room key.
         assert_eq!(event_count, 148);
+
+        let withheld_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| r.message_count())
+            .sum();
+        assert_eq!(withheld_count, 2);
+    }
+
+    fn count_withheld_from(requests: &[Arc<ToDeviceRequest>], code: WithheldCode) -> usize {
+        requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| {
+                let mut count = 0;
+                // count targets
+                for message in r.messages.values() {
+                    message.iter().for_each(|(_, content)| {
+                        let withheld: RoomKeyWithheldContent =
+                            content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+
+                        if let MegolmV1AesSha2(content) = withheld {
+                            if content.withheld_code() == code {
+                                count += 1;
+                            }
+                        }
+                    })
+                }
+                count
+            })
+            .sum()
+    }
+
+    #[async_test]
+    async fn test_no_olm_sent_once() {
+        let machine = machine().await;
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+
+        let first_room_id = room_id!("!test:localhost");
+
+        let requests = machine
+            .share_room_key(first_room_id, users.to_owned(), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        // there will be two no_olm
+        let withheld_count: usize = count_withheld_from(&requests, WithheldCode::NoOlm);
+        assert_eq!(withheld_count, 2);
+
+        // Re-sharing same session while request has not been sent should not produces
+        // withheld
+        let new_requests = machine
+            .share_room_key(first_room_id, users, EncryptionSettings::default())
+            .await
+            .unwrap();
+        let withheld_count: usize = count_withheld_from(&new_requests, WithheldCode::NoOlm);
+        // No additional request was added, still the 2 already pending
+        assert_eq!(withheld_count, 2);
+
+        let response = ToDeviceResponse::new();
+        for request in requests {
+            machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+        }
+
+        // The fact that an olm was sent should be remembered even if sharing another
+        // session in an other room.
+        let second_room_id = room_id!("!other:localhost");
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let requests = machine
+            .share_room_key(second_room_id, users, EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let withheld_count: usize = count_withheld_from(&requests, WithheldCode::NoOlm);
+        assert_eq!(withheld_count, 0);
+
+        // Help how do I simulate the creation of a new session for the device
+        // with no session now?
     }
 
     #[async_test]
@@ -796,7 +1053,7 @@ mod tests {
         let late_joiner = user_id!("@bob:localhost");
         let keys_claim = keys_claim_response();
 
-        let mut users: HashSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
         users.insert(late_joiner);
 
         let requests = machine
@@ -804,7 +1061,11 @@ mod tests {
             .await
             .unwrap();
 
-        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room.encrypted".into())
+            .map(|r| r.message_count())
+            .sum();
         let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         assert_eq!(event_count, 1);
@@ -820,7 +1081,7 @@ mod tests {
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let (should_rotate, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &EncryptionSettings::default(), &outbound)
             .await
@@ -833,7 +1094,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users.clone(), &settings, &outbound)
             .await
@@ -846,7 +1107,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (should_rotate, _) = machine
+        let CollectRecipientsResult { should_rotate, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -875,7 +1136,7 @@ mod tests {
 
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
+        let CollectRecipientsResult { devices: recipients, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -892,7 +1153,7 @@ mod tests {
             EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
+        let CollectRecipientsResult { devices: recipients, .. } = machine
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -905,14 +1166,155 @@ mod tests {
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
-        let (_, recipients) = machine
-            .group_session_manager
-            .collect_session_recipients(users, &settings, &outbound)
-            .await
-            .expect("We should be able to collect the session recipients");
+        let CollectRecipientsResult { devices: recipients, withheld_devices: withheld, .. } =
+            machine
+                .group_session_manager
+                .collect_session_recipients(users, &settings, &outbound)
+                .await
+                .expect("We should be able to collect the session recipients");
 
         assert!(recipients[user_id]
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
+
+        let devices = machine.get_user_devices(user_id, None).await.unwrap();
+        devices
+            .devices()
+            // Ignore our own device
+            .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
+            .for_each(|d| {
+                if d.is_blacklisted() {
+                    assert!(withheld.iter().any(|(dev, w)| {
+                        dev.device_id() == d.device_id() && w == &WithheldCode::Blacklisted
+                    }));
+                } else if !d.is_verified() {
+                    // the device should then be in the list of withhelds
+                    assert!(withheld.iter().any(|(dev, w)| {
+                        dev.device_id() == d.device_id() && w == &WithheldCode::Unverified
+                    }));
+                }
+            });
+
+        assert_eq!(149, withheld.len());
+    }
+
+    #[async_test]
+    async fn test_sharing_withheld_only_trusted() {
+        let machine = machine().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let settings =
+            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+
+        // Trust only one
+        let user_id = user_id!("@example:localhost");
+        let device_id = "MWFXPINOAO".into();
+        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        device.set_local_trust(LocalTrust::Verified).await.unwrap();
+        machine
+            .get_device(user_id, "MWVTUXDNNM".into(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .set_local_trust(LocalTrust::BlackListed)
+            .await
+            .unwrap();
+
+        let requests = machine.share_room_key(room_id, users, settings).await.unwrap();
+
+        // One room key should be sent
+        let room_key_count =
+            requests.iter().filter(|r| r.event_type == "m.room.encrypted".into()).count();
+
+        assert_eq!(1, room_key_count);
+
+        let withheld_count =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+        // Can be send in one batch
+        assert_eq!(1, withheld_count);
+
+        let event_count: usize = requests
+            .iter()
+            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .map(|r| r.message_count())
+            .sum();
+
+        // withhelds are sent in clear so all device should be counted (even if no OTK)
+        assert_eq!(event_count, 149);
+
+        // One should be blacklisted
+        let has_blacklist =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
+                let device_key = DeviceIdOrAllDevices::from(device_id!("MWVTUXDNNM").to_owned());
+                let content = &r.messages[user_id][&device_key];
+                let withheld: RoomKeyWithheldContent =
+                    content.deserialize_as::<RoomKeyWithheldContent>().unwrap();
+                if let MegolmV1AesSha2(content) = withheld {
+                    content.withheld_code() == WithheldCode::Blacklisted
+                } else {
+                    false
+                }
+            });
+
+        assert!(has_blacklist);
+    }
+
+    #[async_test]
+    async fn no_olm_withheld_only_sent_once() {
+        let keys_query = keys_query_response();
+        let txn_id = TransactionId::new();
+
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
+
+        let first_room = room_id!("!test:localhost");
+        let second_room = room_id!("!test2:localhost");
+        let bob_id = user_id!("@bob:localhost");
+
+        let settings = EncryptionSettings::default();
+        let users = [bob_id];
+
+        let requests = machine
+            .share_room_key(first_room, users.into_iter(), settings.to_owned())
+            .await
+            .unwrap();
+
+        // One withheld request should be sent.
+        let withheld_count =
+            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+
+        assert_eq!(withheld_count, 1);
+        assert_eq!(requests.len(), 1);
+
+        // On the second room key share attempt we're not sending another `m.no_olm`
+        // code since the first one is taking care of this.
+        let second_requests =
+            machine.share_room_key(second_room, users.into_iter(), settings).await.unwrap();
+
+        let withheld_count =
+            second_requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+
+        assert_eq!(withheld_count, 0);
+        assert_eq!(second_requests.len(), 0);
+
+        let response = ToDeviceResponse::new();
+
+        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+
+        // The device should be marked as having the `m.no_olm` code received only after
+        // the request has been marked as sent.
+        assert!(!device.was_withheld_code_sent());
+
+        for request in requests {
+            machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+        }
+
+        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+
+        assert!(device.was_withheld_code_sent());
     }
 }

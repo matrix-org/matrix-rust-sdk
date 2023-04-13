@@ -28,6 +28,7 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -189,7 +190,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 5;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -252,6 +253,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         .await?;
     }
 
+    if version < 5 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/005_withheld_code.sql"))
+        })
+        .await?;
+    }
+
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
@@ -286,6 +294,13 @@ trait SqliteConnectionExt {
         &self,
         request_id: &[u8],
         sent_out: bool,
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
         data: &[u8],
     ) -> rusqlite::Result<()>;
 
@@ -378,6 +393,21 @@ impl SqliteConnectionExt for rusqlite::Connection {
             VALUES (?1, ?2, ?3)
             ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
             (request_id, sent_out, data),
+        )?;
+        Ok(())
+    }
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO direct_withheld_info (session_id, room_id, data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (session_id) DO UPDATE SET room_id = ?2, data = ?3",
+            (session_id, room_id, data),
         )?;
         Ok(())
     }
@@ -557,6 +587,21 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn delete_key_request(&self, request_id: Key) -> Result<()> {
         self.execute("DELETE FROM key_requests WHERE request_id = ?", (request_id,)).await?;
         Ok(())
+    }
+
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
+                (session_id, room_id),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
     }
 
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
@@ -740,6 +785,15 @@ impl CryptoStore for SqliteCryptoStore {
                     let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
                     let serialized_request = this.serialize_value(&request)?;
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                }
+
+                for (room_id, data) in changes.withheld_session_info {
+                    for (session_id, event) in data {
+                        let session_id = this.encode_key("direct_withheld_info", session_id);
+                        let room_id = this.encode_key("direct_withheld_info", &room_id);
+                        let serialized_info = this.serialize_json(&event)?;
+                        txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                    }
                 }
 
                 for (room_id, settings) in changes.room_settings {
@@ -1003,6 +1057,25 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        let room_id = self.encode_key("direct_withheld_info", room_id);
+        let session_id = self.encode_key("direct_withheld_info", session_id);
+
+        self.acquire()
+            .await?
+            .get_direct_withheld_info(session_id, room_id)
+            .await?
+            .map(|value| {
+                let info = self.deserialize_json::<RoomKeyWithheldEvent>(&value)?;
+                Ok(info)
+            })
+            .transpose()
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {

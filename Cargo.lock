@@ -2860,6 +2860,7 @@ dependencies = [
 name = "matrix-sdk-sled"
 version = "0.2.0"
 dependencies = [
+ "assert_matches",
  "async-stream",
  "async-trait",
  "dashmap",
@@ -2887,6 +2888,7 @@ dependencies = [
 name = "matrix-sdk-sqlite"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
  "async-stream",
  "async-trait",
  "ctor",

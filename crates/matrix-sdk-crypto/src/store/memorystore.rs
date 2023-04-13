@@ -17,7 +17,8 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -31,6 +32,7 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
 };
 
@@ -53,6 +55,7 @@ pub struct MemoryStore {
     identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
     outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
+    direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
 }
 
 impl Default for MemoryStore {
@@ -65,6 +68,7 @@ impl Default for MemoryStore {
             identities: Default::default(),
             outgoing_key_requests: Default::default(),
             key_requests_by_info: Default::default(),
+            direct_withheld_info: Default::default(),
         }
     }
 }
@@ -144,6 +148,15 @@ impl CryptoStore for MemoryStore {
 
             self.outgoing_key_requests.insert(id.clone(), key_request);
             self.key_requests_by_info.insert(info_string, id);
+        }
+
+        for (room_id, data) in changes.withheld_session_info {
+            for (session_id, event) in data {
+                self.direct_withheld_info
+                    .entry(room_id.to_owned())
+                    .or_insert_with(DashMap::new)
+                    .insert(session_id, event);
+            }
         }
 
         Ok(())
@@ -271,6 +284,17 @@ impl CryptoStore for MemoryStore {
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         Ok(BackupKeys::default())
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        Ok(self
+            .direct_withheld_info
+            .get(room_id)
+            .and_then(|e| Some(e.value().get(session_id)?.value().to_owned())))
     }
 
     async fn get_room_settings(&self, _room_id: &RoomId) -> Result<Option<RoomSettings>> {

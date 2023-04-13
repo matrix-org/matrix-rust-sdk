@@ -29,6 +29,7 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
         RoomSettings,
     },
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -61,6 +62,8 @@ mod keys {
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
     pub const KEY_REQUEST: &str = "key_request";
     pub const ROOM_SETTINGS: &str = "room_settings";
+
+    pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -144,7 +147,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 2)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 3)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
             // works with an unsigned integer.
@@ -182,8 +185,20 @@ impl IndexeddbCryptoStore {
                 // Let's just drop the whole object store.
                 db.delete_object_store(keys::INBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(keys::INBOUND_GROUP_SESSIONS)?;
-
                 db.create_object_store(keys::ROOM_SETTINGS)?;
+            }
+
+            if old_version < 3 {
+                let db = evt.db();
+
+                // We changed the way we store outbound session.
+                // ShareInfo changed from a struct to an enum with struct variant.
+                // Let's just discard the existing outbounds
+                db.delete_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
+                db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
+
+                // Support for MSC2399 withheld codes
+                db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
             }
 
             Ok(())
@@ -376,6 +391,7 @@ impl_crypto_store! {
             (!changes.inbound_group_sessions.is_empty(), keys::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), keys::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
+            (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
             (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
         ]
         .iter()
@@ -485,6 +501,7 @@ impl_crypto_store! {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
+        let withheld_session_info = changes.withheld_session_info;
         let room_settings_changes = changes.room_settings;
 
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
@@ -546,6 +563,18 @@ impl_crypto_store! {
                     outgoing_secret_requests.delete(&key_request_id)?;
                     unsent_secret_requests
                         .put_key_val(&key_request_id, &self.serialize_value(&key_request)?)?;
+                }
+            }
+        }
+
+        if !withheld_session_info.is_empty() {
+            let withhelds = tx.object_store(keys::DIRECT_WITHHELD_INFO)?;
+
+            for (room_id, data) in withheld_session_info {
+                for (session_id, event) in data {
+
+                    let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
+                    withhelds.put_key_val(&key, &self.serialize_value(&event)?)?;
                 }
             }
         }
@@ -971,6 +1000,29 @@ impl_crypto_store! {
         };
 
         Ok(key)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        let key = self.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
+        if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::DIRECT_WITHHELD_INFO,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(keys::DIRECT_WITHHELD_INFO)?
+            .get(&key)?
+            .await?
+        {
+            let info = self.deserialize_value(pickle)?;
+            Ok(Some(info))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
