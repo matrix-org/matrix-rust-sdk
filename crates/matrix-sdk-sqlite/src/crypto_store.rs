@@ -190,7 +190,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -256,6 +256,13 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     if version < 5 {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/005_withheld_code.sql"))
+        })
+        .await?;
+    }
+
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/006_drop_outbound_group_sessions.sql"))
         })
         .await?;
     }
