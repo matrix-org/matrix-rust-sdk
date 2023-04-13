@@ -447,7 +447,7 @@ impl SlidingSync {
             request.await?
         };
 
-        debug!(?response, "Sliding Sync response received");
+        debug!("Sliding Sync response received");
 
         // At this point, the request has been sent, and a response has been received.
         //
