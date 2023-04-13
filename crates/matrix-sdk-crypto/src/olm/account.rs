@@ -39,8 +39,8 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn, Span};
 use vodozemac::{
     olm::{
-        Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage,
-        SessionConfig,
+        Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage,
+        OneTimeKeyGenerationResult, PreKeyMessage, SessionConfig,
     },
     Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
@@ -605,8 +605,8 @@ impl ReadOnlyAccount {
     }
 
     /// Generate count number of one-time keys.
-    pub async fn generate_one_time_keys_helper(&self, count: usize) {
-        self.inner.lock().await.generate_one_time_keys(count);
+    pub async fn generate_one_time_keys_helper(&self, count: usize) -> OneTimeKeyGenerationResult {
+        self.inner.lock().await.generate_one_time_keys(count)
     }
 
     /// Get the maximum number of one-time keys the account can hold.
@@ -652,6 +652,7 @@ impl ReadOnlyAccount {
     ///
     /// Generally `Some` means that keys should be uploaded, while `None` means
     /// that keys should not be uploaded.
+    #[instrument(skip_all)]
     pub async fn generate_one_time_keys(&self) -> Option<u64> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
@@ -667,7 +668,15 @@ impl ReadOnlyAccount {
             let key_count = (max_keys as u64) - count;
             let key_count: usize = key_count.try_into().unwrap_or(max_keys);
 
-            self.generate_one_time_keys_helper(key_count).await;
+            let result = self.generate_one_time_keys_helper(key_count).await;
+
+            debug!(
+                count = key_count,
+                discarded_keys = ?result.removed,
+                created_keys = ?result.created,
+                "Generated new one-time keys"
+            );
+
             Some(key_count as u64)
         } else {
             Some(0)
@@ -1080,6 +1089,9 @@ impl ReadOnlyAccount {
             sender_key = ?their_identity_key,
             session_id = message.session_id(),
             session_keys = ?message.session_keys(),
+            chain_index = message.message().chain_index(),
+            message_version = message.message().version(),
+            ratchet_key = %message.message().ratchet_key(),
         )
     )]
     pub async fn create_inbound_session(
