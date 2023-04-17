@@ -802,7 +802,7 @@ impl Common {
         if is_direct {
             let mut room_members = self.active_members().await?;
             room_members.retain(|member| member.user_id() != self.own_user_id());
-            
+
             for member in room_members {
                 let entry = content.entry(member.user_id().to_owned()).or_default();
                 if !entry.iter().any(|room_id| room_id == this_room_id) {
