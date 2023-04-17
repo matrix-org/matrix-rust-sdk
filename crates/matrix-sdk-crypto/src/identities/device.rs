@@ -32,7 +32,7 @@ use ruma::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use tokio::sync::Mutex;
-use tracing::{trace, warn};
+use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -432,6 +432,16 @@ impl Device {
     /// # Arguments
     ///
     /// * `content` - The content of the event that should be encrypted.
+    #[instrument(
+        skip_all,
+        fields(
+            recipient = %self.user_id(),
+            recipient_device = %self.device_id(),
+            recipient_key = ?self.curve25519_key(),
+            event_type,
+            session,
+        ))
+    ]
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
@@ -694,8 +704,6 @@ impl ReadOnlyDevice {
             }
         } else {
             warn!(
-                user_id = ?self.user_id(),
-                device_id = ?self.device_id(),
                 "Trying to find a Olm session of a device, but the device doesn't have a \
                 Curve25519 key",
             );
@@ -777,21 +785,11 @@ impl ReadOnlyDevice {
         if let Some(mut session) = session {
             let message = session.encrypt(self, event_type, content).await?;
 
-            trace!(
-                user_id = ?self.user_id(),
-                device_id = ?self.device_id(),
-                session_id = session.session_id(),
-                "Successfully encrypted a Megolm session",
-            );
+            trace!("Successfully encrypted an event");
 
             Ok((session, message))
         } else {
-            warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but no Olm session is found",
-                self.user_id(),
-                self.device_id()
-            );
+            warn!("Trying to encrypt an event for a device, but no Olm session is found.",);
 
             Err(OlmError::MissingSession)
         }

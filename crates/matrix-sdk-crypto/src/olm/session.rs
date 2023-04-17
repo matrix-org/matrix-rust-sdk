@@ -18,6 +18,7 @@ use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use tracing::{field::debug, instrument, trace, Span};
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
@@ -78,10 +79,18 @@ impl Session {
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
+    #[instrument(skip_all, fields(session))]
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
-        let plaintext = self.inner.lock().await.decrypt(message)?;
+        let mut inner = self.inner.lock().await;
+        let plaintext = inner.decrypt(message)?;
+
+        Span::current().record("session", debug(inner));
+        trace!("Decrypted a Olm message");
+
         let plaintext = String::from_utf8_lossy(&plaintext).to_string();
+
         self.last_use_time = SecondsSinceUnixEpoch::now();
+
         Ok(plaintext)
     }
 
@@ -116,7 +125,11 @@ impl Session {
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
-        let message = self.inner.lock().await.encrypt(plaintext);
+        let mut session = self.inner.lock().await;
+
+        Span::current().record("session", debug(&session));
+        let message = session.encrypt(plaintext);
+
         self.last_use_time = SecondsSinceUnixEpoch::now();
         message
     }
@@ -178,7 +191,7 @@ impl Session {
             _ => unreachable!(),
         };
 
-        let content = Raw::new(&content).expect("A encrypted can always be serialized");
+        let content = Raw::new(&content)?;
 
         Ok(content)
     }

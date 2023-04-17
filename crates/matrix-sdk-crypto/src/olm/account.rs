@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn, Span};
+use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
 use vodozemac::{
     olm::{
         Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage,
@@ -191,16 +191,14 @@ impl Account {
         self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
     }
 
+    #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
     async fn decrypt_olm_v1(
         &self,
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
         if content.recipient_key != self.identity_keys().curve25519 {
-            warn!(
-                sender_key = content.sender_key.to_base64(),
-                "Olm event doesn't contain a ciphertext for our key"
-            );
+            warn!("Olm event doesn't contain a ciphertext for our key");
 
             Err(EventError::MissingCiphertext.into())
         } else {
@@ -208,11 +206,12 @@ impl Account {
         }
     }
 
+    #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
     pub(crate) async fn decrypt_to_device_event(
         &self,
         event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
-        trace!(algorithm = ?event.content.algorithm(), "Decrypting a to-device event");
+        trace!("Decrypting a to-device event");
 
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
@@ -224,7 +223,6 @@ impl Account {
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
-                    algorithm = ?event.content.algorithm(),
                     "Error decrypting an to-device event, unsupported \
                     encryption algorithm"
                 );
@@ -287,7 +285,7 @@ impl Account {
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
-    #[instrument(skip(self, message), fields(session_id))]
+    #[instrument(skip(self, message))]
     async fn decrypt_olm_message(
         &self,
         sender: &UserId,
@@ -328,12 +326,7 @@ impl Account {
                     // Create the new session.
                     let result = match self.inner.create_inbound_session(sender_key, m).await {
                         Ok(r) => r,
-                        Err(e) => {
-                            warn!(
-                                session_keys = ?m.session_keys(),
-                                "Failed to create a new Olm session from a pre-key message: {e:?}",
-                            );
-
+                        Err(_) => {
                             return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
                         }
                     };
@@ -1086,12 +1079,9 @@ impl ReadOnlyAccount {
     #[instrument(
         skip_all,
         fields(
-            sender_key = ?their_identity_key,
+            message,
             session_id = message.session_id(),
-            session_keys = ?message.session_keys(),
-            chain_index = message.message().chain_index(),
-            message_version = message.message().version(),
-            ratchet_key = %message.message().ratchet_key(),
+            session,
         )
     )]
     pub async fn create_inbound_session(
@@ -1101,12 +1091,20 @@ impl ReadOnlyAccount {
     ) -> Result<InboundCreationResult, SessionCreationError> {
         debug!("Creating a new Olm session from a pre-key message");
 
-        let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
+        let result =
+            self.inner.lock().await.create_inbound_session(their_identity_key, message).map_err(
+                |e| {
+                    warn!("Failed to create a new Olm session from a pre-key message: {e:?}");
+                    e
+                },
+            )?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
-        trace!(?session_id, "Olm session created successfully");
+        Span::current().record("session", debug(&result.session));
+
+        trace!("Olm session created successfully");
 
         let session = Session {
             user_id: self.user_id.clone(),
