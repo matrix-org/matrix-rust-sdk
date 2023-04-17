@@ -1,7 +1,7 @@
 use std::env;
 
-/// Adds a temporary workaround for an issue with the Rust compiler and Android in x86_64 devices:
-/// See https://github.com/rust-lang/rust/issues/109717.
+/// Adds a temporary workaround for an issue with the Rust compiler and Android
+/// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
 /// The workaround comes from: https://github.com/mozilla/application-services/pull/5442
 fn setup_x86_64_android_workaround() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
