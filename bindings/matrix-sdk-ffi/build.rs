@@ -18,7 +18,7 @@ fn setup_x86_64_android_workaround() {
         };
         const DEFAULT_CLANG_VERSION: &str = "14.0.7";
         let clang_version =
-            env::var("NDK_CLANG_VERSION").unwrap_or_else(|| DEFAULT_CLANG_VERSION.to_owned());
+            env::var("NDK_CLANG_VERSION").unwrap_or_else(|_| DEFAULT_CLANG_VERSION.to_owned());
         let linux_x86_64_lib_dir = format!(
             "toolchains/llvm/prebuilt/{build_os}-x86_64/lib64/clang/{clang_version}/lib/linux/"
         );
