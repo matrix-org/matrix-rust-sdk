@@ -1,10 +1,10 @@
 use ruma::{
     events::{
-        BundledRelations, EventContent, EventContentFromType, MessageLikeEventContent,
-        MessageLikeEventType, MessageLikeUnsigned, OriginalSyncMessageLikeEvent,
-        OriginalSyncStateEvent, PossiblyRedactedStateEventContent, RedactContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
-        RedactedSyncStateEvent, StateEventContent, StateEventType, StaticStateEventContent,
+        EventContent, EventContentFromType, MessageLikeEventContent, MessageLikeEventType,
+        MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent,
+        StateEventContent, StateEventType, StaticStateEventContent,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -36,16 +36,6 @@ impl SyncTimelineEventWithoutContent {
             SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => ev.origin_server_ts,
             SyncTimelineEventWithoutContent::OriginalState(ev) => ev.origin_server_ts,
             SyncTimelineEventWithoutContent::RedactedState(ev) => ev.origin_server_ts,
-        }
-    }
-
-    pub(crate) fn relations(&self) -> &BundledRelations {
-        static DEFAULT_BUNDLED_RELATIONS: BundledRelations = BundledRelations::new();
-        match self {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => &ev.unsigned.relations,
-            SyncTimelineEventWithoutContent::OriginalState(ev) => &ev.unsigned.relations,
-            SyncTimelineEventWithoutContent::RedactedMessageLike(_)
-            | SyncTimelineEventWithoutContent::RedactedState(_) => &DEFAULT_BUNDLED_RELATIONS,
         }
     }
 
