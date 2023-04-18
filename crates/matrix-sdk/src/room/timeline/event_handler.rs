@@ -33,7 +33,7 @@ use ruma::{
         },
         sticker::StickerEventContent,
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, BundledRelations, EventContent, FullStateEventContent,
+        AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
@@ -82,7 +82,7 @@ pub(super) struct TimelineEventMetadata {
 pub(super) enum TimelineEventKind {
     Message {
         content: AnyMessageLikeEventContent,
-        relations: BundledRelations,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
     RedactedMessage,
     Redaction {
@@ -147,7 +147,7 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
                 }),
             )) => Self::Redaction { redacts, content },
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
-                Some(content) => Self::Message { content, relations: ev.relations().to_owned() },
+                Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage,
             },
             AnySyncTimelineEvent::State(ev) => match ev {
@@ -936,7 +936,10 @@ struct NewEventTimelineItem {
 impl NewEventTimelineItem {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
-    fn message(c: RoomMessageEventContent, relations: BundledRelations) -> Self {
+    fn message(
+        c: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) -> Self {
         let edited = relations.replace.is_some();
         let content = TimelineItemContent::Message(Message {
             msgtype: c.msgtype,
