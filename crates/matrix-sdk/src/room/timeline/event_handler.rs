@@ -26,7 +26,7 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, RoomMessageEventContent},
+            message::{self, MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -940,9 +940,18 @@ impl NewEventTimelineItem {
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     ) -> Self {
-        let edited = relations.replace.is_some();
+        let edited = relations.has_replacement();
+        let edit = relations.replace.and_then(|r| match *r {
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => Some(ev),
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
+            _ => {
+                error!("got m.room.message event with an edit of a different event type");
+                None
+            }
+        });
+
         let content = TimelineItemContent::Message(Message {
-            msgtype: c.msgtype,
+            msgtype: edit.map_or(c.msgtype, |e| e.content.msgtype),
             in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
             edited,
         });
