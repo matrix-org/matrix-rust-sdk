@@ -25,7 +25,7 @@ use crate::{
     Client,
 };
 
-/// Room details, provided by a [`SlidingSync`] instance.
+/// Room details, provided by a [`SlidingSync`][super::SlidingSync] instance.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
     client: Client,

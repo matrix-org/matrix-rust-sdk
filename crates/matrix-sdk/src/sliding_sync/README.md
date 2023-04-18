@@ -329,7 +329,7 @@ the [`SlidingSync`][] will only process new data and skip the processing
 even across restarts.
 
 To support this, in practice, one can spawn a `Future` that runs
-[`SlidingStream::stream`]. The spawned `Future` can be cancelled safely. If
+[`SlidingSync::stream`]. The spawned `Future` can be cancelled safely. If
 the client was waiting on a response, it's cancelled without any issue. If
 a response was just received, it
 will be fully handled by `SlidingSync`. This _response is always
@@ -367,7 +367,7 @@ persist and load from cold (storage) cache, one needs to set its key with
 present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
 to load their latest cached version from storage, as well as some overall
 information of Sliding Sync. If that succeeded the lists `state` has been
-set to [`Preload`][SlidingSyncListState::Preload]. Only room data of rooms
+set to [`Preloaded`][SlidingSyncState::Preloaded]. Only room data of rooms
 present in one of the lists is loaded from storage.
 
 Notice that lists added after Sliding Sync has been built **will not be
