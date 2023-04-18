@@ -1,7 +1,7 @@
 use ruma::{OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
-/// Represent a room entry in the [`SlidingSyncList`].
+/// Represent a room entry in the [`SlidingSyncList`][super::SlidingSyncList].
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum RoomListEntry {

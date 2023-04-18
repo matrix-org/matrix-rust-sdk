@@ -42,7 +42,7 @@ use crate::{
     Result,
 };
 
-/// The content of an [`EventTimelineItem`].
+/// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
     /// An `m.room.message` event or extensible event, including edits.
@@ -168,12 +168,10 @@ pub struct InReplyToDetails {
 
     /// The details of the event.
     ///
-    /// Use [`Timeline::fetch_item_details`] to fetch the data if it is
-    /// unavailable. The `replies_nesting_level` field in
-    /// [`TimelineDetailsSettings`] decides if this should be fetched.
+    /// Use [`Timeline::fetch_event_details`] to fetch the data if it is
+    /// unavailable.
     ///
-    /// [`Timeline::fetch_item_details`]: super::Timeline::fetch_item_details
-    /// [`TimelineDetailsSettings`]: super::TimelineDetailsSettings
+    /// [`Timeline::fetch_event_details`]: crate::room::timeline::Timeline::fetch_event_details
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
