@@ -22,18 +22,18 @@ use std::{
     },
 };
 
+use matrix_sdk_common::deserialized_responses::{VerificationLevel, VerificationState};
 use ruma::{
     api::client::keys::{
         upload_keys,
         upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     },
-    events::AnyToDeviceEvent,
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
     RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue as RawJsonValue, Value};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn, Span};
@@ -52,7 +52,7 @@ use super::{
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
-    error::{EventError, OlmResult, SessionCreationError},
+    error::{EventError, MegolmResult, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
@@ -67,7 +67,7 @@ use crate::{
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
     utilities::encode,
-    CryptoStoreError, OlmError, SignatureError,
+    CryptoStoreError, MegolmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -114,8 +114,16 @@ pub(crate) struct OlmDecryptionInfo {
 #[derive(Debug)]
 pub(crate) struct DecryptionResult {
     pub event: AnyDecryptedOlmEvent,
-    pub raw_event: Raw<AnyToDeviceEvent>,
+    pub plaintext: String,
     pub sender_key: Curve25519PublicKey,
+    pub device_id: Option<OwnedDeviceId>,
+    pub verification_state: VerificationState,
+}
+
+impl DecryptionResult {
+    pub fn deserialize_as<T: DeserializeOwned>(&self) -> serde_json::Result<T> {
+        serde_json::from_str(&self.plaintext)
+    }
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -162,19 +170,19 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         ciphertext: &OlmMessage,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> MegolmResult<OlmDecryptionInfo> {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
         match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
             Ok((session, result)) => {
                 Ok(OlmDecryptionInfo { session, message_hash, result, inbound_group_session: None })
             }
-            Err(OlmError::SessionWedged(user_id, sender_key)) => {
+            Err(MegolmError::SessionWedged(user_id, sender_key)) => {
                 if self.store.is_message_known(&message_hash).await? {
                     info!(?sender_key, "An Olm message got replayed, decryption failed");
-                    Err(OlmError::ReplayedMessage(user_id, sender_key))
+                    Err(MegolmError::ReplayedMessage(user_id, sender_key))
                 } else {
-                    Err(OlmError::SessionWedged(user_id, sender_key))
+                    Err(MegolmError::SessionWedged(user_id, sender_key))
                 }
             }
             Err(e) => Err(e),
@@ -186,7 +194,7 @@ impl Account {
         &self,
         sender: &UserId,
         content: &OlmV2Curve25519AesSha2Content,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> MegolmResult<OlmDecryptionInfo> {
         self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
     }
 
@@ -194,7 +202,7 @@ impl Account {
         &self,
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> MegolmResult<OlmDecryptionInfo> {
         if content.recipient_key != self.identity_keys().curve25519 {
             warn!(
                 sender_key = content.sender_key.to_base64(),
@@ -207,10 +215,18 @@ impl Account {
         }
     }
 
+    pub(crate) async fn decrypt_room_event(
+        &self,
+        sender: &UserId,
+        content: &OlmV1Curve25519AesSha2Content,
+    ) -> MegolmResult<OlmDecryptionInfo> {
+        self.decrypt_olm_v1(sender, content).await
+    }
+
     pub(crate) async fn decrypt_to_device_event(
         &self,
         event: &EncryptedToDeviceEvent,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> MegolmResult<OlmDecryptionInfo> {
         trace!(algorithm = ?event.content.algorithm(), "Decrypting a to-device event");
 
         match &event.content {
@@ -258,7 +274,7 @@ impl Account {
         &self,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
-    ) -> OlmResult<Option<(Session, String)>> {
+    ) -> MegolmResult<Option<(Session, String)>> {
         let s = self.store.get_sessions(&sender_key.to_base64()).await?;
 
         let Some(sessions) = s else {
@@ -292,7 +308,7 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
-    ) -> OlmResult<(SessionType, DecryptionResult)> {
+    ) -> MegolmResult<(SessionType, DecryptionResult)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) =
             self.decrypt_with_existing_sessions(sender_key, message).await?
@@ -320,7 +336,7 @@ impl Account {
                         "Failed to decrypt a non-pre-key message with all available sessions",
                     );
 
-                    return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+                    return Err(MegolmError::SessionWedged(sender.to_owned(), sender_key));
                 }
 
                 OlmMessage::PreKey(m) => {
@@ -333,7 +349,7 @@ impl Account {
                                 "Failed to create a new Olm session from a pre-key message: {e:?}",
                             );
 
-                            return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+                            return Err(MegolmError::SessionWedged(sender.to_owned(), sender_key));
                         }
                     };
 
@@ -407,7 +423,7 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         plaintext: String,
-    ) -> OlmResult<DecryptionResult> {
+    ) -> MegolmResult<DecryptionResult> {
         let event: AnyDecryptedOlmEvent = serde_json::from_str(&plaintext)?;
         let identity_keys = self.inner.identity_keys();
 
@@ -426,15 +442,16 @@ impl Account {
             )
             .into())
         } else {
+            let device = self.store.get_device_from_curve_key(event.sender(), sender_key).await?;
+
             // If this event is an `m.room_key` event, defer the check for the
             // Ed25519 key of the sender until we decrypt room events. This
             // ensures that we receive the room key even if we don't have access
             // to the device.
             if !matches!(event, AnyDecryptedOlmEvent::RoomKey(_)) {
-                let Some(device) =
-                    self.store.get_device_from_curve_key(event.sender(), sender_key).await? else {
-                        return Err(EventError::MissingSigningKey.into());
-                    };
+                let Some(device) = &device else {
+                    return Err(EventError::MissingSigningKey.into());
+                };
 
                 let Some(key) = device.ed25519_key() else {
                     return Err(EventError::MissingSigningKey.into());
@@ -449,11 +466,14 @@ impl Account {
                 }
             }
 
-            Ok(DecryptionResult {
-                event,
-                raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
-                sender_key,
-            })
+            let verification_state = device.as_ref().map(|d| d.verification_state()).unwrap_or(
+                VerificationState::Unverified(VerificationLevel::None(
+                    matrix_sdk_common::deserialized_responses::DeviceLinkProblem::MissingDevice,
+                )),
+            );
+            let device_id = device.map(|d| d.device_id().to_owned());
+
+            Ok(DecryptionResult { event, plaintext, sender_key, verification_state, device_id })
         }
     }
 }

@@ -114,7 +114,26 @@ pub enum MegolmError {
 
     /// The event could not have been decrypted.
     #[error(transparent)]
-    Decryption(#[from] vodozemac::megolm::DecryptionError),
+    MegolmDecryption(#[from] vodozemac::megolm::DecryptionError),
+
+    /// The event could not have been decrypted.
+    #[error(transparent)]
+    OlmDecryption(#[from] vodozemac::olm::DecryptionError),
+
+    /// The received room key couldn't be converted into a valid Megolm session.
+    #[error(transparent)]
+    SessionCreation(#[from] SessionCreationError),
+
+    /// The session with a device has become corrupted.
+    #[error(
+        "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
+    )]
+    SessionWedged(OwnedUserId, Curve25519PublicKey),
+
+    /// An Olm message got replayed while the Olm ratchet has already moved
+    /// forward.
+    #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
+    ReplayedMessage(OwnedUserId, Curve25519PublicKey),
 
     /// The storage layer returned an error.
     #[error(transparent)]

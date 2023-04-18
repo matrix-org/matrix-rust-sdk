@@ -23,6 +23,7 @@ use std::{
 };
 
 use atomic::Atomic;
+use matrix_sdk_common::deserialized_responses::{VerificationLevel, VerificationState};
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -405,6 +406,23 @@ impl Device {
                 .await?)
         } else {
             Err(SignatureError::UserIdMismatch)
+        }
+    }
+
+    pub(crate) fn verification_state(&self) -> VerificationState {
+        // We only consider cross trust and not local trust. If your own device is not
+        // signed and send a message, it will be seen as Unverified.
+        if self.is_cross_signed_by_owner() {
+            // The device is cross signed by this owner Meaning that the user did self
+            // verify it properly. Let's check if we trust the identity.
+            if self.is_device_owner_verified() {
+                VerificationState::Verified
+            } else {
+                VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+            }
+        } else {
+            // The device owner hasn't self-verified its device.
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice)
         }
     }
 

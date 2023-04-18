@@ -177,6 +177,11 @@ pub enum ShieldState {
 /// The algorithm specific information of a decrypted event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum AlgorithmInfo {
+    /// The info if the event was encrypted using `m.olm.v1.curve25519-aes-sha2`
+    OlmV1Curve25519AesSha2 {
+        /// The curve25519 key of the device that sent the message.
+        curve25519_key: String,
+    },
     /// The info if the event was encrypted using m.megolm.v1.aes-sha2
     MegolmV1AesSha2 {
         /// The curve25519 key of the device that created the megolm decryption

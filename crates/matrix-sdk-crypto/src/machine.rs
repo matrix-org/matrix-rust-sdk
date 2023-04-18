@@ -46,7 +46,7 @@ use tokio::sync::Mutex;
 use tracing::{
     debug, error,
     field::{debug, display},
-    info, instrument, warn, Span,
+    info, instrument, trace, warn, Span,
 };
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
@@ -56,7 +56,7 @@ use vodozemac::{
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
 use crate::{
-    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    error::{EventError, MegolmError, MegolmResult, OlmResult},
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
@@ -74,8 +74,9 @@ use crate::{
         events::{
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
-                EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
-                RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
+                EncryptedEvent, EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
+                RoomEncryptedEventContent, RoomEventEncryptionScheme,
+                SupportedGroupEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
             room_key_withheld::{
@@ -592,7 +593,7 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &self,
         event: &EncryptedToDeviceEvent,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> MegolmResult<OlmDecryptionInfo> {
         let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
@@ -613,7 +614,7 @@ impl OlmMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
-    ) -> OlmResult<Option<InboundGroupSession>> {
+    ) -> MegolmResult<Option<InboundGroupSession>> {
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
@@ -655,7 +656,7 @@ impl OlmMachine {
         &self,
         sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyEvent,
-    ) -> OlmResult<Option<InboundGroupSession>> {
+    ) -> MegolmResult<Option<InboundGroupSession>> {
         match &event.content {
             RoomKeyContent::MegolmV1AesSha2(content) => {
                 self.handle_key(sender_key, event, content).await
@@ -835,7 +836,7 @@ impl OlmMachine {
     async fn handle_decrypted_to_device_event(
         &self,
         decrypted: &mut OlmDecryptionInfo,
-    ) -> OlmResult<()> {
+    ) -> MegolmResult<()> {
         debug!("Received a decrypted to-device event");
 
         match &decrypted.result.event {
@@ -858,11 +859,9 @@ impl OlmMachine {
 
                 // Set the secret name so other consumers of the event know
                 // what this event is about.
-                if let Ok(ToDeviceEvents::SecretSend(mut e)) =
-                    decrypted.result.raw_event.deserialize_as()
-                {
+                if let Ok(ToDeviceEvents::SecretSend(mut e)) = decrypted.result.deserialize_as() {
                     e.content.secret_name = name;
-                    decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
+                    decrypted.result.plaintext = to_raw_value(&e)?.get().to_owned();
                 }
             }
             AnyDecryptedOlmEvent::Dummy(_) => {
@@ -990,7 +989,7 @@ impl OlmMachine {
                 let decrypted = match self.decrypt_to_device_event(&e).await {
                     Ok(e) => e,
                     Err(err) => {
-                        if let OlmError::SessionWedged(sender, curve_key) = err {
+                        if let MegolmError::SessionWedged(sender, curve_key) = err {
                             if let Err(e) =
                                 self.session_manager.mark_device_as_wedged(&sender, curve_key).await
                             {
@@ -1023,7 +1022,7 @@ impl OlmMachine {
                     changes.inbound_group_sessions.push(group_session);
                 }
 
-                match decrypted.result.raw_event.deserialize_as() {
+                match decrypted.result.deserialize_as() {
                     Ok(event) => {
                         self.handle_to_device_event(changes, &event).await;
 
@@ -1034,7 +1033,7 @@ impl OlmMachine {
                     }
                     Err(e) => {
                         warn!("Received an invalid encrypted to-device event: {e}");
-                        raw_event = decrypted.result.raw_event;
+                        raw_event = Raw::from_json_string(decrypted.result.plaintext)?;
                     }
                 }
             }
@@ -1166,28 +1165,8 @@ impl OlmMachine {
                         Some(device_id),
                     )
                 } else {
-                    // We only consider cross trust and not local trust. If your own device is not
-                    // signed and send a message, it will be seen as Unverified.
-                    if device.is_cross_signed_by_owner() {
-                        // The device is cross signed by this owner Meaning that the user did self
-                        // verify it properly. Let's check if we trust the identity.
-                        if device.is_device_owner_verified() {
-                            (VerificationState::Verified, Some(device_id))
-                        } else {
-                            (
-                                VerificationState::Unverified(
-                                    VerificationLevel::UnverifiedIdentity,
-                                ),
-                                Some(device_id),
-                            )
-                        }
-                    } else {
-                        // The device owner hasn't self-verified its device.
-                        (
-                            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-                            Some(device_id),
-                        )
-                    }
+                    let state = device.verification_state();
+                    (state, Some(device_id))
                 }
             }
         })
@@ -1232,7 +1211,7 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         event: &EncryptedEvent,
-        content: &SupportedEventEncryptionSchemes<'_>,
+        content: &SupportedGroupEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
         if let Some(session) =
             self.store.get_inbound_group_session(room_id, content.session_id()).await?
@@ -1250,8 +1229,10 @@ impl OlmMachine {
                     })
                 }
                 Err(error) => Err(
-                    if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
-                        error
+                    if let MegolmError::MegolmDecryption(DecryptionError::UnknownMessageIndex(
+                        _,
+                        _,
+                    )) = error
                     {
                         let withheld_code = self
                             .store
@@ -1281,6 +1262,75 @@ impl OlmMachine {
         }
     }
 
+    async fn handle_megolm_decryption_failures(
+        &self,
+        room_id: &RoomId,
+        event: &EncryptedEvent,
+        result: &MegolmResult<TimelineEvent>,
+    ) -> MegolmResult<()> {
+        if let Err(e) = &result {
+            #[cfg(feature = "automatic-room-key-forwarding")]
+            match e {
+                // Optimisation should we request if we received a withheld code?
+                // Maybe for some code there is no point
+                MegolmError::MissingRoomKey(_)
+                | MegolmError::MegolmDecryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+                    self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
+                }
+                _ => {}
+            }
+
+            let withheld_code =
+                if let MegolmError::MissingRoomKey(code) = e { code } else { &None };
+
+            warn!(?withheld_code, "Failed to decrypt a megolm room event: {e}");
+        }
+
+        Ok(())
+    }
+
+    async fn decrypt_olm_events(
+        &self,
+        room_id: &RoomId,
+        event: &EncryptedEvent,
+        content: &OlmV1Curve25519AesSha2Content,
+    ) -> MegolmResult<TimelineEvent> {
+        trace!(?event.sender, "Decrypting a Olm room event");
+
+        let decrypted = self.account.decrypt_room_event(&event.sender, content).await?;
+
+        let mut changes = Changes::default();
+        match decrypted.session {
+            SessionType::New(s) => {
+                changes.account = Some(self.account.inner.clone());
+                changes.sessions.push(s);
+            }
+            SessionType::Existing(s) => {
+                changes.sessions.push(s);
+            }
+        }
+        changes.message_hashes.push(decrypted.message_hash);
+        self.store.save_changes(changes).await?;
+
+        let decrypted_event =
+            event.merge_with_decrypted_plaintext(room_id, &decrypted.result.plaintext)?;
+
+        let event = TimelineEvent {
+            event: decrypted_event,
+            encryption_info: Some(EncryptionInfo {
+                sender: decrypted.result.event.sender().to_owned(),
+                sender_device: decrypted.result.device_id,
+                algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                    curve25519_key: decrypted.result.sender_key.to_base64(),
+                },
+                verification_state: decrypted.result.verification_state,
+            }),
+            push_actions: Default::default(),
+        };
+
+        Ok(event)
+    }
+
     /// Decrypt an event from a room timeline.
     ///
     /// # Arguments
@@ -1301,36 +1351,34 @@ impl OlmMachine {
         span.record("event_id", debug(&event.event_id));
         span.record("algorithm", debug(event.content.algorithm()));
 
-        let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
-            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+        trace!("Trying to decrypt a room event");
+
+        match &event.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
+                let content: SupportedGroupEncryptionSchemes<'_> = c.into();
+                span.record("session_id", content.session_id());
+                let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+                self.handle_megolm_decryption_failures(room_id, &event, &result).await?;
+
+                result
+            }
             #[cfg(feature = "experimental-algorithms")]
-            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => {
+                let content: SupportedGroupEncryptionSchemes<'_> = c.into();
+                span.record("session_id", content.session_id());
+                let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+                self.handle_megolm_decryption_failures(room_id, &event, &result).await?;
+
+                result
+            }
+            RoomEventEncryptionScheme::OlmV1Curve25519AesSha2(c) => {
+                self.decrypt_olm_events(room_id, &event, &c).await
+            }
             RoomEventEncryptionScheme::Unknown(_) => {
                 warn!("Received an encrypted room event with an unsupported algorithm");
-                return Err(EventError::UnsupportedAlgorithm.into());
+                Err(EventError::UnsupportedAlgorithm.into())
             }
-        };
-
-        span.record("session_id", content.session_id());
-        let result = self.decrypt_megolm_events(room_id, &event, &content).await;
-
-        if let Err(e) = &result {
-            #[cfg(feature = "automatic-room-key-forwarding")]
-            match e {
-                // Optimisation should we request if we received a withheld code?
-                // Maybe for some code there is no point
-                MegolmError::MissingRoomKey(_)
-                | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
-                    self.key_request_machine.create_outgoing_key_request(room_id, &event).await?;
-                }
-                _ => {}
-            }
-
-            // TODO: log the withheld reason if we have one.
-            warn!("Failed to decrypt a room event: {e}");
         }
-
-        result
     }
 
     /// Update the list of tracked users.
@@ -1771,7 +1819,7 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
+        EncryptionSettings, LocalTrust, MegolmError, ReadOnlyDevice, ToDeviceRequest,
         UserIdentities,
     };
 
@@ -2212,14 +2260,8 @@ pub(crate) mod tests {
                 .unwrap(),
         );
 
-        let event = bob
-            .decrypt_to_device_event(&event)
-            .await
-            .unwrap()
-            .result
-            .raw_event
-            .deserialize()
-            .unwrap();
+        let event =
+            bob.decrypt_to_device_event(&event).await.unwrap().result.deserialize_as().unwrap();
 
         if let AnyToDeviceEvent::Dummy(e) = event {
             assert_eq!(&e.sender, alice.user_id());
@@ -2851,10 +2893,10 @@ pub(crate) mod tests {
 
         let room_event = json_convert(&room_event).unwrap();
 
-        let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
+        let decryption_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
 
-        if let crate::MegolmError::Decryption(vodo_error) = decrypt_error {
-            if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
+        if let crate::MegolmError::MegolmDecryption(e) = decryption_error {
+            if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = e {
                 // check that key has been requested
                 let outgoing_to_devices =
                     bob.key_request_machine.outgoing_to_device_requests().await.unwrap();
@@ -3159,7 +3201,7 @@ pub(crate) mod tests {
 
         assert_matches!(
             bob.decrypt_to_device_event(&event).await,
-            Err(OlmError::EventError(EventError::UnsupportedAlgorithm))
+            Err(MegolmError::EventError(EventError::UnsupportedAlgorithm))
         );
 
         let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();

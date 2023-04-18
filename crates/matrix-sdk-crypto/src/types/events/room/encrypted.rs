@@ -16,19 +16,22 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedDeviceId, RoomId};
+use ruma::{events::AnyTimelineEvent, serde::Raw, OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 
 use super::Event;
-use crate::types::{
-    deserialize_curve_key,
-    events::{
-        room_key_request::{self, SupportedKeyInfo},
-        EventType, ToDeviceEvent,
+use crate::{
+    types::{
+        deserialize_curve_key,
+        events::{
+            room_key_request::{self, SupportedKeyInfo},
+            EventType, ToDeviceEvent,
+        },
+        serialize_curve_key, EventEncryptionAlgorithm,
     },
-    serialize_curve_key, EventEncryptionAlgorithm,
+    EventError, MegolmError,
 };
 
 /// An m.room.encrypted room event.
@@ -60,7 +63,50 @@ impl EncryptedEvent {
                 }
                 .into(),
             ),
+            RoomEventEncryptionScheme::OlmV1Curve25519AesSha2(_) => None,
             RoomEventEncryptionScheme::Unknown(_) => None,
+        }
+    }
+
+    pub(crate) fn merge_with_decrypted_plaintext(
+        &self,
+        room_id: &RoomId,
+        plaintext: &str,
+    ) -> Result<Raw<AnyTimelineEvent>, MegolmError> {
+        let mut value = serde_json::from_str::<Value>(&plaintext)?;
+        let object = value.as_object_mut().ok_or(EventError::NotAnObject)?;
+
+        let server_ts: i64 = self.origin_server_ts.0.into();
+
+        object.insert("sender".to_owned(), self.sender.to_string().into());
+        object.insert("event_id".to_owned(), self.event_id.to_string().into());
+        object.insert("origin_server_ts".to_owned(), server_ts.into());
+
+        let parsed_room_id =
+            object.get("room_id").and_then(|r| r.as_str().and_then(|r| RoomId::parse(r).ok()));
+
+        // Check that we have a room id and that the event wasn't forwarded from
+        // another room.
+        if parsed_room_id.as_deref() != Some(room_id) {
+            Err(EventError::MismatchedRoom(room_id.to_owned(), parsed_room_id).into())
+        } else {
+            object.insert(
+                "unsigned".to_owned(),
+                serde_json::to_value(&self.unsigned).unwrap_or_default(),
+            );
+
+            // Take the relation from the decrypted content, if there is one.
+            if let Some(decrypted_content) =
+                object.get_mut("content").and_then(|c| c.as_object_mut())
+            {
+                if !decrypted_content.contains_key("m.relates_to") {
+                    if let Some(relation) = &self.content.relates_to {
+                        decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
+                    }
+                }
+            }
+
+            Ok(serde_json::from_value::<Raw<AnyTimelineEvent>>(value)?)
         }
     }
 }
@@ -213,6 +259,9 @@ pub enum RoomEventEncryptionScheme {
     /// algorithm.
     #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(MegolmV2AesSha2Content),
+    /// The event content for events encrypted with the
+    /// m.olm.v1.curve25519-aes-sha2 algorithm.
+    OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content),
     /// An event content that was encrypted with an unknown encryption
     /// algorithm.
     Unknown(UnknownEncryptedContent),
@@ -229,36 +278,39 @@ impl RoomEventEncryptionScheme {
             RoomEventEncryptionScheme::MegolmV2AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV2AesSha2
             }
+            RoomEventEncryptionScheme::OlmV1Curve25519AesSha2(_) => {
+                EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+            }
             RoomEventEncryptionScheme::Unknown(c) => c.algorithm.to_owned(),
         }
     }
 }
 
-pub(crate) enum SupportedEventEncryptionSchemes<'a> {
+pub(crate) enum SupportedGroupEncryptionSchemes<'a> {
     MegolmV1AesSha2(&'a MegolmV1AesSha2Content),
     #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(&'a MegolmV2AesSha2Content),
 }
 
-impl SupportedEventEncryptionSchemes<'_> {
+impl SupportedGroupEncryptionSchemes<'_> {
     /// The ID of the session used to encrypt the message.
     pub fn session_id(&self) -> &str {
         match self {
-            SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => &c.session_id,
+            SupportedGroupEncryptionSchemes::MegolmV1AesSha2(c) => &c.session_id,
             #[cfg(feature = "experimental-algorithms")]
-            SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.session_id,
+            SupportedGroupEncryptionSchemes::MegolmV2AesSha2(c) => &c.session_id,
         }
     }
 }
 
-impl<'a> From<&'a MegolmV1AesSha2Content> for SupportedEventEncryptionSchemes<'a> {
+impl<'a> From<&'a MegolmV1AesSha2Content> for SupportedGroupEncryptionSchemes<'a> {
     fn from(c: &'a MegolmV1AesSha2Content) -> Self {
         Self::MegolmV1AesSha2(c)
     }
 }
 
 #[cfg(feature = "experimental-algorithms")]
-impl<'a> From<&'a MegolmV2AesSha2Content> for SupportedEventEncryptionSchemes<'a> {
+impl<'a> From<&'a MegolmV2AesSha2Content> for SupportedGroupEncryptionSchemes<'a> {
     fn from(c: &'a MegolmV2AesSha2Content) -> Self {
         Self::MegolmV2AesSha2(c)
     }
@@ -368,13 +420,15 @@ macro_rules! scheme_serialization {
 scheme_serialization!(
     RoomEventEncryptionScheme,
     MegolmV1AesSha2 => MegolmV1AesSha2Content,
-    MegolmV2AesSha2 => MegolmV2AesSha2Content
+    MegolmV2AesSha2 => MegolmV2AesSha2Content,
+    OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content,
 );
 
 #[cfg(not(feature = "experimental-algorithms"))]
 scheme_serialization!(
     RoomEventEncryptionScheme,
     MegolmV1AesSha2 => MegolmV1AesSha2Content,
+    OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content,
 );
 
 #[cfg(feature = "experimental-algorithms")]

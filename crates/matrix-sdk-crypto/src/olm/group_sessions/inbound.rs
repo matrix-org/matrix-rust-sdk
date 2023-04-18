@@ -27,7 +27,6 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::sync::Mutex;
 use vodozemac::{
     megolm::{
@@ -423,48 +422,16 @@ impl InboundGroupSession {
             RoomEventEncryptionScheme::Unknown(_) => {
                 return Err(EventError::UnsupportedAlgorithm.into());
             }
+            RoomEventEncryptionScheme::OlmV1Curve25519AesSha2(_) => {
+                // TODO: Should this be unreachable instead?
+                return Err(EventError::UnsupportedAlgorithm.into());
+            }
         };
 
         let plaintext = String::from_utf8_lossy(&decrypted.plaintext);
+        let decrypted_event = event.merge_with_decrypted_plaintext(self.room_id(), &plaintext)?;
 
-        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
-        let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
-
-        let server_ts: i64 = event.origin_server_ts.0.into();
-
-        decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
-        decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
-        decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
-
-        let room_id = decrypted_object
-            .get("room_id")
-            .and_then(|r| r.as_str().and_then(|r| RoomId::parse(r).ok()));
-
-        // Check that we have a room id and that the event wasn't forwarded from
-        // another room.
-        if room_id.as_deref() != Some(self.room_id()) {
-            return Err(EventError::MismatchedRoom(self.room_id().to_owned(), room_id).into());
-        }
-
-        decrypted_object.insert(
-            "unsigned".to_owned(),
-            serde_json::to_value(&event.unsigned).unwrap_or_default(),
-        );
-
-        if let Some(decrypted_content) =
-            decrypted_object.get_mut("content").and_then(|c| c.as_object_mut())
-        {
-            if !decrypted_content.contains_key("m.relates_to") {
-                if let Some(relation) = &event.content.relates_to {
-                    decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
-                }
-            }
-        }
-
-        Ok((
-            serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_value)?,
-            decrypted.message_index,
-        ))
+        Ok((decrypted_event, decrypted.message_index))
     }
 }
 
