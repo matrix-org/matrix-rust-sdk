@@ -59,7 +59,7 @@ impl Room {
     }
 
     pub fn is_direct(&self) -> bool {
-        self.room.is_direct()
+        RUNTIME.block_on(async move { self.room.is_direct().await.unwrap_or(false) })
     }
 
     pub fn is_public(&self) -> bool {
