@@ -33,7 +33,9 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{MembershipState, RoomMemberEventContent},
+        room::member::{
+            MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -92,7 +94,6 @@ mod keys {
 
     pub const ACCOUNT_DATA: &str = "account_data";
 
-    pub const MEMBERS: &str = "members";
     pub const PROFILES: &str = "profiles";
     pub const DISPLAY_NAMES: &str = "display_names";
     pub const JOINED_USER_IDS: &str = "joined_user_ids";
@@ -104,7 +105,6 @@ mod keys {
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
 
     pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
-    pub const STRIPPED_MEMBERS: &str = "stripped_members";
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_JOINED_USER_IDS: &str = "stripped_joined_user_ids";
     pub const STRIPPED_INVITED_USER_IDS: &str = "stripped_invited_user_ids";
@@ -120,7 +120,6 @@ mod keys {
     /// All names of the current state stores for convenience.
     pub const ALL_STORES: &[&str] = &[
         ACCOUNT_DATA,
-        MEMBERS,
         PROFILES,
         DISPLAY_NAMES,
         JOINED_USER_IDS,
@@ -130,7 +129,6 @@ mod keys {
         PRESENCE,
         ROOM_ACCOUNT_DATA,
         STRIPPED_ROOM_INFOS,
-        STRIPPED_MEMBERS,
         STRIPPED_ROOM_STATE,
         STRIPPED_JOINED_USER_IDS,
         STRIPPED_INVITED_USER_IDS,
@@ -537,14 +535,21 @@ impl_state_store! {
             (!changes.profiles.is_empty(), keys::PROFILES),
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
-            (!changes.stripped_state.is_empty(), keys::STRIPPED_ROOM_STATE),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
         .collect();
 
         if !changes.state.is_empty() {
-            stores.extend([keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE]);
+            stores.extend([
+                keys::ROOM_STATE,
+                keys::INVITED_USER_IDS,
+                keys::JOINED_USER_IDS,
+                keys::STRIPPED_INVITED_USER_IDS,
+                keys::STRIPPED_JOINED_USER_IDS,
+                keys::STRIPPED_ROOM_STATE,
+                keys::PROFILES,
+            ]);
         }
 
         if !changes.redactions.is_empty() {
@@ -555,24 +560,12 @@ impl_state_store! {
             stores.extend([keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS]);
         }
 
-        if !changes.members.is_empty() {
+        if !changes.stripped_state.is_empty() {
             stores.extend([
-                keys::PROFILES,
-                keys::MEMBERS,
-                keys::INVITED_USER_IDS,
-                keys::JOINED_USER_IDS,
-                keys::STRIPPED_MEMBERS,
+                keys::STRIPPED_ROOM_STATE,
                 keys::STRIPPED_INVITED_USER_IDS,
                 keys::STRIPPED_JOINED_USER_IDS,
-            ])
-        }
-
-        if !changes.stripped_members.is_empty() {
-            stores.extend([
-                keys::STRIPPED_MEMBERS,
-                keys::STRIPPED_INVITED_USER_IDS,
-                keys::STRIPPED_JOINED_USER_IDS,
-            ])
+            ]);
         }
 
         if !changes.receipts.is_empty() {
@@ -628,13 +621,68 @@ impl_state_store! {
 
         if !changes.state.is_empty() {
             let state = tx.object_store(keys::ROOM_STATE)?;
+            let profiles = tx.object_store(keys::PROFILES)?;
+            let joined = tx.object_store(keys::JOINED_USER_IDS)?;
+            let invited = tx.object_store(keys::INVITED_USER_IDS)?;
             let stripped_state = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+            let stripped_joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
+            let stripped_invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
+
             for (room, event_types) in &changes.state {
+                let profile_changes = changes.profiles.get(room);
+
                 for (event_type, events) in event_types {
-                    for (state_key, event) in events {
+                    for (state_key, raw_event) in events {
                         let key = self.encode_key(keys::ROOM_STATE, (room, event_type, state_key));
-                        state.put_key_val(&key, &self.serialize_event(&event)?)?;
+                        state.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
                         stripped_state.delete(&key)?;
+
+                        if *event_type == StateEventType::RoomMember {
+                            let event = match raw_event.deserialize_as::<SyncRoomMemberEvent>() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(event_id, "Failed to deserialize member event: {e}");
+                                    continue;
+                                }
+                            };
+
+                            let key = (room, state_key);
+
+                            stripped_joined
+                                .delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
+                            stripped_invited
+                                .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
+
+                            match event.membership() {
+                                MembershipState::Join => {
+                                    joined.put_key_val_owned(
+                                        &self.encode_key(keys::JOINED_USER_IDS, key),
+                                        &self.serialize_event(state_key)?,
+                                    )?;
+                                    invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
+                                }
+                                MembershipState::Invite => {
+                                    invited.put_key_val_owned(
+                                        &self.encode_key(keys::INVITED_USER_IDS, key),
+                                        &self.serialize_event(state_key)?,
+                                    )?;
+                                    joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
+                                }
+                                _ => {
+                                    joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
+                                    invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
+                                }
+                            }
+
+                            if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
+                                profiles.put_key_val_owned(
+                                    &self.encode_key(keys::PROFILES, key),
+                                    &self.serialize_event(&profile)?,
+                                )?;
+                            }
+                        }
                     }
                 }
             }
@@ -674,129 +722,54 @@ impl_state_store! {
             }
         }
 
-        if !changes.stripped_members.is_empty() {
-            let store = tx.object_store(keys::STRIPPED_MEMBERS)?;
-            let joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
-            let invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
-            for (room, raw_events) in &changes.stripped_members {
-                for raw_event in raw_events.values() {
-                    let event = match raw_event.deserialize() {
-                        Ok(ev) => ev,
-                        Err(e) => {
-                            let event_id: Option<String> =
-                                raw_event.get_field("event_id").ok().flatten();
-                            debug!(event_id, "Failed to deserialize stripped member event: {e}");
-                            continue;
-                        }
-                    };
-
-                    let key = (room, &event.state_key);
-
-                    match event.content.membership {
-                        MembershipState::Join => {
-                            joined.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
-                            )?;
-                            invited
-                                .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-                        }
-                        MembershipState::Invite => {
-                            invited.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
-                            )?;
-                            joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                        }
-                        _ => {
-                            joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                            invited
-                                .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-                        }
-                    }
-                    store.put_key_val(
-                        &self.encode_key(keys::STRIPPED_MEMBERS, key),
-                        &self.serialize_event(&raw_event)?,
-                    )?;
-                }
-            }
-        }
-
         if !changes.stripped_state.is_empty() {
             let store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+            let joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
+            let invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
+
             for (room, event_types) in &changes.stripped_state {
                 for (event_type, events) in event_types {
-                    for (state_key, event) in events {
+                    for (state_key, raw_event) in events {
                         let key = self
                             .encode_key(keys::STRIPPED_ROOM_STATE, (room, event_type, state_key));
-                        store.put_key_val(&key, &self.serialize_event(&event)?)?;
-                    }
-                }
-            }
-        }
+                        store.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
 
-        if !changes.members.is_empty() {
-            let profiles = tx.object_store(keys::PROFILES)?;
-            let joined = tx.object_store(keys::JOINED_USER_IDS)?;
-            let invited = tx.object_store(keys::INVITED_USER_IDS)?;
-            let members = tx.object_store(keys::MEMBERS)?;
-            let stripped_members = tx.object_store(keys::STRIPPED_MEMBERS)?;
-            let stripped_joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
-            let stripped_invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
+                        if *event_type == StateEventType::RoomMember {
+                        let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>() {
+                            Ok(ev) => ev,
+                            Err(e) => {
+                                let event_id: Option<String> =
+                                    raw_event.get_field("event_id").ok().flatten();
+                                debug!(event_id, "Failed to deserialize stripped member event: {e}");
+                                continue;
+                            }
+                        };
 
-            for (room, raw_events) in &changes.members {
-                let profile_changes = changes.profiles.get(room);
+                        let key = (room, state_key);
 
-                for raw_event in raw_events.values() {
-                    let event = match raw_event.deserialize() {
-                        Ok(ev) => ev,
-                        Err(e) => {
-                            let event_id: Option<String> =
-                                raw_event.get_field("event_id").ok().flatten();
-                            debug!(event_id, "Failed to deserialize member event: {e}");
-                            continue;
-                        }
-                    };
-
-                    let key = (room, event.state_key());
-
-                    stripped_joined
-                        .delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                    stripped_invited
-                        .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-
-                    match event.membership() {
-                        MembershipState::Join => {
-                            joined.put_key_val_owned(
-                                &self.encode_key(keys::JOINED_USER_IDS, key),
-                                &self.serialize_event(event.state_key())?,
-                            )?;
-                            invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
-                        }
-                        MembershipState::Invite => {
-                            invited.put_key_val_owned(
-                                &self.encode_key(keys::INVITED_USER_IDS, key),
-                                &self.serialize_event(event.state_key())?,
-                            )?;
-                            joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
-                        }
-                        _ => {
-                            joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
-                            invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
+                        match event.content.membership {
+                            MembershipState::Join => {
+                                joined.put_key_val_owned(
+                                    &self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key),
+                                    &self.serialize_event(state_key)?,
+                                )?;
+                                invited
+                                    .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
+                            }
+                            MembershipState::Invite => {
+                                invited.put_key_val_owned(
+                                    &self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key),
+                                    &self.serialize_event(state_key)?,
+                                )?;
+                                joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
+                            }
+                            _ => {
+                                joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
+                                invited
+                                    .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
+                            }
                         }
                     }
-
-                    members.put_key_val_owned(
-                        &self.encode_key(keys::MEMBERS, key),
-                        &self.serialize_event(&raw_event)?,
-                    )?;
-                    stripped_members.delete(&self.encode_key(keys::STRIPPED_MEMBERS, key))?;
-
-                    if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
-                        profiles.put_key_val_owned(
-                            &self.encode_key(keys::PROFILES, key),
-                            &self.serialize_event(&profile)?,
-                        )?;
                     }
                 }
             }
@@ -974,9 +947,9 @@ impl_state_store! {
     ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) = self
             .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_MEMBERS)?
-            .get(&self.encode_key(keys::STRIPPED_MEMBERS, (room_id, state_key)))?
+            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::STRIPPED_ROOM_STATE)?
+            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()?
@@ -984,9 +957,9 @@ impl_state_store! {
             Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) = self
             .inner
-            .transaction_on_one_with_mode(keys::MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(keys::MEMBERS)?
-            .get(&self.encode_key(keys::MEMBERS, (room_id, state_key)))?
+            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::ROOM_STATE)?
+            .get(&self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()?
@@ -1201,7 +1174,6 @@ impl_state_store! {
         let direct_stores = [keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS];
 
         let prefixed_stores = [
-            keys::MEMBERS,
             keys::PROFILES,
             keys::DISPLAY_NAMES,
             keys::INVITED_USER_IDS,
@@ -1211,7 +1183,6 @@ impl_state_store! {
             keys::ROOM_EVENT_RECEIPTS,
             keys::ROOM_USER_RECEIPTS,
             keys::STRIPPED_ROOM_STATE,
-            keys::STRIPPED_MEMBERS,
         ];
 
         let all_stores = {

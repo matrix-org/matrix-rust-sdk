@@ -47,10 +47,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
-        room::{
-            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
-            redaction::OriginalSyncRoomRedactionEvent,
-        },
+        room::{member::StrippedRoomMemberEvent, redaction::OriginalSyncRoomRedactionEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -323,8 +320,6 @@ pub struct StateChanges {
     /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
-    /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
     pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
@@ -352,10 +347,6 @@ pub struct StateChanges {
         OwnedRoomId,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     >,
-    /// A mapping of `RoomId` to a map of users and their
-    /// `StrippedRoomMemberEvent`.
-    pub stripped_members:
-        BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
     /// while knocking)
     pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
@@ -419,10 +410,12 @@ impl StateChanges {
         user_id: &UserId,
         event: Raw<StrippedRoomMemberEvent>,
     ) {
-        self.stripped_members
+        self.stripped_state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.to_owned(), event);
+            .entry(StateEventType::RoomMember)
+            .or_default()
+            .insert(user_id.into(), event.cast());
     }
 
     /// Update the `StateChanges` struct with the given room with a new

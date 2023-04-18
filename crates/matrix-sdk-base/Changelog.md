@@ -4,6 +4,8 @@
 
 - Rename `RoomType` to `RoomState`
 - Add `RoomInfo::state` accessor
+- Remove `members` and `stripped_members` fields in `StateChanges`. Room member events are now with
+  other state events in `state` and `stripped_state`.
 
 ## 0.5.1
 

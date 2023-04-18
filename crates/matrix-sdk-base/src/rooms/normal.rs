@@ -813,13 +813,16 @@ mod test {
     use assign::assign;
     use matrix_sdk_test::async_test;
     use ruma::{
-        events::room::{
-            canonical_alias::RoomCanonicalAliasEventContent,
-            member::{
-                MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
-                SyncRoomMemberEvent,
+        events::{
+            room::{
+                canonical_alias::RoomCanonicalAliasEventContent,
+                member::{
+                    MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
+                    SyncRoomMemberEvent,
+                },
+                name::RoomNameEventContent,
             },
-            name::RoomNameEventContent,
+            StateEventType,
         },
         room_alias_id, room_id,
         serde::Raw,
@@ -1025,16 +1028,15 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
@@ -1052,16 +1054,15 @@ mod test {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
@@ -1082,16 +1083,15 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
