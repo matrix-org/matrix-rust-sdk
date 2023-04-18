@@ -91,7 +91,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEventWithoutContent {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct NoMessageLikeEventContent {
     #[serde(skip)]
     pub event_type: MessageLikeEventType,
@@ -144,7 +144,7 @@ impl StaticStateEventContent for NoStateEventContent {
     // We don't care about the `prev_content` since it wont deserialize with useful
     // data. Use this type which is `StateUnsigned` minus the `prev_content`
     // field.
-    type Unsigned = MessageLikeUnsigned;
+    type Unsigned = MessageLikeUnsigned<NoMessageLikeEventContent>;
     type PossiblyRedacted = Self;
 }
 impl RedactedStateEventContent for NoStateEventContent {
