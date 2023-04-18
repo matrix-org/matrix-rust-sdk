@@ -37,10 +37,11 @@ use ruma::{
     RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info, instrument, warn};
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
+    deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent,
@@ -207,8 +208,32 @@ impl Room {
     }
 
     /// Is this room considered a direct message.
-    pub fn is_direct(&self) -> bool {
-        !self.inner.read().unwrap().base_info.dm_targets.is_empty()
+    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    pub async fn is_direct(&self) -> StoreResult<bool> {
+        match self.state() {
+            RoomState::Joined | RoomState::Left => {
+                Ok(!self.inner.read().unwrap().base_info.dm_targets.is_empty())
+            }
+            RoomState::Invited => {
+                let member = self.get_member(self.own_user_id()).await?;
+
+                match member {
+                    None => {
+                        info!("RoomMember not found for the user's own id");
+                        Ok(false)
+                    }
+                    Some(member) => match member.event.as_ref() {
+                        MemberEvent::Sync(_) => {
+                            warn!("Got MemberEvent::Sync in an invited room");
+                            Ok(false)
+                        }
+                        MemberEvent::Stripped(event) => {
+                            Ok(event.content.is_direct.unwrap_or(false))
+                        }
+                    },
+                }
+            }
+        }
     }
 
     /// If this room is a direct message, get the members that we're sharing the
