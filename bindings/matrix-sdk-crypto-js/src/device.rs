@@ -63,6 +63,12 @@ impl Device {
         self.inner.is_cross_signing_trusted()
     }
 
+    /// Is this device cross-signed by its owner?
+    #[wasm_bindgen(js_name = "isCrossSignedByOwner")]
+    pub fn is_cross_signed_by_owner(&self) -> bool {
+        self.inner.is_cross_signed_by_owner()
+    }
+
     /// Set the local trust state of the device to the given state.
     ///
     /// This won’t affect any cross signing trust state, this only

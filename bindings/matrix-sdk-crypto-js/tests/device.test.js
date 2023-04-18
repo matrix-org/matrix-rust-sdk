@@ -104,6 +104,7 @@ describe(OlmMachine.name, () => {
         expect(dev).toBeInstanceOf(Device);
         expect(dev.isVerified()).toStrictEqual(false);
         expect(dev.isCrossSigningTrusted()).toStrictEqual(false);
+        expect(dev.isCrossSignedByOwner()).toStrictEqual(false);
 
         expect(dev.localTrustState).toStrictEqual(LocalTrust.Unset);
         expect(dev.isLocallyTrusted()).toStrictEqual(false);
