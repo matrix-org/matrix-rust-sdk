@@ -73,7 +73,6 @@ pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
     pub(super) is_own_event: bool,
-    pub(super) relations: BundledRelations,
     pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
@@ -83,6 +82,7 @@ pub(super) struct TimelineEventMetadata {
 pub(super) enum TimelineEventKind {
     Message {
         content: AnyMessageLikeEventContent,
+        relations: BundledRelations,
     },
     RedactedMessage,
     Redaction {
@@ -147,7 +147,7 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
                 }),
             )) => Self::Redaction { redacts, content },
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
-                Some(content) => Self::Message { content },
+                Some(content) => Self::Message { content, relations: ev.relations().to_owned() },
                 None => Self::RedactedMessage,
             },
             AnySyncTimelineEvent::State(ev) => match ev {
@@ -274,7 +274,7 @@ impl<'a> TimelineEventHandler<'a> {
         trace!("Handling event");
 
         match event_kind {
-            TimelineEventKind::Message { content } => match content {
+            TimelineEventKind::Message { content, relations } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => {
                     self.handle_reaction(c);
                 }
@@ -285,7 +285,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(NewEventTimelineItem::message(c, self.meta.relations.clone()));
+                    self.add(NewEventTimelineItem::message(c, relations));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {

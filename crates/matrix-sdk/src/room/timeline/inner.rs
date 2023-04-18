@@ -207,7 +207,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             sender,
             sender_profile,
             is_own_event: true,
-            relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
             read_receipts: Default::default(),
@@ -216,7 +215,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
-        let kind = TimelineEventKind::Message { content };
+        let kind = TimelineEventKind::Message { content, relations: Default::default() };
 
         let mut state = self.state.lock().await;
         TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
@@ -792,33 +791,30 @@ async fn handle_remote_event<P: RoomDataProvider>(
     room_data_provider: &P,
     track_read_receipts: bool,
 ) -> HandleEventResult {
-    let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
-        match raw.deserialize() {
+    let (event_id, sender, origin_server_ts, txn_id, event_kind) = match raw.deserialize() {
+        Ok(event) => (
+            event.event_id().to_owned(),
+            event.sender().to_owned(),
+            event.origin_server_ts(),
+            event.transaction_id().map(ToOwned::to_owned),
+            event.into(),
+        ),
+        Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
             Ok(event) => (
                 event.event_id().to_owned(),
                 event.sender().to_owned(),
                 event.origin_server_ts(),
                 event.transaction_id().map(ToOwned::to_owned),
-                event.relations().to_owned(),
-                event.into(),
+                TimelineEventKind::failed_to_parse(event, e),
             ),
-            Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
-                Ok(event) => (
-                    event.event_id().to_owned(),
-                    event.sender().to_owned(),
-                    event.origin_server_ts(),
-                    event.transaction_id().map(ToOwned::to_owned),
-                    event.relations().to_owned(),
-                    TimelineEventKind::failed_to_parse(event, e),
-                ),
-                Err(e) => {
-                    let event_type: Option<String> = raw.get_field("type").ok().flatten();
-                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
-                    return HandleEventResult::default();
-                }
-            },
-        };
+            Err(e) => {
+                let event_type: Option<String> = raw.get_field("type").ok().flatten();
+                let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+                return HandleEventResult::default();
+            }
+        },
+    };
 
     let is_own_event = sender == room_data_provider.own_user_id();
     let sender_profile = room_data_provider.profile(&sender).await;
@@ -832,7 +828,6 @@ async fn handle_remote_event<P: RoomDataProvider>(
         sender,
         sender_profile,
         is_own_event,
-        relations,
         encryption_info,
         read_receipts,
         is_highlighted,
