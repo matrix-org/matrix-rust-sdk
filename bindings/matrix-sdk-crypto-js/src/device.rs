@@ -4,6 +4,7 @@ use js_sys::{Array, Map, Promise};
 use wasm_bindgen::prelude::*;
 
 use crate::{
+    encryption::EncryptionAlgorithm,
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
     impl_from_to_inner,
@@ -139,6 +140,19 @@ impl Device {
         }
 
         map
+    }
+
+    /// Get the list of algorithms this device supports.
+    ///
+    /// Returns `Array<EncryptionAlgorithm>`.
+    #[wasm_bindgen(getter)]
+    pub fn algorithms(&self) -> Array {
+        self.inner
+            .algorithms()
+            .iter()
+            .map(|alg| EncryptionAlgorithm::from(alg.clone()))
+            .map(JsValue::from)
+            .collect()
     }
 
     /// Get a map containing all the device signatures.

@@ -11,6 +11,7 @@ const {
     DeviceKeyName,
     DeviceKeyAlgorithmName,
     Ed25519PublicKey,
+    EncryptionAlgorithm,
     Curve25519PublicKey,
     Signatures,
     VerificationMethod,
@@ -115,6 +116,10 @@ describe(OlmMachine.name, () => {
         expect(dev.userId.toString()).toStrictEqual(user.toString());
         expect(dev.deviceId.toString()).toStrictEqual(secondDeviceId.toString());
         expect(dev.deviceName).toBeUndefined();
+        expect(dev.algorithms).toEqual([
+            EncryptionAlgorithm.OlmV1Curve25519AesSha2,
+            EncryptionAlgorithm.MegolmV1AesSha2,
+        ]);
 
         const deviceKey = dev.getKey(DeviceKeyAlgorithmName.Ed25519);
 
