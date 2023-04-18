@@ -26,15 +26,24 @@ use ruma::{
     events::ToDeviceEventType, serde::Raw, to_device::DeviceIdOrAllDevices, DeviceId,
     OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
-use serde_json::Value;
-use tracing::{debug, error, info, instrument, trace};
+use serde::{Deserialize, Serialize};
+use serde_json::{value::to_raw_value, Value};
+use tracing::{debug, error, field::debug, info, instrument, trace, Span};
+use vodozemac::{olm::OlmMessage, Curve25519PublicKey};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
-    types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
+    types::{
+        deserialize_curve_key,
+        events::{
+            room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},
+            room_key_withheld::WithheldCode,
+        },
+        serialize_curve_key, EventEncryptionAlgorithm,
+    },
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -488,6 +497,145 @@ impl GroupSessionManager {
         } else {
             outbound
         })
+    }
+
+    #[instrument(skip_all, fields(event_type, recipients))]
+    pub async fn encrypt_directly(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+        room_id: &RoomId,
+        content: Value,
+        event_type: &str,
+    ) -> OlmResult<Vec<Raw<RoomEncryptedEventContent>>> {
+        let mut contents = vec![];
+        let mut changes = Changes::default();
+
+        #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+        struct OlmGroupContent {
+            #[serde(
+                deserialize_with = "deserialize_curve_key",
+                serialize_with = "serialize_curve_key"
+            )]
+            sender_key: Curve25519PublicKey,
+            algorithm: EventEncryptionAlgorithm,
+            ciphertext: BTreeMap<String, OlmMessage>,
+        }
+
+        impl OlmGroupContent {
+            pub fn merge_ciphertexts(
+                sender_key: Curve25519PublicKey,
+                contents: Vec<ToDeviceEncryptedEventContent>,
+            ) -> Self {
+                let mut helper = Self {
+                    sender_key,
+                    ciphertext: Default::default(),
+                    algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                };
+
+                for content in contents {
+                    match content {
+                        ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
+                            helper.ciphertext.insert(c.recipient_key.to_base64(), c.ciphertext);
+                        }
+                        ToDeviceEncryptedEventContent::Unknown(_) => {
+                            unreachable!("We never encrypt into a unknown content type")
+                        }
+                    }
+                }
+
+                helper
+            }
+
+            pub fn to_raw(&self) -> Raw<RoomEncryptedEventContent> {
+                let json = to_raw_value(self).expect("TODO");
+                Raw::from_json(json)
+            }
+        }
+
+        let mut recipient_devices = vec![];
+        let mut recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
+
+        for user_id in users {
+            let user_devices = self.store.get_user_devices_filtered(user_id).await?;
+            recipients.insert(user_id, user_devices.keys().map(|d| d.to_owned()).collect());
+            recipient_devices.extend(user_devices.devices())
+        }
+
+        Span::current().record("recipients", debug(recipients));
+
+        trace!("Trying to encrypt a room event directly");
+
+        let sender_key = self.account.identity_keys().curve25519;
+
+        let encrypt_chunk = |devices: Vec<Device>,
+                             event_type: Arc<str>,
+                             content: Arc<Value>,
+                             room_id: Arc<RoomId>| async move {
+            let mut contents = vec![];
+            let mut sessions = vec![];
+
+            let tasks: Vec<_> = devices
+                .into_iter()
+                .map(|d| {
+                    spawn({
+                        let event_type = event_type.to_owned();
+                        let content = content.to_owned();
+                        let room_id = room_id.to_owned();
+
+                        async move {
+                            d.maybe_encrypt_content(&event_type, &content, Some(&room_id)).await
+                        }
+                    })
+                })
+                .collect();
+
+            for result in join_all(tasks).await {
+                let result = result.expect("Encryption task panicked");
+
+                if let Some((session, content)) = result? {
+                    contents.push(
+                        content
+                            .deserialize()
+                            .expect("We can always deserialize our freshly created event content"),
+                    );
+                    sessions.push(session);
+                }
+            }
+
+            Ok::<_, OlmError>((sessions, OlmGroupContent::merge_ciphertexts(sender_key, contents)))
+        };
+
+        let event_type: Arc<str> = event_type.into();
+        let content: Arc<Value> = content.into();
+        let room_id: Arc<RoomId> = room_id.into();
+
+        let tasks: Vec<_> = recipient_devices
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .map(|chunk| {
+                spawn(encrypt_chunk(
+                    chunk.to_vec(),
+                    event_type.to_owned(),
+                    content.to_owned(),
+                    room_id.to_owned(),
+                ))
+            })
+            .collect();
+
+        for result in join_all(tasks).await {
+            let result = result.expect("Encryption task panicked");
+
+            let (used_sessions, content) = result?;
+            let content = content.to_raw();
+
+            changes.sessions.extend(used_sessions);
+            contents.push(content);
+        }
+
+        trace!(event_count = contents.len(), "Encrypted room event directly");
+
+        self.store.save_changes(changes).await?;
+
+        Ok(contents)
     }
 
     async fn encrypt_for_devices(

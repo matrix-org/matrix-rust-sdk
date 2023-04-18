@@ -14,7 +14,7 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
+use ruma::{serde::Raw, DeviceId, RoomId, SecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -137,12 +137,13 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         event_type: &str,
-        content: Value,
+        content: &Value,
+        room_id: Option<&RoomId>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let recipient_signing_key =
             recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
-        let payload = json!({
+        let mut payload = json!({
             "sender": self.user_id.as_str(),
             "sender_device": self.device_id.as_ref(),
             "keys": {
@@ -155,6 +156,13 @@ impl Session {
             "type": event_type,
             "content": content,
         });
+
+        if let Some(room_id) = room_id {
+            payload
+                .as_object_mut()
+                .expect("We can always represent out payload as an object.")
+                .insert("room_id".to_owned(), room_id.to_string().into());
+        }
 
         let plaintext = serde_json::to_string(&payload)?;
         let ciphertext = self.encrypt_helper(&plaintext).await;

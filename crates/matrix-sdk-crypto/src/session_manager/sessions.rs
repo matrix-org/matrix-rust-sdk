@@ -141,7 +141,7 @@ impl SessionManager {
         if self.wedged_devices.get(user_id).and_then(|d| d.remove(device_id)).is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
                 let content = serde_json::to_value(ToDeviceDummyEventContent::new())?;
-                let (_, content) = device.encrypt("m.dummy", content).await?;
+                let (_, content) = device.encrypt("m.dummy", &content, None).await?;
 
                 let request = ToDeviceRequest::new(
                     device.user_id(),

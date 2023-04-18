@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
+use matrix_sdk_base::crypto::types::events::room::encrypted::RoomEncryptedEventContent;
 use matrix_sdk_common::instant::{Duration, Instant};
 use mime::{self, Mime};
 use ruma::{
@@ -33,7 +34,8 @@ use ruma::{
         EmptyStateKey, MessageLikeEventContent, StateEventContent,
     },
     serde::Raw,
-    EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventEncryptionAlgorithm, EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId,
+    TransactionId, UserId,
 };
 use serde_json::Value;
 #[cfg(feature = "e2e-encryption")]
@@ -356,6 +358,61 @@ impl Joined {
         Ok(())
     }
 
+    async fn encrypt_content(
+        &self,
+        content: Value,
+        event_type: &str,
+    ) -> Result<Raw<RoomEncryptedEventContent>> {
+        let settings =
+            self.encryption_settings().ok_or(matrix_sdk_base::Error::EncryptionNotEnabled)?;
+
+        // TODO: Match the new custom algorithm here. We likely need to match the
+        // strings.
+        match settings.algorithm {
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                self.encrypt_directly(content, event_type).await
+            }
+            _ => self.encrypt_with_room_key(content, event_type).await,
+        }
+    }
+
+    async fn encrypt_with_room_key(
+        &self,
+        content: Value,
+        event_type: &str,
+    ) -> Result<Raw<RoomEncryptedEventContent>> {
+        let olm = self.client.olm_machine().expect("Olm machine wasn't started");
+
+        self.preshare_room_key().await?;
+        Ok(olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?)
+    }
+
+    async fn encrypt_directly(
+        &self,
+        content: Value,
+        event_type: &str,
+    ) -> Result<Raw<RoomEncryptedEventContent>> {
+        let olm = self.client.olm_machine().expect("Olm machine wasn't started");
+
+        let joined = self.client.store().get_joined_user_ids(self.inner.room_id()).await?;
+        let invited = self.client.store().get_invited_user_ids(self.inner.room_id()).await?;
+
+        let members = joined.iter().chain(&invited).map(Deref::deref);
+        self.client.claim_one_time_keys(members).await?;
+
+        let members = joined.iter().chain(&invited).map(Deref::deref);
+        let contents =
+            olm.encrypt_room_event_direct(members, self.room_id(), content, event_type).await?;
+
+        // TODO: What to do if there are too many members in a room?
+        assert_eq!(contents.len(), 1, "Too many members in the room");
+
+        let content =
+            contents.into_iter().next().expect("Couldn't encrypt the content to any device");
+
+        Ok(content)
+    }
+
     /// Share a room key with users in the given room.
     ///
     /// This will create Olm sessions with all the users/device pairs in the
@@ -631,12 +688,7 @@ impl Joined {
                     // TODO query keys here?
                 }
 
-                self.preshare_room_key().await?;
-
-                let olm = self.client.olm_machine().expect("Olm machine wasn't started");
-
-                let encrypted_content =
-                    olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;
+                let encrypted_content = self.encrypt_content(content, event_type).await?;
 
                 (encrypted_content.cast(), "m.room.encrypted")
             }

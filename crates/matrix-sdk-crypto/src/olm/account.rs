@@ -1197,7 +1197,8 @@ impl ReadOnlyAccount {
             .encrypt(
                 &device,
                 "m.dummy",
-                serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+                &serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+                None,
             )
             .await
             .unwrap()

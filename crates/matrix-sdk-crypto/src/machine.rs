@@ -741,6 +741,17 @@ impl OlmMachine {
         self.encrypt_room_event_raw(room_id, content, &event_type).await
     }
 
+    /// Encrypt a room message for participants of a room directly.
+    pub async fn encrypt_room_event_direct(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+        room_id: &RoomId,
+        content: Value,
+        event_type: &str,
+    ) -> OlmResult<Vec<Raw<RoomEncryptedEventContent>>> {
+        self.group_session_manager.encrypt_directly(users, room_id, content, &event_type).await
+    }
+
     /// Encrypt a json [`Value`] content for the given room.
     ///
     /// This method is equivalent to the [`OlmMachine::encrypt_room_event()`]
@@ -1933,7 +1944,11 @@ pub(crate) mod tests {
             alice.get_device(&bob.user_id, &bob.device_id, None).await.unwrap().unwrap();
 
         let (session, content) = bob_device
-            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
+            .encrypt(
+                "m.dummy",
+                &serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+                None,
+            )
             .await
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
@@ -2252,7 +2267,11 @@ pub(crate) mod tests {
         let event = ToDeviceEvent::new(
             alice.user_id().to_owned(),
             bob_device
-                .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
+                .encrypt(
+                    "m.dummy",
+                    &serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+                    None,
+                )
                 .await
                 .unwrap()
                 .1

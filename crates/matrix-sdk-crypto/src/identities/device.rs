@@ -453,9 +453,27 @@ impl Device {
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
-        content: Value,
+        content: &Value,
+        room_id: Option<&ruma::RoomId>,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
+        self.inner
+            .encrypt(self.verification_machine.store.inner(), event_type, content, room_id)
+            .await
+    }
+
+    pub(crate) async fn maybe_encrypt_content(
+        &self,
+        event_type: &str,
+        content: &Value,
+        room_id: Option<&ruma::RoomId>,
+    ) -> OlmResult<Option<(Session, Raw<ToDeviceEncryptedEventContent>)>> {
+        match self.encrypt(event_type, content, room_id).await {
+            Ok(ret) => Ok(Some(ret)),
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub(crate) async fn maybe_encrypt_room_key(
@@ -468,17 +486,14 @@ impl Device {
         let content =
             serde_json::to_value(content).expect("We can always serialize our own room key");
 
-        match self.encrypt(event_type, content).await {
-            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+        match self.maybe_encrypt_content(event_type, &content, None).await? {
+            Some((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
                 share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
                 used_session: session,
                 message: encrypted.cast(),
             }),
 
-            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
-                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
-            }
-            Err(e) => Err(e),
+            None => Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm }),
         }
     }
 
@@ -500,7 +515,7 @@ impl Device {
         let event_type = content.event_type();
         let content = serde_json::to_value(content)?;
 
-        self.encrypt(event_type, content).await
+        self.encrypt(event_type, &content, None).await
     }
 }
 
@@ -788,12 +803,13 @@ impl ReadOnlyDevice {
         &self,
         store: &DynCryptoStore,
         event_type: &str,
-        content: Value,
+        content: &Value,
+        room_id: Option<&ruma::RoomId>,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
-            let message = session.encrypt(self, event_type, content).await?;
+            let message = session.encrypt(self, event_type, content, room_id).await?;
 
             trace!(
                 user_id = ?self.user_id(),

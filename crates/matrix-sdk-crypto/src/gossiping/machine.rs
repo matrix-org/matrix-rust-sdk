@@ -497,7 +497,7 @@ impl GossipMachine {
     ) -> OlmResult<Session> {
         let event_type = content.event_type();
         let content = serde_json::to_value(content)?;
-        let (used_session, content) = device.encrypt(event_type, content).await?;
+        let (used_session, content) = device.encrypt(event_type, &content, None).await?;
 
         let request = ToDeviceRequest::new(
             device.user_id(),
