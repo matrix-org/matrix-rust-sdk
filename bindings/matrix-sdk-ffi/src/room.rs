@@ -488,7 +488,7 @@ impl Room {
         })
     }
 
-    /// Rejects invitation for the invited room.
+    /// Rejects the invitation for the invited room.
     ///
     /// Will throw an error if used on an room that isn't in an invited state
     pub fn reject_invitation(&self) -> Result<()> {
@@ -499,6 +499,21 @@ impl Room {
 
         RUNTIME.block_on(async move {
             room.reject_invitation().await?;
+            Ok(())
+        })
+    }
+
+    /// Accepts the invitation for the invited room.
+    ///
+    /// Will throw an error if used on an room that isn't in an invited state
+    pub fn accept_invitation(&self) -> Result<()> {
+        let room = match &self.room {
+            SdkRoom::Invited(i) => i.clone(),
+            _ => bail!("Can't accept an invite for a room that isn't in invited state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.accept_invitation().await?;
             Ok(())
         })
     }
