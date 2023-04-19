@@ -20,7 +20,7 @@ pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
     deserialized_responses, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember,
-    RoomState, Session, StateChanges, StoreError,
+    RoomMemberships, RoomState, Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;

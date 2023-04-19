@@ -4,6 +4,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::RoomMemberships;
 use matrix_sdk_common::instant::{Duration, Instant};
 use mime::{self, Mime};
 use ruma::{
@@ -385,11 +387,12 @@ impl Joined {
             let _guard = mutex.lock().await;
 
             {
-                let joined = self.client.store().get_joined_user_ids(self.inner.room_id()).await?;
-                let invited =
-                    self.client.store().get_invited_user_ids(self.inner.room_id()).await?;
-                let members = joined.iter().chain(&invited).map(Deref::deref);
-                self.client.claim_one_time_keys(members).await?;
+                let members = self
+                    .client
+                    .store()
+                    .get_user_ids(self.inner.room_id(), RoomMemberships::ACTIVE)
+                    .await?;
+                self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
             };
 
             let response = self.share_room_key().await;

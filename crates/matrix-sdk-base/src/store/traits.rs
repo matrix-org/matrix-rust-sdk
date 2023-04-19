@@ -153,11 +153,13 @@ pub trait StateStore: AsyncTraitDeps {
 
     /// Get all the user ids of members that are in the invited state for a
     /// given room, for stripped and regular rooms alike.
+    #[deprecated = "Use get_user_ids with RoomMemberships::INVITE instead."]
     async fn get_invited_user_ids(&self, room_id: &RoomId)
         -> Result<Vec<OwnedUserId>, Self::Error>;
 
     /// Get all the user ids of members that are in the joined state for a
     /// given room, for stripped and regular rooms alike.
+    #[deprecated = "Use get_user_ids with RoomMemberships::JOIN instead."]
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
@@ -408,11 +410,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<OwnedUserId>, Self::Error> {
-        self.0.get_invited_user_ids(room_id).await.map_err(Into::into)
+        self.0.get_user_ids(room_id, RoomMemberships::INVITE).await.map_err(Into::into)
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error> {
-        self.0.get_joined_user_ids(room_id).await.map_err(Into::into)
+        self.0.get_user_ids(room_id, RoomMemberships::JOIN).await.map_err(Into::into)
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {

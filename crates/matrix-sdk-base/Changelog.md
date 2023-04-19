@@ -8,6 +8,7 @@
   other state events in `state` and `stripped_state`.
 - `StateStore::get_user_ids` takes a `RoomMemberships` to be able to filter the results by any
   membership state.
+  - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are deprecated.
 
 ## 0.5.1
 
