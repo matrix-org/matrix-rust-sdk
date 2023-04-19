@@ -14,8 +14,12 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_base::crypto::{
-    types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity, UserIdentity as InnerUserIdentity,
+use matrix_sdk_base::{
+    crypto::{
+        types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
+        UserIdentity as InnerUserIdentity,
+    },
+    RoomMemberships,
 };
 use ruma::{
     events::{
@@ -465,7 +469,7 @@ impl OtherUserIdentity {
         let room = if let Some(room) = self.direct_message_room.read().await.as_ref() {
             // Make sure that the user, to be verified, is still in the room
             if !room
-                .active_members()
+                .members(RoomMemberships::ACTIVE)
                 .await?
                 .iter()
                 .any(|member| member.user_id() == self.inner.user_id())

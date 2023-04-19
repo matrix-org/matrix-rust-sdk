@@ -431,9 +431,10 @@ impl Common {
     ///
     /// Use [active_members_no_sync()](#method.active_members_no_sync) if you
     /// want a method that doesn't do any requests.
+    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
     pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.active_members_no_sync().await
+        self.members_no_sync(RoomMemberships::ACTIVE).await
     }
 
     /// Get active members for this room, includes invited, joined members.
@@ -444,8 +445,9 @@ impl Common {
     ///
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.
+    #[deprecated = "Use members_no_sync with RoomMemberships::ACTIVE instead"]
     pub async fn active_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        self.members_no_sync(MembershipFilter::ACTIVE).await
+        self.members_no_sync(RoomMemberships::ACTIVE).await
     }
 
     /// Get all the joined members of this room.
@@ -456,9 +458,10 @@ impl Common {
     ///
     /// Use [joined_members_no_sync()](#method.joined_members_no_sync) if you
     /// want a method that doesn't do any requests.
+    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
     pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.joined_members_no_sync().await
+        self.members_no_sync(RoomMemberships::JOIN).await
     }
 
     /// Get all the joined members of this room.
@@ -469,8 +472,9 @@ impl Common {
     ///
     /// Use [joined_members()](#method.joined_members) if you want to ensure to
     /// always get the full member list.
+    #[deprecated = "Use members_no_sync with RoomMemberships::JOIN instead"]
     pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        self.members_no_sync(MembershipFilter::JOIN).await
+        self.members_no_sync(RoomMemberships::JOIN).await
     }
 
     /// Get a specific member of this room.
@@ -787,7 +791,7 @@ impl Common {
         let this_room_id = self.inner.room_id();
 
         if is_direct {
-            let mut room_members = self.active_members().await?;
+            let mut room_members = self.members(RoomMemberships::ACTIVE).await?;
             room_members.retain(|member| member.user_id() != self.own_user_id());
 
             for member in room_members {
@@ -853,7 +857,7 @@ impl Common {
         // - Are blocked due to server ACLs
         // - Are IP addresses
         let members: Vec<_> = self
-            .joined_members_no_sync()
+            .members_no_sync(RoomMemberships::JOIN)
             .await?
             .into_iter()
             .filter(|member| {
