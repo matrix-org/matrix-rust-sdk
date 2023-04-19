@@ -340,12 +340,14 @@ impl Room {
 
     /// Get the list of `RoomMember`s that are considered to be joined members
     /// of this room.
+    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
         self.members(RoomMemberships::JOIN).await
     }
 
     /// Get the list of `RoomMember`s that are considered to be joined or
     /// invited members of this room.
+    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
     pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
         self.members(RoomMemberships::ACTIVE).await
     }
@@ -368,7 +370,12 @@ impl Room {
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
         let members: Vec<RoomMember> = if summary.heroes.is_empty() {
-            self.active_members().await?.into_iter().filter(|u| !is_own_member(u)).take(5).collect()
+            self.members(RoomMemberships::ACTIVE)
+                .await?
+                .into_iter()
+                .filter(|u| !is_own_member(u))
+                .take(5)
+                .collect()
         } else {
             let members: Vec<_> =
                 stream::iter(summary.heroes.iter().filter(|u| !is_own_user_id(u)))
