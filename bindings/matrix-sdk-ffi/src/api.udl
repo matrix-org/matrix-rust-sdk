@@ -10,6 +10,7 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
+    void did_receive_notification(string room_id, string event_id);
 };
 
 dictionary RequiredState {
