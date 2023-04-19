@@ -192,7 +192,7 @@ async fn echo() {
     let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = local_echo.as_event().unwrap();
-    assert_matches!(item.as_local().unwrap().send_state(), EventSendState::NotSentYet);
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
@@ -205,8 +205,8 @@ async fn echo() {
         timeline_stream.next().await,
         Some(VectorDiff::Set { index: 1, value }) => value
     );
-    let item = sent_confirmation.as_event().unwrap().as_local().unwrap();
-    assert_matches!(item.send_state(), EventSendState::Sent { .. });
+    let item = sent_confirmation.as_event().unwrap();
+    assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -243,7 +243,7 @@ async fn echo() {
         timeline_stream.next().await,
         Some(VectorDiff::PushBack { value }) => value
     );
-    let item = remote_echo.as_event().unwrap().as_remote().unwrap();
+    let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 }
@@ -807,7 +807,7 @@ async fn sync_highlighted() {
         timeline_stream.next().await,
         Some(VectorDiff::PushBack { value }) => value
     );
-    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
 
@@ -833,7 +833,7 @@ async fn sync_highlighted() {
         timeline_stream.next().await,
         Some(VectorDiff::PushBack { value }) => value
     );
-    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
 }
@@ -918,7 +918,7 @@ async fn back_pagination_highlighted() {
         timeline_stream.next().await,
         Some(VectorDiff::Insert { index: 2, value }) => value
     );
-    let remote_event = first.as_event().unwrap().as_remote().unwrap();
+    let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
 
@@ -926,7 +926,7 @@ async fn back_pagination_highlighted() {
         timeline_stream.next().await,
         Some(VectorDiff::Insert { index: 2, value }) => value
     );
-    let remote_event = second.as_event().unwrap().as_remote().unwrap();
+    let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
 

@@ -223,14 +223,14 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         assert_matches!(timeline_items[0].as_virtual(), Some(_));
 
         // Second timeline item.
-        let latest_remote_event = timeline_items[1].as_event().unwrap().as_remote().unwrap();
-        all_event_ids.push(latest_remote_event.event_id().to_owned());
+        let latest_remote_event = timeline_items[1].as_event().unwrap();
+        all_event_ids.push(latest_remote_event.event_id().unwrap().to_owned());
 
         // Test the room to see the last event.
         let latest_event = room.latest_event().await.unwrap();
         assert_eq!(
             latest_event.event_id(),
-            Some(latest_remote_event.event_id()),
+            latest_remote_event.event_id(),
             "Unexpected latest event"
         );
         assert_eq!(latest_event.content().as_message().unwrap().body(), "Message #19");

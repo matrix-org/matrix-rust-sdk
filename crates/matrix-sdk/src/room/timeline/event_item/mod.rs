@@ -14,10 +14,11 @@
 
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use once_cell::sync::Lazy;
 use ruma::{
-    events::{room::message::MessageType, AnySyncTimelineEvent},
+    events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedUserId, TransactionId,
     UserId,
@@ -29,15 +30,12 @@ mod content;
 mod local;
 mod remote;
 
-pub use self::{
-    content::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
-        MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
-        RoomMembershipChange, Sticker, TimelineItemContent,
-    },
-    local::LocalEventTimelineItem,
-    remote::RemoteEventTimelineItem,
+pub use self::content::{
+    AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
+    MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
+    RoomMembershipChange, Sticker, TimelineItemContent,
 };
+pub(super) use self::{local::LocalEventTimelineItem, remote::RemoteEventTimelineItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -74,8 +72,16 @@ impl EventTimelineItem {
         Self { sender, sender_profile, content, kind }
     }
 
+    /// Check whether this item is a local echo.
+    ///
+    /// This returns `true` for events created locally, until the server echoes
+    /// back the full event as part of a sync response.
+    pub fn is_local_echo(&self) -> bool {
+        matches!(self.kind, EventTimelineItemKind::Local(_))
+    }
+
     /// Get the `LocalEventTimelineItem` if `self` is `Local`.
-    pub fn as_local(&self) -> Option<&LocalEventTimelineItem> {
+    pub(super) fn as_local(&self) -> Option<&LocalEventTimelineItem> {
         match &self.kind {
             EventTimelineItemKind::Local(local_event_item) => Some(local_event_item),
             EventTimelineItemKind::Remote(_) => None,
@@ -83,7 +89,7 @@ impl EventTimelineItem {
     }
 
     /// Get the `RemoteEventTimelineItem` if `self` is `Remote`.
-    pub fn as_remote(&self) -> Option<&RemoteEventTimelineItem> {
+    pub(super) fn as_remote(&self) -> Option<&RemoteEventTimelineItem> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
             EventTimelineItemKind::Remote(remote_event_item) => Some(remote_event_item),
@@ -166,6 +172,20 @@ impl EventTimelineItem {
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_REACTIONS,
             EventTimelineItemKind::Remote(remote_event) => remote_event.reactions(),
+        }
+    }
+
+    /// Get the read receipts of this item.
+    ///
+    /// The key is the ID of a room member and the value are details about the
+    /// read receipt.
+    ///
+    /// Note that currently this ignores threads.
+    pub fn read_receipts(&self) -> &IndexMap<OwnedUserId, Receipt> {
+        static EMPTY_RECEIPTS: Lazy<IndexMap<OwnedUserId, Receipt>> = Lazy::new(Default::default);
+        match &self.kind {
+            EventTimelineItemKind::Local(_) => &EMPTY_RECEIPTS,
+            EventTimelineItemKind::Remote(remote_event) => remote_event.read_receipts(),
         }
     }
 
