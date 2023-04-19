@@ -5,7 +5,7 @@ use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{receipt::Receipt, AnySyncTimelineEvent},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    OwnedEventId, OwnedUserId, UserId,
 };
 
 use super::BundledReactions;
@@ -15,8 +15,6 @@ use super::BundledReactions;
 pub(in crate::room::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     pub event_id: OwnedEventId,
-    /// The timestamp of the event.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
     /// All bundled reactions about the event.
     pub reactions: BundledReactions,
     /// All read receipts for the event.
@@ -70,7 +68,6 @@ impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteEventTimelineItem")
             .field("event_id", &self.event_id)
-            .field("timestamp", &self.timestamp)
             .field("reactions", &self.reactions)
             .field("is_own", &self.is_own)
             .field("encryption_info", &self.encryption_info)

@@ -1,4 +1,4 @@
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId};
+use ruma::{EventId, OwnedTransactionId};
 
 use super::EventSendState;
 
@@ -10,8 +10,6 @@ pub(in crate::room::timeline) struct LocalEventTimelineItem {
     pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
-    /// The timestamp of the event.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
 impl LocalEventTimelineItem {

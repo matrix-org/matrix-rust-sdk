@@ -108,11 +108,12 @@ pub(super) fn maybe_add_implicit_read_receipt(
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) {
     let sender = event_item.sender().to_owned();
+    let timestamp = event_item.timestamp();
     let Some(remote_event_item) = event_item.as_remote_mut() else {
         return;
     };
 
-    let receipt = Receipt::new(remote_event_item.timestamp);
+    let receipt = Receipt::new(timestamp);
     let new_receipt = FullReceipt {
         event_id: &remote_event_item.event_id,
         user_id: &sender,
