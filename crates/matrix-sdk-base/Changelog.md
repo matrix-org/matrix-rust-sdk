@@ -10,7 +10,8 @@
   membership state.
   - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are deprecated.
 - `Room::members` takes a `RoomMemberships` to be able to filter the results by any membership
-  state. 
+  state.
+  - `Room::active_members` and `Room::joined_members` are deprecated.
 
 ## 0.5.1
 
