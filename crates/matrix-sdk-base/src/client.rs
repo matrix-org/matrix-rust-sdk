@@ -56,8 +56,6 @@ use ruma::{
 use tokio::sync::RwLock;
 use tracing::{debug, info, trace, warn};
 
-#[cfg(feature = "e2e-encryption")]
-use crate::error::Error;
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
@@ -69,6 +67,8 @@ use crate::{
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     Session, SessionMeta, SessionTokens,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::{error::Error, RoomMemberships};
 
 /// A no IO Client implementation.
 ///
@@ -757,12 +757,9 @@ impl BaseClient {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
                         // tracking.
-                        let joined = self.store.get_joined_user_ids(&room_id).await?;
-                        let invited = self.store.get_invited_user_ids(&room_id).await?;
-
-                        let user_ids: Vec<&UserId> =
-                            joined.iter().chain(&invited).map(Deref::deref).collect();
-                        o.update_tracked_users(user_ids).await?
+                        let user_ids =
+                            self.store.get_user_ids(&room_id, RoomMemberships::ACTIVE).await?;
+                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                     }
 
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
@@ -1058,21 +1055,20 @@ impl BaseClient {
                     .map(|r| (r.history_visibility(), r.encryption_settings()))
                     .unwrap_or((HistoryVisibility::Joined, None));
 
-                let joined = self.store.get_joined_user_ids(room_id).await?;
-                let invited = self.store.get_invited_user_ids(room_id).await?;
-
                 // Don't share the group session with members that are invited
                 // if the history visibility is set to `Joined`
-                let members = if history_visibility == HistoryVisibility::Joined {
-                    joined.iter().chain(&[])
+                let filter = if history_visibility == HistoryVisibility::Joined {
+                    RoomMemberships::JOIN
                 } else {
-                    joined.iter().chain(&invited)
+                    RoomMemberships::ACTIVE
                 };
+
+                let members = self.store.get_user_ids(room_id, filter).await?;
 
                 let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
-                Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
+                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

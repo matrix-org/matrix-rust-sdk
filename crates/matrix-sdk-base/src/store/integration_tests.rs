@@ -335,12 +335,12 @@ impl StateStoreIntegrationTests for DynStateStore {
             "Expected to find 2 members for room"
         );
         assert_eq!(
-            self.get_invited_user_ids(room_id).await?.len(),
+            self.get_user_ids(room_id, RoomMemberships::INVITE).await?.len(),
             1,
             "Expected to find 1 invited user ids"
         );
         assert_eq!(
-            self.get_joined_user_ids(room_id).await?.len(),
+            self.get_user_ids(room_id, RoomMemberships::JOIN).await?.len(),
             1,
             "Expected to find 1 joined user ids"
         );
@@ -818,10 +818,13 @@ impl StateStoreIntegrationTests for DynStateStore {
             "still user ids found"
         );
         assert!(
-            self.get_invited_user_ids(room_id).await?.is_empty(),
+            self.get_user_ids(room_id, RoomMemberships::INVITE).await?.is_empty(),
             "still invited user ids found"
         );
-        assert!(self.get_joined_user_ids(room_id).await?.is_empty(), "still joined users found");
+        assert!(
+            self.get_user_ids(room_id, RoomMemberships::JOIN).await?.is_empty(),
+            "still joined users found"
+        );
         assert!(
             self.get_users_with_display_name(room_id, "example").await?.is_empty(),
             "still display names found"

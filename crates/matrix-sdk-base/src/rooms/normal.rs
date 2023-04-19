@@ -318,7 +318,7 @@ impl Room {
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
     pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
-        self.store.get_joined_user_ids(self.room_id()).await
+        self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
     /// Get the all `RoomMember`s of this room that are known to the store.
@@ -340,7 +340,7 @@ impl Room {
     /// Get the list of `RoomMember`s that are considered to be joined members
     /// of this room.
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
+        let joined = self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await?;
         let mut members = Vec::new();
 
         for u in joined {
@@ -357,13 +357,12 @@ impl Room {
     /// Get the list of `RoomMember`s that are considered to be joined or
     /// invited members of this room.
     pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
-        let invited = self.store.get_invited_user_ids(self.room_id()).await?;
+        let active = self.store.get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
 
         let mut members = Vec::new();
 
-        for u in joined.iter().chain(&invited) {
-            let m = self.get_member(u).await?;
+        for u in active {
+            let m = self.get_member(&u).await?;
 
             if let Some(member) = m {
                 members.push(member);
