@@ -3,7 +3,7 @@ use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
-    StateChanges,
+    RoomMemberships, StateChanges,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -550,7 +550,7 @@ impl Common {
     pub async fn members_no_sync(&self) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
-            .members()
+            .members(RoomMemberships::empty())
             .await?
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
@@ -701,8 +701,6 @@ impl Common {
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
-        use matrix_sdk_base::RoomMemberships;
-
         let user_ids =
             self.client.store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
 
