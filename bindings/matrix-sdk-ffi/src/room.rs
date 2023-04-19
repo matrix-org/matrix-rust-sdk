@@ -19,6 +19,7 @@ use matrix_sdk::{
         },
         EventId, UserId,
     },
+    RoomMemberships,
 };
 use mime::Mime;
 use tracing::error;
@@ -168,7 +169,7 @@ impl Room {
         let room = self.room.clone();
         RUNTIME.block_on(async move {
             let members = room
-                .members()
+                .members(RoomMemberships::empty())
                 .await?
                 .iter()
                 .map(|m| Arc::new(RoomMember::new(m.clone())))

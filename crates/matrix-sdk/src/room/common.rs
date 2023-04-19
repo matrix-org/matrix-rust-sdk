@@ -524,8 +524,7 @@ impl Common {
             .map(|member| RoomMember::new(self.client.clone(), member)))
     }
 
-    /// Get all members for this room, includes invited, joined and left
-    /// members.
+    /// Get members for this room, with the given memberships.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
@@ -533,13 +532,12 @@ impl Common {
     ///
     /// Use [members_no_sync()](#method.members_no_sync) if you want a
     /// method that doesn't do any requests.
-    pub async fn members(&self) -> Result<Vec<RoomMember>> {
+    pub async fn members(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.members_no_sync().await
+        self.members_no_sync(memberships).await
     }
 
-    /// Get all members for this room, includes invited, joined and left
-    /// members.
+    /// Get members for this room, with the given memberships.
     ///
     /// *Note*: This method will not fetch the members from the homeserver if
     /// the member list isn't synchronized due to member lazy loading. Thus,
@@ -547,10 +545,10 @@ impl Common {
     ///
     /// Use [members()](#method.members) if you want to ensure to always get
     /// the full member list.
-    pub async fn members_no_sync(&self) -> Result<Vec<RoomMember>> {
+    pub async fn members_no_sync(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
-            .members(RoomMemberships::empty())
+            .members(memberships)
             .await?
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
