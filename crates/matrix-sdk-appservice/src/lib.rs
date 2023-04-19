@@ -550,7 +550,7 @@ mod tests {
     use matrix_sdk::{
         config::RequestConfig,
         ruma::{api::appservice::Registration, events::room::member::OriginalSyncRoomMemberEvent},
-        Client,
+        Client, RoomMemberships,
     };
     use matrix_sdk_test::{appservice::TransactionBuilder, async_test, TimelineTestEvent};
     use ruma::{
@@ -888,7 +888,7 @@ mod tests {
             .await?
             .get_room(room_id)
             .expect("Expected room to be available")
-            .members_no_sync()
+            .members_no_sync(RoomMemberships::empty())
             .await?;
 
         assert_eq!(members[0].display_name().unwrap(), "changed");
