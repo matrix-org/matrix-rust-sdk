@@ -582,6 +582,9 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         future_to_promise::<_, device::UserDevices>(async move {
+            // wait for up to a second for any in-flight device list requests to complete.
+            // The reason for this isn't so much to avoid races (some level of raciness is
+            // inevitable for this method) but to make testing easier.
             Ok(me.get_user_devices(&user_id, Some(Duration::from_secs(1))).await.map(Into::into)?)
         })
     }
