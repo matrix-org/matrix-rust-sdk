@@ -243,11 +243,11 @@ pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelin
 #[uniffi::export]
 impl EventTimelineItem {
     pub fn is_local(&self) -> bool {
-        self.0.as_local().is_some()
+        self.0.is_local_echo()
     }
 
     pub fn is_remote(&self) -> bool {
-        self.0.as_remote().is_some()
+        !self.0.is_local_echo()
     }
 
     pub fn unique_identifier(&self) -> String {

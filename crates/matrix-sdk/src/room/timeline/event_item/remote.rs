@@ -12,7 +12,7 @@ use super::BundledReactions;
 
 /// An item for an event that was received from the homeserver.
 #[derive(Clone)]
-pub struct RemoteEventTimelineItem {
+pub(in crate::room::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     event_id: OwnedEventId,
     /// The timestamp of the event.
@@ -43,7 +43,7 @@ pub struct RemoteEventTimelineItem {
 
 impl RemoteEventTimelineItem {
     #[allow(clippy::too_many_arguments)] // Would be nice to fix, but unclear how
-    pub(in crate::room::timeline) fn new(
+    pub fn new(
         event_id: OwnedEventId,
         timestamp: MilliSecondsSinceUnixEpoch,
         reactions: BundledReactions,
@@ -118,29 +118,25 @@ impl RemoteEventTimelineItem {
         self.is_highlighted
     }
 
-    pub(in crate::room::timeline) fn add_read_receipt(
-        &mut self,
-        user_id: OwnedUserId,
-        receipt: Receipt,
-    ) {
+    pub fn add_read_receipt(&mut self, user_id: OwnedUserId, receipt: Receipt) {
         self.read_receipts.insert(user_id, receipt);
     }
 
     /// Remove the read receipt for the given user.
     ///
     /// Returns `true` if there was one, `false` if not.
-    pub(in crate::room::timeline) fn remove_read_receipt(&mut self, user_id: &UserId) -> bool {
+    pub fn remove_read_receipt(&mut self, user_id: &UserId) -> bool {
         self.read_receipts.remove(user_id).is_some()
     }
 
     /// Clone the current event item, and update its `reactions`.
-    pub(in crate::room::timeline) fn with_reactions(&self, reactions: BundledReactions) -> Self {
+    pub fn with_reactions(&self, reactions: BundledReactions) -> Self {
         Self { reactions, ..self.clone() }
     }
 
     /// Clone the current event item, change its `content` to
     /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
-    pub(in crate::room::timeline) fn to_redacted(&self) -> Self {
+    pub fn to_redacted(&self) -> Self {
         Self { reactions: BundledReactions::default(), ..self.clone() }
     }
 

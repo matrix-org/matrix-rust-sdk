@@ -5,7 +5,7 @@ use super::EventSendState;
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
 #[derive(Debug, Clone)]
-pub struct LocalEventTimelineItem {
+pub(in crate::room::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
     send_state: EventSendState,
     /// The transaction ID.
@@ -15,7 +15,7 @@ pub struct LocalEventTimelineItem {
 }
 
 impl LocalEventTimelineItem {
-    pub(in crate::room::timeline) fn new(
+    pub fn new(
         send_state: EventSendState,
         transaction_id: OwnedTransactionId,
         timestamp: MilliSecondsSinceUnixEpoch,
@@ -50,7 +50,7 @@ impl LocalEventTimelineItem {
     }
 
     /// Clone the current event item, and update its `send_state`.
-    pub(in crate::room::timeline) fn with_send_state(&self, send_state: EventSendState) -> Self {
+    pub fn with_send_state(&self, send_state: EventSendState) -> Self {
         Self { send_state, ..self.clone() }
     }
 }
