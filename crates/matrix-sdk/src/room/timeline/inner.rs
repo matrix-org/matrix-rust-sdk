@@ -202,6 +202,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let event_meta = TimelineEventMetadata {
             sender,
             sender_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
             is_own_event: true,
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
@@ -210,7 +211,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             is_highlighted: false,
         };
 
-        let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
+        let flow = Flow::Local { txn_id };
         let kind = TimelineEventKind::Message { content, relations: Default::default() };
 
         let mut state = self.state.lock().await;
@@ -788,7 +789,7 @@ async fn handle_remote_event<P: RoomDataProvider>(
     room_data_provider: &P,
     track_read_receipts: bool,
 ) -> HandleEventResult {
-    let (event_id, sender, origin_server_ts, txn_id, event_kind) = match raw.deserialize() {
+    let (event_id, sender, timestamp, txn_id, event_kind) = match raw.deserialize() {
         Ok(event) => (
             event.event_id().to_owned(),
             event.sender().to_owned(),
@@ -824,12 +825,13 @@ async fn handle_remote_event<P: RoomDataProvider>(
     let event_meta = TimelineEventMetadata {
         sender,
         sender_profile,
+        timestamp,
         is_own_event,
         encryption_info,
         read_receipts,
         is_highlighted,
     };
-    let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
+    let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position };
 
     TimelineEventHandler::new(event_meta, flow, timeline_state, track_read_receipts)
         .handle_event(event_kind)

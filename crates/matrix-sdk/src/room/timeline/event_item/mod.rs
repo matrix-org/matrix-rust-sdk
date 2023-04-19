@@ -48,6 +48,8 @@ pub struct EventTimelineItem {
     sender: OwnedUserId,
     /// The sender's profile of the event.
     sender_profile: TimelineDetails<Profile>,
+    /// The timestamp of the event.
+    timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
     content: TimelineItemContent,
     /// The kind of event timeline item, local or remote.
@@ -66,10 +68,11 @@ impl EventTimelineItem {
     pub(super) fn new(
         sender: OwnedUserId,
         sender_profile: TimelineDetails<Profile>,
+        timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
     ) -> Self {
-        Self { sender, sender_profile, content, kind }
+        Self { sender, sender_profile, timestamp, content, kind }
     }
 
     /// Check whether this item is a local echo.
@@ -195,10 +198,7 @@ impl EventTimelineItem {
     /// time the local event was created. Otherwise, returns the origin
     /// server timestamp.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
-        match &self.kind {
-            EventTimelineItemKind::Local(local_event) => local_event.timestamp,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.timestamp,
-        }
+        self.timestamp
     }
 
     /// Whether this timeline item was sent by the logged-in user themselves.

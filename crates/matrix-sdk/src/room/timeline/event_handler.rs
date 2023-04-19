@@ -58,12 +58,10 @@ use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipC
 pub(super) enum Flow {
     Local {
         txn_id: OwnedTransactionId,
-        timestamp: MilliSecondsSinceUnixEpoch,
     },
     Remote {
         event_id: OwnedEventId,
         txn_id: Option<OwnedTransactionId>,
-        origin_server_ts: MilliSecondsSinceUnixEpoch,
         raw_event: Raw<AnySyncTimelineEvent>,
         position: TimelineItemPosition,
     },
@@ -72,6 +70,7 @@ pub(super) enum Flow {
 pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
+    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) is_own_event: bool,
     pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
@@ -549,17 +548,17 @@ impl<'a> TimelineEventHandler<'a> {
         let NewEventTimelineItem { content } = item;
         let sender = self.meta.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
+        let timestamp = self.meta.timestamp;
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.flow {
-            Flow::Local { txn_id, timestamp } => {
+            Flow::Local { txn_id } => {
                 let send_state = EventSendState::NotSentYet;
                 let transaction_id = txn_id.to_owned();
-                let timestamp = *timestamp;
-                LocalEventTimelineItem { send_state, transaction_id, timestamp }
+                LocalEventTimelineItem { send_state, transaction_id }
             }
             .into(),
-            Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
+            Flow::Remote { event_id, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
                     if !reactions.is_empty() {
@@ -569,7 +568,6 @@ impl<'a> TimelineEventHandler<'a> {
 
                 RemoteEventTimelineItem {
                     event_id: event_id.clone(),
-                    timestamp: *origin_server_ts,
                     reactions,
                     read_receipts: self.meta.read_receipts.clone(),
                     is_own: self.meta.is_own_event,
@@ -582,10 +580,10 @@ impl<'a> TimelineEventHandler<'a> {
             }
         };
 
-        let mut item = EventTimelineItem::new(sender, sender_profile, content, kind);
+        let mut item = EventTimelineItem::new(sender, sender_profile, timestamp, content, kind);
 
         match &self.flow {
-            Flow::Local { timestamp, .. } => {
+            Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
                 // Check if the latest event has the same date as this event.
@@ -594,7 +592,7 @@ impl<'a> TimelineEventHandler<'a> {
                     let old_ts = latest_event.timestamp();
 
                     if let Some(day_divider_item) =
-                        maybe_create_day_divider_from_timestamps(old_ts, *timestamp)
+                        maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
                         trace!("Adding day divider");
                         self.items.push_back(Arc::new(day_divider_item));
@@ -602,18 +600,13 @@ impl<'a> TimelineEventHandler<'a> {
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider");
-                    self.items.push_back(Arc::new(TimelineItem::day_divider(*timestamp)));
+                    self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
                 self.items.push_back(Arc::new(item.into()));
             }
 
-            Flow::Remote {
-                position: TimelineItemPosition::Start,
-                event_id,
-                origin_server_ts,
-                ..
-            } => {
+            Flow::Remote { position: TimelineItemPosition::Start, event_id, .. } => {
                 if self
                     .items
                     .iter()
@@ -640,14 +633,13 @@ impl<'a> TimelineEventHandler<'a> {
                     self.items.get(offset).and_then(|item| item.as_virtual())
                 {
                     if let Some(day_divider_item) =
-                        maybe_create_day_divider_from_timestamps(*divider_ts, *origin_server_ts)
+                        maybe_create_day_divider_from_timestamps(*divider_ts, timestamp)
                     {
                         self.items.insert(offset, Arc::new(day_divider_item));
                     }
                 } else {
                     // The list must always start with a day divider.
-                    self.items
-                        .insert(offset, Arc::new(TimelineItem::day_divider(*origin_server_ts)));
+                    self.items.insert(offset, Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
                 if self.track_read_receipts {
@@ -663,13 +655,7 @@ impl<'a> TimelineEventHandler<'a> {
                 self.items.insert(offset + 1, Arc::new(item.into()));
             }
 
-            Flow::Remote {
-                position: TimelineItemPosition::End,
-                txn_id,
-                event_id,
-                origin_server_ts,
-                ..
-            } => {
+            Flow::Remote { position: TimelineItemPosition::End, txn_id, event_id, .. } => {
                 let result = rfind_event_item(self.items, |it| {
                     txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
                         || it.event_id() == Some(event_id)
@@ -696,8 +682,7 @@ impl<'a> TimelineEventHandler<'a> {
                     //       old and new item?
 
                     if idx == self.items.len() - 1
-                        && timestamp_to_date(old_item.timestamp())
-                            == timestamp_to_date(*origin_server_ts)
+                        && timestamp_to_date(old_item.timestamp()) == timestamp_to_date(timestamp)
                     {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
@@ -758,7 +743,7 @@ impl<'a> TimelineEventHandler<'a> {
                     let old_ts = latest_event.timestamp();
 
                     if let Some(day_divider_item) =
-                        maybe_create_day_divider_from_timestamps(old_ts, *origin_server_ts)
+                        maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
                         trace!("Adding day divider");
                         self.items.push_back(Arc::new(day_divider_item));
@@ -766,7 +751,7 @@ impl<'a> TimelineEventHandler<'a> {
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider");
-                    self.items.push_back(Arc::new(TimelineItem::day_divider(*origin_server_ts)));
+                    self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
                 if self.track_read_receipts {
