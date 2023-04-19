@@ -16,7 +16,6 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 use std::{
-    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
@@ -323,42 +322,40 @@ impl BaseClient {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
-                        AnySyncTimelineEvent::State(s) => match s {
-                            AnySyncStateEvent::RoomMember(member) => {
-                                ambiguity_cache.handle_event(changes, room_id, member).await?;
+                        AnySyncTimelineEvent::State(s) => {
+                            match s {
+                                AnySyncStateEvent::RoomMember(member) => {
+                                    ambiguity_cache.handle_event(changes, room_id, member).await?;
 
-                                match member.membership() {
-                                    MembershipState::Join | MembershipState::Invite => {
-                                        user_ids.insert(member.state_key().to_owned());
+                                    match member.membership() {
+                                        MembershipState::Join | MembershipState::Invite => {
+                                            user_ids.insert(member.state_key().to_owned());
+                                        }
+                                        _ => {
+                                            user_ids.remove(member.state_key());
+                                        }
                                     }
-                                    _ => {
-                                        user_ids.remove(member.state_key());
+
+                                    // Senders can fake the profile easily so we keep track
+                                    // of profiles that the member set themselves to avoid
+                                    // having confusing profile changes when a member gets
+                                    // kicked/banned.
+                                    if member.state_key() == member.sender() {
+                                        changes
+                                            .profiles
+                                            .entry(room_id.to_owned())
+                                            .or_default()
+                                            .insert(member.sender().to_owned(), member.into());
                                     }
                                 }
-
-                                // Senders can fake the profile easily so we keep track
-                                // of profiles that the member set themselves to avoid
-                                // having confusing profile changes when a member gets
-                                // kicked/banned.
-                                if member.state_key() == member.sender() {
-                                    changes
-                                        .profiles
-                                        .entry(room_id.to_owned())
-                                        .or_default()
-                                        .insert(member.sender().to_owned(), member.into());
+                                _ => {
+                                    room_info.handle_state_event(s);
                                 }
+                            }
 
-                                changes.members.entry(room_id.to_owned()).or_default().insert(
-                                    member.state_key().to_owned(),
-                                    event.event.clone().cast(),
-                                );
-                            }
-                            _ => {
-                                room_info.handle_state_event(s);
-                                let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
-                                changes.add_state_event(room_id, s.clone(), raw_event);
-                            }
-                        },
+                            let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
+                            changes.add_state_event(room_id, s.clone(), raw_event);
+                        }
 
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncTimelineEvent::MessageLike(
@@ -447,14 +444,10 @@ impl BaseClient {
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
     ) {
-        let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
 
         for raw_event in events {
             match raw_event.deserialize() {
-                Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                    members.insert(member.state_key.clone(), raw_event.clone().cast());
-                }
                 Ok(e) => {
                     room_info.handle_stripped_state_event(&e);
                     state_events
@@ -471,7 +464,6 @@ impl BaseClient {
             }
         }
 
-        changes.stripped_members.insert(room_info.room_id().to_owned(), members);
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
@@ -482,7 +474,6 @@ impl BaseClient {
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
@@ -500,8 +491,8 @@ impl BaseClient {
 
             room_info.handle_state_event(&event);
 
-            if let AnySyncStateEvent::RoomMember(member) = event {
-                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
+            if let AnySyncStateEvent::RoomMember(member) = &event {
+                ambiguity_cache.handle_event(changes, &room_id, member).await?;
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
@@ -515,19 +506,16 @@ impl BaseClient {
                 // having confusing profile changes when a member gets
                 // kicked/banned.
                 if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), member.borrow().into());
+                    profiles.insert(member.sender().to_owned(), member.into());
                 }
-
-                members.insert(member.state_key().to_owned(), raw_event.clone().cast());
-            } else {
-                state_events
-                    .entry(event.event_type())
-                    .or_insert_with(BTreeMap::new)
-                    .insert(event.state_key().to_owned(), raw_event.clone());
             }
+
+            state_events
+                .entry(event.event_type())
+                .or_insert_with(BTreeMap::new)
+                .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        changes.members.insert((*room_id).to_owned(), members);
         changes.profiles.insert((*room_id).to_owned(), profiles);
         changes.state.insert((*room_id).to_owned(), state_events);
 
@@ -980,10 +968,12 @@ impl BaseClient {
                 }
 
                 changes
-                    .members
+                    .state
                     .entry(room_id.to_owned())
                     .or_default()
-                    .insert(member.state_key().to_owned(), raw_event.clone().cast());
+                    .entry(member.event_type())
+                    .or_default()
+                    .insert(member.state_key().to_string(), raw_event.clone().cast());
                 chunk.push(member);
             }
 
@@ -1148,10 +1138,11 @@ impl BaseClient {
         let member_count = room_info.active_members_count();
 
         // TODO: Use if let chain once stable
-        let user_display_name = if let Some(Ok(member)) = changes
-            .members
+        let user_display_name = if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
+            .state
             .get(room_id)
-            .and_then(|members| members.get(user_id))
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|members| members.get(user_id.as_str()))
             .map(Raw::deserialize)
         {
             member
@@ -1208,10 +1199,11 @@ impl BaseClient {
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
         // TODO: Use if let chain once stable
-        if let Some(Ok(member)) = changes
-            .members
+        if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
+            .state
             .get(room_id)
-            .and_then(|members| members.get(user_id))
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|members| members.get(user_id.as_str()))
             .map(Raw::deserialize)
         {
             push_rules.user_display_name = member

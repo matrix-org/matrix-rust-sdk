@@ -51,7 +51,7 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<SyncRoomMemberEvent>>>>,
+    members: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
     joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
@@ -65,7 +65,7 @@ pub struct MemoryStore {
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, Raw<StrippedRoomMemberEvent>>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
@@ -187,62 +187,6 @@ impl MemoryStore {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
         }
 
-        for (room, raw_events) in &changes.members {
-            for raw_event in raw_events.values() {
-                let event = match raw_event.deserialize() {
-                    Ok(ev) => ev,
-                    Err(e) => {
-                        let event_id: Option<String> =
-                            raw_event.get_field("event_id").ok().flatten();
-                        debug!(event_id, "Failed to deserialize member event: {e}");
-                        continue;
-                    }
-                };
-
-                self.stripped_joined_user_ids.remove(room);
-                self.stripped_invited_user_ids.remove(room);
-
-                match event.membership() {
-                    MembershipState::Join => {
-                        self.joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .insert(event.state_key().to_owned());
-                        self.invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(event.state_key());
-                    }
-                    MembershipState::Invite => {
-                        self.invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .insert(event.state_key().to_owned());
-                        self.joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(event.state_key());
-                    }
-                    _ => {
-                        self.joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(event.state_key());
-                        self.invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(event.state_key());
-                    }
-                }
-
-                self.members
-                    .entry(room.clone())
-                    .or_default()
-                    .insert(event.state_key().to_owned(), raw_event.clone());
-                self.stripped_members.remove(room);
-            }
-        }
-
         for (room, users) in &changes.profiles {
             for (user_id, profile) in users {
                 self.profiles
@@ -276,14 +220,68 @@ impl MemoryStore {
 
         for (room, event_types) in &changes.state {
             for (event_type, events) in event_types {
-                for (state_key, event) in events {
+                for (state_key, raw_event) in events {
                     self.room_state
                         .entry(room.clone())
                         .or_default()
                         .entry(event_type.clone())
                         .or_default()
-                        .insert(state_key.to_owned(), event.clone());
+                        .insert(state_key.to_owned(), raw_event.clone());
                     self.stripped_room_state.remove(room);
+
+                    if *event_type == StateEventType::RoomMember {
+                        let event = match raw_event.deserialize_as::<SyncRoomMemberEvent>() {
+                            Ok(ev) => ev,
+                            Err(e) => {
+                                let event_id: Option<String> =
+                                    raw_event.get_field("event_id").ok().flatten();
+                                debug!(event_id, "Failed to deserialize member event: {e}");
+                                continue;
+                            }
+                        };
+
+                        self.stripped_joined_user_ids.remove(room);
+                        self.stripped_invited_user_ids.remove(room);
+
+                        match event.membership() {
+                            MembershipState::Join => {
+                                self.joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .insert(event.state_key().to_owned());
+                                self.invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(event.state_key());
+                            }
+                            MembershipState::Invite => {
+                                self.invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .insert(event.state_key().to_owned());
+                                self.joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(event.state_key());
+                            }
+                            _ => {
+                                self.joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(event.state_key());
+                                self.invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(event.state_key());
+                            }
+                        }
+
+                        self.members
+                            .entry(room.clone())
+                            .or_default()
+                            .insert(event.state_key().to_owned());
+                        self.stripped_members.remove(room);
+                    }
                 }
             }
         }
@@ -302,67 +300,68 @@ impl MemoryStore {
             self.room_info.remove(room_id);
         }
 
-        for (room, raw_events) in &changes.stripped_members {
-            for raw_event in raw_events.values() {
-                let event = match raw_event.deserialize() {
-                    Ok(ev) => ev,
-                    Err(e) => {
-                        let event_id: Option<String> =
-                            raw_event.get_field("event_id").ok().flatten();
-                        debug!(event_id, "Failed to deserialize stripped member event: {e}");
-                        continue;
-                    }
-                };
-
-                match event.content.membership {
-                    MembershipState::Join => {
-                        self.stripped_joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .insert(event.state_key.clone());
-                        self.stripped_invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(&event.state_key);
-                    }
-                    MembershipState::Invite => {
-                        self.stripped_invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .insert(event.state_key.clone());
-                        self.stripped_joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(&event.state_key);
-                    }
-                    _ => {
-                        self.stripped_joined_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(&event.state_key);
-                        self.stripped_invited_user_ids
-                            .entry(room.clone())
-                            .or_default()
-                            .remove(&event.state_key);
-                    }
-                }
-
-                self.stripped_members
-                    .entry(room.clone())
-                    .or_default()
-                    .insert(event.state_key.clone(), raw_event.clone());
-            }
-        }
-
         for (room, event_types) in &changes.stripped_state {
             for (event_type, events) in event_types {
-                for (state_key, event) in events {
+                for (state_key, raw_event) in events {
                     self.stripped_room_state
                         .entry(room.clone())
                         .or_default()
                         .entry(event_type.clone())
                         .or_default()
-                        .insert(state_key.to_owned(), event.clone());
+                        .insert(state_key.to_owned(), raw_event.clone());
+
+                    if *event_type == StateEventType::RoomMember {
+                        let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>() {
+                            Ok(ev) => ev,
+                            Err(e) => {
+                                let event_id: Option<String> =
+                                    raw_event.get_field("event_id").ok().flatten();
+                                debug!(
+                                    event_id,
+                                    "Failed to deserialize stripped member event: {e}"
+                                );
+                                continue;
+                            }
+                        };
+
+                        match event.content.membership {
+                            MembershipState::Join => {
+                                self.stripped_joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .insert(event.state_key.clone());
+                                self.stripped_invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(&event.state_key);
+                            }
+                            MembershipState::Invite => {
+                                self.stripped_invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .insert(event.state_key.clone());
+                                self.stripped_joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(&event.state_key);
+                            }
+                            _ => {
+                                self.stripped_joined_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(&event.state_key);
+                                self.stripped_invited_user_ids
+                                    .entry(room.clone())
+                                    .or_default()
+                                    .remove(&event.state_key);
+                            }
+                        }
+
+                        self.stripped_members
+                            .entry(room.clone())
+                            .or_default()
+                            .insert(event.state_key.clone());
+                    }
                 }
             }
         }
@@ -487,12 +486,20 @@ impl MemoryStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<RawMemberEvent>> {
-        if let Some(e) =
-            self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        if let Some(e) = self
+            .stripped_room_state
+            .get(room_id)
+            .as_ref()
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|m| m.get(state_key.as_str()).map(|m| m.clone().cast()))
         {
             Ok(Some(RawMemberEvent::Stripped(e)))
-        } else if let Some(e) =
-            self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        } else if let Some(e) = self
+            .room_state
+            .get(room_id)
+            .as_ref()
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|m| m.get(state_key.as_str()).map(|m| m.clone().cast()))
         {
             Ok(Some(RawMemberEvent::Sync(e)))
         } else {
