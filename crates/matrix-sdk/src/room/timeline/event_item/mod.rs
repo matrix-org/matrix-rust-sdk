@@ -45,15 +45,15 @@ pub(super) use self::{local::LocalEventTimelineItem, remote::RemoteEventTimeline
 #[derive(Clone, Debug)]
 pub struct EventTimelineItem {
     /// The sender of the event.
-    sender: OwnedUserId,
+    pub(super) sender: OwnedUserId,
     /// The sender's profile of the event.
-    sender_profile: TimelineDetails<Profile>,
+    pub(super) sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
-    timestamp: MilliSecondsSinceUnixEpoch,
+    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
-    content: TimelineItemContent,
+    pub(super) content: TimelineItemContent,
     /// The kind of event timeline item, local or remote.
-    kind: EventTimelineItemKind,
+    pub(super) kind: EventTimelineItemKind,
 }
 
 #[derive(Clone, Debug)]

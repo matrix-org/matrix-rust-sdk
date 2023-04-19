@@ -24,6 +24,7 @@ use tracing::{error, warn};
 
 use super::{
     compare_events_positions,
+    event_item::EventTimelineItemKind,
     inner::{RoomDataProvider, TimelineInnerState},
     rfind_event_by_id, EventTimelineItem, RelativePosition, TimelineItem,
 };
@@ -107,16 +108,14 @@ pub(super) fn maybe_add_implicit_read_receipt(
     timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) {
-    let sender = event_item.sender().to_owned();
-    let timestamp = event_item.timestamp();
-    let Some(remote_event_item) = event_item.as_remote_mut() else {
+    let EventTimelineItemKind::Remote(remote_event_item) = &mut event_item.kind else {
         return;
     };
 
-    let receipt = Receipt::new(timestamp);
+    let receipt = Receipt::new(event_item.timestamp);
     let new_receipt = FullReceipt {
         event_id: &remote_event_item.event_id,
-        user_id: &sender,
+        user_id: &event_item.sender,
         receipt_type: ReceiptType::Read,
         receipt: &receipt,
     };
@@ -129,7 +128,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
         users_read_receipts,
     );
     if read_receipt_updated && !is_own_event {
-        remote_event_item.add_read_receipt(sender, receipt);
+        remote_event_item.add_read_receipt(event_item.sender.clone(), receipt);
     }
 }
 
