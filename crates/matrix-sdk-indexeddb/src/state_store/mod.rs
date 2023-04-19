@@ -312,9 +312,6 @@ impl IndexeddbStateStore {
 
     /// Get user IDs for the given room with the given memberships and stripped
     /// state.
-    ///
-    /// If `memberships` is empty, returns all user IDs in the room with the
-    /// given stripped state.
     pub async fn get_user_ids_inner(
         &self,
         room_id: &RoomId,
@@ -362,17 +359,6 @@ impl IndexeddbStateStore {
         };
 
         Ok(user_ids)
-    }
-
-    pub async fn get_stripped_invited_user_ids(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids_inner(room_id, RoomMemberships::INVITE, true).await
-    }
-
-    pub async fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids_inner(room_id, RoomMemberships::JOIN, true).await
     }
 
     async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
@@ -1146,28 +1132,20 @@ impl_state_store! {
         tx.await.into_result().map_err(|e| e.into())
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids = self.get_user_ids_inner(room_id, RoomMemberships::empty(), true).await?;
+    async fn get_user_ids(&self, room_id: &RoomId, memberships: RoomMemberships) -> Result<Vec<OwnedUserId>> {
+        let ids = self.get_user_ids_inner(room_id, memberships, true).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_user_ids_inner(room_id, RoomMemberships::empty(), false).await
+        self.get_user_ids_inner(room_id, memberships, false).await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_stripped_invited_user_ids(room_id).await?;
-        if !ids.is_empty() {
-            return Ok(ids);
-        }
-        self.get_user_ids_inner(room_id, RoomMemberships::INVITE, false).await
+        self.get_user_ids(room_id, RoomMemberships::INVITE).await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_stripped_joined_user_ids(room_id).await?;
-        if !ids.is_empty() {
-            return Ok(ids);
-        }
-        self.get_user_ids_inner(room_id, RoomMemberships::JOIN, false).await
+        self.get_user_ids(room_id, RoomMemberships::JOIN).await
     }
 }
 

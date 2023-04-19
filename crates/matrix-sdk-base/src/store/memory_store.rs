@@ -456,30 +456,6 @@ impl MemoryStore {
             .unwrap_or_default()
     }
 
-    fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        let v = self.get_user_ids_inner(room_id, RoomMemberships::empty(), true);
-        if !v.is_empty() {
-            return v;
-        }
-        self.get_user_ids_inner(room_id, RoomMemberships::empty(), false)
-    }
-
-    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.get_user_ids_inner(room_id, RoomMemberships::INVITE, false)
-    }
-
-    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.get_user_ids_inner(room_id, RoomMemberships::JOIN, false)
-    }
-
-    fn get_stripped_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.get_user_ids_inner(room_id, RoomMemberships::INVITE, true)
-    }
-
-    fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.get_user_ids_inner(room_id, RoomMemberships::JOIN, true)
-    }
-
     fn get_room_infos(&self) -> Vec<RoomInfo> {
         self.room_info.iter().map(|r| r.clone()).collect()
     }
@@ -643,24 +619,24 @@ impl StateStore for MemoryStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok(self.get_user_ids(room_id))
+    async fn get_user_ids(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>> {
+        let v = self.get_user_ids_inner(room_id, memberships, true);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_user_ids_inner(room_id, memberships, false))
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let v = self.get_stripped_invited_user_ids(room_id);
-        if !v.is_empty() {
-            return Ok(v);
-        }
-        Ok(self.get_invited_user_ids(room_id))
+        StateStore::get_user_ids(self, room_id, RoomMemberships::INVITE).await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let v = self.get_stripped_joined_user_ids(room_id);
-        if !v.is_empty() {
-            return Ok(v);
-        }
-        Ok(self.get_joined_user_ids(room_id))
+        StateStore::get_user_ids(self, room_id, RoomMemberships::JOIN).await
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {

@@ -33,6 +33,7 @@ use ruma::{
 use super::{StateChanges, StoreError};
 use crate::{
     deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent, RoomInfo,
+    RoomMemberships,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -142,9 +143,13 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &UserId,
     ) -> Result<Option<RawMemberEvent>, Self::Error>;
 
-    /// Get all the user ids of members for a given room, for stripped and
-    /// regular rooms alike.
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error>;
+    /// Get the user ids of members for a given room with the given memberships,
+    /// for stripped and regular rooms alike.
+    async fn get_user_ids(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>, Self::Error>;
 
     /// Get all the user ids of members that are in the invited state for a
     /// given room, for stripped and regular rooms alike.
@@ -391,8 +396,12 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_member_event(room_id, state_key).await.map_err(Into::into)
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error> {
-        self.0.get_user_ids(room_id).await.map_err(Into::into)
+    async fn get_user_ids(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>, Self::Error> {
+        self.0.get_user_ids(room_id, memberships).await.map_err(Into::into)
     }
 
     async fn get_invited_user_ids(
