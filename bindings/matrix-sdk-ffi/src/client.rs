@@ -549,7 +549,11 @@ impl Client {
         })
     }
 
-    pub fn register_notification_handler(&self) -> Result<(), ClientError> {
+    /// Registers a notification handler on the delegate if required
+    /// the sliding sync requires to have registered m.room.member and
+    /// m.room.power_levels to be able to intercept the events.
+    /// This function blocks execution and should be dispatched concurrently
+    pub fn register_notification_handler(&self) {
         let delegate = Arc::clone(&self.delegate);
         RUNTIME.block_on(async move {
             self.client
@@ -570,7 +574,6 @@ impl Client {
                     }
                 })
                 .await;
-            Ok(())
         })
     }
 }
