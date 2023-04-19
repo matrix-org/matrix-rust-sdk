@@ -108,18 +108,18 @@ impl EventTimelineItem {
     /// case of a remote event.
     pub fn unique_identifier(&self) -> String {
         match &self.kind {
-            EventTimelineItemKind::Local(item) => match item.send_state() {
+            EventTimelineItemKind::Local(item) => match &item.send_state {
                 EventSendState::Sent { event_id } => event_id.to_string(),
-                _ => item.transaction_id().to_string(),
+                _ => item.transaction_id.to_string(),
             },
-            EventTimelineItemKind::Remote(item) => item.event_id().to_string(),
+            EventTimelineItemKind::Remote(item) => item.event_id.to_string(),
         }
     }
 
     /// Get the event's send state, if it is a local echo.
     pub fn send_state(&self) -> Option<&EventSendState> {
         match &self.kind {
-            EventTimelineItemKind::Local(local) => Some(local.send_state()),
+            EventTimelineItemKind::Local(local) => Some(&local.send_state),
             EventTimelineItemKind::Remote(_) => None,
         }
     }
@@ -130,7 +130,7 @@ impl EventTimelineItem {
     /// local event is received.
     pub fn transaction_id(&self) -> Option<&TransactionId> {
         match &self.kind {
-            EventTimelineItemKind::Local(local) => Some(local.transaction_id()),
+            EventTimelineItemKind::Local(local) => Some(&local.transaction_id),
             EventTimelineItemKind::Remote(_) => None,
         }
     }
@@ -146,7 +146,7 @@ impl EventTimelineItem {
     pub fn event_id(&self) -> Option<&EventId> {
         match &self.kind {
             EventTimelineItemKind::Local(local_event) => local_event.event_id(),
-            EventTimelineItemKind::Remote(remote_event) => Some(remote_event.event_id()),
+            EventTimelineItemKind::Remote(remote_event) => Some(&remote_event.event_id),
         }
     }
 
@@ -171,7 +171,7 @@ impl EventTimelineItem {
         static EMPTY_REACTIONS: Lazy<BundledReactions> = Lazy::new(Default::default);
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_REACTIONS,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.reactions(),
+            EventTimelineItemKind::Remote(remote_event) => &remote_event.reactions,
         }
     }
 
@@ -185,7 +185,7 @@ impl EventTimelineItem {
         static EMPTY_RECEIPTS: Lazy<IndexMap<OwnedUserId, Receipt>> = Lazy::new(Default::default);
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_RECEIPTS,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.read_receipts(),
+            EventTimelineItemKind::Remote(remote_event) => &remote_event.read_receipts,
         }
     }
 
@@ -196,8 +196,8 @@ impl EventTimelineItem {
     /// server timestamp.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         match &self.kind {
-            EventTimelineItemKind::Local(local_event) => local_event.timestamp(),
-            EventTimelineItemKind::Remote(remote_event) => remote_event.timestamp(),
+            EventTimelineItemKind::Local(local_event) => local_event.timestamp,
+            EventTimelineItemKind::Remote(remote_event) => remote_event.timestamp,
         }
     }
 
@@ -205,7 +205,7 @@ impl EventTimelineItem {
     pub fn is_own(&self) -> bool {
         match &self.kind {
             EventTimelineItemKind::Local(_) => true,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.is_own(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.is_own,
         }
     }
 
@@ -224,7 +224,7 @@ impl EventTimelineItem {
     pub fn is_highlighted(&self) -> bool {
         match &self.kind {
             EventTimelineItemKind::Local(_) => false,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.is_highlighted(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.is_highlighted,
         }
     }
 
@@ -232,7 +232,7 @@ impl EventTimelineItem {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_ref(),
         }
     }
 
@@ -244,7 +244,7 @@ impl EventTimelineItem {
     pub fn original_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
             EventTimelineItemKind::Local(_local_event) => None,
-            EventTimelineItemKind::Remote(remote_event) => Some(remote_event.original_json()),
+            EventTimelineItemKind::Remote(remote_event) => Some(&remote_event.original_json),
         }
     }
 
@@ -252,7 +252,7 @@ impl EventTimelineItem {
     pub fn latest_edit_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
             EventTimelineItemKind::Local(_local_event) => None,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.latest_edit_json(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.latest_edit_json.as_ref(),
         }
     }
 
@@ -274,7 +274,7 @@ impl EventTimelineItem {
         let mut new = self.clone();
         new.content = new_content;
         if let EventTimelineItemKind::Remote(r) = &mut new.kind {
-            r.set_edit_json(edit_json);
+            r.latest_edit_json = edit_json;
         }
 
         new

@@ -37,13 +37,13 @@ async fn read_receipts_updates() {
     // No read receipt for our own user.
     let item_a =
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_a = item_a.as_event().unwrap().as_remote().unwrap();
+    let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
     // Implicit read receipt of Bob.
     let item_b =
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_b = item_b.as_event().unwrap().as_remote().unwrap();
+    let event_b = item_b.as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*BOB).is_some());
 
@@ -52,12 +52,12 @@ async fn read_receipts_updates() {
 
     let item_a =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
-    let event_a = item_a.as_event().unwrap().as_remote().unwrap();
+    let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
     let item_c =
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_c = item_c.as_event().unwrap().as_remote().unwrap();
+    let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
     assert!(event_c.read_receipts().get(*BOB).is_some());
 
@@ -65,13 +65,13 @@ async fn read_receipts_updates() {
 
     let item_d =
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_d = item_d.as_event().unwrap().as_remote().unwrap();
+    let event_d = item_d.as_event().unwrap();
     assert!(event_d.read_receipts().is_empty());
 
     // Explicit read receipt is updated.
     timeline
         .handle_read_receipts([(
-            event_d.event_id().to_owned(),
+            event_d.event_id().unwrap().to_owned(),
             ReceiptType::Read,
             BOB.to_owned(),
             ReceiptThread::Unthreaded,
@@ -80,12 +80,12 @@ async fn read_receipts_updates() {
 
     let item_c =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let event_c = item_c.as_event().unwrap().as_remote().unwrap();
+    let event_c = item_c.as_event().unwrap();
     assert!(event_c.read_receipts().is_empty());
 
     let item_d =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 4, value }) => value);
-    let event_d = item_d.as_event().unwrap().as_remote().unwrap();
+    let event_d = item_d.as_event().unwrap();
     assert_eq!(event_d.read_receipts().len(), 1);
     assert!(event_d.read_receipts().get(*BOB).is_some());
 }

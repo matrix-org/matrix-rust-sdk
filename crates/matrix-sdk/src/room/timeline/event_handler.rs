@@ -420,7 +420,7 @@ impl<'a> TimelineEventHandler<'a> {
                 debug!("Ignoring reaction on redacted event");
                 return;
             } else {
-                let mut reactions = remote_event_item.reactions().clone();
+                let mut reactions = remote_event_item.reactions.clone();
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
@@ -483,7 +483,7 @@ impl<'a> TimelineEventHandler<'a> {
                     return None;
                 };
 
-                let mut reactions = remote_event_item.reactions().clone();
+                let mut reactions = remote_event_item.reactions.clone();
 
                 let count = {
                     let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
@@ -552,11 +552,12 @@ impl<'a> TimelineEventHandler<'a> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.flow {
-            Flow::Local { txn_id, timestamp } => LocalEventTimelineItem::new(
-                EventSendState::NotSentYet,
-                txn_id.to_owned(),
-                *timestamp,
-            )
+            Flow::Local { txn_id, timestamp } => {
+                let send_state = EventSendState::NotSentYet;
+                let transaction_id = txn_id.to_owned();
+                let timestamp = *timestamp;
+                LocalEventTimelineItem { send_state, transaction_id, timestamp }
+            }
             .into(),
             Flow::Remote { event_id, origin_server_ts, raw_event, .. } => {
                 // Drop pending reactions if the message is redacted.
@@ -566,16 +567,17 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
-                RemoteEventTimelineItem::new(
-                    event_id.clone(),
-                    *origin_server_ts,
+                RemoteEventTimelineItem {
+                    event_id: event_id.clone(),
+                    timestamp: *origin_server_ts,
                     reactions,
-                    self.meta.read_receipts.clone(),
-                    self.meta.is_own_event,
-                    self.meta.encryption_info.clone(),
-                    raw_event.clone(),
-                    self.meta.is_highlighted,
-                )
+                    read_receipts: self.meta.read_receipts.clone(),
+                    is_own: self.meta.is_own_event,
+                    encryption_info: self.meta.encryption_info.clone(),
+                    original_json: raw_event.clone(),
+                    latest_edit_json: None,
+                    is_highlighted: self.meta.is_highlighted,
+                }
                 .into()
             }
         };
