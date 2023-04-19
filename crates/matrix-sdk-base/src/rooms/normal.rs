@@ -321,9 +321,10 @@ impl Room {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
-    /// Get the all `RoomMember`s of this room that are known to the store.
-    pub async fn members(&self) -> StoreResult<Vec<RoomMember>> {
-        let user_ids = self.store.get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
+    /// Get the `RoomMember`s of this room that are known to the store, with the
+    /// given memberships.
+    pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
+        let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
         let mut members = Vec::new();
 
         for u in user_ids {
