@@ -341,36 +341,13 @@ impl Room {
     /// Get the list of `RoomMember`s that are considered to be joined members
     /// of this room.
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let joined = self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await?;
-        let mut members = Vec::new();
-
-        for u in joined {
-            let m = self.get_member(&u).await?;
-
-            if let Some(member) = m {
-                members.push(member);
-            }
-        }
-
-        Ok(members)
+        self.members(RoomMemberships::JOIN).await
     }
 
     /// Get the list of `RoomMember`s that are considered to be joined or
     /// invited members of this room.
     pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let active = self.store.get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
-
-        let mut members = Vec::new();
-
-        for u in active {
-            let m = self.get_member(&u).await?;
-
-            if let Some(member) = m {
-                members.push(member);
-            }
-        }
-
-        Ok(members)
+        self.members(RoomMemberships::ACTIVE).await
     }
 
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
