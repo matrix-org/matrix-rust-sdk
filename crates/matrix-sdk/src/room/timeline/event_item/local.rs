@@ -1,4 +1,4 @@
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId};
 
 use super::EventSendState;
 
@@ -7,27 +7,14 @@ use super::EventSendState;
 #[derive(Debug, Clone)]
 pub(in crate::room::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
-    send_state: EventSendState,
+    pub send_state: EventSendState,
     /// The transaction ID.
-    transaction_id: OwnedTransactionId,
+    pub transaction_id: OwnedTransactionId,
     /// The timestamp of the event.
-    timestamp: MilliSecondsSinceUnixEpoch,
+    pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
 impl LocalEventTimelineItem {
-    pub fn new(
-        send_state: EventSendState,
-        transaction_id: OwnedTransactionId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-    ) -> Self {
-        Self { send_state, transaction_id, timestamp }
-    }
-
-    /// Get the event's send state.
-    pub fn send_state(&self) -> &EventSendState {
-        &self.send_state
-    }
-
     /// Get the event ID of this item.
     ///
     /// Will be `Some` if and only if `send_state` is
@@ -37,16 +24,6 @@ impl LocalEventTimelineItem {
             EventSendState::Sent { event_id } => Some(event_id),
             _ => None,
         }
-    }
-
-    /// Get the transaction ID of the event.
-    pub fn transaction_id(&self) -> &TransactionId {
-        &self.transaction_id
-    }
-
-    /// Get the timestamp when the event was created locally.
-    pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
-        self.timestamp
     }
 
     /// Clone the current event item, and update its `send_state`.

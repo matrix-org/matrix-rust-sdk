@@ -32,8 +32,8 @@ async fn remote_echo_full_trip() {
     {
         let item =
             assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-        let event = item.as_event().unwrap().as_local().unwrap();
-        assert_matches!(event.send_state(), EventSendState::NotSentYet);
+        let event = item.as_event().unwrap();
+        assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
     }
 
     // Scenario 2: The local event has not been sent to the server successfully, it
@@ -52,8 +52,8 @@ async fn remote_echo_full_trip() {
             stream.next().await,
             Some(VectorDiff::Set { value, index: 1 }) => value
         );
-        let event = item.as_event().unwrap().as_local().unwrap();
-        assert_matches!(event.send_state(), EventSendState::SendingFailed { .. });
+        let event = item.as_event().unwrap();
+        assert_matches!(event.send_state(), Some(EventSendState::SendingFailed { .. }));
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an
@@ -72,8 +72,8 @@ async fn remote_echo_full_trip() {
             stream.next().await,
             Some(VectorDiff::Set { value, index: 1 }) => value
         );
-        let event_item = item.as_event().unwrap().as_local().unwrap();
-        assert_matches!(event_item.send_state(), EventSendState::Sent { .. });
+        let event_item = item.as_event().unwrap();
+        assert_matches!(event_item.send_state(), Some(EventSendState::Sent { .. }));
 
         event_item.timestamp()
     };
@@ -115,8 +115,8 @@ async fn remote_echo_new_position() {
         assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let txn_id_from_event = item.as_event().unwrap().as_local().unwrap();
-    assert_eq!(txn_id, *txn_id_from_event.transaction_id());
+    let txn_id_from_event = item.as_event().unwrap();
+    assert_eq!(txn_id, txn_id_from_event.transaction_id().unwrap());
 
     // … and another event that comes back before the remote echo
     timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;

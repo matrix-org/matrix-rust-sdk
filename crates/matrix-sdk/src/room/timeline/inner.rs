@@ -254,7 +254,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
-        if let EventSendState::Sent { event_id: existing_event_id } = local_item.send_state() {
+        if let EventSendState::Sent { event_id: existing_event_id } = &local_item.send_state {
             let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
@@ -388,9 +388,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     return None;
                 };
 
-                tracing::Span::current().record("event_id", debug(remote_event.event_id()));
+                tracing::Span::current().record("event_id", debug(&remote_event.event_id));
 
-                let raw = remote_event.original_json().cast_ref();
+                let raw = remote_event.original_json.cast_ref();
                 match olm_machine.decrypt_room_event(raw, room_id).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
@@ -568,7 +568,7 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, item) = rfind_event_by_id(&state.items, remote_item.event_id())
+        let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while

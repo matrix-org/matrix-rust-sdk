@@ -112,9 +112,9 @@ pub(super) fn maybe_add_implicit_read_receipt(
         return;
     };
 
-    let receipt = Receipt::new(remote_event_item.timestamp());
+    let receipt = Receipt::new(remote_event_item.timestamp);
     let new_receipt = FullReceipt {
-        event_id: remote_event_item.event_id(),
+        event_id: &remote_event_item.event_id,
         user_id: &sender,
         receipt_type: ReceiptType::Read,
         receipt: &receipt,
