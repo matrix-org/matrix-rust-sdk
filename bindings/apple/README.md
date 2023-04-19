@@ -55,12 +55,19 @@ The generated framework and Swift code can be distributed and integrated directl
 
 ### Publishing MatrixSDKCrypto
 
-1. Run [`build_crypto_xcframework.sh`](#building-only-the-crypto-sdk) script which generates a .zip file with the framework
-2. Increment the version in [`MatrixSDKCrypto.podspec`](./MatrixSDKCrypto.podspec)
+1. Navigate into `bindings/apple` and run [`build_crypto_xcframework.sh`](#building-only-the-crypto-sdk) script which generates a .zip file with the framework in `./generated` folder
+
+   Note that whilst you can run this command from any git branch, if you want to make a public release, ensure you are building from latest `main`
+
+2. Tag the commit you just used to build the release and push the tag to GitHub
+
+   Use `matrix-sdk-crypto-ffi-<major>.<minor>.<patch>` tag name
+
+3. Create a new [GitHub release](https://github.com/matrix-org/matrix-rust-sdk/releases) using this tag (see [example](https://github.com/matrix-org/matrix-rust-sdk/releases/tag/matrix-sdk-crypto-ffi-0.3.4))
+4. Upload the previously generated .zip file to this release
+5. Increment the version in [`MatrixSDKCrypto.podspec`](./MatrixSDKCrypto.podspec)
 
    Note that this is not automated and is a local-only change. To determine the most recent published version, run `pod repo update && pod search MatrixSDKCrypto`
    or check git tags via `git tag | grep matrix-sdk-crypto-ffi`
 
-3. Create a new [GitHub release](https://github.com/matrix-org/matrix-rust-sdk/releases) and a tag with the same version (see [example](https://github.com/matrix-org/matrix-rust-sdk/releases/tag/matrix-sdk-crypto-ffi-0.3.4) for naming)
-4. Upload the .zip file to this release
-5. Push new Podspec version to Cocoapods via `pod trunk push MatrixSDKCrypto.podspec --allow-warnings`
+6. Push new Podspec version to Cocoapods via `pod trunk push MatrixSDKCrypto.podspec --allow-warnings`
