@@ -96,7 +96,7 @@ async fn remote_echo_full_trip() {
     // The local echo is replaced with the remote echo
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
-    assert!(item.as_event().unwrap().as_remote().is_some());
+    assert!(!item.as_event().unwrap().is_local_echo());
 }
 
 #[async_test]
@@ -150,5 +150,5 @@ async fn remote_echo_new_position() {
     // … and the remote echo added (no new day divider because both bob's and
     // alice's message are from the same day according to server timestamps)
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    assert!(item.as_event().unwrap().as_remote().is_some());
+    assert!(!item.as_event().unwrap().is_local_echo());
 }
