@@ -605,8 +605,8 @@ mod tests {
     use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
-        deserialized_responses::RawMemberEvent, RoomInfo, RoomState, StateStore, StateStoreDataKey,
-        StoreError,
+        deserialized_responses::RawMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStore,
+        StateStoreDataKey, StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1166,23 +1166,30 @@ mod tests {
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
-        assert_eq!(store.get_joined_user_ids(room_id).await.unwrap().len(), 0);
+        assert_eq!(store.get_user_ids(room_id, RoomMemberships::JOIN).await.unwrap().len(), 0);
         assert_eq!(
-            store.get_invited_user_ids(room_id).await.unwrap().as_slice(),
+            store.get_user_ids(room_id, RoomMemberships::INVITE).await.unwrap().as_slice(),
             [invite_user_id.to_owned()]
         );
-        let user_ids = store.get_user_ids(room_id).await.unwrap();
+        let user_ids = store.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(user_ids.len(), 2);
         assert!(user_ids.contains(&invite_user_id.to_owned()));
         assert!(user_ids.contains(&ban_user_id.to_owned()));
 
         assert_eq!(
-            store.get_stripped_joined_user_ids(stripped_room_id).await.unwrap().as_slice(),
+            store.get_user_ids(stripped_room_id, RoomMemberships::JOIN).await.unwrap().as_slice(),
             [stripped_user_id.to_owned()]
         );
-        assert_eq!(store.get_stripped_invited_user_ids(stripped_room_id).await.unwrap().len(), 0);
         assert_eq!(
-            store.get_user_ids(stripped_room_id).await.unwrap().as_slice(),
+            store.get_user_ids(stripped_room_id, RoomMemberships::INVITE).await.unwrap().len(),
+            0
+        );
+        assert_eq!(
+            store
+                .get_user_ids(stripped_room_id, RoomMemberships::empty())
+                .await
+                .unwrap()
+                .as_slice(),
             [stripped_user_id.to_owned()]
         );
 

@@ -44,7 +44,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent,
+    MinimalStateEvent, RoomMemberships,
 };
 
 /// The underlying room data structure collecting state for joined, left and
@@ -323,7 +323,7 @@ impl Room {
 
     /// Get the all `RoomMember`s of this room that are known to the store.
     pub async fn members(&self) -> StoreResult<Vec<RoomMember>> {
-        let user_ids = self.store.get_user_ids(self.room_id()).await?;
+        let user_ids = self.store.get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
         let mut members = Vec::new();
 
         for u in user_ids {

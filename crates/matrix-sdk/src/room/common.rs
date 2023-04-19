@@ -701,7 +701,10 @@ impl Common {
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
-        let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
+        use matrix_sdk_base::RoomMemberships;
+
+        let user_ids =
+            self.client.store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
