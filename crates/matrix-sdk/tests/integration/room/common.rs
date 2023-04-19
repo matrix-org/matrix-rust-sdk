@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName};
+use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
     async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent,
     TimelineTestEvent,
@@ -40,7 +40,7 @@ async fn user_presence() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
-    let members: Vec<RoomMember> = room.active_members().await.unwrap();
+    let members: Vec<RoomMember> = room.members(RoomMemberships::ACTIVE).await.unwrap();
 
     assert_eq!(2, members.len());
     // assert!(room.power_levels.is_some())
