@@ -35,7 +35,10 @@ pub use self::content::{
     MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
     RoomMembershipChange, Sticker, TimelineItemContent,
 };
-pub(super) use self::{local::LocalEventTimelineItem, remote::RemoteEventTimelineItem};
+pub(super) use self::{
+    local::LocalEventTimelineItem,
+    remote::{RemoteEventOrigin, RemoteEventTimelineItem},
+};
 
 /// An item in the timeline that represents at least one event.
 ///

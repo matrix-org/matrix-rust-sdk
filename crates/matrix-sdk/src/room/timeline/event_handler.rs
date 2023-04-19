@@ -44,8 +44,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, MemberProfileChange, OtherState, Profile, RemoteEventTimelineItem,
-        RoomMembershipChange, Sticker,
+        LocalEventTimelineItem, MemberProfileChange, OtherState, Profile, RemoteEventOrigin,
+        RemoteEventTimelineItem, RoomMembershipChange, Sticker,
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
@@ -558,7 +558,7 @@ impl<'a> TimelineEventHandler<'a> {
                 LocalEventTimelineItem { send_state, transaction_id }
             }
             .into(),
-            Flow::Remote { event_id, raw_event, .. } => {
+            Flow::Remote { event_id, raw_event, position, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
                     if !reactions.is_empty() {
@@ -566,15 +566,30 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 }
 
+                let origin = match position {
+                    TimelineItemPosition::Start => RemoteEventOrigin::Pagination,
+                    // We only paginate backwards for now, so End only happens for syncs
+                    TimelineItemPosition::End => RemoteEventOrigin::Sync,
+                    #[cfg(feature = "e2e-encryption")]
+                    TimelineItemPosition::Update(idx) => self.items[*idx]
+                        .as_event()
+                        .and_then(|ev| Some(ev.as_remote()?.origin))
+                        .unwrap_or_else(|| {
+                            error!("Decryption retried on a local event");
+                            RemoteEventOrigin::Unknown
+                        }),
+                };
+
                 RemoteEventTimelineItem {
                     event_id: event_id.clone(),
                     reactions,
                     read_receipts: self.meta.read_receipts.clone(),
                     is_own: self.meta.is_own_event,
+                    is_highlighted: self.meta.is_highlighted,
                     encryption_info: self.meta.encryption_info.clone(),
                     original_json: raw_event.clone(),
                     latest_edit_json: None,
-                    is_highlighted: self.meta.is_highlighted,
+                    origin,
                 }
                 .into()
             }

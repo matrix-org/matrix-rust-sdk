@@ -26,6 +26,8 @@ pub(in crate::room::timeline) struct RemoteEventTimelineItem {
     pub read_receipts: IndexMap<OwnedUserId, Receipt>,
     /// Whether the event has been sent by the the logged-in user themselves.
     pub is_own: bool,
+    /// Whether the item should be highlighted in the timeline.
+    pub is_highlighted: bool,
     /// Encryption information.
     pub encryption_info: Option<EncryptionInfo>,
     /// JSON of the original event.
@@ -35,8 +37,8 @@ pub(in crate::room::timeline) struct RemoteEventTimelineItem {
     pub original_json: Raw<AnySyncTimelineEvent>,
     /// JSON of the latest edit to this item.
     pub latest_edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    /// Whether the item should be highlighted in the timeline.
-    pub is_highlighted: bool,
+    /// Where we got this event from: A sync response or pagination.
+    pub origin: RemoteEventOrigin,
 }
 
 impl RemoteEventTimelineItem {
@@ -63,15 +65,42 @@ impl RemoteEventTimelineItem {
     }
 }
 
+/// Where we got an event from.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::room::timeline) enum RemoteEventOrigin {
+    /// The event came from a sync response.
+    Sync,
+    /// The event came from pagination.
+    Pagination,
+    /// We don't know.
+    #[cfg(feature = "e2e-encryption")]
+    Unknown,
+}
+
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RemoteEventTimelineItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // skip raw JSON, too noisy
+        let Self {
+            event_id,
+            reactions,
+            read_receipts,
+            is_own,
+            encryption_info,
+            original_json: _,
+            latest_edit_json: _,
+            is_highlighted,
+            origin,
+        } = self;
+
         f.debug_struct("RemoteEventTimelineItem")
-            .field("event_id", &self.event_id)
-            .field("reactions", &self.reactions)
-            .field("is_own", &self.is_own)
-            .field("encryption_info", &self.encryption_info)
-            // skip raw, too noisy
+            .field("event_id", event_id)
+            .field("reactions", reactions)
+            .field("read_receipts", read_receipts)
+            .field("is_own", is_own)
+            .field("is_highlighted", is_highlighted)
+            .field("encryption_info", encryption_info)
+            .field("origin", origin)
             .finish_non_exhaustive()
     }
 }
