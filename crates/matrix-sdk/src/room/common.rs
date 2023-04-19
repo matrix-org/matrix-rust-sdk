@@ -445,13 +445,7 @@ impl Common {
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.
     pub async fn active_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        Ok(self
-            .inner
-            .active_members()
-            .await?
-            .into_iter()
-            .map(|member| RoomMember::new(self.client.clone(), member))
-            .collect())
+        self.members_no_sync(MembershipFilter::ACTIVE).await
     }
 
     /// Get all the joined members of this room.
@@ -476,13 +470,7 @@ impl Common {
     /// Use [joined_members()](#method.joined_members) if you want to ensure to
     /// always get the full member list.
     pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        Ok(self
-            .inner
-            .joined_members()
-            .await?
-            .into_iter()
-            .map(|member| RoomMember::new(self.client.clone(), member))
-            .collect())
+        self.members_no_sync(MembershipFilter::JOIN).await
     }
 
     /// Get a specific member of this room.
