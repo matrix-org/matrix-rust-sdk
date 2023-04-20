@@ -86,6 +86,17 @@ pub enum EncryptionAlgorithm {
     MegolmV1AesSha2,
 }
 
+impl From<EncryptionAlgorithm> for JsValue {
+    fn from(value: EncryptionAlgorithm) -> Self {
+        use EncryptionAlgorithm::*;
+
+        match value {
+            OlmV1Curve25519AesSha2 => JsValue::from(0),
+            MegolmV1AesSha2 => JsValue::from(1),
+        }
+    }
+}
+
 impl From<EncryptionAlgorithm> for matrix_sdk_crypto::types::EventEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         use EncryptionAlgorithm::*;
