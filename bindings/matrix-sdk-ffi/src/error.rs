@@ -41,3 +41,9 @@ impl From<serde_json::Error> for ClientError {
         anyhow::Error::from(e).into()
     }
 }
+
+impl From<url::ParseError> for ClientError {
+    fn from(e: url::ParseError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
