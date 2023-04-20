@@ -1,8 +1,5 @@
 namespace matrix_sdk_ffi {};
 
-
-interface TaskHandle {};
-
 [Error]
 interface ClientError {
     Generic(string msg);
@@ -10,16 +7,6 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
-};
-
-dictionary RequiredState {
-    string key;
-    string value;
-};
-
-dictionary RoomSubscription {
-    sequence<RequiredState>? required_state;
-    u32? timeline_limit;
 };
 
 dictionary UpdateSummary {
@@ -93,44 +80,6 @@ callback interface SlidingSyncListRoomItemsObserver {
 
 interface SlidingSyncListBuilder {
     constructor();
-
-    [Self=ByArc]
-    SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
-
-    [Throws=ClientError, Self=ByArc]
-    SlidingSyncList build();
-};
-
-interface SlidingSyncList {
-    TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
-    TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
-    TaskHandle observe_state(SlidingSyncListStateObserver observer);
-};
-
-interface SlidingSyncRoom {
-    [Throws=ClientError]
-    SlidingSyncSubscribeResult subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
-    [Throws=ClientError]
-    SlidingSyncSubscribeResult add_timeline_listener(TimelineListener listener);
-};
-
-dictionary SlidingSyncSubscribeResult {
-    sequence<TimelineItem> items;
-    TaskHandle task_handle;
-};
-
-interface SlidingSync {
-    void set_observer(SlidingSyncObserver? observer);
-
-    [Throws=ClientError]
-    void subscribe(string room_id, RoomSubscription? settings);
-    [Throws=ClientError]
-    void unsubscribe(string room_id);
-
-    [Throws=ClientError]
-    SlidingSyncRoom? get_room(string room_id);
-    [Throws=ClientError]
-    sequence<SlidingSyncRoom?> get_rooms(sequence<string> room_ids);
 };
 
 interface ClientBuilder {
@@ -138,14 +87,6 @@ interface ClientBuilder {
 
     [Throws=ClientError, Self=ByArc]
     Client build();
-};
-
-interface SlidingSyncBuilder {
-    [Throws=ClientError, Self=ByArc]
-    SlidingSyncBuilder homeserver(string url);
-
-    [Throws=ClientError, Self=ByArc]
-    SlidingSync build();
 };
 
 dictionary CreateRoomParameters {
@@ -253,7 +194,7 @@ interface Room {
 
     [Throws=ClientError]
     void report_content(string event_id, i32? score, string? reason);
-    
+
     [Throws=ClientError]
     void ignore_user(string user_id);
 
