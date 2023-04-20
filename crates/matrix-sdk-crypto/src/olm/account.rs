@@ -409,8 +409,8 @@ impl Account {
     ///   event.
     /// * `sender_key` - The `sender_key` from the cleartext `content` of the
     ///   received event (which should also have been used to find or establish
-    ///   the Olm session that was used to decrypt the event
-    ///   -- so it is guaranteed to be correct).
+    ///   the Olm session that was used to decrypt the event -- so it is
+    ///   guaranteed to be correct).
     /// * `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
