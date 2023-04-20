@@ -722,10 +722,12 @@ fn gen_transaction_id() -> String {
 
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
+#[derive(uniffi::Object)]
 pub struct MediaFileHandle {
     inner: SdkMediaFileHandle,
 }
 
+#[uniffi::export]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> String {
