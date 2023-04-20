@@ -743,6 +743,57 @@ impl OlmMachine {
         Ok(serde_json::to_string(&encrypted_content)?)
     }
 
+    /// Encrypt the given event with the given type and content for the given
+    /// room using olm encryption.
+    ///
+    /// **Note**: Olm sessions should be established with the given user prior to
+    /// calling this method.
+    ///
+    /// The usual flow to encrypt an event using this state machine is as
+    /// follows:
+    ///
+    /// 1. Get the one-time key claim request to establish 1:1 Olm sessions for
+    ///    the room members of the room we wish to participate in. This is done
+    ///    using the [`get_missing_sessions()`](#method.get_missing_sessions)
+    ///    method. This method call should be locked per call.
+    ///
+    /// 3. Encrypt the event using this method.
+    ///
+    /// 4. Send the encrypted event to the server.
+    ///
+    pub fn encrypt_direct(
+        &self,
+        room_id: String,
+        users: Vec<String>,
+        event_type: String,
+        content: String,
+    ) -> Result<Vec<String>, CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        let content: Value = serde_json::from_str(&content)?;
+
+        let users: Vec<OwnedUserId> =
+            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
+
+        let encrypted_content = self
+            .runtime
+            .block_on(self.inner.encrypt_room_event_direct(
+                users.iter().map(Deref::deref),
+                &room_id,
+                content,
+                &event_type,
+            ))
+            .expect("Encrypting an event produced an error");
+
+        let events: Vec<String> = encrypted_content
+            .iter()
+            .map(|c| serde_json::to_string(&c))
+            .filter(|r| r.is_ok())
+            .map(|o| o.unwrap())
+            .collect();
+
+        Ok(events)
+    }
+
     /// Decrypt the given event that was sent in the given room.
     ///
     /// # Arguments
@@ -815,6 +866,15 @@ impl OlmMachine {
                     } else {
                         encryption_info.verification_state.to_shield_state_lax().into()
                     },
+                }
+            },
+            AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_key } => {
+                DecryptedEvent {
+                    clear_event: serde_json::to_string(&event_json)?,
+                    sender_curve25519_key: curve25519_key.to_owned(),
+                    claimed_ed25519_key: None,
+                    forwarding_curve25519_chain: vec![],
+                    shield_state: encryption_info.verification_state.to_shield_state_lax().into()
                 }
             }
         })
