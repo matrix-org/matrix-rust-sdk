@@ -119,23 +119,6 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-interface MediaFileHandle {
-    string path();
-};
-
-enum MembershipState {
-    /// The user is banned.
-    "Ban",
-    /// The user has been invited.
-    "Invite",
-    /// The user has joined.
-    "Join",
-    /// The user has requested to join.
-    "Knock",
-    /// The user has left.
-    "Leave",
-};
-
 interface RoomMember { };
 
 interface Room {
@@ -239,19 +222,8 @@ interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
 
-dictionary NotificationItem {
-    TimelineItem item;
-    string title;
-    string? subtitle;
-    boolean is_noisy;
-    string? avatar_url;
-};
-
 interface NotificationService {
     constructor(string base_path, string user_id);
-
-    [Throws=ClientError]
-    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};
