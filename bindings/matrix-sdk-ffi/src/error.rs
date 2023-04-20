@@ -47,3 +47,9 @@ impl From<url::ParseError> for ClientError {
         anyhow::Error::from(e).into()
     }
 }
+
+impl From<mime::FromStrError> for ClientError {
+    fn from(e: mime::FromStrError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
