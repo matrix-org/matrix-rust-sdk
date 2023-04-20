@@ -84,9 +84,6 @@ interface SlidingSyncListBuilder {
 
 interface ClientBuilder {
     constructor();
-
-    [Throws=ClientError, Self=ByArc]
-    Client build();
 };
 
 dictionary CreateRoomParameters {

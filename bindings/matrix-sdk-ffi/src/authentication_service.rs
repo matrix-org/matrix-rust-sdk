@@ -144,7 +144,7 @@ impl AuthenticationService {
             }
         }
 
-        let client = builder.build().or_else(|e| {
+        let client = builder.build_inner().or_else(|e| {
             if !server_name_or_homeserver_url.starts_with("http://")
                 && !server_name_or_homeserver_url.starts_with("https://")
             {
@@ -153,7 +153,7 @@ impl AuthenticationService {
             // When discovery fails, fallback to the homeserver URL if supplied.
             let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
             builder = builder.homeserver_url(server_name_or_homeserver_url);
-            builder.build()
+            builder.build_inner()
         })?;
 
         let details = RUNTIME.block_on(self.details_from_client(&client))?;
@@ -208,7 +208,7 @@ impl AuthenticationService {
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
             .username(whoami.user_id.to_string())
-            .build()?;
+            .build_inner()?;
 
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;
@@ -260,7 +260,7 @@ impl AuthenticationService {
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .username(whoami.user_id.to_string())
-            .build()?;
+            .build_inner()?;
 
         // Restore the client using the session.
         client.restore_session_inner(session)?;
