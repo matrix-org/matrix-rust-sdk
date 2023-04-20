@@ -119,16 +119,6 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-interface Client {
-    void set_delegate(ClientDelegate? delegate);
-
-    [Throws=ClientError]
-    void login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=ClientError]
-    MediaFileHandle get_media_file(MediaSource source, string mime_type);
-};
-
 interface MediaFileHandle {
     string path();
 };
