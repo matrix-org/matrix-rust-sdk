@@ -555,21 +555,18 @@ impl Client {
     /// This function blocks execution and should be dispatched concurrently
     pub fn register_notification_handler(&self) {
         let delegate = Arc::clone(&self.delegate);
-        RUNTIME.block_on(async move {
-            self.client
-                .register_notification_handler(move |notification, room: SdkRoom, _| {
-                    let delegate = Arc::clone(&delegate);
-                    async move {
-                        if let Some(delegate) = delegate.read().unwrap().as_ref() {
-                            if let Ok(notification_item) =
-                                NotificationItem::new(notification, room).await
-                            {
-                                delegate.did_receive_notification(notification_item);
-                            }
-                        }
+        let handler = move |notification, room: SdkRoom, _| {
+            let delegate = Arc::clone(&delegate);
+            async move {
+                if let Ok(notification_item) = NotificationItem::new(notification, room).await {
+                    if let Some(delegate) = delegate.read().unwrap().as_ref() {
+                        delegate.did_receive_notification(notification_item);
                     }
-                })
-                .await;
+                }
+            }
+        };
+        RUNTIME.block_on(async move {
+            self.client.register_notification_handler(handler).await;
         })
     }
 }
