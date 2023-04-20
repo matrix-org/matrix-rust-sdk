@@ -405,10 +405,11 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `sender` -  The `sender` field from the top level of the received event.
-    /// * `sender_key` - The `sender_key` from the cleartext `content` of the received event
-    ///      (which should also have been used to find or establish the Olm session that
-    ///      was used to decrypt the event).
+    /// * `sender` -  The `sender` field from the top level of the received
+    ///   event.
+    /// * `sender_key` - The `sender_key` from the cleartext `content` of the
+    ///   received event (which should also have been used to find or establish
+    ///   the Olm session that was used to decrypt the event).
     /// * `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
@@ -426,14 +427,11 @@ impl Account {
             )
             .into())
         }
-        
         // Check that the `sender` in the decrypted to-device event matches that at the
         // top level of the encrypted event.
         else if event.sender() != sender {
             Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
-        }
-        
-        else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
+        } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
             Err(EventError::MismatchedKeys(
                 identity_keys.ed25519.into(),
                 event.recipient_keys().ed25519.into(),
