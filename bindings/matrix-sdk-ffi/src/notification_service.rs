@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
+use matrix_sdk::room::Room;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
-    events::{
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
-    },
+    events::{AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
 };
 
-#[derive(uniffi::Object)]
-pub struct NotificationEventContent(AnyMessageLikeEventContent);
+// I need to make this an enum of structs just like TimelineEventContent
+pub struct NotificationEventContent(pub(crate) AnyMessageLikeEventContent);
+
+impl NotificationEventContent {}
 
 impl TryFrom<AnySyncMessageLikeEvent> for NotificationEventContent {
     type Error = anyhow::Error;
@@ -98,7 +98,6 @@ pub struct NotificationService {
     base_path: String,
     user_id: String,
 }
-
 pub struct NotificationItem {
     pub event_content: Arc<NotificationEventContent>,
     pub room_id: String,
@@ -114,12 +113,22 @@ pub struct NotificationItem {
     pub is_encrypted: bool,
 }
 
-impl TryFrom<Notification> for NotificationItem {
-    type Error = anyhow::Error;
+impl NotificationItem {
+    pub(crate) async fn new(notification: &Notification, room: &Room) -> anyhow::Result<Self> {
+        let deserialized_event = notification.event.deserialize()?;
 
-    fn try_from(value: Notification) -> anyhow::Result<Self> {
-        let room_id = value.room_id.to_string();
-        let event_content: NotificationEventContent = match value.event.deserialize()? {
+        let sender = room.get_member(deserialized_event.sender()).await?;
+        let mut sender_display_name = None;
+        let mut sender_avatar_url = None;
+        if let Some(sender) = sender {
+            sender_display_name = sender.display_name().map(|s| s.to_owned());
+            sender_avatar_url = sender.avatar_url().map(|s| s.to_string());
+        }
+
+        let is_noisy =
+            notification.actions.iter().any(|a| a.sound().is_some() && a.should_notify());
+
+        let event_content: NotificationEventContent = match deserialized_event {
             AnySyncTimelineEvent::MessageLike(event) => event,
             AnySyncTimelineEvent::State(_) => {
                 bail!("State events can't be notifications")
@@ -129,14 +138,14 @@ impl TryFrom<Notification> for NotificationItem {
 
         let item = Self {
             event_content: Arc::new(event_content),
-            room_id,
-            sender_display_name: todo!(),
-            sender_avatar_url: todo!(),
-            room_display_name: todo!(),
-            room_avatar_url: todo!(),
-            is_noisy: todo!(),
-            is_direct: todo!(),
-            is_encrypted: todo!(),
+            room_id: room.room_id().to_string(),
+            sender_display_name,
+            sender_avatar_url,
+            room_display_name: room.display_name().await?.to_string(),
+            room_avatar_url: room.avatar_url().map(|s| s.to_string()),
+            is_noisy,
+            is_direct: room.is_direct(),
+            is_encrypted: room.is_encrypted().await?,
         };
         Ok(item)
     }

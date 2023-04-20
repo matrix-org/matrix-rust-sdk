@@ -32,7 +32,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{client, ClientError};
+use crate::{client, ClientError, NotificationItem};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -103,7 +103,7 @@ impl std::ops::Deref for Client {
 
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
-    fn did_receive_notification(&self, room_id: String, event_id: String);
+    fn did_receive_notification(&self, notification: NotificationItem);
 }
 
 #[derive(Clone)]
@@ -557,18 +557,14 @@ impl Client {
         let delegate = Arc::clone(&self.delegate);
         RUNTIME.block_on(async move {
             self.client
-                .register_notification_handler(move |notification, room, _| {
-                    let delegate = Arc::clone(&delegate);
+                .register_notification_handler(move |notification, room: SdkRoom, _| {
+                    let delegate = Arc::clone(&delegate).read().unwrap().as_ref();
                     async move {
-                        if let Some(delegate) = delegate.read().unwrap().as_ref() {
-                            match notification.event.deserialize() {
-                                Ok(value) => delegate.did_receive_notification(
-                                    room.room_id().to_string(),
-                                    value.event_id().to_string(),
-                                ),
-                                Err(error) => {
-                                    tracing::error!("Failed to deserialize notification: {}", error)
-                                }
+                        if let Some(delegate) = delegate {
+                            if let Ok(notification_item) =
+                                NotificationItem::new(&notification, &room).await
+                            {
+                                delegate.did_receive_notification(notification_item)
                             }
                         }
                     }

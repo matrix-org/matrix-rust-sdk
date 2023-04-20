@@ -110,7 +110,7 @@ mod uniffi_types {
             PusherKind, SearchUsersResults, Session, UserProfile,
         },
         client_builder::ClientBuilder,
-        notification_service::NotificationEventContent,
+        notification_service::{NotificationEventContent, NotificationItem},
         room::{Membership, Room},
         room_member::{MembershipState, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},

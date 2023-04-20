@@ -10,7 +10,7 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
-    void did_receive_notification(string room_id, string event_id);
+    void did_receive_notification(NotificationItem notification);
 };
 
 dictionary RequiredState {
@@ -313,12 +313,18 @@ interface AuthenticationService {
 };
 
 dictionary NotificationItem {
-    TimelineItem item;
-    string title;
-    string? subtitle;
+    NotificationEventContent event_content;
+    string room_id;
+    string? sender_display_name;
+    string? sender_avatar_url;
+    string room_display_name;
+    string? room_avatar_url;
     boolean is_noisy;
-    string? avatar_url;
+    boolean is_direct;
+    boolean is_encrypted;
 };
+
+interface NotificationEventContent {};
 
 interface NotificationService {
     constructor(string base_path, string user_id);
