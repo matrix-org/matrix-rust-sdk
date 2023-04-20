@@ -558,13 +558,13 @@ impl Client {
         RUNTIME.block_on(async move {
             self.client
                 .register_notification_handler(move |notification, room: SdkRoom, _| {
-                    let delegate = Arc::clone(&delegate).read().unwrap().as_ref();
+                    let delegate = Arc::clone(&delegate);
                     async move {
-                        if let Some(delegate) = delegate {
+                        if let Some(delegate) = delegate.read().unwrap().as_ref() {
                             if let Ok(notification_item) =
-                                NotificationItem::new(&notification, &room).await
+                                NotificationItem::new(notification, room).await
                             {
-                                delegate.did_receive_notification(notification_item)
+                                delegate.did_receive_notification(notification_item);
                             }
                         }
                     }
